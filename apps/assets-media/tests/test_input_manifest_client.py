@@ -12,10 +12,10 @@ import pytest
 from fastapi import FastAPI
 from unittest.mock import AsyncMock
 
-from aap_assets_input_manifests import contract as c
-from aap_assets_input_manifests.client import HTTP_OPERATIONS, ManifestClient
-from aap_assets_input_manifests.http_contract import http_document
-from aap_assets_input_manifests_runtime.api import install_manifest_routes
+from yoao_assets_input_manifests import contract as c
+from yoao_assets_input_manifests.client import HTTP_OPERATIONS, ManifestClient
+from yoao_assets_input_manifests.http_contract import http_document
+from yoao_assets_input_manifests_runtime.api import install_manifest_routes
 from test_input_manifest_runtime import fixture_values
 
 TOKEN = "manifest-control-test-" + "x" * 32

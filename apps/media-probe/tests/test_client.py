@@ -7,7 +7,7 @@ import subprocess
 import httpx
 import pytest
 
-from aap_media_probe.client import MediaProbeClient, MediaProbeError
+from yoao_media_probe.client import MediaProbeClient, MediaProbeError
 
 _TOKEN = "t" * 40
 _METADATA = {
@@ -161,7 +161,7 @@ def test_remote_timeout_preserves_ffprobe_timeout_exception(tmp_path, monkeypatc
 
     with pytest.raises(subprocess.TimeoutExpired) as failure:
         client.probe_video_file(source)
-    from aap_media_probe.probe import FFPROBE_TIMEOUT_SECONDS
+    from yoao_media_probe.probe import FFPROBE_TIMEOUT_SECONDS
 
     assert failure.value.timeout == FFPROBE_TIMEOUT_SECONDS
 

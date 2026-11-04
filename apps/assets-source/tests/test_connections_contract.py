@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.connections_contract import (
     CONNECTION_NATIVE_ARGUMENTS,
     CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
@@ -63,7 +63,7 @@ def test_connection_contract_freezes_nine_native_and_six_public_operations():
         assert result.__name__ in expected["$defs"]
     package = (
         Path(__file__).resolve().parents[1]
-        / "src/aap_assets_source/connections_contract.schema.json"
+        / "src/yoao_assets_source/connections_contract.schema.json"
     )
     assert json.loads(package.read_text()) == expected
     native = (

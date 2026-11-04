@@ -3,13 +3,13 @@
 from importlib.resources import files
 import json
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceDeletionRequest,
     SourceFailureCode,
     UploadCompleteRequest,
     UploadInitRequest,
 )
-from aap_assets_source.upload_contract import DatasetUploadDiscardedResult
+from yoao_assets_source.upload_contract import DatasetUploadDiscardedResult
 from pydantic import ValidationError
 import pytest
 
@@ -22,7 +22,7 @@ def test_native_discard_disposition_requires_a_non_null_value(payload):
 
 def test_distributable_wire_schema_freezes_paths_fields_and_error_codes():
     schema = json.loads(
-        files("aap_assets_source").joinpath("protocol.schema.json").read_text()
+        files("yoao_assets_source").joinpath("protocol.schema.json").read_text()
     )
     assert schema["$id"] == "urn:aap:assets-source:v1"
     definitions = schema["$defs"]

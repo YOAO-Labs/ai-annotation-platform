@@ -4,7 +4,7 @@ import subprocess
 import pytest
 from pydantic import ValidationError
 
-from aap_media_probe.probe import (
+from yoao_media_probe.probe import (
     FFPROBE_TIMEOUT_SECONDS,
     parse_ffprobe_frame_timetable,
     parse_ffprobe_packet_samples,
@@ -13,7 +13,7 @@ from aap_media_probe.probe import (
     probe_video_file,
     probe_video_frame_timetable,
 )
-from aap_media_probe.protocol import StreamComplete, VideoFrame
+from yoao_media_probe.protocol import StreamComplete, VideoFrame
 
 
 def test_metadata_rounding_and_frame_count_match_existing_contract():
@@ -186,7 +186,7 @@ def test_real_ffprobe_reads_a_small_generated_video(tmp_path):
 
 
 def test_importing_kernel_does_not_require_service_modules():
-    from aap_media_probe import probe
+    from yoao_media_probe import probe
 
     assert "fastapi" not in probe.__dict__
     assert "sqlalchemy" not in probe.__dict__

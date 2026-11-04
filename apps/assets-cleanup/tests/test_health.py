@@ -1,6 +1,6 @@
 from urllib.request import urlopen
 
-from aap_assets_cleanup.health import HealthState, start_health_server
+from yoao_assets_cleanup.health import HealthState, start_health_server
 
 
 def test_loopback_health_reports_liveness_separately_from_readiness():

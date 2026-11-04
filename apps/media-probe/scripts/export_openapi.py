@@ -9,7 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aap_media_probe.app import create_app  # noqa: E402
+from yoao_media_probe.app import create_app  # noqa: E402
 
 OUTPUT = ROOT / "openapi.json"
 

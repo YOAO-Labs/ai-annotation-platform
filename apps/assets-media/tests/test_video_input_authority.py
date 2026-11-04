@@ -5,7 +5,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 import pytest
 
-from aap_assets_video_inputs import authority as c
+from yoao_assets_video_inputs import authority as c
 from test_video_input_values import video_input
 
 

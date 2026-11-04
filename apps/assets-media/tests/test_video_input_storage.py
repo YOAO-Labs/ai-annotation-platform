@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_inputs.contract import InputFailure
-from aap_assets_video_inputs import values as c
-from aap_assets_video_inputs_runtime.storage import S3VideoInputStorage
+from yoao_assets_inputs.contract import InputFailure
+from yoao_assets_video_inputs import values as c
+from yoao_assets_video_inputs_runtime.storage import S3VideoInputStorage
 from test_input_storage import VersionedStore, make_storage
 
 
@@ -28,7 +28,7 @@ def prefix():
 async def test_video_and_frames_keep_original_versions_after_latest_key_replacement(
     tmp_path, monkeypatch, suffix, multipart
 ):
-    from aap_assets_inputs_runtime import storage as shared
+    from yoao_assets_inputs_runtime import storage as shared
 
     if multipart:
         monkeypatch.setattr(shared, "_PART", 4)

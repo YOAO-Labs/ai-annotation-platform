@@ -6,9 +6,9 @@ from uuid import UUID, uuid4, uuid5
 
 import pytest
 
-from aap_assets_catalog import spatial_contract as spatial
-from aap_assets_catalog.object_signer import SourceObjectFacts
-from aap_assets_catalog.spatial_workflow import SpatialWorkflow
+from yoao_assets_catalog import spatial_contract as spatial
+from yoao_assets_catalog.object_signer import SourceObjectFacts
+from yoao_assets_catalog.spatial_workflow import SpatialWorkflow
 
 
 _SNAPSHOT = "a" * 64

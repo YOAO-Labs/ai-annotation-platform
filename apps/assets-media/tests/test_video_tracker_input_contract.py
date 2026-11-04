@@ -7,10 +7,10 @@ from uuid import UUID
 
 import pytest
 
-from aap_assets_video_inputs import execution as e
-from aap_assets_video_inputs import tracker as t
-from aap_assets_video_inputs.execution import VideoCaptureSource, attempt_prefix
-from aap_assets_video_inputs.values import (
+from yoao_assets_video_inputs import execution as e
+from yoao_assets_video_inputs import tracker as t
+from yoao_assets_video_inputs.execution import VideoCaptureSource, attempt_prefix
+from yoao_assets_video_inputs.values import (
     FrameSampling,
     ObjectIdentity,
     TaskVideoBinding,

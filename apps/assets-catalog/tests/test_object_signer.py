@@ -3,8 +3,8 @@ from dataclasses import replace
 import pytest
 from botocore.exceptions import ClientError
 
-from aap_assets_catalog.config import CatalogConfig
-from aap_assets_catalog.object_signer import (
+from yoao_assets_catalog.config import CatalogConfig
+from yoao_assets_catalog.object_signer import (
     MAX_CALIBRATION_SOURCE_BYTES,
     CatalogObjectSigner,
     SpatialCalibrationSourceReader,

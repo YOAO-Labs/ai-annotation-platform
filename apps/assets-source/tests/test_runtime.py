@@ -7,15 +7,15 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceFailure,
     UploadInitRequest,
     UploadInitResult,
     decode_source_reply,
 )
-from aap_assets_source.upload_contract import DatasetUploadFailure, DatasetUploadIntent
-from aap_assets_source_runtime.config import load_config
-from aap_assets_source_runtime.runtime import SourceRuntime
+from yoao_assets_source.upload_contract import DatasetUploadFailure, DatasetUploadIntent
+from yoao_assets_source_runtime.config import load_config
+from yoao_assets_source_runtime.runtime import SourceRuntime
 
 
 def _config(*, max_response_bytes=16_777_216):
@@ -62,7 +62,7 @@ class _UploadData:
     async def allocate(self, request):
         from uuid import uuid4
 
-        from aap_assets_source.managed_original_contract import (
+        from yoao_assets_source.managed_original_contract import (
             ManagedOriginalMaterial,
         )
 

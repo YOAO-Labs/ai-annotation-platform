@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 
-from aap_assets_source.frame_layout import (
+from yoao_assets_source.frame_layout import (
     DEFAULT_ROLE_PATTERNS,
     PreparedDatasetItem,
     RolePatterns,

@@ -38,7 +38,7 @@ python3 -m venv /opt/aap-storage-agent
 凭据格式为 `agent_id`、`credential_revision`、`token`、`expires_at`，其中到期时间是整数 Unix 秒。配置检查在配对前即可运行，不要求凭据文件已存在；只展示根 handle 与预算，不输出 token、Agent 身份或绝对根路径：
 
 ```sh
-/opt/aap-storage-agent/bin/aap-storage-agent --config /etc/aap-storage-agent/agent.json --check
+/opt/aap-storage-agent/bin/yoao-storage-agent --config /etc/aap-storage-agent/agent.json --check
 ```
 
 ## 一次性配对
@@ -53,7 +53,7 @@ python3 -m venv /opt/aap-storage-agent
 ```
 
 ```sh
-/opt/aap-storage-agent/bin/aap-storage-agent \
+/opt/aap-storage-agent/bin/yoao-storage-agent \
   --config /etc/aap-storage-agent/agent.json \
   --pairing-file /etc/aap-storage-agent/pairing.json
 ```

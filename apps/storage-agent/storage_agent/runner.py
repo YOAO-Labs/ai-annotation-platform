@@ -6,15 +6,15 @@ import os
 import stat
 import time
 
-from aap_filesystem_read import (
+from yoao_filesystem_read import (
     FilesystemStorageError,
     browse_directory,
     content_file,
     probe_directory,
     scan_directory,
 )
-from aap_filesystem_read.stage import stage_content
-from aap_site_agent_contract import (
+from yoao_filesystem_read.stage import stage_content
+from yoao_site_agent_contract import (
     ProtocolError,
     digest,
     validate_command,

@@ -3,9 +3,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aap_assets_images import contract as image
-from aap_assets_inputs import contract as c
-from aap_assets_inputs_runtime.control import InputControl
+from yoao_assets_images import contract as image
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs_runtime.control import InputControl
 from input_fixtures import input_request, input_work
 
 

@@ -5,9 +5,9 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_inputs.contract import InputFailure
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs_runtime.control import VideoInputControl
+from yoao_assets_inputs.contract import InputFailure
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs_runtime.control import VideoInputControl
 from video_input_fixtures import CURRENT_ACTOR, frame, manifest, member, record, source
 
 

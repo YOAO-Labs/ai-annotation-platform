@@ -27,5 +27,5 @@ RUN uv venv /opt/venv \
 
 USER 10004:10004
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD ["python", "-m", "aap_assets_source_import", "--healthcheck"]
-CMD ["python", "-m", "aap_assets_source_import"]
+    CMD ["python", "-m", "yoao_assets_source_import", "--healthcheck"]
+CMD ["python", "-m", "yoao_assets_source_import"]

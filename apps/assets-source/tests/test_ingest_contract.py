@@ -7,7 +7,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     INGEST_SCHEMA,
     SCAN_REQUEST_DIGEST,
     IngestCommand,

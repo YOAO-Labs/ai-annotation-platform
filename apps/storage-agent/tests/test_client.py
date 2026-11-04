@@ -13,7 +13,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_site_agent_contract import canonical_json
+from yoao_site_agent_contract import canonical_json
 
 from storage_agent.client import Bandwidth, Client, RetryableError
 from storage_agent.config import AgentError
@@ -452,7 +452,7 @@ def test_unsettled_source_close_stops_further_work_after_reporting(
     agent, command, monkeypatch, ack_state
 ):
     config, credentials, journal, runner, _ = agent
-    from aap_filesystem_read import FilesystemStorageError
+    from yoao_filesystem_read import FilesystemStorageError
 
     def fail(*_args, **_kwargs):
         exc = FilesystemStorageError("source_close_failed")

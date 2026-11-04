@@ -3,9 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from aap_assets_catalog.axis_convention import R_NORM
-from aap_assets_catalog.axis_sniff import AxisObservation, sniff_axis_convention
-from aap_assets_catalog.spatial_values import SensorCalibration
+from yoao_assets_catalog.axis_convention import R_NORM
+from yoao_assets_catalog.axis_sniff import AxisObservation, sniff_axis_convention
+from yoao_assets_catalog.spatial_values import SensorCalibration
 
 _CREATED = datetime(2026, 1, 1, tzinfo=UTC)
 

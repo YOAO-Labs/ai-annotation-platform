@@ -12,7 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_assets_media_runtime import worker
+from yoao_assets_media_runtime import worker
 
 
 _CHILD = r"""
@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from types import SimpleNamespace
 
-from aap_assets_media_runtime import worker
+from yoao_assets_media_runtime import worker
 
 mode = sys.argv[1]
 events_path = Path(sys.argv[2])

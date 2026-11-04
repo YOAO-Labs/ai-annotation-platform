@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from cryptography.fernet import Fernet
 
-from aap_assets_source.connectors.crypto import (
+from yoao_assets_source.connectors.crypto import (
     ConnectorCryptoError,
     ConnectorCryptoNotConfigured,
     credential_fingerprint,

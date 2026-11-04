@@ -330,7 +330,7 @@ def test_pairing_cli_outputs_no_secret_and_check_needs_no_identity(
     from storage_agent.__main__ import main
 
     monkeypatch.setattr(
-        "sys.argv", ["aap-storage-agent", "--config", str(config_path), "--check"]
+        "sys.argv", ["yoao-storage-agent", "--config", str(config_path), "--check"]
     )
     assert main() == 0 and not config.credential_file.exists()
     output = capsys.readouterr()
@@ -340,7 +340,7 @@ def test_pairing_cli_outputs_no_secret_and_check_needs_no_identity(
     monkeypatch.setattr(
         "sys.argv",
         [
-            "aap-storage-agent",
+            "yoao-storage-agent",
             "--config",
             str(config_path),
             "--pairing-file",
@@ -361,7 +361,7 @@ def test_pairing_cli_modes_are_mutually_exclusive(pairing_case, monkeypatch, mod
     monkeypatch.setattr(
         "sys.argv",
         [
-            "aap-storage-agent",
+            "yoao-storage-agent",
             "--config",
             "unused",
             "--pairing-file",

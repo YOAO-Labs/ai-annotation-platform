@@ -13,11 +13,11 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import http_contract as h
-from aap_assets_video_inputs import values as v
-from aap_assets_video_inputs.client import VideoInputClient
-from aap_assets_video_inputs_runtime.api import install_video_input_routes
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import http_contract as h
+from yoao_assets_video_inputs import values as v
+from yoao_assets_video_inputs.client import VideoInputClient
+from yoao_assets_video_inputs_runtime.api import install_video_input_routes
 from video_input_fixtures import (
     CURRENT_ACTOR,
     frame,

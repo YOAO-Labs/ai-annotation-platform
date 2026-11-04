@@ -9,11 +9,11 @@ from uuid import UUID, uuid4
 import pytest
 from botocore.exceptions import ClientError
 
-from aap_assets_images.contract import ObjectIdentity
-from aap_assets_source.connectors import SourceChangedError
-from aap_assets_source.import_contract import ImportEntry, ImportSourceObject
-from aap_assets_source.managed_original_contract import ManagedOriginalMaterial
-from aap_assets_source_import.storage import (
+from yoao_assets_images.contract import ObjectIdentity
+from yoao_assets_source.connectors import SourceChangedError
+from yoao_assets_source.import_contract import ImportEntry, ImportSourceObject
+from yoao_assets_source.managed_original_contract import ManagedOriginalMaterial
+from yoao_assets_source_import.storage import (
     DestinationStorage,
     DestinationWriteError,
     _multipart_part_bytes,
@@ -218,7 +218,7 @@ async def test_streaming_aggregates_short_reads_hashes_and_reads_back_exactly(
     store = _Store()
     storage = DestinationStorage(_config(), client=store)
     monkeypatch.setattr(
-        "aap_assets_source_import.storage._image_dimensions",
+        "yoao_assets_source_import.storage._image_dimensions",
         lambda head: pytest.fail("non-image dimensions must not be read"),
     )
     entry = _entry(len(data))
@@ -315,7 +315,7 @@ async def test_readback_mismatch_fails_the_transfer(monkeypatch) -> None:
 
     monkeypatch.setattr(store, "get_object", corrupt_if_match)
     monkeypatch.setattr(
-        "aap_assets_source_import.storage._image_dimensions", lambda _head: None
+        "yoao_assets_source_import.storage._image_dimensions", lambda _head: None
     )
 
     with pytest.raises(DestinationWriteError):
@@ -362,7 +362,7 @@ async def test_image_identity_comes_from_the_verified_saved_version(
     entry = _entry(4, file_type="image")
     storage = DestinationStorage(_config(), client=store)
     monkeypatch.setattr(
-        "aap_assets_source_import.storage._image_dimensions", lambda _head: None
+        "yoao_assets_source_import.storage._image_dimensions", lambda _head: None
     )
 
     result = await storage.transfer(

@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_assets_catalog.config import ConfigurationError, load_config
+from yoao_assets_catalog.config import ConfigurationError, load_config
 
 
 def _environment() -> dict[str, str]:

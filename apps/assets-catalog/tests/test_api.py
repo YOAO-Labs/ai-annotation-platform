@@ -4,9 +4,9 @@ from uuid import UUID, uuid4
 from fastapi.testclient import TestClient
 import pytest
 
-from aap_assets_catalog.api import create_app
-from aap_assets_catalog.config import CatalogConfig
-from aap_assets_catalog.associations_contract import (
+from yoao_assets_catalog.api import create_app
+from yoao_assets_catalog.config import CatalogConfig
+from yoao_assets_catalog.associations_contract import (
     ASSOCIATIONS_SCHEMA,
     AssociationFailure,
     DatasetProjectsResult,
@@ -14,8 +14,8 @@ from aap_assets_catalog.associations_contract import (
     ListProjectDatasetsRequest,
     ProjectDatasetsResult,
 )
-from aap_assets_catalog import spatial_contract as spatial
-from aap_assets_catalog.contract import (
+from yoao_assets_catalog import spatial_contract as spatial
+from yoao_assets_catalog.contract import (
     CATALOG_SCHEMA,
     CatalogFailure,
     CatalogItem,

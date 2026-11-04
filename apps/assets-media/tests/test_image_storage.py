@@ -12,9 +12,9 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from aap_assets_images.contract import ImageFailure, ImageOwner, ImageSource
-from aap_assets_images_runtime.config import ImageStorageConfig
-from aap_assets_images_runtime.storage import S3ImageStorage
+from yoao_assets_images.contract import ImageFailure, ImageOwner, ImageSource
+from yoao_assets_images_runtime.config import ImageStorageConfig
+from yoao_assets_images_runtime.storage import S3ImageStorage
 
 
 class _Body(BytesIO):
@@ -725,7 +725,7 @@ async def test_transient_s3_failure_is_retryable_and_not_retried_inside_storage(
 async def test_cache_put_cancellation_closes_local_stream_and_returns_promptly(
     monkeypatch, tmp_path
 ):
-    import aap_assets_images_runtime.storage as storage_module
+    import yoao_assets_images_runtime.storage as storage_module
 
     client = _S3()
     transport = _BlockingPutTransport()

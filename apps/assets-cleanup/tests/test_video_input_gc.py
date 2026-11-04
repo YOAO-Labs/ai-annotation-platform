@@ -6,15 +6,15 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_assets_video_inputs import execution as video
-from aap_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
-from aap_assets_video_inputs_runtime.garbage import VideoGarbageCollector
-from aap_assets_video_inputs_runtime.storage import S3VideoInputStorage
-from aap_assets_inputs.contract import InputFailure
+from yoao_assets_video_inputs import execution as video
+from yoao_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
+from yoao_assets_video_inputs_runtime.garbage import VideoGarbageCollector
+from yoao_assets_video_inputs_runtime.storage import S3VideoInputStorage
+from yoao_assets_inputs.contract import InputFailure
 
-from aap_assets_cleanup import input_gc
-from aap_assets_cleanup.config import load_config
-from aap_assets_cleanup.input_gc import (
+from yoao_assets_cleanup import input_gc
+from yoao_assets_cleanup.config import load_config
+from yoao_assets_cleanup.input_gc import (
     build_video_garbage_collector,
     collect_video_inputs_before_stop,
 )

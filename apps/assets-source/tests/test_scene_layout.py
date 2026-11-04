@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from aap_assets_source.frame_layout import PreparedDatasetItem
-from aap_assets_source.scene_layout import (
+from yoao_assets_source.frame_layout import PreparedDatasetItem
+from yoao_assets_source.scene_layout import (
     IngestScenePlan,
     SceneLayoutInput,
     natural_sort_key,

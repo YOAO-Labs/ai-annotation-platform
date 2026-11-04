@@ -8,9 +8,9 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_images import contract as c
-from aap_assets_images.geometry import build_manifest
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images import contract as c
+from yoao_assets_images.geometry import build_manifest
+from yoao_assets_images.policy import ImagePolicy
 
 
 def image_source(*, owner=None, task_id=None, dataset_id=None, item_id=None):
@@ -124,7 +124,7 @@ def test_actual_geometry_manifest_wire_keeps_prefixed_sha256_digests():
 
 
 def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
-    source_root = Path(__file__).parents[1] / "src/aap_assets_images"
+    source_root = Path(__file__).parents[1] / "src/yoao_assets_images"
     assert (
         json.loads((source_root / "protocol.schema.json").read_text())
         == c.contract_document()
@@ -177,7 +177,7 @@ def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
     assert generation.sql_types == ("uuid", "uuid", "uuid", "integer", "text")
     document_path = source_root / "openapi.snapshot.json"
     document = json.loads(document_path.read_text())
-    from aap_assets_images.http_contract import http_document
+    from yoao_assets_images.http_contract import http_document
 
     assert document == http_document()
     assert len(document["paths"]) == 20

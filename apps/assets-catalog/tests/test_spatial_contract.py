@@ -5,7 +5,7 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_catalog.spatial_contract import (
+from yoao_assets_catalog.spatial_contract import (
     SPATIAL_NATIVE_SIGNATURES,
     SPATIAL_NATIVE_ARGUMENTS,
     SPATIAL_SCHEMA,
@@ -118,7 +118,7 @@ def test_legacy_calibration_is_normalized_and_historical_digest_stays_opaque():
 
 def test_distributable_schema_matches_wire_models_and_exact_native_surface():
     expected = spatial_json_schema()
-    packaged = files("aap_assets_catalog").joinpath("spatial_contract.schema.json")
+    packaged = files("yoao_assets_catalog").joinpath("spatial_contract.schema.json")
     assert json.loads(packaged.read_text()) == expected
     assert len(SPATIAL_NATIVE_SIGNATURES) == 22
     assert set(expected["x-native-capabilities"]) == set(SPATIAL_NATIVE_SIGNATURES)

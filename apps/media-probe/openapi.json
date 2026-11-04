@@ -264,7 +264,7 @@
   },
   "info": {
     "description": "Standalone metadata, frame timetable, and packet probing over raw media uploads.",
-    "title": "AAP Media Probe",
+    "title": "YOAO Media Probe",
     "version": "0.1.0"
   },
   "openapi": "3.1.0",

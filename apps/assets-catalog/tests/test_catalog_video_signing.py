@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_catalog.catalog import CatalogService
-from aap_assets_catalog.contract import CatalogItem, ItemPage, ListItemsRequest
+from yoao_assets_catalog.catalog import CatalogService
+from yoao_assets_catalog.contract import CatalogItem, ItemPage, ListItemsRequest
 
 
 def _item(dataset_id, file_type):

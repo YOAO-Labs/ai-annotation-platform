@@ -7,8 +7,8 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs_runtime.garbage import VideoGarbageCollector
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs_runtime.garbage import VideoGarbageCollector
 
 
 WORKER = UUID("00000000-0000-4000-8000-000000000077")

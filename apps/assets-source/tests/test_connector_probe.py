@@ -6,9 +6,9 @@ import sys
 
 import pytest
 
-from aap_assets_source.connectors.host_guard import ConnectorHostDenied
-from aap_assets_source.connectors.probe import probe_connection
-from aap_assets_source.connectors import sftp as sftp_module
+from yoao_assets_source.connectors.host_guard import ConnectorHostDenied
+from yoao_assets_source.connectors.probe import probe_connection
+from yoao_assets_source.connectors import sftp as sftp_module
 
 
 def _install_s3(monkeypatch, *, response=None, error=None):

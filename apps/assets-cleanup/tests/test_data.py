@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_cleanup.contract import AssetStorageDeletion, DeletionCursor
-from aap_assets_cleanup.data import (
+from yoao_assets_cleanup.contract import AssetStorageDeletion, DeletionCursor
+from yoao_assets_cleanup.data import (
     CLAIM_IMAGE_GARBAGE_SQL,
     COMPLETE_SQL,
     COMPLETE_IMAGE_GARBAGE_SQL,
@@ -171,7 +171,7 @@ async def test_ack_runs_in_its_own_transaction_and_requires_matching_row():
 async def test_image_garbage_claim_uses_only_bounded_json_owner_call():
     from uuid import uuid4
 
-    from aap_assets_cleanup.contract import ImageGarbageClaim
+    from yoao_assets_cleanup.contract import ImageGarbageClaim
 
     garbage_id, lease_token, worker_id, asset_id = (
         uuid4(),
@@ -222,7 +222,7 @@ async def test_image_garbage_claim_uses_only_bounded_json_owner_call():
 async def test_image_garbage_completion_is_bound_to_claim_and_requires_owner_ack():
     from uuid import uuid4
 
-    from aap_assets_cleanup.contract import ImageGarbageClaim
+    from yoao_assets_cleanup.contract import ImageGarbageClaim
 
     claim = ImageGarbageClaim(
         garbage_id=uuid4(),

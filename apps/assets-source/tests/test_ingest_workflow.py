@@ -12,11 +12,11 @@ import zipfile
 
 import pytest
 
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
     ManagedOriginalProof,
 )
-from aap_assets_source.ingest_contract import (
+from yoao_assets_source.ingest_contract import (
     ZIP_MAX_CENTRAL_DIRECTORY_ENTRIES,
     IngestBatchPlan,
     IngestBatchResult,
@@ -33,17 +33,17 @@ from aap_assets_source.ingest_contract import (
     SCAN_REQUEST_DIGEST,
     decode_ingest_reply,
 )
-from aap_assets_source_runtime.ingest_storage import (
+from yoao_assets_source_runtime.ingest_storage import (
     IngestEntryFailure,
     IngestStorageFacts,
 )
-from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
-from aap_assets_source_runtime.managed_storage import ManagedStorage
-from aap_assets_source_runtime.runtime import SourceRuntime
-from aap_assets_source_runtime.ingest_workflow import _validate_context
-from aap_assets_source_runtime.database import NativeIngestData
-from aap_assets_images.contract import ObjectIdentity
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
+from yoao_assets_source_runtime.managed_storage import ManagedStorage
+from yoao_assets_source_runtime.runtime import SourceRuntime
+from yoao_assets_source_runtime.ingest_workflow import _validate_context
+from yoao_assets_source_runtime.database import NativeIngestData
+from yoao_assets_images.contract import ObjectIdentity
+from yoao_assets_images.policy import ImagePolicy
 
 
 def _command() -> IngestCommand:
@@ -183,7 +183,7 @@ class _Data:
     async def open_operation(self, creation_id):
         from uuid import uuid4
 
-        from aap_assets_source.managed_original_contract import (
+        from yoao_assets_source.managed_original_contract import (
             ManagedOriginalOperation,
         )
 
@@ -352,7 +352,7 @@ class _Data:
                 "source_missing": "Source object is missing",
                 "source_read_failed": "Source object could not be read",
             }
-            from aap_assets_source.ingest_contract import IngestFileError
+            from yoao_assets_source.ingest_contract import IngestFileError
 
             errors = [
                 IngestFileError(name=name, error=messages[code])
@@ -597,7 +597,7 @@ class _RecordingManaged:
         on_writing=None,
         on_written=None,
     ):
-        from aap_assets_source_runtime.managed_storage import ManagedWrite
+        from yoao_assets_source_runtime.managed_storage import ManagedWrite
 
         content = source.read()
         digest = hashlib.md5(content, usedforsecurity=False).hexdigest()

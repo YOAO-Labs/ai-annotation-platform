@@ -8,11 +8,11 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from aap_assets_media import contract as c
-from aap_assets_media.client import MediaClient
-from aap_assets_media.http_contract import http_document
-from aap_assets_media.transport import read_all_timetable, read_all_samples
-from aap_assets_media_runtime.api import create_app
+from yoao_assets_media import contract as c
+from yoao_assets_media.client import MediaClient
+from yoao_assets_media.http_contract import http_document
+from yoao_assets_media.transport import read_all_timetable, read_all_samples
+from yoao_assets_media_runtime.api import create_app
 from test_contract import source
 
 
@@ -198,7 +198,7 @@ async def test_http_request_budget_rejects_before_any_owner_call(monkeypatch):
 
 def test_shipped_http_contract_contains_control_routes_and_closed_schema_refs():
     document = http_document()
-    path = Path(__file__).parents[1] / "src/aap_assets_media/openapi.snapshot.json"
+    path = Path(__file__).parents[1] / "src/yoao_assets_media/openapi.snapshot.json"
     assert json.loads(path.read_text()) == document
     assert "/v1/commands/claim_video_media" not in document["paths"]
     assert "/v1/commands/resolve_internal_media_source" in document["paths"]

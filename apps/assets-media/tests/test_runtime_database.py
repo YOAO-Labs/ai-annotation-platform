@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     MEDIA_SCHEMA,
     OPERATIONS,
     BackfillSelection,
@@ -23,7 +23,7 @@ from aap_assets_media.contract import (
     MetadataSpec,
     WorkTiming,
 )
-from aap_assets_media_runtime.database import (
+from yoao_assets_media_runtime.database import (
     AsyncpgMediaDatabase,
     prepare_native_call,
     validate_native_result,

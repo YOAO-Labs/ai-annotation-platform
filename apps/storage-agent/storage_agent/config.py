@@ -8,7 +8,7 @@ import stat
 from urllib.parse import urlsplit
 from uuid import UUID
 
-from aap_filesystem_read import RootSpec
+from yoao_filesystem_read import RootSpec
 
 
 class AgentError(ValueError):
@@ -59,7 +59,7 @@ def private_json(path, *, max_bytes=65536, required_mode=None):
             raw = body.read(max_bytes + 1)
         if len(raw) > max_bytes:
             raise AgentError("config_too_large")
-        from aap_site_agent_contract import parse_json
+        from yoao_site_agent_contract import parse_json
 
         value = parse_json(raw, max_bytes=max_bytes)
         if not isinstance(value, dict):

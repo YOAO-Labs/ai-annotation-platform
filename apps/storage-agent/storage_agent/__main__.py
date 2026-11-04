@@ -6,8 +6,8 @@ import os
 import sqlite3
 import sys
 
-from aap_filesystem_read import FilesystemStorageError
-from aap_site_agent_contract import ProtocolError
+from yoao_filesystem_read import FilesystemStorageError
+from yoao_site_agent_contract import ProtocolError
 
 from .client import Client
 from .config import AgentError, Config, Credentials

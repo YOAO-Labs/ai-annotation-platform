@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from aap_assets_media import contract as c
-from aap_assets_media.transport import SourceReference
-from aap_assets_media_runtime.http_source import HttpMediaSourceStorage
+from yoao_assets_media import contract as c
+from yoao_assets_media.transport import SourceReference
+from yoao_assets_media_runtime.http_source import HttpMediaSourceStorage
 from test_contract import source
 
 

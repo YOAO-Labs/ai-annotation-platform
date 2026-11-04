@@ -11,13 +11,13 @@ import io
 
 import pytest
 
-from aap_assets_source.connectors import SourceChangedError
-from aap_assets_source.connectors.base import SourceObject
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.connectors import SourceChangedError
+from yoao_assets_source.connectors.base import SourceObject
+from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
     ManagedOriginalProof,
 )
-from aap_assets_source.import_contract import (
+from yoao_assets_source.import_contract import (
     ImportConnection,
     ImportEntry,
     ImportEntryCompletion,
@@ -26,17 +26,17 @@ from aap_assets_source.import_contract import (
     ImportSourceObject,
     ImportState,
 )
-from aap_assets_images.contract import ImageFailure, ObjectIdentity
-from aap_assets_source_import.__main__ import _handle_failure
-from aap_assets_source_import.storage import SourceReadError
-from aap_assets_source_import.workflow import (
+from yoao_assets_images.contract import ImageFailure, ObjectIdentity
+from yoao_assets_source_import.__main__ import _handle_failure
+from yoao_assets_source_import.storage import SourceReadError
+from yoao_assets_source_import.workflow import (
     ImportWorkflow,
     LeaseUnavailable,
     LeaseKeeper,
     PersistenceBusy,
     WorkerStopping,
 )
-from aap_assets_source_import.workflow import (
+from yoao_assets_source_import.workflow import (
     _collect_manifest,
     _validate_entry_scope,
     destination_relative_path,
@@ -368,7 +368,7 @@ class _RejectedSourceDatabase:
         return _managed_target(request)
 
     async def open_operation(self, creation_id):
-        from aap_assets_source.managed_original_contract import (
+        from yoao_assets_source.managed_original_contract import (
             ManagedOriginalOperation,
         )
 
@@ -468,7 +468,7 @@ class _TransactionRecorder:
     async def open_operation(self, creation_id):
         from uuid import uuid4
 
-        from aap_assets_source.managed_original_contract import (
+        from yoao_assets_source.managed_original_contract import (
             ManagedOriginalOperation,
         )
 
@@ -860,7 +860,7 @@ async def test_settlement_retries_persistence_contention_with_same_receipt(
     async def no_sleep(_seconds):
         return None
 
-    monkeypatch.setattr("aap_assets_source_import.workflow.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("yoao_assets_source_import.workflow.asyncio.sleep", no_sleep)
     state = _state(stage="importing")
     entry = _valid_entry(state)
     completion = ImportEntryCompletion(status="error", error_code="source_changed")
@@ -884,7 +884,7 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     async def no_sleep(_seconds):
         return None
 
-    monkeypatch.setattr("aap_assets_source_import.workflow.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("yoao_assets_source_import.workflow.asyncio.sleep", no_sleep)
     state = _state(stage="importing").model_copy(update={"total": 2, "total_bytes": 8})
     data = _RejectedSourceData(state)
     database = _RejectedSourceDatabase(data)
@@ -923,7 +923,7 @@ async def test_exhausted_settlement_contention_leaves_cursor_for_recovery(
     async def no_sleep(_seconds):
         return None
 
-    monkeypatch.setattr("aap_assets_source_import.workflow.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("yoao_assets_source_import.workflow.asyncio.sleep", no_sleep)
     state = _state(stage="importing")
     entry = _valid_entry(state)
     completion = ImportEntryCompletion(status="error", error_code="source_changed")
@@ -945,7 +945,7 @@ async def test_operation_conflict_is_not_misclassified_as_transient_contention(
     async def no_sleep(_seconds):
         pytest.fail("operation_conflict must not be retried")
 
-    monkeypatch.setattr("aap_assets_source_import.workflow.asyncio.sleep", no_sleep)
+    monkeypatch.setattr("yoao_assets_source_import.workflow.asyncio.sleep", no_sleep)
     state = _state(stage="importing")
     entry = _valid_entry(state)
     completion = ImportEntryCompletion(status="error", error_code="source_changed")
@@ -1267,7 +1267,7 @@ async def test_shutdown_event_prevents_followup_work_without_releasing_lease() -
 def test_import_connection_uses_standard_base64_wrapped_fernet_bytes() -> None:
     from cryptography.fernet import Fernet
 
-    from aap_assets_source.connectors.crypto import encrypt_secret
+    from yoao_assets_source.connectors.crypto import encrypt_secret
 
     key = Fernet.generate_key()
     encrypted = base64.b64encode(

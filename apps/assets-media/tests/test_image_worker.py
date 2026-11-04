@@ -12,7 +12,7 @@ from uuid import uuid4
 from PIL import Image
 import pytest
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     Artifact,
     ClaimedImageWork,
     DimensionsWorkSpec,
@@ -31,10 +31,10 @@ from aap_assets_images.contract import (
     PyramidWorkSpec,
     ThumbnailWorkSpec,
 )
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images_runtime.config import ConfigurationError, load_config
-from aap_assets_images_runtime.storage import DownloadedSource, SourceHeader
-from aap_assets_images_runtime.worker import ImageExecutor, _LeaseHeartbeat, _run_child
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images_runtime.config import ConfigurationError, load_config
+from yoao_assets_images_runtime.storage import DownloadedSource, SourceHeader
+from yoao_assets_images_runtime.worker import ImageExecutor, _LeaseHeartbeat, _run_child
 
 
 def _png_bytes(size=(4, 2)) -> bytes:
@@ -358,7 +358,7 @@ async def test_dimensions_worker_uses_bounded_header_and_finishes_only_after_sou
 
 @pytest.mark.asyncio
 async def test_initial_heartbeat_retries_operation_busy_before_object_io(monkeypatch):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
     data = _png_bytes()
@@ -401,7 +401,7 @@ async def test_initial_heartbeat_retries_operation_busy_before_object_io(monkeyp
 
 @pytest.mark.asyncio
 async def test_initial_heartbeat_persistent_contention_stops_at_deadline(monkeypatch):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
     source = _source(b"source")
@@ -427,7 +427,7 @@ async def test_initial_heartbeat_persistent_contention_stops_at_deadline(monkeyp
 
 @pytest.mark.asyncio
 async def test_periodic_heartbeat_retries_operation_busy_with_same_claim(monkeypatch):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
     source = _source(b"source")
@@ -458,7 +458,7 @@ async def test_periodic_heartbeat_retries_operation_busy_with_same_claim(monkeyp
 
 @pytest.mark.asyncio
 async def test_periodic_heartbeat_persistent_contention_records_timeout(monkeypatch):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
     source = _source(b"source")
@@ -491,7 +491,7 @@ async def test_periodic_heartbeat_persistent_contention_records_timeout(monkeypa
 async def test_heartbeat_retry_backoff_stays_capped_after_many_busy_replies(
     monkeypatch,
 ):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
     source = _source(b"source")
@@ -528,7 +528,7 @@ async def test_heartbeat_retry_backoff_stays_capped_after_many_busy_replies(
 async def test_periodic_deadline_timeout_still_settles_failure_with_current_lease(
     monkeypatch,
 ):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     monkeypatch.setattr(worker_module.random, "uniform", lambda _low, _high: 0.0)
     heartbeats = []
@@ -865,7 +865,7 @@ async def test_executor_close_closes_its_storage_client():
 async def test_finish_retries_only_explicit_lock_contention_with_same_result_and_lease(
     monkeypatch,
 ):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     data = _png_bytes()
     source = _source(data)
@@ -1255,7 +1255,7 @@ async def test_reconcile_sends_all_candidates_in_bounded_batches():
 async def test_child_process_group_is_terminated_and_waited_on_timeout_or_lease_loss(
     monkeypatch, tmp_path, code
 ):
-    import aap_assets_images_runtime.worker as worker_module
+    import yoao_assets_images_runtime.worker as worker_module
 
     actual_create = asyncio.create_subprocess_exec
     children = []
@@ -1297,7 +1297,7 @@ async def test_child_process_group_is_terminated_and_waited_on_timeout_or_lease_
 def test_image_child_environment_does_not_receive_storage_or_database_secrets(
     monkeypatch,
 ):
-    from aap_assets_images_runtime.worker import _child_environment
+    from yoao_assets_images_runtime.worker import _child_environment
 
     monkeypatch.setenv("ASSETS_IMAGES_DATABASE_URL", "postgresql://private")
     monkeypatch.setenv("ASSETS_MEDIA_S3_SECRET_KEY", "private-secret")

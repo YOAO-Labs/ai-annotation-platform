@@ -30,4 +30,4 @@ USER 10003:10003
 EXPOSE 8767
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8767/ready', timeout=2)"]
-CMD ["python", "-m", "aap_assets_source_runtime"]
+CMD ["python", "-m", "yoao_assets_source_runtime"]

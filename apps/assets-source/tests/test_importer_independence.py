@@ -10,8 +10,8 @@ _FORBIDDEN_ROOTS = {"app", "sqlalchemy", "celery", "redis"}
 
 def test_importer_and_portable_connectors_have_no_api_or_framework_imports() -> None:
     files = [
-        *_SOURCE_ROOT.joinpath("aap_assets_source_import").rglob("*.py"),
-        *_SOURCE_ROOT.joinpath("aap_assets_source/connectors").rglob("*.py"),
+        *_SOURCE_ROOT.joinpath("yoao_assets_source_import").rglob("*.py"),
+        *_SOURCE_ROOT.joinpath("yoao_assets_source/connectors").rglob("*.py"),
     ]
     violations: list[str] = []
     for path in files:

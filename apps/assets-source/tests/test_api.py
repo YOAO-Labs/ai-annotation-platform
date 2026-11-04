@@ -5,17 +5,17 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceDeletionRequest,
     UploadCompleteRequest,
     UploadInitRequest,
     UploadInitResult,
     UploadOutcome,
 )
-from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
-from aap_assets_source.upload_contract import DatasetUploadCompletedResult
-from aap_assets_source_runtime.api import create_app
-from aap_assets_source_runtime.config import load_config
+from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
+from yoao_assets_source.upload_contract import DatasetUploadCompletedResult
+from yoao_assets_source_runtime.api import create_app
+from yoao_assets_source_runtime.config import load_config
 
 
 def _config(**overrides):

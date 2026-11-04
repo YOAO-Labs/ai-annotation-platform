@@ -4,8 +4,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_inputs import contract as c
-from aap_assets_inputs_runtime.database import (
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs_runtime.database import (
     prepare_native_call,
     validate_native_result,
 )
@@ -117,7 +117,7 @@ def test_contract_is_json_safe_and_covers_native_operations():
 def test_frozen_artifacts_and_public_http_scope():
     from pathlib import Path
 
-    from aap_assets_inputs.http_contract import http_document
+    from yoao_assets_inputs.http_contract import http_document
 
     package = Path(c.__file__).parent
     assert (

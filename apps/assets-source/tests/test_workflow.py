@@ -3,20 +3,20 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 import pytest
-from aap_assets_images import contract as image_contract
+from yoao_assets_images import contract as image_contract
 
-from aap_assets_source.contract import (
+from yoao_assets_source.contract import (
     SourceFailure,
     SourceDeletionRequest,
     UploadCompleteRequest,
 )
-from aap_assets_source.deletion_contract import DatasetSourceDeletionReceipt
-from aap_assets_source.legacy_upload_contract import (
+from yoao_assets_source.deletion_contract import DatasetSourceDeletionReceipt
+from yoao_assets_source.legacy_upload_contract import (
     LegacyUploadCompletion,
     LegacyUploadLockRequest,
     LegacyUploadState,
 )
-from aap_assets_source.upload_contract import (
+from yoao_assets_source.upload_contract import (
     DatasetUploadAcceptance,
     DatasetUploadCompletedResult,
     DatasetUploadCompletion,
@@ -27,12 +27,12 @@ from aap_assets_source.upload_contract import (
     DatasetUploadIntent,
     DatasetUploadReserve,
 )
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
     ManagedOriginalProof,
 )
-from aap_assets_source_runtime.managed_storage import ManagedWrite
-from aap_assets_source_runtime.workflow import UploadWorkflow
+from yoao_assets_source_runtime.managed_storage import ManagedWrite
+from yoao_assets_source_runtime.workflow import UploadWorkflow
 
 
 class _Uploads:
@@ -86,7 +86,7 @@ class _Uploads:
     async def open_operation(self, creation_id):
         from uuid import uuid4
 
-        from aap_assets_source.managed_original_contract import (
+        from yoao_assets_source.managed_original_contract import (
             ManagedOriginalOperation,
         )
 
@@ -243,7 +243,7 @@ class _Storage:
     ):
         import hashlib as _hashlib
 
-        from aap_assets_images.contract import ObjectIdentity as _Identity
+        from yoao_assets_images.contract import ObjectIdentity as _Identity
 
         self.events.append("copy")
         if self.publish_error is not None:
@@ -385,7 +385,7 @@ def _complete_request(actor_id, dataset_id, item_id):
 
 @pytest.mark.asyncio
 async def test_verified_replay_reads_back_before_settling_its_read_permit() -> None:
-    from aap_assets_source.managed_original_contract import ManagedOriginalMaterial
+    from yoao_assets_source.managed_original_contract import ManagedOriginalMaterial
 
     actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
     request = _complete_request(actor_id, dataset_id, item_id)
@@ -437,7 +437,7 @@ async def test_verified_replay_reads_back_before_settling_its_read_permit() -> N
 async def test_unknown_close_keeps_responsibility_instead_of_claiming_settlement() -> (
     None
 ):
-    from aap_assets_source.contract import SourceFailure
+    from yoao_assets_source.contract import SourceFailure
 
     actor_id, dataset_id, item_id = uuid4(), uuid4(), uuid4()
     request = _complete_request(actor_id, dataset_id, item_id)

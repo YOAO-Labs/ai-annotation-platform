@@ -12,11 +12,11 @@ import zipfile
 from fastapi.testclient import TestClient
 import pytest
 
-from aap_assets_source.ingest_contract import INGEST_SCHEMA
-from aap_assets_source_runtime import api as api_module
-from aap_assets_source_runtime.api import BoundedHttpBodyMiddleware, create_app
-from aap_assets_source_runtime.config import load_config
-from aap_assets_source_runtime.runtime import SourceRuntime
+from yoao_assets_source.ingest_contract import INGEST_SCHEMA
+from yoao_assets_source_runtime import api as api_module
+from yoao_assets_source_runtime.api import BoundedHttpBodyMiddleware, create_app
+from yoao_assets_source_runtime.config import load_config
+from yoao_assets_source_runtime.runtime import SourceRuntime
 
 
 def _config():

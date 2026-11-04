@@ -5,7 +5,7 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_images.geometry import (
+from yoao_assets_images.geometry import (
     ImageGeometryError,
     build_manifest,
     canonical_manifest_bytes,
@@ -21,7 +21,7 @@ from aap_assets_images.geometry import (
     total_tile_count,
     validate_dimensions,
 )
-from aap_assets_images.policy import ImagePolicy
+from yoao_assets_images.policy import ImagePolicy
 
 
 def test_pyramid_levels_preserve_full_resolution_first_and_ceil_rounding():

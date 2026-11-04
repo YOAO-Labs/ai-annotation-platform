@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from aap_assets_source.managed_original_contract import (
+from yoao_assets_source.managed_original_contract import (
     observed_current_head_match,
 )
 

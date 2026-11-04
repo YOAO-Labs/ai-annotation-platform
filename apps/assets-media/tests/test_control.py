@@ -4,8 +4,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media import contract as c
-from aap_assets_media_runtime.control import MediaControl
+from yoao_assets_media import contract as c
+from yoao_assets_media_runtime.control import MediaControl
 from test_contract import source
 
 

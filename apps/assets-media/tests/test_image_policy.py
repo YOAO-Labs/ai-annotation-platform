@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_images.policy import ImagePolicy, image_policy_from_environment
+from yoao_assets_images.policy import ImagePolicy, image_policy_from_environment
 
 
 def test_policy_preserves_existing_image_thresholds_and_boundaries():

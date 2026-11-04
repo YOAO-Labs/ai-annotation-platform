@@ -5,8 +5,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_source.contract import SourceFailure, UploadInitRequest
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.contract import SourceFailure, UploadInitRequest
+from yoao_assets_source.connections_contract import (
     CONNECTION_NATIVE_ARGUMENTS,
     CONNECTION_NATIVE_OPERATIONS,
     CONNECTION_NATIVE_SIGNATURES,
@@ -26,20 +26,20 @@ from aap_assets_source.connections_contract import (
     UpdateConnectionAuthorizedRequest,
     UpdateConnectionIntent,
 )
-from aap_assets_source.deletion_contract import DatasetSourceDeletionCommand
-from aap_assets_source_runtime.config import load_config
-from aap_assets_source_runtime.database import (
+from yoao_assets_source.deletion_contract import DatasetSourceDeletionCommand
+from yoao_assets_source_runtime.config import load_config
+from yoao_assets_source_runtime.database import (
     NativeDeletionData,
     NativeLegacyUploadData,
     NativeConnectionsData,
     SourceDatabase,
     _NativeData,
 )
-from aap_assets_source.legacy_upload_contract import (
+from yoao_assets_source.legacy_upload_contract import (
     LegacyUploadCompletion,
     LegacyUploadLockRequest,
 )
-from aap_assets_source.upload_contract import DatasetUploadFailure
+from yoao_assets_source.upload_contract import DatasetUploadFailure
 
 
 def _config(*, max_response_bytes: int = 16_777_216):

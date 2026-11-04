@@ -5,14 +5,14 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_assets_cleanup.contract import (
+from yoao_assets_cleanup.contract import (
     DeletionCursor,
     ImageGarbageClaim,
     PendingAssetStorageDeletion,
 )
-from aap_assets_cleanup.object_store import CleanupStopped
-from aap_assets_cleanup.input_gc import collect_inputs_before_stop
-from aap_assets_cleanup.worker import drain_image_garbage, drain_pending
+from yoao_assets_cleanup.object_store import CleanupStopped
+from yoao_assets_cleanup.input_gc import collect_inputs_before_stop
+from yoao_assets_cleanup.worker import drain_image_garbage, drain_pending
 
 
 def _row(created_at: datetime, *, bucket: str = "media-cache"):

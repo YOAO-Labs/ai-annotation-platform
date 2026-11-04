@@ -3,7 +3,7 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_source import (
+from yoao_assets_source import (
     DatasetUploadCompletedResult,
     DatasetUploadFailure,
     LegacyUploadCompletion,
@@ -351,7 +351,7 @@ def test_public_source_packages_have_no_runtime_framework_imports() -> None:
     from pathlib import Path
     import ast
 
-    source_root = Path(__file__).resolve().parents[1] / "src" / "aap_assets_source"
+    source_root = Path(__file__).resolve().parents[1] / "src" / "yoao_assets_source"
     prohibited = {"app", "fastapi", "sqlalchemy", "starlette"}
     for path in source_root.glob("*.py"):
         tree = ast.parse(path.read_text())

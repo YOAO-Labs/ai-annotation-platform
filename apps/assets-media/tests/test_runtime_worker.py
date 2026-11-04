@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     Artifact,
     ChunkSpec,
     ClaimGarbageRequest,
@@ -35,8 +35,8 @@ from aap_assets_media.contract import (
     WorkOutcome,
     WorkTiming,
 )
-from aap_assets_media_runtime.config import MediaExecutionSettings
-from aap_assets_media_runtime.processing import (
+from yoao_assets_media_runtime.config import MediaExecutionSettings
+from yoao_assets_media_runtime.processing import (
     ProcessedArtifact,
     ProcessedWork,
     derive_anchor_frames,
@@ -45,7 +45,7 @@ from aap_assets_media_runtime.processing import (
     resolve_pts_ms_sparse,
     select_sparse_anchor_rows,
 )
-from aap_assets_media_runtime.worker import (
+from yoao_assets_media_runtime.worker import (
     MediaExecutor,
     VerifiedSourceCache,
 )
@@ -115,7 +115,7 @@ def _source(storage: _Storage, *, generation: int = 1, content_hash=None):
 async def test_verified_source_cache_reuses_one_download_and_rechecks_identity(
     tmp_path, monkeypatch
 ):
-    import aap_assets_media_runtime.worker as worker
+    import yoao_assets_media_runtime.worker as worker
 
     storage = _Storage()
     cache = VerifiedSourceCache(directory=tmp_path)
@@ -342,7 +342,7 @@ async def test_executor_reuses_verified_source_across_frame_jobs(monkeypatch):
             (ProcessedArtifact(artifact, output),),
         )
 
-    monkeypatch.setattr("aap_assets_media_runtime.worker.process_claim", fake_process)
+    monkeypatch.setattr("yoao_assets_media_runtime.worker.process_claim", fake_process)
     executor = MediaExecutor(
         database,
         storage,
@@ -364,7 +364,7 @@ async def test_executor_reuses_verified_source_across_frame_jobs(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_executor_stages_timetable_in_bounded_pages(monkeypatch):
-    import aap_assets_media_runtime.worker as worker
+    import yoao_assets_media_runtime.worker as worker
 
     storage = _Storage()
     source = _source(storage)
@@ -494,7 +494,7 @@ async def test_source_timetable_uses_selected_probe_client(tmp_path):
 
 def test_real_chunk_path_smartcopies_keyframe_aligned_h264(tmp_path):
     clip_path = _h264_fixture(tmp_path)
-    from aap_media_probe.probe import probe_video_file, probe_video_frame_timetable
+    from yoao_media_probe.probe import probe_video_file, probe_video_frame_timetable
 
     metadata = probe_video_file(clip_path)
     rows = [
@@ -565,7 +565,7 @@ def test_real_chunk_path_smartcopies_keyframe_aligned_h264(tmp_path):
 @pytest.mark.parametrize("format_", ["jpeg", "webp"])
 def test_frame_pixels_match_source_ordinals_with_sparse_timing(tmp_path, vfr, format_):
     from PIL import Image
-    from aap_media_probe.probe import probe_video_file, probe_video_frame_timetable
+    from yoao_media_probe.probe import probe_video_file, probe_video_frame_timetable
 
     if shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None:
         pytest.skip("ffmpeg/ffprobe are unavailable")
@@ -723,7 +723,7 @@ def test_frame_pixels_match_source_ordinals_with_sparse_timing(tmp_path, vfr, fo
 def test_processing_uses_selected_probe_client_for_all_published_probe_operations(
     monkeypatch, tmp_path
 ):
-    import aap_assets_media_runtime.processing as processing
+    import yoao_assets_media_runtime.processing as processing
 
     storage = _Storage()
     source = _source(storage)
@@ -879,7 +879,7 @@ def test_sparse_timetable_helpers_keep_source_indices_and_interpolate_pts():
 def test_metadata_transcodes_hevc_source_even_when_browser_codec_is_h264(
     monkeypatch, tmp_path
 ):
-    import aap_assets_media_runtime.processing as processing
+    import yoao_assets_media_runtime.processing as processing
 
     storage = _Storage()
     source = _source(storage).model_copy(
@@ -929,7 +929,7 @@ def test_metadata_transcodes_hevc_source_even_when_browser_codec_is_h264(
 
 
 def test_chunk_uses_original_unsupported_codec_not_h264_playback(monkeypatch, tmp_path):
-    import aap_assets_media_runtime.processing as processing
+    import yoao_assets_media_runtime.processing as processing
 
     storage = _Storage()
     source = _source(storage).model_copy(

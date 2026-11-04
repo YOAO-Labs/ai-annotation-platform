@@ -1,6 +1,6 @@
 # Media probe
 
-`aap-media-probe` owns the ffprobe kernel used to read video metadata, frame timestamps, and packet samples. Its Python kernel only uses the standard library. The standalone HTTP adapter has its own process, bearer token, upload limit, and Docker image; it does not import `apps/api`, open a database, or access platform storage.
+`yoao-media-probe` owns the ffprobe kernel used to read video metadata, frame timestamps, and packet samples. Its Python kernel only uses the standard library. The standalone HTTP adapter has its own process, bearer token, upload limit, and Docker image; it does not import `apps/api`, open a database, or access platform storage.
 
 ## HTTP contract
 
@@ -29,10 +29,10 @@ From `apps/media-probe`, install the server extra in an isolated environment, in
 ```sh
 uv sync --locked --extra server
 export MEDIA_PROBE_TOKEN="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-uv run --locked --extra server uvicorn aap_media_probe.app:create_app --factory --host 127.0.0.1 --port 8092
+uv run --locked --extra server uvicorn yoao_media_probe.app:create_app --factory --host 127.0.0.1 --port 8092
 ```
 
-The package can also be installed by another local Python project as an editable dependency. Importing `aap_media_probe.probe` does not import FastAPI.
+The package can also be installed by another local Python project as an editable dependency. Importing `yoao_media_probe.probe` does not import FastAPI.
 
 ## Build and run the standalone container
 

@@ -11,14 +11,14 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_video_inputs import execution as video_contract
-from aap_assets_media_runtime import worker
-from aap_assets_media_runtime.config import (
+from yoao_assets_video_inputs import execution as video_contract
+from yoao_assets_media_runtime import worker
+from yoao_assets_media_runtime.config import (
     MediaExecutionSettings,
     MediaStorageConfig,
     MediaWorkerConfig,
 )
-from aap_assets_media_runtime.process import (
+from yoao_assets_media_runtime.process import (
     ClaimTrackedExecutor,
     ClaimTrackingDatabase,
     FairWorkerPoller,
@@ -64,8 +64,8 @@ def test_video_storage_config_reuses_image_schema_and_media_settings():
 async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
     monkeypatch,
 ):
-    from aap_assets_media_runtime import process
-    from aap_assets_media_runtime import worker as worker_module
+    from yoao_assets_media_runtime import process
+    from yoao_assets_media_runtime import worker as worker_module
 
     events: list[str] = []
 
@@ -194,7 +194,7 @@ async def test_runtime_shares_one_pool_and_s3_pair_and_closes_each_owner_once(
 
 @pytest.mark.asyncio
 async def test_worker_rejects_unqualified_sql_role_before_creating_storage(monkeypatch):
-    from aap_assets_media_runtime import process
+    from yoao_assets_media_runtime import process
 
     closed = []
 

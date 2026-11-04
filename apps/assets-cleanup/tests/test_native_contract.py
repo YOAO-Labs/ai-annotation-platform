@@ -2,7 +2,7 @@ import json
 from pathlib import Path
 import re
 
-from aap_assets_cleanup.contract import (
+from yoao_assets_cleanup.contract import (
     AssetStorageDeletion,
     PendingAssetStorageDeletion,
 )

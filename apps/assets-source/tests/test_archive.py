@@ -5,8 +5,8 @@ import zipfile
 
 import pytest
 
-import aap_assets_source.archive as archive_module
-from aap_assets_source.archive import (
+import yoao_assets_source.archive as archive_module
+from yoao_assets_source.archive import (
     ArchiveLimits,
     ArchiveSafetyError,
     SafeZipArchive,

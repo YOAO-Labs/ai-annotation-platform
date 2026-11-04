@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from aap_assets_video_inputs import digests as d, execution as c
+from yoao_assets_video_inputs import digests as d, execution as c
 from video_input_fixtures import manifest, member, record
 
 

@@ -14,13 +14,13 @@ import zlib
 from PIL import Image, ImageCms, ImageOps
 import pytest
 
-from aap_assets_images.geometry import (
+from yoao_assets_images.geometry import (
     expected_tile_dimensions,
     pyramid_levels,
     sha256_digest,
 )
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images_runtime.processing import (
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images_runtime.processing import (
     CHILD_REQUEST_SCHEMA,
     CHILD_RESULT_SCHEMA,
     ImageProcessingError,
@@ -143,7 +143,7 @@ def test_local_child_cli_writes_thumbnail_and_returns_strict_metadata(tmp_path):
         part for part in (str(package_src), environment.get("PYTHONPATH", "")) if part
     )
     result = subprocess.run(
-        [sys.executable, "-m", "aap_assets_images_runtime.processing"],
+        [sys.executable, "-m", "yoao_assets_images_runtime.processing"],
         cwd=package_src.parent,
         env=environment,
         input=json.dumps(request),

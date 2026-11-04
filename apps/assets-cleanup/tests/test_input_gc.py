@@ -3,13 +3,13 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_cleanup import input_gc
-from aap_assets_cleanup.config import load_config
-from aap_assets_cleanup.input_gc import (
+from yoao_assets_cleanup import input_gc
+from yoao_assets_cleanup.config import load_config
+from yoao_assets_cleanup.input_gc import (
     build_input_garbage_collector,
     collect_inputs_before_stop,
 )
-from aap_assets_inputs import contract as inputs
+from yoao_assets_inputs import contract as inputs
 
 
 def _environment():

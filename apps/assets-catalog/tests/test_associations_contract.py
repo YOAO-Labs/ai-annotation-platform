@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_catalog.associations_contract import (
+from yoao_assets_catalog.associations_contract import (
     ASSOCIATIONS_SCHEMA,
     AssociationFailure,
     DatasetProjectsResult,

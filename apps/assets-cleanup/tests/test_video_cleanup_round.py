@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_cleanup import worker
+from yoao_assets_cleanup import worker
 
 
 @pytest.mark.asyncio

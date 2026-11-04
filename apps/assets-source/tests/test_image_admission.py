@@ -4,9 +4,9 @@ from uuid import uuid4, uuid5
 
 import pytest
 
-from aap_assets_images import contract as c
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_source_runtime.image_admission import (
+from yoao_assets_images import contract as c
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_source_runtime.image_admission import (
     AsyncpgImageAdmissionData,
     ImageAdmission,
     object_identity_from_head,

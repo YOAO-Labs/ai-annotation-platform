@@ -6,7 +6,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_source.operator_contract import (
+from yoao_assets_source.operator_contract import (
     OPERATOR_NATIVE_ARGUMENTS,
     OPERATOR_NATIVE_OPERATIONS,
     OPERATOR_NATIVE_SIGNATURES,
@@ -54,7 +54,7 @@ def test_operator_contract_is_installed_with_six_exact_native_signatures():
             assert model.__name__ in expected["$defs"]
     source = (
         Path(__file__).resolve().parents[1]
-        / "src/aap_assets_source/operator_contract.schema.json"
+        / "src/yoao_assets_source/operator_contract.schema.json"
     )
     assert json.loads(source.read_text()) == expected
     native = (

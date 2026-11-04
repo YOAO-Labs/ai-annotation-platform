@@ -1,5 +1,5 @@
 [Unit]
-Description=AAP controlled read-only storage Agent
+Description=YOAO controlled read-only storage Agent
 Wants=network-online.target
 After=network-online.target
 StartLimitIntervalSec=600
@@ -12,7 +12,7 @@ Group=aap-storage-agent
 UMask=0077
 StateDirectory=aap-storage-agent
 StateDirectoryMode=0700
-ExecStart=/opt/aap-storage-agent/bin/aap-storage-agent --config /etc/aap-storage-agent/agent.json
+ExecStart=/opt/aap-storage-agent/bin/yoao-storage-agent --config /etc/aap-storage-agent/agent.json
 Restart=on-failure
 RestartSec=30
 NoNewPrivileges=true

@@ -16,16 +16,16 @@ WORKDIR /app
 COPY apps/assets-cleanup/pyproject.toml apps/assets-cleanup/uv.lock ./apps/assets-cleanup/
 COPY apps/assets-cleanup/src/ ./apps/assets-cleanup/src/
 COPY apps/assets-media/pyproject.toml ./apps/assets-media/pyproject.toml
-COPY apps/assets-media/src/aap_assets_images/ ./apps/assets-media/src/aap_assets_images/
-COPY apps/assets-media/src/aap_assets_inputs/ ./apps/assets-media/src/aap_assets_inputs/
-COPY apps/assets-media/src/aap_assets_inputs_runtime/ ./apps/assets-media/src/aap_assets_inputs_runtime/
-COPY apps/assets-media/src/aap_assets_media/__init__.py ./apps/assets-media/src/aap_assets_media/__init__.py
-COPY apps/assets-media/src/aap_assets_media/contract.py ./apps/assets-media/src/aap_assets_media/contract.py
-COPY apps/assets-media/src/aap_assets_video_inputs/ ./apps/assets-media/src/aap_assets_video_inputs/
-COPY apps/assets-media/src/aap_assets_video_inputs_runtime/__init__.py ./apps/assets-media/src/aap_assets_video_inputs_runtime/__init__.py
-COPY apps/assets-media/src/aap_assets_video_inputs_runtime/database.py ./apps/assets-media/src/aap_assets_video_inputs_runtime/database.py
-COPY apps/assets-media/src/aap_assets_video_inputs_runtime/garbage.py ./apps/assets-media/src/aap_assets_video_inputs_runtime/garbage.py
-COPY apps/assets-media/src/aap_assets_video_inputs_runtime/storage.py ./apps/assets-media/src/aap_assets_video_inputs_runtime/storage.py
+COPY apps/assets-media/src/yoao_assets_images/ ./apps/assets-media/src/yoao_assets_images/
+COPY apps/assets-media/src/yoao_assets_inputs/ ./apps/assets-media/src/yoao_assets_inputs/
+COPY apps/assets-media/src/yoao_assets_inputs_runtime/ ./apps/assets-media/src/yoao_assets_inputs_runtime/
+COPY apps/assets-media/src/yoao_assets_media/__init__.py ./apps/assets-media/src/yoao_assets_media/__init__.py
+COPY apps/assets-media/src/yoao_assets_media/contract.py ./apps/assets-media/src/yoao_assets_media/contract.py
+COPY apps/assets-media/src/yoao_assets_video_inputs/ ./apps/assets-media/src/yoao_assets_video_inputs/
+COPY apps/assets-media/src/yoao_assets_video_inputs_runtime/__init__.py ./apps/assets-media/src/yoao_assets_video_inputs_runtime/__init__.py
+COPY apps/assets-media/src/yoao_assets_video_inputs_runtime/database.py ./apps/assets-media/src/yoao_assets_video_inputs_runtime/database.py
+COPY apps/assets-media/src/yoao_assets_video_inputs_runtime/garbage.py ./apps/assets-media/src/yoao_assets_video_inputs_runtime/garbage.py
+COPY apps/assets-media/src/yoao_assets_video_inputs_runtime/storage.py ./apps/assets-media/src/yoao_assets_video_inputs_runtime/storage.py
 WORKDIR /app/apps/assets-cleanup
 RUN uv venv /opt/venv \
     && uv sync --locked --no-dev --extra worker --no-editable \
@@ -34,4 +34,4 @@ RUN uv venv /opt/venv \
 USER 10001:10001
 HEALTHCHECK --interval=30s --timeout=3s --start-period=90s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready', timeout=2)"]
-CMD ["python", "-m", "aap_assets_cleanup"]
+CMD ["python", "-m", "yoao_assets_cleanup"]

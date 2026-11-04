@@ -8,11 +8,11 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_images import contract as image
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_inputs import contract as c
-from aap_assets_inputs_runtime import worker as input_worker
-from aap_assets_inputs_runtime.worker import InputExecutor, InputGarbageCollector
+from yoao_assets_images import contract as image
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs_runtime import worker as input_worker
+from yoao_assets_inputs_runtime.worker import InputExecutor, InputGarbageCollector
 from input_fixtures import BODY, input_work
 
 

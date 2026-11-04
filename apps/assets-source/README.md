@@ -1,11 +1,11 @@
 # Assets source runtime
 
-`aap-assets-source` is the existing private Python control plane for source
+`yoao-assets-source` is the existing private Python control plane for source
 uploads, deletion, synchronous ZIP ingest, and legacy bucket scanning. Its
-public values live in `aap_assets_source`; importing them does not require
+public values live in `yoao_assets_source`; importing them does not require
 the optional storage SDK. Managed-original I/O uses boto3/botocore from the
-server or importer extra. The server runs from `aap_assets_source_runtime`,
-uses asyncpg and boto3, and consumes the Pydantic-only `aap-assets-media` image
+server or importer extra. The server runs from `yoao_assets_source_runtime`,
+uses asyncpg and boto3, and consumes the Pydantic-only `yoao-assets-media` image
 contracts and policy. It does not import the API, SQLAlchemy, Celery, Redis,
 or ORM model packages.
 
@@ -194,7 +194,7 @@ Run locally with the server extra installed:
 
 ```sh
 uv sync --extra server
-python -m aap_assets_source_runtime
+python -m yoao_assets_source_runtime
 ```
 
 Build the standalone image from the repository root with:
@@ -206,7 +206,7 @@ docker build -f apps/assets-source/Dockerfile .
 ## Dataset import worker
 
 `Dockerfile.import` builds a separate worker process, started with
-`python -m aap_assets_source_import`. It uses its own PostgreSQL LOGIN role,
+`python -m yoao_assets_source_import`. It uses its own PostgreSQL LOGIN role,
 which must have execute access to exactly nine Dataset import functions;
 it exposes no HTTP port. Source S3 reads are conditional on the listed ETag,
 SFTP uses known-host verification and checks the listed file identity, and the

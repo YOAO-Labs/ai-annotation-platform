@@ -1,6 +1,6 @@
 # Assets catalog runtime
 
-`aap-assets-catalog` is a private Python control plane for the Assets catalog.
+`yoao-assets-catalog` is a private Python control plane for the Assets catalog.
 Its portable values use Pydantic and public Workspace/Source value packages.
 Source supplies the shared frame and Scene planner; no API-private code is imported. The server uses asyncpg and boto3;
 it does not import the API application, SQLAlchemy models, Celery, Redis, or ML
@@ -66,7 +66,7 @@ Run locally with the server extra installed:
 
 ```sh
 uv sync --extra server
-python -m aap_assets_catalog
+python -m yoao_assets_catalog
 ```
 
 The standalone Compose definition is `docker-compose.assets-catalog.yml`. It

@@ -7,8 +7,8 @@ from uuid import uuid4
 from cryptography.fernet import Fernet
 import pytest
 
-from aap_assets_source import connections_workflow as module
-from aap_assets_source.connections_contract import (
+from yoao_assets_source import connections_workflow as module
+from yoao_assets_source.connections_contract import (
     ConnectionCapture,
     ConnectionFailure,
     ConnectionPolicy,
@@ -27,12 +27,12 @@ from aap_assets_source.connections_contract import (
     TestConnectionRequest,
     UpdateConnectionRequest,
 )
-from aap_assets_source.connections_workflow import (
+from yoao_assets_source.connections_workflow import (
     ConnectionsOptions,
     ConnectionsWorkflow,
 )
-from aap_assets_source.connectors.crypto import decrypt_secret, encrypt_secret
-from aap_assets_source.connectors.host_guard import ConnectorHostDenied
+from yoao_assets_source.connectors.crypto import decrypt_secret, encrypt_secret
+from yoao_assets_source.connectors.host_guard import ConnectorHostDenied
 
 
 class Native:
@@ -88,7 +88,7 @@ class Native:
         )
 
     async def begin_connection_probe(self, request):
-        from aap_assets_source.connections_contract import ConnectionProbeLease
+        from yoao_assets_source.connections_contract import ConnectionProbeLease
 
         return ConnectionProbeLease(
             operation_id=uuid4(),
@@ -99,7 +99,7 @@ class Native:
         )
 
     async def finish_connection_probe(self, request):
-        from aap_assets_source.connections_contract import ConnectionProbeFinish
+        from yoao_assets_source.connections_contract import ConnectionProbeFinish
 
         return ConnectionProbeFinish(
             settled=request.settled,

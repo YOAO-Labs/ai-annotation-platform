@@ -10,14 +10,14 @@ from uuid import uuid4
 import pytest
 from botocore.exceptions import ClientError
 
-from aap_assets_images.contract import ObjectIdentity
-from aap_assets_source.managed_original_contract import ManagedOriginalMaterial
-from aap_assets_source_runtime.ingest_storage import (
+from yoao_assets_images.contract import ObjectIdentity
+from yoao_assets_source.managed_original_contract import ManagedOriginalMaterial
+from yoao_assets_source_runtime.ingest_storage import (
     IngestEntryFailure,
     IngestStorage,
     run_in_thread,
 )
-from aap_assets_source_runtime.ingest_workflow import IngestWorkflow
+from yoao_assets_source_runtime.ingest_workflow import IngestWorkflow
 from test_ingest_workflow import _Data, _ImageAdmission, _command
 
 
@@ -328,7 +328,7 @@ async def test_storage_list_failure_is_command_failure() -> None:
         def get_paginator(self, _name):
             raise OSError("boom")
 
-    from aap_assets_source.ingest_contract import IngestFailure
+    from yoao_assets_source.ingest_contract import IngestFailure
 
     workflow = IngestWorkflow(
         data=_Data(),

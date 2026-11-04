@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from aap_assets_cleanup.contract import (
+from yoao_assets_cleanup.contract import (
     AssetStorageDeletion,
     CleanupBucket,
     DeletionCursor,

@@ -1,6 +1,6 @@
 import pytest
 
-from aap_assets_cleanup.config import ConfigurationError, load_config
+from yoao_assets_cleanup.config import ConfigurationError, load_config
 
 
 def _environment():

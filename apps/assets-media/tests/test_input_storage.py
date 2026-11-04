@@ -7,9 +7,9 @@ from uuid import uuid4
 from botocore.exceptions import ClientError
 import pytest
 
-from aap_assets_inputs import contract as c
-from aap_assets_inputs_runtime import storage as module
-from aap_assets_inputs_runtime.storage import S3InputStorage
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs_runtime import storage as module
+from yoao_assets_inputs_runtime.storage import S3InputStorage
 from input_fixtures import BODY
 
 

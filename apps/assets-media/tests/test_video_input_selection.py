@@ -9,9 +9,9 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_video_inputs.authority import VideoSelection
-from aap_assets_video_inputs.execution import CapturedVideoTask
-from aap_assets_video_inputs.selection import (
+from yoao_assets_video_inputs.authority import VideoSelection
+from yoao_assets_video_inputs.execution import CapturedVideoTask
+from yoao_assets_video_inputs.selection import (
     LockVideoInputManifestMemberRequest,
     OpenVideoInputManifestMembersRequest,
     SelectionCursorError,
@@ -22,7 +22,7 @@ from aap_assets_video_inputs.selection import (
     parse_cursor_row,
     parse_native,
 )
-from aap_assets_video_inputs.values import FrameSampling
+from yoao_assets_video_inputs.values import FrameSampling
 
 
 def _selection(
@@ -70,7 +70,7 @@ def _open_request(selection=None):
 
 def test_selection_artifact_matches_the_public_native_contract():
     artifact = (
-        Path(__file__).parents[1] / "src/aap_assets_video_inputs/selection.schema.json"
+        Path(__file__).parents[1] / "src/yoao_assets_video_inputs/selection.schema.json"
     )
     assert json.loads(artifact.read_text()) == contract_document()
     assert set(contract_document()["x-native"]) == {

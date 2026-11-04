@@ -8,15 +8,15 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     ImageBackfillPage,
     ImageBackfillSelection,
     ImageFailure,
     ImageSource,
     ScanImageBackfillRequest,
 )
-from aap_assets_images.http_contract import http_document
-from aap_assets_images.transport import (
+from yoao_assets_images.http_contract import http_document
+from yoao_assets_images.transport import (
     ImageAssetReference,
     ImageAssetReferences,
     ImageAssetReferencesRequest,
@@ -204,7 +204,7 @@ def test_source_and_generation_references_cannot_cross_actor_or_snapshot():
         thumbnail_url=None,
         expires_in=60,
     )
-    from aap_assets_images.contract import ReadImageSourceRequest
+    from yoao_assets_images.contract import ReadImageSourceRequest
 
     require_source_reference_scope(
         ReadImageSourceRequest(actor_id=actor_id, dataset_item_id=item_id),
@@ -366,7 +366,7 @@ async def test_backfill_iterator_checks_scope_snapshot_and_global_cursor_progres
 
 def test_shipped_http_image_namespace_has_closed_refs_and_no_worker_commands():
     document = http_document()
-    path = Path(__file__).parents[1] / "src/aap_assets_images/openapi.snapshot.json"
+    path = Path(__file__).parents[1] / "src/yoao_assets_images/openapi.snapshot.json"
     assert json.loads(path.read_text()) == document
     assert "/v1/images/commands/claim_image_media" not in document["paths"]
     assert "/v1/images/commands/claim_image_garbage" not in document["paths"]

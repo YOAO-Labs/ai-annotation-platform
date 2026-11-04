@@ -9,7 +9,7 @@ import stat
 import time
 from uuid import UUID, uuid4
 
-from aap_site_agent_contract import (
+from yoao_site_agent_contract import (
     canonical_json,
     digest,
     validate_ack,

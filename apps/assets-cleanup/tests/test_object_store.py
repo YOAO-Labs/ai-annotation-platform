@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_cleanup.object_store import (
+from yoao_assets_cleanup.object_store import (
     CleanupStopped,
     S3PrefixDeleter,
     StorageFailure,

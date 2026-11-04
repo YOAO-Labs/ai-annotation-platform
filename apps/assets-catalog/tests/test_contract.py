@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_catalog.contract import (
+from yoao_assets_catalog.contract import (
     CATALOG_SCHEMA,
     CatalogFailure,
     CatalogItem,
@@ -156,7 +156,7 @@ def test_core_import_does_not_load_server_or_api_modules() -> None:
         "import sys; "
         f"sys.path.insert(0, {str(source_dir)!r}); "
         f"sys.path.insert(0, {str(workspace_source_dir)!r}); "
-        "import aap_assets_catalog; "
+        "import yoao_assets_catalog; "
         "forbidden = {'fastapi', 'asyncpg', 'boto3', 'sqlalchemy', 'app'}; "
         "assert not forbidden.intersection(sys.modules)"
     )

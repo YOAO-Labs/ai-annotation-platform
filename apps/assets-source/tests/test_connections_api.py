@@ -6,7 +6,7 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 import pytest
 
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.connections_contract import (
     CONNECTION_OPERATIONS,
     ConnectionFailure,
     CreateConnectionRequest,
@@ -16,8 +16,8 @@ from aap_assets_source.connections_contract import (
     TestConnectionRequest,
     UpdateConnectionRequest,
 )
-from aap_assets_source_runtime.api import create_app
-from aap_assets_source_runtime.config import load_config
+from yoao_assets_source_runtime.api import create_app
+from yoao_assets_source_runtime.config import load_config
 
 
 def _config(**overrides):

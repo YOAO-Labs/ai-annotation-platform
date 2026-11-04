@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 from pydantic import ValidationError
 import pytest
 
-from aap_assets_video_inputs import values as c
+from yoao_assets_video_inputs import values as c
 
 
 def video_input(**changes):

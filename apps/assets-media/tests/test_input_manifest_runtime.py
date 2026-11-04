@@ -7,9 +7,9 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_images import contract as image
-from aap_assets_input_manifests import contract as c
-from aap_assets_input_manifests_runtime.control import ManifestControl
+from yoao_assets_images import contract as image
+from yoao_assets_input_manifests import contract as c
+from yoao_assets_input_manifests_runtime.control import ManifestControl
 
 
 def fixture_values(*, state="unprepared", identity=None):
@@ -57,7 +57,7 @@ def fixture_values(*, state="unprepared", identity=None):
     input_record = None
     error = None
     if state == "preparing":
-        from aap_assets_inputs.contract import InputRecord
+        from yoao_assets_inputs.contract import InputRecord
 
         input_record = InputRecord(
             input_id=uuid4(),
@@ -126,7 +126,7 @@ async def test_prepare_observes_frozen_snapshot_before_native_write():
     observed = source.model_copy(
         update={"object_identity": image.ObjectIdentity(etag="source-v1", byte_size=12)}
     )
-    from aap_assets_inputs.contract import InputRecord
+    from yoao_assets_inputs.contract import InputRecord
 
     pending_input = InputRecord(
         input_id=uuid4(),

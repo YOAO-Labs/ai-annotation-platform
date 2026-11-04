@@ -8,16 +8,16 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_source.connections_contract import (
+from yoao_assets_source.connections_contract import (
     ConnectionFailure,
     ConnectionRecord,
     ConnectionsPage,
     ListConnectionsRequest,
     decode_connection_reply,
 )
-from aap_assets_source_runtime.config import load_config
-from aap_assets_source_runtime import runtime as runtime_module
-from aap_assets_source_runtime.runtime import SourceRuntime
+from yoao_assets_source_runtime.config import load_config
+from yoao_assets_source_runtime import runtime as runtime_module
+from yoao_assets_source_runtime.runtime import SourceRuntime
 
 
 def _config(*, max_response_bytes: int = 16_777_216):

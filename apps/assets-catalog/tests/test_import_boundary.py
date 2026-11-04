@@ -12,10 +12,10 @@ def test_catalog_and_spatial_imports_do_not_pull_api_orm_queue_or_ml_modules() -
         "import sys; "
         f"sys.path.insert(0, {str(source_dir)!r}); "
         f"sys.path.insert(0, {str(workspace_source_dir)!r}); "
-        "import aap_assets_catalog.axis_convention; "
-        "import aap_assets_catalog.axis_sniff; "
-        "import aap_assets_catalog.spatial_values; "
-        "import aap_assets_catalog.api; "
+        "import yoao_assets_catalog.axis_convention; "
+        "import yoao_assets_catalog.axis_sniff; "
+        "import yoao_assets_catalog.spatial_values; "
+        "import yoao_assets_catalog.api; "
         "forbidden = {'app', 'sqlalchemy', 'celery', 'redis', 'torch'}; "
         "assert not forbidden.intersection(sys.modules)"
     )
@@ -31,6 +31,6 @@ class CoreOnly(importlib.abc.MetaPathFinder):
         if name.split('.')[0] in {'boto3', 'botocore', 'asyncpg', 'fastapi', 'sqlalchemy', 'celery', 'app'}:
             raise AssertionError(f'Optional server dependency imported by core workflow: {name}')
 sys.meta_path.insert(0, CoreOnly())
-from aap_assets_catalog.spatial_workflow import SpatialWorkflow
+from yoao_assets_catalog.spatial_workflow import SpatialWorkflow
 """
     subprocess.run([sys.executable, "-c", script], check=True)

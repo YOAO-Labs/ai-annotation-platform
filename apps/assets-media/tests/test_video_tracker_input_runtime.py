@@ -15,10 +15,10 @@ from fastapi import FastAPI
 from unittest.mock import AsyncMock
 import pytest
 
-from aap_assets_video_inputs import execution as e
-from aap_assets_video_inputs import tracker as t
-from aap_assets_video_inputs import tracker_http as h
-from aap_assets_video_inputs.values import (
+from yoao_assets_video_inputs import execution as e
+from yoao_assets_video_inputs import tracker as t
+from yoao_assets_video_inputs import tracker_http as h
+from yoao_assets_video_inputs.values import (
     FrameSampling,
     FrameTimeEntry,
     FrozenFramePlan,
@@ -29,10 +29,10 @@ from aap_assets_video_inputs.values import (
     VideoFacts,
     VideoSourceSnapshot,
 )
-from aap_assets_video_inputs.tracker_client import TrackerVideoInputClient
-from aap_assets_video_inputs_runtime.tracker_api import install_tracker_routes
-from aap_assets_video_inputs_runtime.tracker_control import TrackerVideoInputControl
-from aap_assets_video_inputs_runtime.tracker_database import (
+from yoao_assets_video_inputs.tracker_client import TrackerVideoInputClient
+from yoao_assets_video_inputs_runtime.tracker_api import install_tracker_routes
+from yoao_assets_video_inputs_runtime.tracker_control import TrackerVideoInputControl
+from yoao_assets_video_inputs_runtime.tracker_database import (
     AsyncpgTrackerVideoInputDatabase,
     TrackerVideoInputExecutorDatabase,
 )
@@ -367,7 +367,7 @@ async def test_tracker_http_client_server_bounds_auth_scope_and_three_routes():
 
 
 def test_shared_media_app_composes_tracker_routes_only_when_tracker_control_is_given():
-    from aap_assets_media_runtime.api import create_app
+    from yoao_assets_media_runtime.api import create_app
 
     fixtures = _fixtures()
     app = create_app(object(), TOKEN, tracker_control=_FakeControl(fixtures))

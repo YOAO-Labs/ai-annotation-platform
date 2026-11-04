@@ -6,9 +6,9 @@ from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
 
-from aap_assets_source.contract import SourceFailure
-from aap_assets_source_runtime.config import load_config
-from aap_assets_source_runtime.storage import SourceStorage
+from yoao_assets_source.contract import SourceFailure
+from yoao_assets_source_runtime.config import load_config
+from yoao_assets_source_runtime.storage import SourceStorage
 
 
 def _config():

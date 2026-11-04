@@ -8,8 +8,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_media.contract import MediaFailure, MediaSource, ObjectIdentity
-from aap_assets_media_runtime.storage import S3MediaStorage
+from yoao_assets_media.contract import MediaFailure, MediaSource, ObjectIdentity
+from yoao_assets_media_runtime.storage import S3MediaStorage
 
 
 class _ClientError(Exception):

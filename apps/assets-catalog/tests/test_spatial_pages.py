@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from aap_assets_catalog.spatial_pages import (
+from yoao_assets_catalog.spatial_pages import (
     SpatialPage,
     SpatialPageError,
     collect_spatial_pages,

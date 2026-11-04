@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_images.contract import (
+from yoao_assets_images.contract import (
     IMAGE_SCHEMA,
     OPERATIONS,
     AdvanceImageBackfillRequest,
@@ -24,17 +24,17 @@ from aap_assets_images.contract import (
     ReconcileImageMediaRequest,
     ReadImageSourceRequest,
 )
-from aap_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
-from aap_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
-from aap_assets_input_manifests.contract import OPERATIONS as MANIFEST_OPERATIONS
-from aap_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
-from aap_assets_video_inputs.tracker import TRACKER_OPERATIONS
-from aap_assets_images_runtime.database import (
+from yoao_assets_media.contract import OPERATIONS as VIDEO_OPERATIONS
+from yoao_assets_inputs.contract import OPERATIONS as INPUT_OPERATIONS
+from yoao_assets_input_manifests.contract import OPERATIONS as MANIFEST_OPERATIONS
+from yoao_assets_video_inputs.execution import OPERATIONS as VIDEO_INPUT_OPERATIONS
+from yoao_assets_video_inputs.tracker import TRACKER_OPERATIONS
+from yoao_assets_images_runtime.database import (
     AsyncpgImageDatabase,
     prepare_native_call,
     validate_native_result,
 )
-from aap_assets_images_runtime.health import check_capabilities
+from yoao_assets_images_runtime.health import check_capabilities
 
 
 class _Transaction:
@@ -235,7 +235,7 @@ def test_finish_binding_preserves_frozen_manifest_wire_aliases():
 
 
 def test_native_binding_enforces_per_page_record_budget(monkeypatch):
-    import aap_assets_images_runtime.database as database_module
+    import yoao_assets_images_runtime.database as database_module
 
     request = AdvanceImageBackfillRequest(
         job_id=uuid4(), generation=1, lease_token=uuid4(), batch_size=1

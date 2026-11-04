@@ -8,7 +8,7 @@ from urllib import error
 
 import pytest
 
-from aap_site_agent_contract import canonical_json
+from yoao_site_agent_contract import canonical_json
 
 from storage_agent.client import Bandwidth, Client, DeadlineConnection
 from storage_agent.config import AgentError

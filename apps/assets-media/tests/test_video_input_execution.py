@@ -5,8 +5,8 @@ from uuid import uuid4
 from pydantic import ValidationError
 import pytest
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import values as v
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import values as v
 from video_input_fixtures import (
     CURRENT_ACTOR,
     FRAME_LEASE,

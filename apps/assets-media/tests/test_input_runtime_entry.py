@@ -5,7 +5,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_images_runtime import worker
+from yoao_assets_images_runtime import worker
 
 
 @pytest.mark.asyncio

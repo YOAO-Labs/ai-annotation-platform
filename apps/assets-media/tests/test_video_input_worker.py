@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aap_assets_images.contract import ImageSource, ObjectIdentity as TransportIdentity
-from aap_assets_inputs.contract import InputFailure
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import values as v
-from aap_assets_video_inputs_runtime import worker as w
-from aap_assets_video_inputs_runtime.storage import VideoDownload, VideoSourceStorage
+from yoao_assets_images.contract import ImageSource, ObjectIdentity as TransportIdentity
+from yoao_assets_inputs.contract import InputFailure
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import values as v
+from yoao_assets_video_inputs_runtime import worker as w
+from yoao_assets_video_inputs_runtime.storage import VideoDownload, VideoSourceStorage
 from video_input_fixtures import (
     FRAME_ID,
     FRAME_LEASE,

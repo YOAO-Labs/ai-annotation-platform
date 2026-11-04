@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs_runtime.database import (
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs_runtime.database import (
     AsyncpgVideoInputDatabase,
     prepare_native_call,
 )

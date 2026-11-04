@@ -10,8 +10,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from aap_media_probe import app as app_module
-from aap_media_probe.app import create_app
+from yoao_media_probe import app as app_module
+from yoao_media_probe.app import create_app
 
 TOKEN = "local-media-probe-test-token-000000000000"
 

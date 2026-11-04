@@ -5,15 +5,15 @@ import sys
 import httpx
 import pytest
 
-from aap_assets_images.contract import ImagePolicy
-from aap_assets_images_runtime.config import ImageStorageConfig
-from aap_assets_media import contract as video
-from aap_assets_inputs import contract as inputs
-from aap_assets_video_inputs import execution as video_inputs
-from aap_assets_video_inputs.http_contract import CONTROL_SCHEMA
-from aap_assets_media_runtime.config import MediaStorageConfig
-from aap_assets_media_runtime.control_config import MediaControlConfig
-from aap_assets_media_runtime import __main__ as shared_runtime
+from yoao_assets_images.contract import ImagePolicy
+from yoao_assets_images_runtime.config import ImageStorageConfig
+from yoao_assets_media import contract as video
+from yoao_assets_inputs import contract as inputs
+from yoao_assets_video_inputs import execution as video_inputs
+from yoao_assets_video_inputs.http_contract import CONTROL_SCHEMA
+from yoao_assets_media_runtime.config import MediaStorageConfig
+from yoao_assets_media_runtime.control_config import MediaControlConfig
+from yoao_assets_media_runtime import __main__ as shared_runtime
 
 
 class _Pool:
@@ -53,7 +53,7 @@ class _ImageDatabase:
 
     async def call(self, operation, request):
         assert operation == "read_image_usage"
-        from aap_assets_images.contract import ImageUsage
+        from yoao_assets_images.contract import ImageUsage
 
         return ImageUsage(
             source_bytes=0,

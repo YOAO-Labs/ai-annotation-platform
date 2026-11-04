@@ -7,9 +7,9 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
-from aap_assets_images import contract as c
-from aap_assets_images.client import ImageClient
-from aap_assets_images.transport import (
+from yoao_assets_images import contract as c
+from yoao_assets_images.client import ImageClient
+from yoao_assets_images.transport import (
     ImageAssetReference,
     ImageAssetReferences,
     ImageAssetReferencesRequest,
@@ -20,7 +20,7 @@ from aap_assets_images.transport import (
     ImageSourceReferences,
     ImageSourceReferencesRequest,
 )
-from aap_assets_images_runtime.api import install_image_routes
+from yoao_assets_images_runtime.api import install_image_routes
 
 
 def source(item_id=None):

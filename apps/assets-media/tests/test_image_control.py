@@ -5,20 +5,20 @@ from uuid import uuid4
 
 import pytest
 
-from aap_assets_images import contract as c
-from aap_assets_images.geometry import (
+from yoao_assets_images import contract as c
+from yoao_assets_images.geometry import (
     build_manifest,
     canonical_manifest_bytes,
     sha256_digest,
 )
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images.transport import (
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images.transport import (
     ImageAssetReferencesRequest,
     ImageGenerationReferenceRequest,
     ImageSourceReferencesRequest,
     InternalImageSourceReferenceRequest,
 )
-from aap_assets_images_runtime.control import ImageControl
+from yoao_assets_images_runtime.control import ImageControl
 
 
 def source(*, owner=None, thumbnail_path=None, thumbnail_current=False):

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aap_assets_source_import.config import ConfigurationError, load_config
+from yoao_assets_source_import.config import ConfigurationError, load_config
 
 
 def _environment() -> dict[str, str]:

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import hashlib
 from uuid import uuid4
 
-from aap_assets_inputs import contract as c
+from yoao_assets_inputs import contract as c
 
 BODY = b"accepted input bytes"
 

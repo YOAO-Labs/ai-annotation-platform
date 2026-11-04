@@ -9,7 +9,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_media.contract import (
+from yoao_assets_media.contract import (
     MEDIA_SCHEMA,
     OPERATIONS,
     AcceptedWork,
@@ -85,7 +85,7 @@ def claim(**changes):
 
 def test_installed_schema_names_roles_and_types_are_frozen():
     schema_path = (
-        Path(__file__).parents[1] / "src/aap_assets_media/protocol.schema.json"
+        Path(__file__).parents[1] / "src/yoao_assets_media/protocol.schema.json"
     )
     assert json.loads(schema_path.read_text()) == contract_document()
     assert len(OPERATIONS) == 28
@@ -99,7 +99,7 @@ def test_installed_schema_names_roles_and_types_are_frozen():
 
 
 def test_core_imports_no_api_or_runtime_framework():
-    root = Path(__file__).parents[1] / "src/aap_assets_media"
+    root = Path(__file__).parents[1] / "src/yoao_assets_media"
     forbidden = {"app", "sqlalchemy", "fastapi", "celery", "asyncpg", "boto3"}
     for file in root.glob("*.py"):
         if file.name not in {"__init__.py", "contract.py"}:

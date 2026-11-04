@@ -26,7 +26,7 @@ ENV ASSETS_MEDIA_HOST=0.0.0.0 ASSETS_MEDIA_PORT=8768
 EXPOSE 8768
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8768/health/ready', timeout=2)"]
-CMD ["python", "-m", "aap_assets_media_runtime"]
+CMD ["python", "-m", "yoao_assets_media_runtime"]
 
 FROM runtime AS worker
 RUN apt-get update \
@@ -34,8 +34,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 USER 10005:10005
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD ["python", "-m", "aap_assets_media_runtime.worker", "--healthcheck"]
-CMD ["python", "-m", "aap_assets_media_runtime.worker"]
+    CMD ["python", "-m", "yoao_assets_media_runtime.worker", "--healthcheck"]
+CMD ["python", "-m", "yoao_assets_media_runtime.worker"]
 
 FROM runtime AS image-worker
 RUN apt-get update \
@@ -44,5 +44,5 @@ RUN apt-get update \
 USER 10005:10005
 ENV IMAGE_PYRAMID_SRGB_PROFILE=/usr/share/color/icc/sRGB.icc
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD ["python", "-m", "aap_assets_images_runtime.worker", "--healthcheck"]
-CMD ["python", "-m", "aap_assets_images_runtime.worker"]
+    CMD ["python", "-m", "yoao_assets_images_runtime.worker", "--healthcheck"]
+CMD ["python", "-m", "yoao_assets_images_runtime.worker"]

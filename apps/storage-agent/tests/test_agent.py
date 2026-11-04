@@ -6,9 +6,9 @@ from uuid import uuid4
 
 import pytest
 
-from aap_site_agent_contract import digest, validate_command
-from aap_filesystem_read import capture_anchor
-from aap_filesystem_read import roots as fs
+from yoao_site_agent_contract import digest, validate_command
+from yoao_filesystem_read import capture_anchor
+from yoao_filesystem_read import roots as fs
 
 from storage_agent.config import AgentError, Config, Credentials
 from storage_agent.journal import Journal
@@ -392,7 +392,7 @@ def test_cli_check_contains_no_credentials_or_absolute_roots(
         },
     )
     monkeypatch.setattr(
-        "sys.argv", ["aap-storage-agent", "--config", str(path), "--check"]
+        "sys.argv", ["yoao-storage-agent", "--config", str(path), "--check"]
     )
     from storage_agent.__main__ import main
 

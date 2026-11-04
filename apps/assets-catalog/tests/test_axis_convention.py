@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from aap_assets_catalog.axis_convention import (
+from yoao_assets_catalog.axis_convention import (
     R_NORM,
     apply_to_psr,
     sniff_convention_from_forward,

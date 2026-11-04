@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import ValidationError
 import pytest
 
-from aap_assets_source.import_contract import (
+from yoao_assets_source.import_contract import (
     ImportAcceptance,
     ImportConnection,
     ImportContext,
@@ -325,7 +325,7 @@ def test_import_reply_decoder_rejects_malformed_and_unknown_errors():
 
 def test_packaged_schema_tracks_public_import_models_and_failure_codes():
     schema = json.loads(
-        files("aap_assets_source")
+        files("yoao_assets_source")
         .joinpath("import_contract.schema.json")
         .read_text(encoding="utf-8")
     )

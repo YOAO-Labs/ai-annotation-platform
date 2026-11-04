@@ -10,5 +10,5 @@ RUN pip install --no-cache-dir ./filesystem_read ./site_agent_contract ./storage
     && chown 65532:65532 /var/lib/aap-storage-agent \
     && chmod 0700 /var/lib/aap-storage-agent
 USER 65532:65532
-ENTRYPOINT ["aap-storage-agent"]
+ENTRYPOINT ["yoao-storage-agent"]
 CMD ["--config", "/etc/aap-storage-agent/agent.json"]

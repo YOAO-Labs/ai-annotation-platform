@@ -1,8 +1,8 @@
-from aap_assets_images.policy import ImagePolicy
-from aap_assets_images_runtime.config import ImageStorageConfig
-from aap_assets_media_runtime.config import MediaStorageConfig
-from aap_assets_media_runtime.control_config import MediaControlConfig
-from aap_assets_media_runtime import __main__ as media_main
+from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images_runtime.config import ImageStorageConfig
+from yoao_assets_media_runtime.config import MediaStorageConfig
+from yoao_assets_media_runtime.control_config import MediaControlConfig
+from yoao_assets_media_runtime import __main__ as media_main
 
 TOKEN = "manifest-startup-test-" + "x" * 32
 

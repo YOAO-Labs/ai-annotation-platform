@@ -7,7 +7,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 import pytest
 
-from aap_assets_input_manifests import contract as c
+from yoao_assets_input_manifests import contract as c
 
 
 def scope():

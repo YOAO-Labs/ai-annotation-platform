@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 import pytest
 
-from aap_media_probe import probe as python_probe
+from yoao_media_probe import probe as python_probe
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 PEER = Path(__file__).with_name("node_peer.mjs")
@@ -155,7 +155,7 @@ def _start_python_service(tmpdir: Path, *, max_file_bytes: int = MAX_FILE_BYTES)
             python,
             "-m",
             "uvicorn",
-            "aap_media_probe.app:create_app",
+            "yoao_media_probe.app:create_app",
             "--factory",
             "--host",
             "127.0.0.1",

@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
-from aap_assets_inputs import contract as c
-from aap_assets_inputs.client import InputClient
-from aap_assets_inputs_runtime.api import install_input_routes
+from yoao_assets_inputs import contract as c
+from yoao_assets_inputs.client import InputClient
+from yoao_assets_inputs_runtime.api import install_input_routes
 from input_fixtures import BODY, input_reference, input_request, input_work
 
 TOKEN = "input-owner-test-token-" + "x" * 32

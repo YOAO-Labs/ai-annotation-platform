@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock
 from PIL import Image
 import pytest
 
-from aap_assets_video_inputs import execution as c
-from aap_assets_video_inputs import values as v
-from aap_assets_video_inputs_runtime import processing as p
+from yoao_assets_video_inputs import execution as c
+from yoao_assets_video_inputs import values as v
+from yoao_assets_video_inputs_runtime import processing as p
 from video_input_fixtures import record, write_video
 
 
@@ -235,7 +235,7 @@ async def test_heartbeat_loss_interrupts_and_reaps_active_probe(tmp_path, monkey
     from types import SimpleNamespace
     import os
 
-    from aap_assets_video_inputs_runtime.worker import _Lease
+    from yoao_assets_video_inputs_runtime.worker import _Lease
     from video_input_fixtures import claim
 
     pid_path = tmp_path / "revoked-child.pid"

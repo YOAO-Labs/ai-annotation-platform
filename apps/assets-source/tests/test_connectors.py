@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 from cryptography.fernet import Fernet
 
-from aap_assets_source.connectors import (
+from yoao_assets_source.connectors import (
     ConnectorAllowlistInvalid,
     ConnectorCryptoError,
     ConnectorCryptoNotConfigured,
@@ -23,12 +23,12 @@ from aap_assets_source.connectors import (
     extract_host,
     normalize_allowlist,
 )
-from aap_assets_source.connectors.s3 import (
+from yoao_assets_source.connectors.s3 import (
     S3CompatibleSource,
     validate_s3_endpoint,
     validate_s3_source_path,
 )
-from aap_assets_source.connectors.sftp import validate_sftp_source_path
+from yoao_assets_source.connectors.sftp import validate_sftp_source_path
 
 
 class _FakeS3Client:
@@ -143,7 +143,7 @@ def test_host_guard_normalizes_and_rejects_hard_blocked_addresses(monkeypatch) -
         assert_host_allowed("127.0.0.1", ["127.0.0.1/32"])
 
     monkeypatch.setattr(
-        "aap_assets_source.connectors.host_guard.socket.getaddrinfo",
+        "yoao_assets_source.connectors.host_guard.socket.getaddrinfo",
         lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 0))],
     )
     assert_host_allowed("media.example.test", [".example.test"])
@@ -244,7 +244,7 @@ def test_sftp_private_key_parser_supports_declared_key_types(
 
         monkeypatch.setattr(key_class, "from_private_key", staticmethod(loader))
 
-    from aap_assets_source.connectors.sftp import load_sftp_private_key
+    from yoao_assets_source.connectors.sftp import load_sftp_private_key
 
     assert load_sftp_private_key(
         {"private_key": "key-data", "passphrase": "private-passphrase"}
@@ -271,7 +271,7 @@ def test_sftp_connection_failure_closes_partial_client(monkeypatch) -> None:
 
     client = _FailingClient()
     monkeypatch.setattr(paramiko, "SSHClient", lambda: client)
-    from aap_assets_source.connectors.sftp import SftpSource
+    from yoao_assets_source.connectors.sftp import SftpSource
 
     with pytest.raises(OSError, match="connection failed"):
         SftpSource(
@@ -364,7 +364,7 @@ def test_sftp_adapter_lists_filters_and_opens_with_listing_identity(
         "paramiko",
         SimpleNamespace(SSHClient=_FakeSshClient, RejectPolicy=lambda: object()),
     )
-    from aap_assets_source.connectors.sftp import SftpSource
+    from yoao_assets_source.connectors.sftp import SftpSource
 
     source = SftpSource(
         {"host": "sftp.example.test", "username": "user", "base_path": "/data"},

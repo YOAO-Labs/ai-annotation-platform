@@ -4,8 +4,8 @@ from pathlib import Path
 
 import pytest
 
-from aap_media_probe.client import MediaProbeClient
-from aap_assets_media_runtime.config import (
+from yoao_media_probe.client import MediaProbeClient
+from yoao_assets_media_runtime.config import (
     ConfigurationError,
     load_config,
     load_storage_config,

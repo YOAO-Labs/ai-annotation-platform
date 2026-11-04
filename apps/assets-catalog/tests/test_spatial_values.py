@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_catalog.spatial_values import (
+from yoao_assets_catalog.spatial_values import (
     FramePose,
     SensorCalibration,
     calibration_digest,

@@ -8,7 +8,7 @@ import time
 from urllib import error, request
 from uuid import UUID, uuid4
 
-from aap_site_agent_contract import (
+from yoao_site_agent_contract import (
     ProtocolError,
     canonical_json,
     digest,

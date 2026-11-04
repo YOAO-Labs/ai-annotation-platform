@@ -4,7 +4,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_assets_catalog.contract import (
+from yoao_assets_catalog.contract import (
     CATALOG_SCHEMA,
     CatalogFailure,
     CreateDatasetRequest,
@@ -13,15 +13,15 @@ from aap_assets_catalog.contract import (
     ListDatasetsRequest,
     ListItemsRequest,
 )
-from aap_assets_catalog.associations_contract import (
+from yoao_assets_catalog.associations_contract import (
     ASSOCIATIONS_SCHEMA,
     AssociationFailure,
     ListDatasetProjectsRequest,
     ListProjectDatasetsRequest,
 )
-from aap_assets_catalog import spatial_contract as spatial
-from aap_assets_catalog.spatial_contract import SPATIAL_NATIVE_SIGNATURES
-from aap_assets_catalog.database import (
+from yoao_assets_catalog import spatial_contract as spatial
+from yoao_assets_catalog.spatial_contract import SPATIAL_NATIVE_SIGNATURES
+from yoao_assets_catalog.database import (
     EXPECTED_ASSET_FUNCTIONS,
     ROLE_PREFLIGHT_SQL,
     CatalogDatabase,

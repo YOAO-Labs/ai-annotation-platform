@@ -14,7 +14,7 @@ import time
 from urllib import error, request
 from uuid import UUID, uuid4
 
-from aap_site_agent_contract import ProtocolError, canonical_json, parse_json
+from yoao_site_agent_contract import ProtocolError, canonical_json, parse_json
 
 from .client import center_opener
 from .config import AgentError, Credentials, private_json

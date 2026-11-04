@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from cryptography.fernet import Fernet
 
-from aap_assets_source_runtime.config import ConfigurationError, load_config
+from yoao_assets_source_runtime.config import ConfigurationError, load_config
 
 
 def _environment() -> dict[str, str]:
