@@ -115,7 +115,7 @@ class InteractiveBackend(plumbing.CPUBackend):
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
 
     def respond(self, payload):
-        from aap_protocol_v2 import (
+        from yoao_protocol_v2 import (
             CocoRlePayload,
             decode_low_res_mask,
             encode_low_res_mask,

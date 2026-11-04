@@ -3335,7 +3335,7 @@ def _verify_audit_daily_projection_boundary(
     async def verify_refresh_login() -> None:
         import asyncpg
 
-        from aap_owner_data.postgres import verify_function_only_role
+        from yoao_owner_data.postgres import verify_function_only_role
 
         connection = await asyncpg.connect(refresh_url, timeout=5)
         try:
@@ -3490,7 +3490,7 @@ def _verify_audit_maintenance_boundary(
     async def verify_maintenance_login() -> None:
         import asyncpg
 
-        from aap_owner_data.postgres import verify_function_only_role
+        from yoao_owner_data.postgres import verify_function_only_role
 
         connection = await asyncpg.connect(maintenance_url, timeout=5)
         try:
@@ -6524,7 +6524,7 @@ def main(argv: list[str] | None = None) -> int:
         async def verify_delivery_read_login() -> None:
             import asyncpg
 
-            from aap_owner_data.postgres import verify_function_only_role
+            from yoao_owner_data.postgres import verify_function_only_role
 
             connection = await asyncpg.connect(
                 notification_delivery_read_url, timeout=5
@@ -6555,7 +6555,7 @@ def main(argv: list[str] | None = None) -> int:
         async def verify_inbox_login() -> None:
             import asyncpg
 
-            from aap_owner_data.postgres import verify_function_only_role
+            from yoao_owner_data.postgres import verify_function_only_role
 
             connection = await asyncpg.connect(notification_inbox_url, timeout=5)
             try:

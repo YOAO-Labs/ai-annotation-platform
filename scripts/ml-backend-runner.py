@@ -31,8 +31,10 @@ CODE_PROBE = """import ast,hashlib,importlib.util,json,pathlib
 main=pathlib.Path(importlib.util.find_spec('main').origin)
 t=ast.parse(main.read_text())
 shutdown=any(isinstance(n,ast.Await) and isinstance(n.value,ast.Call) and isinstance(n.value.func,ast.Attribute) and isinstance(n.value.func.value,ast.Name) and n.value.func.value.id=='_gpu_lifecycle' and n.value.func.attr=='shutdown' for n in ast.walk(t))
-shared=any(isinstance(n,ast.ImportFrom) and n.module=='aap_backend_runtime.gpu_lifecycle' for n in ast.walk(t))
-lifecycle=pathlib.Path(importlib.util.find_spec('aap_backend_runtime.gpu_lifecycle' if shared else 'gpu_lifecycle').origin)
+shared=any(isinstance(n,ast.ImportFrom) and n.module=='yoao_backend_runtime.gpu_lifecycle' for n in ast.walk(t))
+local=any(isinstance(n,ast.ImportFrom) and n.module=='gpu_lifecycle' for n in ast.walk(t))
+if not (shared or local): raise RuntimeError('Unsupported lifecycle module in selected image')
+lifecycle=pathlib.Path(importlib.util.find_spec('yoao_backend_runtime.gpu_lifecycle' if shared else 'gpu_lifecycle').origin)
 result={'shutdown':shutdown,'lifecycle_sha256':hashlib.sha256(lifecycle.read_bytes()).hexdigest()}
 """
 PROBE = (
