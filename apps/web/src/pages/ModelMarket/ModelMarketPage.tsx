@@ -86,7 +86,7 @@ export function ModelMarketPage() {
       <div className="mb-3">
         <h1 className="mb-1 text-xl font-semibold">模型市场</h1>
         <p className="text-sm text-muted-foreground">
-          查找可用模型、了解协议能力，或管理后端服务与运行状态。
+          查找模型、了解协议能力，或管理模型服务与运行状态。
           {/* v0.10.38 · 视频追踪任务监控已迁至 /ai-pre/jobs 视频 tab (epic 阶段 3) */}
         </p>
       </div>

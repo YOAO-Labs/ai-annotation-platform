@@ -174,7 +174,7 @@ export function ProjectBindingsSection({
         <EmptyState
           icon="folder"
           message="尚无项目启用 AI 或服务池"
-          hint="在项目设置里启用 AI 并绑定 backend 后会出现在这里。"
+          hint="在项目设置中启用 AI 和模型服务后会出现在这里。"
         />
         <ListPagination
           label="项目绑定"
@@ -311,7 +311,7 @@ function BindingToolbar({
         </Button>
         <span
           className="ml-auto inline-flex items-center gap-1 text-2xs text-muted-foreground"
-          title="项目与服务池的关联按当前拓扑和已启用后端展示推导，不代表已配置事实；真实配置在项目设置里。"
+          title="项目与服务池的关联按当前拓扑和已启用的模型服务推导，不代表已配置事实；实际配置在项目设置里。"
         >
           <Icon name="info" size={11} />
           依据已启用实例关联
@@ -391,7 +391,7 @@ function ProjectBindingRow({
         ) : noPoolButEnabled ? (
           <Badge variant="warning">
             <Icon name="alert-triangle" size={11} />
-            <span>已启用 backend 但未纳管到服务池</span>
+            <span>已启用的模型服务均未加入服务池</span>
           </Badge>
         ) : (
           <NullCell>—</NullCell>

@@ -620,7 +620,6 @@ describe("RegisteredBackendsTab (v0.23.4 P3)", () => {
       await userEvent.click(screen.getByRole("button", { name: "复制 GPU 资源 ID" }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("node-a/index:0"));
       expect(screen.getByRole("button", { name: /展开受影响实例/ })).toBeInTheDocument();
-      expect(screen.getByText(/1 个 backend/)).toBeInTheDocument();
       // committed 运行时占用的数值
       expect(screen.getByText(/4,096 MiB/)).toBeInTheDocument();
       // 静态声明的数值

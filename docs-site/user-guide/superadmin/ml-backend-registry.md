@@ -48,9 +48,9 @@ last_reviewed: 2026-10-29
 
 | 场景                            | URL                                                                                          |
 | ------------------------------- | -------------------------------------------------------------------------------------------- |
-| Backend 在同一个 docker-compose | `http://grounded-sam2-backend:8001`                                                          |
-| Backend 在宿主机 / 局域网       | `http://172.17.0.1:8001`（Linux 默认 bridge）/ `http://host.docker.internal:8001`（mac/win） |
-| Backend 在另一台机器            | LAN IP / 域名                                                                                |
+| 模型服务在同一个 docker-compose | `http://grounded-sam2-backend:8001`                                                          |
+| 模型服务在宿主机 / 局域网       | `http://172.17.0.1:8001`（Linux 默认 bridge）/ `http://host.docker.internal:8001`（mac/win） |
+| 模型服务在另一台机器            | LAN IP / 域名                                                                                |
 
 dev 环境 placeholder 已默认填 `172.17.0.1:8001`。
 
@@ -76,7 +76,7 @@ dev 环境 placeholder 已默认填 `172.17.0.1:8001`。
 
 **注册前连通性测试**：手动 Token 或 None 方式可通过表单「测试连接」调用 `POST /admin/ml-integrations/probe`，只探测 `/health`，不写数据库。系统托管在保存时验证受认证端点，表单会禁用普通「测试连接」。连接成功只证明健康端点可达。
 
-探测和试启动保留管理员对内网与新服务地址的诊断能力，URL 须为有效 HTTP(S) base URL，不含内嵌凭据、查询参数或 fragment；认证 token 单独填写。网络失败只回报安全的错误类别。项目 warmup 还要求模型服务已启用于该项目；共享 reload/unload 继续按超级管理员全局权限执行。
+探测和试启动保留管理员对内网与新服务地址的诊断能力，URL 须为有效 HTTP(S) base URL，不含内嵌凭据、查询参数或 fragment；认证 token 单独填写。网络失败只回报安全的错误类别。项目预热还要求模型服务已启用于该项目；共享的重新加载和卸载继续按超级管理员全局权限执行。服务声明支持预热不代表模型已经加载，预热结果和健康检查各自提供不同的状态证据。
 
 运行观测按规范化地址识别已注册实例，并使用该实例当前的认证方式；显式选择 `None` 时不会回退读取本地托管凭据。同址出现多个候选实例时返回冲突，需要先处理重复记录，而不是任选一份凭据。
 
@@ -85,14 +85,14 @@ dev 环境 placeholder 已默认填 `172.17.0.1:8001`。
 注册管理 tab 对全局注册表做增删改查，对应后端端点：
 
 ```http
-POST   /admin/ml-integrations/registry                  # 新增全局 backend
+POST   /admin/ml-integrations/registry                  # 新增全局模型服务实例
 PUT    /admin/ml-integrations/registry/:registry_id     # 编辑
 DELETE /admin/ml-integrations/registry/:registry_id     # 删除
 POST   /admin/ml-integrations/registry/:registry_id/health   # 健康检查（探 /setup 派生能力）
 GET    /admin/ml-integrations/all                        # 全局列表（新建项目向导复用）
 ```
 
-每个全局 backend 注册后会自动得到一个 singleton 服务池（ADR-0050），池内含一个 active 成员指向该实例。off／observe 模式沿用 legacy 实例选择，enforce 模式在合格成员中分配请求；停止接流和执行安全检查始终生效。详见 [ADR-0050 服务池与请求路由](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
+每个全局模型服务实例注册后会自动得到一个单成员服务池（ADR-0050），池内含一个接流成员指向该实例。off／observe 模式沿用原有实例选择，enforce 模式在合格成员中分配请求；停止接流和执行安全检查始终生效。详见 [ADR-0050 服务池与请求路由](../../dev/adr/archive/0050-ml-backend-service-pools-and-request-routing)。
 
 ## 可安装推理插件
 
@@ -301,17 +301,17 @@ GPU 自动驱逐在卸载回包丢失后仍会复查健康状态。只有新鲜�
 
 ## 引用全局注册项（不复制）
 
-新建项目 wizard step 4 提供下拉选已注册的全局 backend；选中即为新项目**启用**该全局注册项（**引用同一全局 id，不再复制一份**）。这样所有项目共享同一物理 backend 记录，能力快照与健康状态一处维护、处处一致。
+新建项目向导提供下拉框选择已注册的全局模型服务；选中即为新项目**启用**该全局注册项（**引用同一全局 ID，不再复制一份**）。这样所有项目共享同一服务实例记录，能力快照与健康状态一处维护、处处一致。
 
 后端：`GET /admin/ml-integrations/all` 返回全局注册表列表。
 
 ## 删除
 
-物理删除全局 backend 是**超管职责**（`DELETE /admin/ml-integrations/registry/:registry_id`）。删除前若有正在运行的预测 job、未完成 GPU retirement，或者管理安全检查尚未确认停止接流和后台任务结束，都会返回冲突或服务不可用错误并保留数据。条件全部满足后，删除会解除该实例的服务池成员关系；若它是 legacy 实例，所属池会停用并清除项目主绑定。历史预测仍按外键策略保留可追溯性。
+物理删除全局模型服务实例是**超管职责**（`DELETE /admin/ml-integrations/registry/:registry_id`）。删除前若有正在运行的预测任务、未完成 GPU 退役，或者管理安全检查尚未确认停止接流和后台任务结束，都会返回冲突或服务不可用错误并保留数据。条件全部满足后，删除会解除该实例的服务池成员关系；若它是原有的兼容实例，所属池会停用并清除项目主绑定。历史预测仍按外键策略保留可追溯性。
 
-从未纳管 GPU 的普通后端可在上述检查通过后正常删除；具有 GPU 历史的实例仍须完成相应退役与回收流程。
+从未纳管 GPU 的普通模型服务实例可在上述检查通过后正常删除；具有 GPU 历史的实例仍须完成相应退役与回收流程。
 
-项目管理员不能物理删除全局 backend，只能在项目设置里**取消勾选启用**让它对本项目停用（不影响其它项目）。
+项目管理员不能物理删除全局模型服务实例，只能在项目设置里**取消勾选启用**让它对本项目停用（不影响其它项目）。
 
 ## 审计
 

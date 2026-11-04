@@ -478,8 +478,8 @@ export function CapabilityCatalogPanel() {
     const failed = settled.filter((s) => s.status === "rejected").length;
     pushToast(
       failed === 0
-        ? { msg: `已重探 ${settled.length} 个 backend 能力目录`, kind: "success" }
-        : { msg: `重探完成，${failed}/${settled.length} 个 backend 探测失败`, kind: "warning" },
+        ? { msg: `已刷新 ${settled.length} 个模型服务的能力目录`, kind: "success" }
+        : { msg: `能力刷新完成，${failed}/${settled.length} 个模型服务探测失败`, kind: "warning" },
     );
   };
 
@@ -530,9 +530,9 @@ export function CapabilityCatalogPanel() {
           onChange={(e) => patchCatalog({ catalogGroup: e.target.value as CatalogGroupBy })}
           className={SELECT_CLASS}
         >
-          <option value="task">协议能力 (默认)</option>
-          <option value="backend">backend</option>
-          <option value="infra">infra</option>
+          <option value="task">协议能力</option>
+          <option value="backend">模型服务</option>
+          <option value="infra">推理框架</option>
           <option value="none">不分组</option>
         </select>
       </label>
@@ -541,7 +541,7 @@ export function CapabilityCatalogPanel() {
         className="ml-auto"
         onClick={onRefresh}
         disabled={refreshing || backendRefs.length === 0}
-        title="对所有 backend 重探 /setup 并刷新能力目录"
+        title="重新探测已在项目中启用的模型服务并刷新能力目录"
       >
         <Icon name="refresh" size={11} className={refreshing ? "spin" : undefined} />
         刷新
@@ -560,14 +560,14 @@ export function CapabilityCatalogPanel() {
                 能力类别数与模型条目数分开表述，不混用。 */}
             <span className="text-xs text-muted-foreground">
               {groupBy === "task" && protocolView
-                ? `${renderedCategoryCount} 类协议能力 · 匹配 ${renderedModelCount} / 总计 ${flatModels.length} 个模型条目 · ${distinctBackendCount} 个 backend`
-                : `匹配 ${renderedModelCount} / 总计 ${flatModels.length} 个模型条目 · ${distinctBackendCount} 个 backend`}
+                ? `${renderedCategoryCount} 类协议能力 · 匹配 ${renderedModelCount} / 总计 ${flatModels.length} 个模型条目 · ${distinctBackendCount} 个模型服务`
+                : `匹配 ${renderedModelCount} / 总计 ${flatModels.length} 个模型条目 · ${distinctBackendCount} 个模型服务`}
             </span>
           </div>
         </div>
 
         {overviewLoading ? (
-          <div className={NOTE_CLASS}>加载 backend 列表…</div>
+          <div className={NOTE_CLASS}>正在读取模型服务列表…</div>
         ) : overviewError ? (
           <div className="flex items-center gap-2 px-4 py-3 text-xs text-status-danger">
             加载失败：
@@ -628,14 +628,14 @@ export function CapabilityCatalogPanel() {
               <div className="mx-4 mt-3 flex items-center gap-2 rounded-md border border-amber-500/30 bg-status-caution-soft px-3 py-2 text-xs text-foreground">
                 <Icon name="warning" size={13} />
                 <span>
-                  {results.filter((r) => r.isError).length} 个 backend
-                  能力探测失败，其条目暂缺；点「刷新」可重探。
+                  {results.filter((r) => r.isError).length} 个模型服务的能力读取失败，
+                  目录可能不完整；点击「刷新」可重新探测。
                 </span>
               </div>
             )}
 
             {anyCapLoading && flatModels.length === 0 && groupBy !== "task" ? (
-              <div className={NOTE_CLASS}>探测各 backend 能力中…</div>
+              <div className={NOTE_CLASS}>正在读取模型服务的能力…</div>
             ) : groupBy === "task" && protocolView ? (
               // v0.14.11 · 协议卡视图: 即使模型清单为空也展示协议卡 (零接入引导)。
               <>

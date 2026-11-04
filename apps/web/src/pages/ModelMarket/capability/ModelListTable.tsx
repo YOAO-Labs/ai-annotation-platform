@@ -47,15 +47,15 @@ export function ModelListTable({ items }: { items: FlatModel[] }) {
           <tr>
             {[
               "模型",
-              "task",
-              "infra",
+              "任务",
+              "推理框架",
               "模态",
               "输出几何",
               "变体",
-              "运行时",
+              "模型状态",
               "来源",
-              "注册状态",
-              "状态",
+              "项目启用",
+              "目录信息",
             ].map((head) => (
               <th key={head}>{head}</th>
             ))}
@@ -125,9 +125,9 @@ export function ModelListTable({ items }: { items: FlatModel[] }) {
                 </td>
                 <td>
                   {item.stale ? (
-                    <Badge variant="warning">缓存</Badge>
+                    <Badge variant="warning">可能使用缓存</Badge>
                   ) : (
-                    <Badge variant="success">在线</Badge>
+                    <Badge variant="outline">已读取</Badge>
                   )}
                 </td>
               </tr>
@@ -154,7 +154,11 @@ function RuntimeCell({
       <span className="whitespace-nowrap text-xs text-muted-foreground">
         池 {currentPoolSize(item)}
       </span>
-      <Badge variant={loaded ? "success" : "outline"}>{loaded ? "已加载" : "未加载"}</Badge>
+      {item.healthMeta?.pool ? (
+        <Badge variant={loaded ? "success" : "outline"}>{loaded ? "已加载" : "未加载"}</Badge>
+      ) : (
+        <span className="text-xs text-muted-foreground">运行状态未知</span>
+      )}
       <WarmButton item={item} variants={variants} compact size="xs" />
     </div>
   );

@@ -50,7 +50,7 @@ export function WarmButton({
       size={size}
       onClick={onWarm}
       disabled={!canWarm || busy}
-      title={canWarm ? "预热该模型默认变体" : "服务未声明 warmup_endpoint，或未在项目中启用"}
+      title={canWarm ? "请求预热所选模型规格" : "服务未声明支持预热，或尚未在项目中启用"}
       className={
         compact ? (size === "xs" ? "size-6 min-w-6 px-0" : "size-8 min-w-8 px-0") : undefined
       }

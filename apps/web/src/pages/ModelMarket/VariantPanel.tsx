@@ -150,7 +150,11 @@ export function VariantPanel({
 
   if (isLoading) return <div className={NOTE_CLASS}>加载变体能力…</div>;
   if (isError)
-    return <div className="text-xs text-status-danger">无法获取 /setup（后端不可达或未实现）</div>;
+    return (
+      <div className="text-xs text-status-danger">
+        无法获取 /setup（模型服务不可达或未实现该接口）
+      </div>
+    );
 
   const isMultiModelBackend =
     !supportsVariants && genericVariantGroups.length === 0 && (setup?.models?.length ?? 0) > 0;
@@ -198,9 +202,7 @@ export function VariantPanel({
               <div className={SECTION_TITLE_CLASS}>通用变体目录</div>
               <GenericVariantDirectory groups={genericVariantGroups} />
               {!supportsVariants && !canGenericWarm && (
-                <div className={HINT_CLASS}>
-                  该 backend 暂未实现 warm 接口，变体目录仅用于只读展示。
-                </div>
+                <div className={HINT_CLASS}>模型服务未声明支持预热，变体目录仅供查看。</div>
               )}
             </div>
           )}
@@ -215,7 +217,9 @@ export function VariantPanel({
               )}
             </div>
             {imageLoadedCount === 0 ? (
-              <div className={NOTE_CLASS}>暂无变体常驻显存（idle 卸载或未预热）</div>
+              <div className={NOTE_CLASS}>
+                {pool ? "暂无已加载的变体" : "暂无图像池观测，无法确认模型是否已加载。"}
+              </div>
             ) : genericImageMode ? (
               // 通用单变体: pool key 原样展示 (无 sam/dino 维度, 无独立 cache 分桶).
               <div className="max-w-full overflow-x-auto">
@@ -305,7 +309,7 @@ export function VariantPanel({
                   size="sm"
                   onClick={() => onWarm({ variants: genericWarmVariants })}
                   disabled={isWarming || !canGenericWarm}
-                  title={canGenericWarm ? "预热该变体载入显存" : "该 backend 未实现 warm 接口"}
+                  title={canGenericWarm ? "请求预热该变体" : "模型服务未声明支持预热"}
                 >
                   <Icon name="play" size={11} />
                   预热
@@ -357,9 +361,7 @@ export function VariantPanel({
                     })
                   }
                   disabled={isWarming || !supportsVariants}
-                  title={
-                    supportsVariants ? "预热旧 SAM/DINO 变体" : "待 backend 实现通用 warm 接口"
-                  }
+                  title={supportsVariants ? "请求预热所选 SAM/DINO 变体" : "模型服务未声明支持预热"}
                 >
                   <Icon name="play" size={11} />
                   预热
@@ -368,8 +370,8 @@ export function VariantPanel({
               </div>
             )}
             <div className={HINT_CLASS}>
-              预热把所选变体载入 pool（受 cap 限制，超出按 LRU
-              驱逐）；预热后请「健康检查」刷新上表。
+              预热请求会尝试将所选变体载入模型池；池容量有限，可能释放近期未使用的变体。
+              请求完成后请执行「健康检查」，更新上方状态。
             </div>
           </div>
         </>
@@ -400,16 +402,14 @@ export function VariantPanel({
             </div>
           )}
           {!hasVideoMeta ? (
-            <div className={NOTE_CLASS}>
-              视频追踪模型按需加载，当前未常驻显存，暂无视频池观测（首次追踪时冷启）。
-            </div>
+            <div className={NOTE_CLASS}>暂无视频池观测，无法确认视频模型是否已加载。</div>
           ) : (
             <>
               {/* 单档视频模型的权重已在上方「视频权重」条目展示 + 已在显存徽标, 不再重复表格;
                   gsam2 (多 SAM 变体) 仍用表格列出各已加载 SAM 变体。 */}
               {!videoSingleModel &&
                 (videoLoaded.length === 0 ? (
-                  <div className={NOTE_CLASS}>视频池暂无常驻变体（首次追踪自动冷启）</div>
+                  <div className={NOTE_CLASS}>视频池暂无已加载的变体</div>
                 ) : (
                   <div className="max-w-full overflow-x-auto">
                     <table className={TABLE_CLASS}>
@@ -467,7 +467,7 @@ export function VariantPanel({
                 {isVideoSelectedLoaded && <Badge variant="success">已在显存</Badge>}
               </div>
               <div className={HINT_CLASS}>
-                视频追踪池首次请求自动冷启；预热可提前载入显存。tracker 不使用 DINO。
+                视频追踪使用独立模型池；预热可请求提前加载视频权重，不使用 DINO。
               </div>
             </>
           )}

@@ -15,16 +15,6 @@ import {
   SheetDescription,
 } from "@/components/shadcn/ui/sheet";
 
-const geometryLabels: Record<string, string> = {
-  bbox: "矩形框",
-  rotated_bbox: "旋转框",
-  polygon: "多边形",
-  multi_polygon: "多区域多边形",
-  keypoint: "关键点",
-  mask: "像素掩码",
-  none: "类别标签（无几何）",
-};
-
 export function ProtocolCatalogPanel() {
   const protocol = useProtocolCapabilities();
   const models = useModelCatalog({ page_size: 1 });
@@ -61,7 +51,7 @@ export function ProtocolCatalogPanel() {
   }
   function outputs(item: ProtocolTask) {
     return item.default_geometry.map(
-      (id) => geometryLabels[id] ?? protocol.data?.geometries.find((g) => g.id === id)?.label ?? id,
+      (id) => protocol.data?.geometries.find((g) => g.id === id)?.label ?? id,
     );
   }
   return (
@@ -251,7 +241,7 @@ export function ProtocolCatalogPanel() {
               </section>
               {!!detail.suggested_backends.length && (
                 <section>
-                  <h3 className="mb-2 font-medium">参考后端实现</h3>
+                  <h3 className="mb-2 font-medium">参考模型服务实现</h3>
                   <ul className="divide-y divide-border rounded-md border border-border">
                     {detail.suggested_backends.map((backend) => (
                       <li key={backend.repo_url} className="space-y-1.5 p-3">

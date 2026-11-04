@@ -325,7 +325,7 @@ function GpuResourceRow({
             ) : null}
             <span className="text-2xs text-muted-foreground">
               {budgetKnown ? `预算 ${allocatable.toLocaleString()} MiB · ` : ""}
-              {resource.claimed_backend_count} 个 backend
+              {resource.claimed_backend_count} 个模型服务实例
             </span>
             {staticPct != null && staticPct > 100 && (
               <span className="text-2xs text-status-caution">弹性超售</span>
@@ -353,8 +353,8 @@ function GpuResourceRow({
         </TableCell>
         <TableCell>
           <div className="flex flex-col gap-0.5 text-2xs text-muted-foreground">
-            <span>card 队列 · {fmtQueue(resource.runtime?.card_queue_count)}</span>
-            <span>backend 队列 · {fmtQueue(resource.runtime?.backend_queue_count)}</span>
+            <span>GPU 资源等待队列 · {fmtQueue(resource.runtime?.card_queue_count)}</span>
+            <span>实例等待队列 · {fmtQueue(resource.runtime?.backend_queue_count)}</span>
             <span>
               租约 ·{" "}
               {resource.runtime?.lease_count != null ? (

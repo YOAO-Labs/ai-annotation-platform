@@ -81,7 +81,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="detect",
         label="目标检测",
-        summary="在图像或视频帧中输出 bbox + 类别标签。",
+        summary="在图像或视频帧中标出目标位置和类别。",
         default_geometry=("bbox",),
         default_modalities=("image", "video"),
         typical_models=("YOLO 系", "DETR 系", "Grounding DINO", "SAM3"),
@@ -93,14 +93,14 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="Grounded-SAM-2 (gsam2)",
                 repo_url="https://github.com/IDEA-Research/Grounded-SAM-2",
-                summary="平台自带参考实现, docker-compose 内置. 文本/框 prompt 驱动开放词汇检测。",
+                summary="参考模型服务，可根据文本或框提示检测开放词汇中的目标。",
                 infra="pytorch",
                 builtin=True,
             ),
             SuggestedBackend(
                 name="SAM3 (sam3)",
                 repo_url="https://github.com/facebookresearch/segment-anything",
-                summary="平台自带参考实现, docker-compose 内置. SAM 系列检测/分割/交互一体。",
+                summary="参考模型服务，提供检测、分割和交互能力。",
                 infra="pytorch",
                 builtin=True,
             ),
@@ -114,7 +114,7 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="X-AnyLabeling",
                 repo_url="https://github.com/CVHub520/X-AnyLabeling",
-                summary="本平台 v0.14.x 重点参考的开源端, 自带多种检测模型。",
+                summary="开源标注工具，提供多种检测模型。",
                 research_link="docs/research/04-x-anylabeling.md",
                 infra="pytorch",
             ),
@@ -123,7 +123,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="obb",
         label="旋转框",
-        summary="在图像中输出带旋转角度的矩形 (Oriented Bounding Box)。",
+        summary="在图像中标出带旋转角度的目标框。",
         default_geometry=("rotated_bbox",),
         default_modalities=("image",),
         typical_models=("YOLOv8-OBB", "Rotated DETR", "Oriented R-CNN"),
@@ -135,7 +135,7 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="X-AnyLabeling (YOLOv8-OBB)",
                 repo_url="https://github.com/CVHub520/X-AnyLabeling",
-                summary="自带 OBB 模型, 协议直连本平台。",
+                summary="提供旋转框检测模型，可作为接入参考。",
                 research_link="docs/research/04-x-anylabeling.md",
             ),
         ),
@@ -143,7 +143,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="segment",
         label="实例分割",
-        summary="为每个对象输出 polygon / multi_polygon 几何 + 类别。",
+        summary="为每个对象输出分割区域和类别。",
         default_geometry=("polygon",),
         default_modalities=("image",),
         typical_models=("Mask R-CNN", "YOLO-Seg", "SegFormer", "SAM3"),
@@ -155,14 +155,14 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="Grounded-SAM-2 (gsam2)",
                 repo_url="https://github.com/IDEA-Research/Grounded-SAM-2",
-                summary="平台自带参考实现, docker-compose 内置. mask 输出经平台转 polygon 落库。",
+                summary="参考模型服务，可将掩码输出转换为多边形标注。",
                 infra="pytorch",
                 builtin=True,
             ),
             SuggestedBackend(
                 name="SAM3 (sam3)",
                 repo_url="https://github.com/facebookresearch/segment-anything",
-                summary="平台自带参考实现, docker-compose 内置. 高质量 SAM 系分割。",
+                summary="参考模型服务，提供 SAM 系列分割能力。",
                 infra="pytorch",
                 builtin=True,
             ),
@@ -178,7 +178,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="pose",
         label="关键点",
-        summary="输出 2D 关键点集合 (含可见性), 如人体姿态、面部关键点。",
+        summary="输出关键点及可见性，例如人体姿态或面部关键点。",
         default_geometry=("keypoint",),
         default_modalities=("image",),
         typical_models=("YOLOv8-Pose", "HRNet", "OpenPose"),
@@ -198,7 +198,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="classify",
         label="图像分类",
-        summary="对整张图或裁片输出类别标签, 无几何输出。",
+        summary="为整张图片或裁剪区域输出类别，不输出位置。",
         default_geometry=("none",),
         default_modalities=("image",),
         typical_models=("ResNet", "ViT", "EfficientNet"),
@@ -218,7 +218,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="ocr",
         label="OCR",
-        summary="从图像中提取文本框与文本内容 (v0.14.9 首发模型族)。",
+        summary="从图像中提取文字及其所在区域。",
         default_geometry=("bbox",),
         default_modalities=("image",),
         typical_models=("PaddleOCR", "EasyOCR", "RapidOCR"),
@@ -230,13 +230,13 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="PaddleOCR (via Label Studio ML)",
                 repo_url="https://github.com/PaddlePaddle/PaddleOCR",
-                summary="工业级 OCR, Paddle infra; 可包装为 ML backend。",
+                summary="基于 Paddle 的文字识别工具，可封装为模型服务。",
                 research_link=None,
             ),
             SuggestedBackend(
                 name="RapidOCR (ONNX)",
                 repo_url="https://github.com/RapidAI/RapidOCR",
-                summary="ONNX runtime, CPU 友好, 部署简单。",
+                summary="基于 ONNX 的文字识别工具，可在 CPU 上运行。",
                 research_link=None,
             ),
         ),
@@ -244,7 +244,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="doc_layout",
         label="版面分析",
-        summary="对文档页面输出版面元素区块 (标题/段落/表格/插图等)。",
+        summary="识别文档页面中的标题、段落、表格和插图等区域。",
         default_geometry=("bbox",),
         default_modalities=("image",),
         typical_models=("LayoutLMv3", "PP-StructureV2", "DiT"),
@@ -257,7 +257,7 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="PP-StructureV2",
                 repo_url="https://github.com/PaddlePaddle/PaddleOCR/tree/main/ppstructure",
-                summary="Paddle 版面分析, 含 table / formula 识别。",
+                summary="基于 Paddle 的版面分析工具，包含表格和公式识别。",
                 research_link=None,
             ),
         ),
@@ -265,7 +265,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="tracker",
         label="视频追踪",
-        summary="跨帧追踪同一对象, 输出对象 id + 每帧 bbox。",
+        summary="跨视频帧追踪同一对象，输出对象标识和每帧位置。",
         default_geometry=(),
         default_modalities=("video",),
         typical_models=("ByteTrack", "OC-SORT", "SAM2 Video"),
@@ -279,7 +279,7 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="Grounded-SAM-2 (gsam2)",
                 repo_url="https://github.com/IDEA-Research/Grounded-SAM-2",
-                summary="平台自带参考实现, docker-compose 内置. 含 SAM2 Video 视频追踪能力。",
+                summary="参考模型服务，包含 SAM 2 视频追踪能力。",
                 infra="pytorch",
                 builtin=True,
             ),
@@ -288,7 +288,7 @@ TASKS: tuple[TaskSpec, ...] = (
     TaskSpec(
         id="interactive_seg",
         label="交互分割",
-        summary="基于用户 prompt (点/框/文本) 对图像做交互式实例分割。",
+        summary="根据点、框或文本提示交互式分割图像中的对象。",
         default_geometry=("polygon",),
         default_modalities=("image",),
         typical_models=("SAM", "SAM2", "SAM3", "Grounded-SAM"),
@@ -303,14 +303,14 @@ TASKS: tuple[TaskSpec, ...] = (
             SuggestedBackend(
                 name="Grounded-SAM-2 (gsam2)",
                 repo_url="https://github.com/IDEA-Research/Grounded-SAM-2",
-                summary="平台自带参考实现, docker-compose 内置. 文本+框 prompt 开放词汇交互分割。",
+                summary="参考模型服务，支持使用文本和框提示进行开放词汇分割。",
                 infra="pytorch",
                 builtin=True,
             ),
             SuggestedBackend(
                 name="SAM3 (sam3)",
                 repo_url="https://github.com/facebookresearch/segment-anything",
-                summary="平台自带参考实现, docker-compose 内置. Meta 官方 SAM 高质量分割。",
+                summary="参考模型服务，提供 SAM 系列交互分割能力。",
                 infra="pytorch",
                 builtin=True,
             ),
@@ -349,21 +349,21 @@ MODALITIES: tuple[ModalitySpec, ...] = (
 
 # ── geometry (复用 supported_geometric_outputs 字段值) ────────────────────────
 GEOMETRIES: tuple[GeometrySpec, ...] = (
-    GeometrySpec(id="bbox", label="bbox", summary="2D 轴对齐矩形。"),
+    GeometrySpec(id="bbox", label="矩形框", summary="与图像坐标轴对齐的矩形框。"),
+    GeometrySpec(id="rotated_bbox", label="旋转框", summary="带旋转角度的矩形框。"),
+    GeometrySpec(id="polygon", label="多边形", summary="单环或多区域的多边形。"),
+    GeometrySpec(id="polyline", label="折线", summary="二维折线。"),
+    GeometrySpec(id="keypoint", label="关键点", summary="包含可见性的二维关键点集合。"),
     GeometrySpec(
-        id="rotated_bbox", label="rotated bbox", summary="带旋转角度的 2D 矩形 (OBB)。"
+        id="lidar_box_3d", label="三维框", summary="用于点云标注的三维立体框。"
     ),
     GeometrySpec(
-        id="polygon", label="polygon", summary="2D 多边形 (单环或 multi_polygon)。"
+        id="point_mask_3d", label="点云掩码", summary="逐点选择点云中的区域。"
     ),
-    GeometrySpec(id="polyline", label="polyline", summary="2D 折线。"),
-    GeometrySpec(id="keypoint", label="keypoint", summary="2D 关键点集合 (含可见性)。"),
+    GeometrySpec(id="mask", label="栅格掩码", summary="逐像素标记二维区域。"),
     GeometrySpec(
-        id="lidar_box_3d", label="3D box", summary="3D 立体框, 用于点云标注。"
+        id="none", label="类别标签（无几何）", summary="分类等不输出位置或区域的任务。"
     ),
-    GeometrySpec(id="point_mask_3d", label="point mask 3D", summary="点云逐点 mask。"),
-    GeometrySpec(id="mask", label="raster mask", summary="2D 逐像素二值掩码。"),
-    GeometrySpec(id="none", label="none", summary="纯分类等无几何输出。"),
 )
 
 
@@ -376,56 +376,56 @@ PROMPTS: tuple[PromptSpec, ...] = (
         label="无提示",
         requires_input=False,
         interactive_route=False,
-        summary="纯批量推理, 无需用户提示 (检测/分类等)。",
+        summary="无需用户提供提示，适用于检测或分类等批量推理。",
     ),
     PromptSpec(
         id="point",
         label="点提示",
         requires_input=True,
         interactive_route=True,
-        summary="SAM-style 正/负点累加, 单实例交互分割。",
+        summary="通过累加正点和负点交互式分割单个对象。",
     ),
     PromptSpec(
         id="interactive_box",
         label="框提示",
         requires_input=True,
         interactive_route=True,
-        summary="SAM-style 单框单 mask 交互分割。",
+        summary="使用一个框提示交互式分割单个对象。",
     ),
     PromptSpec(
         id="text",
         label="文本提示",
         requires_input=True,
         interactive_route=False,
-        summary="开放词汇文本驱动检测/分割; 走批量线, 不进画布交互工具。",
+        summary="根据文本描述进行开放词汇检测或分割，使用批量推理路径。",
     ),
     PromptSpec(
         id="exemplar",
         label="视觉示例",
         requires_input=True,
         interactive_route=True,
-        summary="PCS 框样例找全图同类, 多正负框 + text 概念 + 阈值迭代 refinement。",
+        summary="用正负框示例查找相似对象，可结合文本和阈值逐步调整。",
     ),
     PromptSpec(
         id="scribble",
         label="涂抹",
         requires_input=True,
         interactive_route=True,
-        summary="涂抹笔迹提示 (预留, 暂无 backend 消费)。",
+        summary="使用涂抹笔迹作为提示；当前为预留能力，暂无模型服务使用。",
     ),
     PromptSpec(
         id="sketch",
         label="勾画",
         requires_input=True,
         interactive_route=True,
-        summary="勾画轮廓提示 (预留, 暂无 backend 消费)。",
+        summary="使用勾画的轮廓作为提示；当前为预留能力，暂无模型服务使用。",
     ),
     PromptSpec(
         id="mask",
         label="掩膜",
         requires_input=True,
         interactive_route=True,
-        summary="已有原生 mask 作提示继续细化。",
+        summary="使用已有原生掩码作为提示继续细化。",
     ),
     PromptSpec(
         id="correction_frame",
@@ -447,9 +447,9 @@ PROMPTS: tuple[PromptSpec, ...] = (
 # ── input 受控词表 (supported_inputs 合法值) ─────────────────────────
 INPUTS: tuple[InputSpec, ...] = (
     InputSpec(id="full_image", label="整图", summary="整张图片或视频帧作为模型输入。"),
-    InputSpec(id="crop", label="裁剪", summary="上游几何裁出的 ROI 图像。"),
+    InputSpec(id="crop", label="裁剪", summary="从上游标注区域裁出的图像。"),
     InputSpec(
-        id="bbox_prompt", label="框提示", summary="整图 + 上游 bbox/polygon 框提示。"
+        id="bbox_prompt", label="框提示", summary="整图及上游矩形框或多边形提示。"
     ),
     InputSpec(id="point_prompt", label="点提示", summary="整图 + 点提示。"),
     InputSpec(

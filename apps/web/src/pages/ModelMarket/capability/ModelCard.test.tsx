@@ -8,6 +8,7 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { ModelCard } from "./ModelCard";
+import { ModelListTable } from "./ModelListTable";
 import type { FlatModel } from "./types";
 import type { MLModelCapability } from "@/api/ml-backends";
 
@@ -121,6 +122,17 @@ describe("ModelCard 能力徽标 (v0.19.4)", () => {
 
   it("驻留未知 (无 healthMeta) → 首层显示「运行状态未知」, 不冒充未加载", async () => {
     await renderCard({});
+    expect(screen.getByText("运行状态未知")).toBeInTheDocument();
+    expect(screen.queryByText("未加载")).not.toBeInTheDocument();
+  });
+
+  it("keeps an unobserved model's load state unknown in the list", () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <ModelListTable items={[makeItem({})]} />
+      </QueryClientProvider>,
+    );
     expect(screen.getByText("运行状态未知")).toBeInTheDocument();
     expect(screen.queryByText("未加载")).not.toBeInTheDocument();
   });

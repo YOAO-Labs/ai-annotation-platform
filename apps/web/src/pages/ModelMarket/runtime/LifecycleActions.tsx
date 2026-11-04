@@ -194,8 +194,8 @@ export function LifecycleActions({
           the compact row to avoid duplicating the picker. projectId is still
           surfaced via the detail Sheet for the warm path. */}
       {!compact && projectId && (
-        <span className="text-2xs text-muted-foreground" title="预热入口在详情 Sheet">
-          可预热
+        <span className="text-2xs text-muted-foreground" title="在实例详情中查看预热选项">
+          详情中查看预热
         </span>
       )}
 
