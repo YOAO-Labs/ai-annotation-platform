@@ -81,7 +81,6 @@ _EMPTY_TABLES = (
     "dataset_spatial_operations",
     "task_creation_operations",
     "sensor_calibration_revisions",
-    "audit_logs",
 )
 
 
@@ -236,14 +235,37 @@ async def _assert_operational_role(test_engine) -> None:
         await engine.dispose()
 
 
-async def _assert_empty_owned_rows(test_engine) -> None:
+async def _assert_empty_owned_rows(test_engine, audit_baseline=None):
     async with test_engine.connect() as db:
         counts = {}
         for table in _EMPTY_TABLES:
             counts[table] = await db.scalar(
                 text(f"SELECT count(*) FROM public.{table}")
             )
+        audits = (
+            await db.execute(
+                text(
+                    "SELECT action, pg_catalog.to_jsonb(audit)::text "
+                    "FROM public.audit_logs AS audit ORDER BY id, created_at"
+                )
+            )
+        ).all()
     assert all(count == 0 for count in counts.values()), counts
+    if audit_baseline is None:
+        actions = [row[0] for row in audits]
+        assert len(actions) == 3
+        assert actions.count("audit.append.module-data-verifier") == 1
+        assert actions.count("audit.append.conformance") == 1
+        assert (
+            sum(
+                re.fullmatch(r"probe\.audit\.daily\.[0-9a-f]{32}", action) is not None
+                for action in actions
+            )
+            == 1
+        )
+    else:
+        assert audits == audit_baseline
+    return audits
 
 
 async def _object_keys(owner_s3, bucket: str) -> set[str]:
@@ -264,8 +286,8 @@ def _object_snapshot(owner_s3, bucket: str, prefix: str) -> dict[str, str]:
     }
 
 
-async def _assert_reimport_transaction_rolled_back(test_engine) -> None:
-    await _assert_empty_owned_rows(test_engine)
+async def _assert_reimport_transaction_rolled_back(test_engine, audit_baseline) -> None:
+    await _assert_empty_owned_rows(test_engine, audit_baseline)
 
 
 def _result_ids(result: CliRun) -> tuple[uuid.UUID, uuid.UUID]:
@@ -631,7 +653,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
 
     _verify_postgres(test_engine.url)
     await _assert_operational_role(test_engine)
-    await _assert_empty_owned_rows(test_engine)
+    audit_baseline = await _assert_empty_owned_rows(test_engine)
 
     resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
@@ -710,7 +732,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
                 "permission denied for function create_import_project"
                 in missing_capability.stderr.lower()
             ), missing_capability.stderr
-            await _assert_reimport_transaction_rolled_back(test_engine)
+            await _assert_reimport_transaction_rolled_back(test_engine, audit_baseline)
             missing_keys = await _object_keys(owner_s3, datasets_bucket)
             assert missing_keys, (
                 "failed import must retain its staged S3 source objects"
@@ -734,7 +756,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             assert not late_failure.timed_out
             assert late_failure.exit_code != 0, late_failure.stdout
             assert trigger_marker in late_failure.stderr, late_failure.stderr
-            await _assert_reimport_transaction_rolled_back(test_engine)
+            await _assert_reimport_transaction_rolled_back(test_engine, audit_baseline)
             keys_after_trigger = await _object_keys(owner_s3, datasets_bucket)
             assert keys_after_trigger - keys_before_trigger, (
                 "late task failure should retain newly staged S3 objects"
@@ -755,7 +777,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
                 cli.running_database_client_address
             )
             record_property("workspace_import_cancel_paused_session", paused_session)
-            await _assert_empty_owned_rows(test_engine)
+            await _assert_empty_owned_rows(test_engine, audit_baseline)
             keys_during_cancel = await _object_keys(owner_s3, datasets_bucket)
             assert keys_during_cancel - keys_before_cancel
             assert await asyncio.to_thread(cli.stop_current_container)
@@ -764,7 +786,7 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
             assert cancelled.exit_code in {137, 143}, cancelled.evidence
             assert cancelled.externally_stopped and not cancelled.timed_out
             await _wait_for_import_disconnect(test_engine)
-            await _assert_reimport_transaction_rolled_back(test_engine)
+            await _assert_reimport_transaction_rolled_back(test_engine, audit_baseline)
             assert keys_during_cancel == await _object_keys(owner_s3, datasets_bucket)
         finally:
             try:

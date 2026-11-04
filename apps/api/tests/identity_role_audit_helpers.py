@@ -58,6 +58,7 @@ async def historical_audit_database(test_engine, *, initialize=True, revision="0
         log = (
             ROOT / ".worktree" / f"identity-role-audit-historical-{name}.migration.log"
         )
+        log.parent.mkdir(parents=True, exist_ok=True)
         log.write_text(result.stdout + result.stderr)
         evidence.update(
             migration_exit_code=result.returncode,

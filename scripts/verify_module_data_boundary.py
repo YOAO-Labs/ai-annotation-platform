@@ -2025,6 +2025,11 @@ def _write_evidence(path: Path, document: dict) -> None:
 
 
 _STRICT_PROFILE_TARGETS = {
+    "tests/test_audit_maintenance_native.py": "audit-maintenance-native",
+    "tests/test_audit_maintenance_module_live.py": "audit-maintenance-module",
+    "tests/test_audit_consumers_cold.py": "audit-consumers-cold",
+    "tests/test_audit_maintenance_consumers_cold.py": "audit-maintenance-consumers-cold",
+    "tests/test_seed_parent_operator_native.py": "parent-seed-native",
     "tests/test_identity_e2e_live.py": "identity-e2e",
     "tests/test_identity_recording_live.py": "recording",
     "tests/test_identity_seed_selection_live.py": "scale-seed",
@@ -4939,6 +4944,7 @@ def main(
         "database": None,
         "roles": list(MODULE_ROLES),
         "identity_api_consumer": None,
+        "workspace_node": {"node_prerequisites": "not_checked"},
         "notification_preferences": {
             "node_prerequisites": "not_checked",
             "api_function_grant": False,
@@ -5124,6 +5130,34 @@ def main(
         if missing_tests:
             raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
         node_bin = shutil.which("node")
+        workspace_node_dir = ROOT / "apps/workspace/conformance/node"
+        if node_bin is None or not (workspace_node_dir / "package.json").is_file():
+            evidence["workspace_node"]["node_prerequisites"] = "unavailable"
+            raise RuntimeError("Node Workspace contract peer is unavailable")
+        phase = "preflight-node-workspace-pg"
+        workspace_node_check = subprocess.run(
+            [
+                node_bin,
+                "-e",
+                'const fs = require("node:fs"), path = require("node:path");'
+                "const root = fs.realpathSync(process.argv[1]);"
+                'const pg = fs.realpathSync(require.resolve("pg", { paths: [root] }));'
+                'if (!pg.startsWith(root + path.sep + "node_modules" + path.sep)) '
+                "process.exit(1)",
+                str(workspace_node_dir),
+            ],
+            cwd=workspace_node_dir,
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        if workspace_node_check.returncode:
+            evidence["workspace_node"]["node_prerequisites"] = "unavailable"
+            raise RuntimeError(
+                "Workspace Node pg is unavailable; install its locked dependencies "
+                "using apps/workspace/conformance/node/README.md"
+            )
+        evidence["workspace_node"]["node_prerequisites"] = "passed"
         node_provider = ROOT / "apps/notifications/conformance/node/provider.mjs"
         append_node_provider = (
             ROOT / "apps/notifications/conformance/node/append_provider.mjs"
@@ -9901,6 +9935,7 @@ SELECT pg_catalog.jsonb_build_object(
                     database=database,
                 ).render_as_string(hide_password=False),
                 "AAP_MODULE_DATA_PG_CONTAINER_ID": container_id,
+                "AAP_MODULE_DATA_MINIO_CONTAINER_ID": cleanup_storage["container"],
                 "AAP_MODULE_DATA_REDIS_CONTAINER_NAME": resources["redis_name"],
                 "AAP_MODULE_DATA_REDIS_OWNER": resources["owner"],
                 "AAP_MODULE_DATA_PG_CONTAINER_NAME": container_name,

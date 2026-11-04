@@ -110,7 +110,7 @@ async def test_role_audit_report_replay(
         name = f"{scenario}-{max_rows}"
         if CAPTURE:
             directory = ROOT / ".worktree/identity-role-audit-baseline-cases"
-            directory.mkdir(exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True)
             (directory / f"{name}.json").write_text(json.dumps(report, indent=2) + "\n")
         else:
             assert report == GOLDEN[name]
@@ -136,7 +136,7 @@ async def test_real_0171_role_audit_replay(test_engine, max_rows, record_propert
         name = f"historical-0171-{max_rows}"
         if CAPTURE:
             directory = ROOT / ".worktree/identity-role-audit-baseline-cases"
-            directory.mkdir(exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True)
             (directory / f"{name}.json").write_text(json.dumps(report, indent=2) + "\n")
         else:
             assert report == GOLDEN[name]
@@ -227,14 +227,29 @@ async def test_role_audit_profile_and_repeatable_snapshot(test_engine):
                     "aap_identity_v1.account_profiles",
                     "aap_identity_v1.invitation_audit_targets",
                 }
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
+                functions = set(
+                    (
+                        await db.scalars(
+                            text(
+                                "SELECT n.nspname||'.'||p.proname||'('||"
+                                "replace(pg_catalog.oidvectortypes(p.proargtypes),' ','')||')' "
+                                "FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace "
+                                "WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$' "
+                                "AND has_function_privilege('identity_api_consumer',p.oid,'EXECUTE')"
+                            )
                         )
-                    )
-                    == 5
+                    ).all()
                 )
+                assert functions == {
+                    "aap_identity_v1.read_actor_facts(uuid)",
+                    "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
+                    "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+                    "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
+                    "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
+                    "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
+                    "aap_identity_v1.is_jti_revoked(uuid)",
+                    "aap_identity_v1.get_credential_generation(uuid)",
+                }
             arguments = {
                 "run_id": "snapshot",
                 "generated_at": datetime(2026, 1, 1, tzinfo=timezone.utc),
@@ -573,6 +588,7 @@ async def test_historical_profile_tracks_preparation_and_node(
                 / ".worktree"
                 / f"identity-role-audit-historical-{evidence['database']}.0173.log"
             )
+            log.parent.mkdir(parents=True, exist_ok=True)
             log.write_text(upgraded.stdout + upgraded.stderr)
             assert upgraded.returncode == 0, log.read_text()[-4000:]
             async with historical.begin() as db:

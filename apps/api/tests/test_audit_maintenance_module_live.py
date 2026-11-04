@@ -279,22 +279,45 @@ async def test_cold_archive_process_loss_orphan_takeover_and_full_restore(
                     bucket,
                     "archive-partitions",
                 ) as container:
-                    async with asyncio.timeout(25):
-                        while True:
-                            waiting = await control.scalar(
-                                text(
-                                    "SELECT count(*) FROM pg_locks "
-                                    "WHERE locktype='advisory' AND NOT granted "
-                                    "AND classid=:high AND objid=:low"
-                                ),
-                                {
-                                    "high": advisory_key >> 32,
-                                    "low": advisory_key & 0xFFFFFFFF,
-                                },
+                    try:
+                        async with asyncio.timeout(25):
+                            while True:
+                                waiting = await control.scalar(
+                                    text(
+                                        "SELECT count(*) FROM pg_locks "
+                                        "WHERE locktype='advisory' AND NOT granted "
+                                        "AND classid=:high AND objid=:low"
+                                    ),
+                                    {
+                                        "high": advisory_key >> 32,
+                                        "low": advisory_key & 0xFFFFFFFF,
+                                    },
+                                )
+                                if waiting:
+                                    break
+                                await asyncio.sleep(0.1)
+                    except TimeoutError as error:
+                        sessions = await control.scalar(
+                            text(
+                                "SELECT coalesce(json_agg(json_build_object("
+                                "'pid', activity.pid, 'role', activity.usename, "
+                                "'state', activity.state, "
+                                "'wait_event_type', activity.wait_event_type, "
+                                "'wait_event', activity.wait_event, "
+                                "'waiting_locks', (SELECT count(*) FROM pg_locks AS waiting_lock "
+                                "WHERE waiting_lock.pid=activity.pid AND NOT waiting_lock.granted)"
+                                ")), '[]'::json) FROM pg_stat_activity AS activity "
+                                "WHERE activity.datname=current_database() "
+                                "AND activity.backend_type='client backend'"
                             )
-                            if waiting:
-                                break
-                            await asyncio.sleep(0.1)
+                        )
+                        state = _inspect_docker(container).get("State") or {}
+                        raise AssertionError(
+                            "Audit archive did not reach its advisory lock; "
+                            f"container_status={state.get('Status')}, "
+                            f"container_exit_code={state.get('ExitCode')}, "
+                            f"sessions={json.dumps(sessions)}"
+                        ) from error
                     assert (
                         reader.head_object(Bucket=bucket, Key=key)["ContentLength"] > 0
                     )
