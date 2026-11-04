@@ -149,8 +149,8 @@ async function beginFrameDiagnostics(page, label) {
     const startedAt = performance.now();
     const session = { active: true, label: diagnosticLabel, rafGaps: [] };
     window.__pointCloudFrameDiagnostics = session;
-    performance.mark(`aap-bench-start:${diagnosticLabel}`);
-    console.timeStamp(`aap-bench-start:${diagnosticLabel}`);
+    performance.mark(`pointcloud-bench-start:${diagnosticLabel}`);
+    console.timeStamp(`pointcloud-bench-start:${diagnosticLabel}`);
     let previous = startedAt;
     const sample = (now) => {
       if (!session.active) return;
@@ -170,8 +170,8 @@ async function endFrameDiagnostics(page, startedAt, completedAt) {
       const session = window.__pointCloudFrameDiagnostics;
       if (session) session.active = false;
       if (session?.label) {
-        performance.mark(`aap-bench-end:${session.label}`);
-        console.timeStamp(`aap-bench-end:${session.label}`);
+        performance.mark(`pointcloud-bench-end:${session.label}`);
+        console.timeStamp(`pointcloud-bench-end:${session.label}`);
       }
       return {
         rafGaps: session?.rafGaps ?? [],
@@ -219,7 +219,7 @@ function summarizeDevToolsTrace(events) {
   const markers = mainEvents
     .flatMap((event) => {
       const message = event.args?.data?.message ?? event.name;
-      return message.startsWith("aap-bench-") ? [{ at: event.ts, message }] : [];
+      return message.startsWith("pointcloud-bench-") ? [{ at: event.ts, message }] : [];
     })
     .sort((a, b) => a.at - b.at);
   const longTasks = mainEvents
@@ -227,17 +227,17 @@ function summarizeDevToolsTrace(events) {
     .map((task) => {
       const taskEnd = task.ts + task.dur;
       const startMarker = markers.findLast(
-        (marker) => marker.at <= task.ts && marker.message.startsWith("aap-bench-start:"),
+        (marker) => marker.at <= task.ts && marker.message.startsWith("pointcloud-bench-start:"),
       );
       const endMarker = markers.find(
-        (marker) => marker.at >= taskEnd && marker.message.startsWith("aap-bench-end:"),
+        (marker) => marker.at >= taskEnd && marker.message.startsWith("pointcloud-bench-end:"),
       );
       const label =
         startMarker &&
         endMarker &&
-        endMarker.message.slice("aap-bench-end:".length) ===
-          startMarker.message.slice("aap-bench-start:".length)
-          ? startMarker.message.slice("aap-bench-start:".length)
+        endMarker.message.slice("pointcloud-bench-end:".length) ===
+          startMarker.message.slice("pointcloud-bench-start:".length)
+          ? startMarker.message.slice("pointcloud-bench-start:".length)
           : null;
       const children = mainEvents
         .filter(
@@ -538,7 +538,7 @@ async function runMode(browser, token, user, mode) {
       } catch {
         // Long Tasks is optional; rAF gaps still expose presentation stalls.
       }
-      window.addEventListener("aap:pointcloud-render-timing", (event) => {
+      window.addEventListener("pointcloud:render-timing", (event) => {
         window.__pointCloudTimingEvents.push(event.detail);
       });
       const original = CanvasRenderingContext2D.prototype.getImageData;

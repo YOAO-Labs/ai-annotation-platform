@@ -15,7 +15,7 @@ from test_storage_migration_copy import TARGET, inputs
 
 class CliTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="aap-copy-cli-")
+        self.temp = tempfile.TemporaryDirectory(prefix="storage-copy-cli-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.target = self.root / "target.json"

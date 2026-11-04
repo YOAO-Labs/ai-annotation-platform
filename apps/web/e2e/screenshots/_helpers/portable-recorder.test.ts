@@ -8,7 +8,7 @@ import type { Page } from "@playwright/test";
 import { archivePortableRecording } from "./portable-recorder.ts";
 
 test("portable encoding retains source and merges only captured assets", async () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-portable-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "portable-recorder-test-"));
   try {
     const source = path.join(root, "source.webm");
     execFileSync("ffmpeg", [

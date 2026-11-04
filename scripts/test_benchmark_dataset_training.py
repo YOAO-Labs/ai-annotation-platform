@@ -16,7 +16,9 @@ import benchmark_dataset_training as bench
 
 class PackageTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-c6-helper-")
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="dataset-benchmark-helper-test-"
+        )
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "package.zip"
         self.picture = bench.payloads()[0]
@@ -117,7 +119,9 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 drained.set()
 
-        with tempfile.TemporaryDirectory(prefix="aap-c6-deadline-") as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix="dataset-benchmark-deadline-test-"
+        ) as temporary:
             with (
                 patch.object(bench, "sampled", new=blocked),
                 self.assertRaises(TimeoutError),
@@ -133,7 +137,9 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(drained.is_set())
 
     async def test_phase_report_persists_metrics_without_response_url_or_token(self):
-        with tempfile.TemporaryDirectory(prefix="aap-c6-phase-") as temporary:
+        with tempfile.TemporaryDirectory(
+            prefix="dataset-benchmark-phase-test-"
+        ) as temporary:
             path = Path(temporary) / "report.json"
             report = {}
             response = ({"url": "https://host/?signature=private"}, {"sql_count": 3})
@@ -169,7 +175,9 @@ class CoordinatorTests(unittest.IsolatedAsyncioTestCase):
 
         sample = {"rss_kib": 1, "cpu_seconds": 0, "temporary_bytes": 0}
         with (
-            tempfile.TemporaryDirectory(prefix="aap-c6-cancel-") as temporary,
+            tempfile.TemporaryDirectory(
+                prefix="dataset-benchmark-cancel-test-"
+            ) as temporary,
             patch.object(bench, "process_sample", return_value=sample),
         ):
             with self.assertRaisesRegex(ValueError, "measurement process stopped"):

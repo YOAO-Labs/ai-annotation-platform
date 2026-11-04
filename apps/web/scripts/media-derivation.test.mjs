@@ -61,7 +61,7 @@ function fixture(root) {
 }
 
 test("private demos retain provenance without writing public assets or the public manifest", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-private-demo-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "private-demo-test-"));
   try {
     const { run } = fixture(root);
     const options = {
@@ -127,7 +127,7 @@ test("private demos retain provenance without writing public assets or the publi
 });
 
 test("one archive derives every format, preserves unrelated entries, and never upscales standard sources", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-derive-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "media-derive-test-"));
   try {
     const { run, file } = fixture(root);
     assert.equal(readArchive(run).get("bbox-draw").quality, "standard");
@@ -257,7 +257,7 @@ test("one archive derives every format, preserves unrelated entries, and never u
 });
 
 test("schema-4 masters preserve inference provenance and the existing quality gate", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-master-derive-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "master-derive-test-"));
   try {
     const run = path.join(root, "master");
     fs.mkdirSync(run);
@@ -348,7 +348,7 @@ test("schema-4 masters preserve inference provenance and the existing quality ga
   }
 });
 test("normalized privacy masks protect encoded video, GIF, and poster pixels", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-privacy-mask-test-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "privacy-mask-test-"));
   try {
     const assetId = "test-privacy-mask";
     const run = path.join(root, ".artifacts/recordings/privacy-run");

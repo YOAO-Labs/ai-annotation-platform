@@ -1,4 +1,4 @@
-export const POINT_CLOUD_TIMING_EVENT = "aap:pointcloud-render-timing";
+export const POINT_CLOUD_TIMING_EVENT = "pointcloud:render-timing";
 
 export type PointCloudTimingPhase =
   | "pcd-frame-ready"
@@ -18,7 +18,7 @@ export interface PointCloudTimingDetail {
 
 function emitPointCloudTiming(detail: PointCloudTimingDetail) {
   if (typeof window === "undefined") return;
-  performance.mark(`aap:pointcloud:${detail.phase}`, { detail });
+  performance.mark(`pointcloud:${detail.phase}`, { detail });
   window.dispatchEvent(
     new CustomEvent<PointCloudTimingDetail>(POINT_CLOUD_TIMING_EVENT, { detail }),
   );

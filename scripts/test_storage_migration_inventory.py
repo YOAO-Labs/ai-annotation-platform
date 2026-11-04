@@ -185,7 +185,9 @@ class S3:
 
 class InventoryTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-e07-core-")
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="storage-inventory-unit-test-"
+        )
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "inventory.jsonl"
         self.client = S3()

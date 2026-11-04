@@ -32,7 +32,7 @@ class Source(Client):
 
 class GenerationTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="aap-copy-generations-")
+        self.temp = tempfile.TemporaryDirectory(prefix="storage-copy-generations-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.source, self.target = Source(), Client()

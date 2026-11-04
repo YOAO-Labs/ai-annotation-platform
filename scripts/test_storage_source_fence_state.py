@@ -160,7 +160,7 @@ class Adapter:
 
 class Base(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-fence-unit-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="storage-fence-unit-test-")
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.path = self.root / "private" / "state.json"

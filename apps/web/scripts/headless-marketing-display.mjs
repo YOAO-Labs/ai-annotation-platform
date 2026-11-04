@@ -230,7 +230,7 @@ export async function withHeadlessDisplay(
     ...runtime,
   };
   const tools = operations.resolveTools(env);
-  const root = fs.mkdtempSync(path.join(runtime.tmpRoot ?? os.tmpdir(), "aap-headless-capture-"));
+  const root = fs.mkdtempSync(path.join(runtime.tmpRoot ?? os.tmpdir(), "headless-capture-"));
   fs.chmodSync(root, 0o700);
   const children = [];
   const logFds = [];

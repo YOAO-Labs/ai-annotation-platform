@@ -61,7 +61,9 @@ def reference(**changes):
 
 class ReferenceTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-ref-unit-")
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="storage-reference-unit-test-"
+        )
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.source = self.root / "source.jsonl"

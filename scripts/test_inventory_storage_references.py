@@ -142,7 +142,9 @@ class Engine:
 
 class CommandTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(prefix="aap-ref-cli-")
+        self.directory = tempfile.TemporaryDirectory(
+            prefix="storage-reference-cli-test-"
+        )
         self.addCleanup(self.directory.cleanup)
         self.root = Path(self.directory.name)
 

@@ -124,7 +124,7 @@ function storedPresetNames(preferences: Preferences): string[] {
 
 function writeStoredPreferences(user: string, preferences: unknown): void {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../../..");
-  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "aap-screenshot-preferences-"));
+  const temporaryDirectory = mkdtempSync(path.join(tmpdir(), "screenshot-preferences-"));
   const preferencesFile = path.join(temporaryDirectory, "preferences.json");
   writeFileSync(preferencesFile, JSON.stringify(preferences), "utf-8");
   try {

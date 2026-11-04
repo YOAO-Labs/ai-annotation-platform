@@ -196,7 +196,7 @@ class Client:
 
 class CopyTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="aap-copy-unit-")
+        self.temp = tempfile.TemporaryDirectory(prefix="storage-copy-unit-test-")
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         self.path = self.root / "checkpoint.sqlite"

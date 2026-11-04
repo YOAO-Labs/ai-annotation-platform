@@ -8,16 +8,16 @@ import { join } from "node:path";
  * `<TMPDIR>/org.chromium.Chromium.XXXXXX/SingletonSocket`, bounded by
  * `sockaddr_un.sun_path` (108 bytes on this Linux host). The long worktree e2e
  * `TMPDIR` overruns it, so the full Chromium build the MV3 zoom extension
- * requires aborts with SIGTRAP before any page loads: measured here, a 77-byte
- * TMPDIR produces a 122-byte socket path and fails, while an owned 39-byte
- * `/tmp` TMPDIR produces an 84-byte path and passes with the same arguments.
- * Give the browser process an owned short temp directory; `close` removes it on
+ * requires aborts with SIGTRAP before any page loads: a 77-byte TMPDIR produced
+ * a 122-byte socket path and failed, while a 39-byte `/tmp` TMPDIR produced an
+ * 84-byte path and passed with the same arguments. The shorter prefix below
+ * keeps the browser process within that bound; `close` removes it on
  * launch failure and normal close. Windows uses named pipes without this limit
  * and keeps the inherited environment.
  */
 async function makeBrowserTempDirectory(): Promise<string | undefined> {
   if (process.platform === "win32") return undefined;
-  return mkdtemp(join("/tmp", "aap-native-browser-zoom-tmp-"));
+  return mkdtemp(join("/tmp", "browser-zoom-tmp-"));
 }
 
 interface ZoomExtensionScope {
@@ -71,7 +71,7 @@ export async function launchNativeBrowserZoom(
     throw new Error("Native browser zoom requires positive integer window dimensions");
   }
 
-  const directory = await mkdtemp(join(tmpdir(), "aap-native-browser-zoom-"));
+  const directory = await mkdtemp(join(tmpdir(), "browser-zoom-profile-"));
   const browserTempDirectory = await makeBrowserTempDirectory();
   const browserEnv = browserTempDirectory
     ? {

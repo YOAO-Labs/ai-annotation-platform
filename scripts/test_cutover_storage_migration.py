@@ -135,7 +135,7 @@ class InputTests(unittest.TestCase):
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-cutover-cli-test-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="storage-cutover-cli-test-")
         self.addCleanup(self.temporary.cleanup)
         self.events, self.commits, self.fail_commit = [], 0, None
         self.a = SimpleNamespace(

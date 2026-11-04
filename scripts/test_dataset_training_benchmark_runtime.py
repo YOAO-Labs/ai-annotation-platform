@@ -226,7 +226,7 @@ class CallbackTests(unittest.TestCase):
 
 class ScopeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-training-observer-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="training-observer-test-")
         self.addCleanup(self.temporary.cleanup)
         self.directory = Path(self.temporary.name)
 
@@ -494,7 +494,7 @@ class GuardTests(unittest.TestCase):
 
 class PersistenceTests(unittest.TestCase):
     def test_existing_measurement_is_not_replaced_and_pending_file_is_removed(self):
-        with tempfile.TemporaryDirectory(prefix="aap-training-persist-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="training-persist-test-") as temporary:
             directory = Path(temporary)
             record = runtime.Measurement("a" * 32, "task").finish()
             runtime.persist(directory, record)

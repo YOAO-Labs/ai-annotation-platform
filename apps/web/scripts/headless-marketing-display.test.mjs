@@ -15,7 +15,7 @@ import {
 } from "./headless-marketing-display.mjs";
 
 function temporary(t) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "aap-headless-test-"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "headless-display-test-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   return dir;
 }
@@ -221,7 +221,14 @@ test(
       // An orphan may briefly remain as a reaped-by-init zombie, but cannot execute anymore.
       if (fs.existsSync(status)) assert.match(fs.readFileSync(status, "utf8"), /State:\s+Z/);
     }
-    assert.ok(!fs.readdirSync(root).some((name) => name.startsWith("aap-headless-")));
+    assert.ok(
+      !fs
+        .readdirSync(root)
+        .some(
+          (name) =>
+            name.startsWith("headless-capture-") || name.startsWith("aap-headless-display-"),
+        ),
+    );
   },
 );
 

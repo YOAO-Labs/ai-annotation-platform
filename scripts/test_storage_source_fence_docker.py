@@ -274,7 +274,7 @@ class Client:
 
 class NativeTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-fence-unit-")
+        self.temporary = tempfile.TemporaryDirectory(prefix="storage-fence-unit-test-")
         self.addCleanup(self.temporary.cleanup)
         directory = Path(self.temporary.name)
         directory.chmod(0o700)

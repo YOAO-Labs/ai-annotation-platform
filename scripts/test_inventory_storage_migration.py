@@ -15,7 +15,9 @@ from test_storage_migration_inventory import S3
 
 class CommandTests(unittest.TestCase):
     def setUp(self):
-        self.directory = tempfile.TemporaryDirectory(prefix="aap-e07-cli-")
+        self.directory = tempfile.TemporaryDirectory(
+            prefix="storage-inventory-cli-test-"
+        )
         self.addCleanup(self.directory.cleanup)
         self.path = Path(self.directory.name) / "handling.json"
         self.purposes = dict.fromkeys(PURPOSES, "shared")

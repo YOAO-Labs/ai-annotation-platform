@@ -180,7 +180,9 @@ class FakeS3:
 
 class BundleTests(unittest.TestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(prefix="aap-backup-bundle-test-")
+        self.temporary = tempfile.TemporaryDirectory(
+            prefix="storage-backup-bundle-test-"
+        )
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.directory = self.root / "generation"

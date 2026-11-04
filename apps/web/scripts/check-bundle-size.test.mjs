@@ -62,7 +62,7 @@ describe("globMatch", () => {
 
 describe("required chunk CLI gate", () => {
   it("fails missing, duplicate or oversized required chunks and accepts exactly one", () => {
-    const dir = realpathSync(mkdtempSync(join(tmpdir(), "aap-size-")));
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "bundle-size-test-")));
     try {
       mkdirSync(join(dir, "scripts"));
       mkdirSync(join(dir, "dist/assets"), { recursive: true });

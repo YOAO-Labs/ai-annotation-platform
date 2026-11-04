@@ -43,7 +43,7 @@ test("parses preferred ports and migration options", () => {
 });
 
 test("skips a port already occupied by another process", async () => {
-  const lockRoot = await mkdtemp(join(tmpdir(), "aap-dev-port-test-"));
+  const lockRoot = await mkdtemp(join(tmpdir(), "dev-port-test-"));
   const blocker = createServer();
   const occupiedPort = await listen(blocker);
   let reservation;
@@ -63,7 +63,7 @@ test("skips a port already occupied by another process", async () => {
 });
 
 test("serializes concurrent worktree reservations and releases the lock", async () => {
-  const lockRoot = await mkdtemp(join(tmpdir(), "aap-dev-port-test-"));
+  const lockRoot = await mkdtemp(join(tmpdir(), "dev-port-test-"));
   const probe = createServer();
   const startPort = await listen(probe);
   await close(probe);
@@ -94,7 +94,7 @@ test("serializes concurrent worktree reservations and releases the lock", async 
 });
 
 test("default port locks coordinate processes with different application temp directories", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "aap-port-scope-"));
+  const directory = await mkdtemp(join(tmpdir(), "port-scope-test-"));
   const probe = createServer();
   const startPort = await listen(probe);
   await close(probe);
@@ -127,7 +127,7 @@ test("default port locks coordinate processes with different application temp di
 });
 
 test("Playwright keeps owner credentials in setup and runtime credentials in the API", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "aap-playwright-roles-"));
+  const directory = await mkdtemp(join(tmpdir(), "playwright-roles-test-"));
   try {
     const module = new URL("../apps/web/playwright.config.ts", import.meta.url).href;
     const typescript = new URL(
@@ -213,7 +213,7 @@ test("Playwright keeps owner credentials in setup and runtime credentials in the
 });
 
 test("reclaims a lock left by a terminated launcher", async () => {
-  const lockRoot = await mkdtemp(join(tmpdir(), "aap-dev-port-test-"));
+  const lockRoot = await mkdtemp(join(tmpdir(), "dev-port-test-"));
   const probe = createServer();
   const startPort = await listen(probe);
   await close(probe);
@@ -238,7 +238,7 @@ test("reclaims a lock left by a terminated launcher", async () => {
 
 test("isolated exec reserves distinct Playwright ports and preserves exit status", async () => {
   assert.equal(typeof launcher.runIsolatedCommand, "function");
-  const directory = await mkdtemp(join(tmpdir(), "aap-command-test-"));
+  const directory = await mkdtemp(join(tmpdir(), "isolated-command-test-"));
   const output = join(directory, "child.json");
   try {
     const code = await launcher.runIsolatedCommand([
@@ -281,7 +281,7 @@ test("acceptance instructions use the actual reserved URL and keep credentials s
 });
 
 test("CLI help works before dependency setup without touching services", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "aap-cli-bootstrap-"));
+  const directory = await mkdtemp(join(tmpdir(), "worktree-cli-bootstrap-test-"));
   try {
     await mkdir(join(directory, "scripts"));
     for (const file of ["dev-worktree.mjs", "worktree_runtime.py", "worktree_env.py"]) {
@@ -300,7 +300,7 @@ test("CLI help works before dependency setup without touching services", async (
 });
 
 test("CLI follows a symlinked invocation path instead of silently doing nothing", async () => {
-  const directory = await mkdtemp(join(tmpdir(), "aap-cli-alias-"));
+  const directory = await mkdtemp(join(tmpdir(), "worktree-cli-alias-test-"));
   try {
     const alias = join(directory, "launcher.mjs");
     await symlink(fileURLToPath(new URL("./dev-worktree.mjs", import.meta.url)), alias);

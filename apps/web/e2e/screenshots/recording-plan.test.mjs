@@ -236,7 +236,7 @@ test("standard rehearsal cannot record production sources, including legacy flow
 });
 
 test("direct legacy Playwright recording refuses before catalog or database setup", () => {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "aap-rehearsal-guard-"));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "rehearsal-guard-test-"));
   try {
     const config = path.join(root, "playwright.config.mjs");
     fs.writeFileSync(
