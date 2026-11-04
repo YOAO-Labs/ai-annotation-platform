@@ -5,9 +5,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aap_assets_mask_content.gc_contract import contract_document, openapi_document
+from yoao_assets_mask_content.gc_contract import contract_document, openapi_document
 
-PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_assets_mask_content"
+PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_assets_mask_content"
 
 
 def main() -> None:
