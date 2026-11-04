@@ -835,7 +835,7 @@ async def build_export_zip(
                         axis_frame=axis_frame,
                     )
                 else:  # aap_json
-                    content = await svc.export_aap_json(
+                    content = await svc.export_native_json(
                         project_id,
                         batch_id=batch_id,
                         axis_frame=axis_frame,
@@ -1645,7 +1645,7 @@ async def _build_lidar_export_zip(
             if target == "aap_json":
                 zf.writestr(
                     f"{prefix}annotations.json",
-                    await svc.export_aap_json(project.id, batch_id=batch_id),
+                    await svc.export_native_json(project.id, batch_id=batch_id),
                 )
                 file_count += frame_count
                 continue
@@ -2086,7 +2086,7 @@ async def _build_video_export_zip(
             elif target == "aap_json":
                 zf.writestr(
                     f"{prefix}annotations.json",
-                    await svc.export_aap_json(
+                    await svc.export_native_json(
                         project.id,
                         batch_id=batch_id,
                         video_scope=video_scope,

@@ -548,7 +548,9 @@ async def import_annotations(
     max_import_bytes = 64 * 1024 * 1024
     raw = await file.read(max_import_bytes + 1)
     if len(raw) > max_import_bytes:
-        raise HTTPException(status_code=413, detail="AAP JSON import must be <= 64 MiB")
+        raise HTTPException(
+            status_code=413, detail="Native JSON import must be <= 64 MiB"
+        )
 
     # async_jobs 双写（dry_run 不记录）
     aj_id: uuid.UUID | None = None

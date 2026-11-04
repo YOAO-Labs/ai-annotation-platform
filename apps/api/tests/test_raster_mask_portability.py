@@ -56,7 +56,7 @@ async def test_aap_raster_mask_round_trip_deduplicates_objects(
     load = AsyncMock(return_value=rle)
     monkeypatch.setattr("app.services.exporting.service.load_coco_rle", load)
     exported = json.loads(
-        await ExportService(db_session).export_aap_json(source_project.id)
+        await ExportService(db_session).export_native_json(source_project.id)
     )
     assert exported["mask_objects"] == {reference["sha256"]: rle}
     assert load.await_count == 1

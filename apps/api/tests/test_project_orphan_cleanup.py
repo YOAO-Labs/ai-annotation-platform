@@ -444,7 +444,7 @@ async def test_export_skips_orphan_class_and_prunes_orphan_attributes(
     assert [node.text for node in voc_root.findall("./object/name")] == ["car"]
     assert [node.tag for node in voc_root.findall("./object/extra/*")] == ["color"]
 
-    aap = json.loads(await svc.export_aap_json(project.id))
+    aap = json.loads(await svc.export_native_json(project.id))
     annotations = aap["tasks"][0]["annotations"]
     assert [ann["class_name"] for ann in annotations] == ["car"]
     assert annotations[0]["attributes"] == {"color": "red"}

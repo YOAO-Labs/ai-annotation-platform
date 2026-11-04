@@ -1202,7 +1202,7 @@ class ExportService:
 
         return buf.getvalue()
 
-    async def _aap_scene_tracks(self, annotations):
+    async def _native_scene_tracks(self, annotations):
         exported_scene_track_ids = {
             ann.scene_track_id for ann in annotations if ann.scene_track_id is not None
         }
@@ -1264,15 +1264,14 @@ class ExportService:
 
         return scene_track_entries
 
-    async def _aap_batch_display_id(self, batch_id):
+    async def _native_batch_display_id(self, batch_id):
         if batch_id is None:
             return None
-        from app.services.labeling_core_read_relations import batch_row, get_core_row
 
         batch = await get_core_row(self.db, batch_row, batch_id)
         return batch.display_id if batch else None
 
-    async def export_aap_json(
+    async def export_native_json(
         self,
         project_id: uuid.UUID,
         *,
@@ -1280,7 +1279,7 @@ class ExportService:
         axis_frame: AxisFrame = "iso",
         video_scope: VideoExportScope | None = None,
     ) -> str:
-        """v0.10.15 · AAP JSON v1.0 无损中间格式.
+        """Export the lossless native JSON interchange format.
 
         与 COCO/YOLO/VOC 并列, 但**包含**它们丢失的字段: attribute_schema 值、
         prediction.confidence、annotation.source、annotation_guide、classes_config.
@@ -1302,7 +1301,7 @@ class ExportService:
         for pred in predictions:
             pred_by_task.setdefault(pred.task_id, []).append(pred)
 
-        scene_track_entries = await self._aap_scene_tracks(annotations)
+        scene_track_entries = await self._native_scene_tracks(annotations)
 
         axis_by_task = (
             await self._axis_convention_by_task(tasks) if axis_frame == "source" else {}
@@ -1312,11 +1311,7 @@ class ExportService:
         is_video = project.data_type == "video"
         dataset_items = await self._load_dataset_items(tasks) if is_video else {}
 
-        # batch display_id (项目级导出时为 None)
-        batch_display_id: str | None = None
-        if batch_id:
-            batch = await get_core_row(self.db, batch_row, batch_id)
-            batch_display_id = batch.display_id if batch else None
+        batch_display_id = await self._native_batch_display_id(batch_id)
 
         task_blocks: list[TaskBlock] = []
         mask_objects: dict[str, dict] = _PortableMaskObjects()

@@ -193,7 +193,7 @@ async def test_frozen_aap_class_attributes_scene_axis_and_batch_without_live_rea
         SimpleNamespace(execute=forbidden, get=forbidden, expunge_all=forbidden)
     )
     result = json.loads(
-        await svc.export_aap_json(
+        await svc.export_native_json(
             frozen.project_id, batch_id=frozen.batch_id, axis_frame="source"
         )
     )
@@ -242,7 +242,7 @@ async def test_aap_predictions_preserve_the_existing_unfiltered_class_semantics(
     frozen = Context(data)
     data["predictions"][0]["result"][0]["value"]["rectanglelabels"] = ["changed"]
     output = json.loads(
-        await frozen.service(None).export_aap_json(
+        await frozen.service(None).export_native_json(
             frozen.project_id, batch_id=frozen.batch_id
         )
     )

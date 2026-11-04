@@ -32,7 +32,7 @@ async def test_aba_edits_cannot_affect_frozen_geometry_or_project(input_db):
     project.name = "temporary edit"
     await db.commit()
     document = json.loads(
-        await view.service(NoDatabaseReads()).export_aap_json(project.id)
+        await view.service(NoDatabaseReads()).export_native_json(project.id)
     )
     assert document["project"]["name"] == "LiDAR"
     assert document["tasks"][0]["annotations"][0]["geometry"] == original_geometry
@@ -81,9 +81,9 @@ async def test_frozen_service_rejects_scope_substitution(input_db):
     view = FrozenLidar((await capture(db, project)).snapshot)
     service = view.service(NoDatabaseReads())
     with pytest.raises(ContentError, match="lidar_export_inputs_changed"):
-        await service.export_aap_json(uuid.uuid4())
+        await service.export_native_json(uuid.uuid4())
     with pytest.raises(ContentError, match="lidar_export_inputs_changed"):
-        await service.export_aap_json(project.id, batch_id=uuid.uuid4())
+        await service.export_native_json(project.id, batch_id=uuid.uuid4())
     with pytest.raises(ContentError, match="lidar_export_inputs_changed"):
         _ = [
             chunk

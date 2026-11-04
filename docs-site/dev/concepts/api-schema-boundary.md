@@ -109,9 +109,9 @@ pre-commit 会在 capability registry、schema 或 API 序列化文件变更时�
 | Pydantic       | `_jsonb_types.ToolUnitId` Literal + `ToolBinding` / `ToolClassEntry` / `validate_tool_bindings_keys` 校验器                          | `ProjectCreate / Update / Out` + `AnnotationCreate / Out` + `PredictionOut` + `ProjectTemplate*` 全部加字段 |
 | codegen (前端) | `ToolBinding` / `ToolClassEntry` 派生; `api/projects.ts` 重导出 + `ToolBindings = Partial<Record<ToolUnitId, ToolBinding>>` 收窄 key | `constants/toolUnits.ts` 与后端 Literal 严格对齐；`ai_interactive` 退役后只保留真实几何单位，枚举不可漂移   |
 
-**单源真值**：`projects` / `project_templates` 的旧扁平列 `classes` / `classes_config` / `attribute_schema` 已删除，`tool_bindings` 是唯一存储真值。`ProjectOut` / `ProjectTemplateOut` 仍暴露三个扁平字段（API 契约不变），但由 `model_validator` 用 `derive_*` 从 `tool_bindings` **读时派生**（响应序列化 / COCO·YOLO·AAP 导出共用）。输入侧 `coalesce_legacy_into_tool_bindings` 保留，把旧客户端 / 旧 AAP JSON 1.0 的扁平字段反推到对应 unit。
+**单源真值**：`projects` / `project_templates` 的旧扁平列 `classes` / `classes_config` / `attribute_schema` 已删除，`tool_bindings` 是唯一存储真值。`ProjectOut` / `ProjectTemplateOut` 仍暴露三个扁平字段（API 契约不变），但由 `model_validator` 用 `derive_*` 从 `tool_bindings` **读时派生**（响应序列化 / COCO·YOLO·原生 JSON 导出共用）。输入侧 `coalesce_legacy_into_tool_bindings` 保留，把旧客户端 / 旧原生 JSON 1.0 的扁平字段反推到对应 unit。
 
-**AAP JSON**：当前 schema 1.3 包含 `project.tool_bindings`、媒体块与 portable `mask_objects`。图片 `raster_mask`、视频单帧 `video_mask` 与视频轨迹 `video_track_mask` geometry 都保留 `coco_rle_ref`，envelope 以 SHA-256 为键携带实际 RLE；导入先校验引用与对象一致性，再写不可变对象并创建 annotation。旧 envelope 仍按宽松 reader 兼容。
+**原生 JSON**：当前 schema 1.7 包含 `project.tool_bindings`、媒体块与 portable `mask_objects`。图片 `raster_mask`、视频单帧 `video_mask` 与视频轨迹 `video_track_mask` geometry 都保留 `coco_rle_ref`，envelope 以 SHA-256 为键携带实际 RLE；导入先校验引用与对象一致性，再写不可变对象并创建 annotation。旧 envelope 仍按宽松 reader 兼容，格式说明见[导入 API 指南](../../api/guides/import#aap-json-格式)。
 
 ## 运维、健康与请求体边界
 

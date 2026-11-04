@@ -164,12 +164,12 @@ class FrozenExportService(ExportService):
             )
             yield tasks, annotations, await self._load_dataset_items(tasks)
 
-    async def _aap_batch_display_id(self, batch_id):
+    async def _native_batch_display_id(self, batch_id):
         if batch_id != self.frozen.batch_id:
             _reject()
         return self.frozen.batch_display_id
 
-    async def _aap_scene_tracks(self, annotations):
+    async def _native_scene_tracks(self, annotations):
         selected = {ann.scene_track_id for ann in annotations if ann.scene_track_id}
         intervals = defaultdict(list)
         for row in sorted(

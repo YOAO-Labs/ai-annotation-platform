@@ -240,6 +240,6 @@ def check_schema_major(version: str) -> None:
         raise ValueError(f"schema_version {version!r} 格式非法, 应形如 '1.0'")
     if major > SCHEMA_MAJOR:
         raise ValueError(
-            f"AAP JSON schema_version {version!r} 超出本平台支持范围 "
+            f"原生 JSON schema_version {version!r} 超出本平台支持范围 "
             f"(当前最大支持 major={SCHEMA_MAJOR}); 请升级平台"
         )

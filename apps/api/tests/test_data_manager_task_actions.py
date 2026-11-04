@@ -407,7 +407,7 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
             db_session, project_id=project.id, task_ids=[sibling.id], job_uuid=job_id
         )
     artifact = json.loads(
-        await ExportService(db_session, task_ids=[selected.id]).export_aap_json(
+        await ExportService(db_session, task_ids=[selected.id]).export_native_json(
             project.id
         )
     )

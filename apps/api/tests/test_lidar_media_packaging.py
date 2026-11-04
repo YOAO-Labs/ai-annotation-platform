@@ -188,7 +188,7 @@ def world(tmp_path, monkeypatch):
         async def _axis_convention_by_task(self, *args):
             forbidden()
 
-        async def export_aap_json(self, *args, **kwargs):
+        async def export_native_json(self, *args, **kwargs):
             return '{"frozen":true}'
 
     service = FrozenService()

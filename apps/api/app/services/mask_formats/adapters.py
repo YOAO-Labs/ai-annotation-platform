@@ -225,7 +225,7 @@ class LegacyPackagingAdapter:
         raise ValueError(f"format_import_unsupported:{self.descriptor.format_id}")
 
 
-def _aap_error_code(reason: str) -> str:
+def _native_import_error_code(reason: str) -> str:
     lowered = reason.lower()
     if "task not found" in lowered:
         return "task_not_found"
@@ -236,7 +236,7 @@ def _aap_error_code(reason: str) -> str:
     return "unsupported_geometry"
 
 
-def _aap_subset_bytes(envelope: NativeJsonEnvelope, source_index: int) -> bytes:
+def _native_task_subset_bytes(envelope: NativeJsonEnvelope, source_index: int) -> bytes:
     subset = envelope.model_copy(update={"tasks": [envelope.tasks[source_index]]})
     return json.dumps(
         subset.model_dump(mode="json"),
@@ -273,7 +273,7 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
             if "file_path" not in match and block.file_path:
                 match["file_path"] = block.file_path
             task = await resolve_task(db, project.id, match)
-            subset = _aap_subset_bytes(envelope, source_index)
+            subset = _native_task_subset_bytes(envelope, source_index)
             preview = await import_native_json_annotations(
                 db,
                 project.id,
@@ -283,7 +283,7 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
                 dry_run=True,
             )
             skips = [
-                _code(_aap_error_code(error.reason), reason=error.reason)
+                _code(_native_import_error_code(error.reason), reason=error.reason)
                 for error in preview.errors
             ]
             unknown_labels.update(
@@ -366,7 +366,7 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
         result = await import_native_json_annotations(
             db,
             project.id,
-            _aap_subset_bytes(envelope, item.source_index),
+            _native_task_subset_bytes(envelope, item.source_index),
             operator_user_id=operator_user_id,
             overwrite=bool((options or {}).get("overwrite")),
             dry_run=False,

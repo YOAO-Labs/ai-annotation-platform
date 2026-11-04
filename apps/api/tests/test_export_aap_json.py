@@ -126,7 +126,7 @@ async def test_export_aap_json_project_envelope(
     db_session.add(pred)
     await db_session.flush()
 
-    body = json.loads(await ExportService(db_session).export_aap_json(project.id))
+    body = json.loads(await ExportService(db_session).export_native_json(project.id))
 
     assert body["schema_version"] == "1.7"
     assert body["exported_from"]["project_display_id"] == project.display_id
@@ -222,7 +222,9 @@ async def test_export_aap_json_batch_endpoint(
         )
     await db_session.flush()
     body = json.loads(
-        await ExportService(db_session).export_aap_json(project.id, batch_id=batch.id)
+        await ExportService(db_session).export_native_json(
+            project.id, batch_id=batch.id
+        )
     )
     assert body["exported_from"]["batch_display_id"] == batch.display_id
     exported = {block["task_match"]["display_id"]: block for block in body["tasks"]}
@@ -255,7 +257,7 @@ async def test_export_aap_json_empty_project(
     db_session.add(project)
     await db_session.flush()
 
-    body = json.loads(await ExportService(db_session).export_aap_json(project.id))
+    body = json.loads(await ExportService(db_session).export_native_json(project.id))
     assert body["schema_version"] == "1.7"
     assert body["tasks"] == []
 
@@ -320,9 +322,9 @@ async def test_export_aap_json_axis_frame_source_unapplies_box_3d(
     db_session.add(ann)
     await db_session.flush()
 
-    iso = json.loads(await ExportService(db_session).export_aap_json(project.id))
+    iso = json.loads(await ExportService(db_session).export_native_json(project.id))
     source = json.loads(
-        await ExportService(db_session).export_aap_json(
+        await ExportService(db_session).export_native_json(
             project.id,
             axis_frame="source",
         )
@@ -416,7 +418,7 @@ async def test_export_aap_json_round_trip_after_external_import(
     assert r.json()["errors"] == []
 
     # 立即导出, 应能读到刚导入的 prediction
-    body = json.loads(await ExportService(db_session).export_aap_json(project.id))
+    body = json.loads(await ExportService(db_session).export_native_json(project.id))
     t0 = next(
         t for t in body["tasks"] if t["task_match"]["display_id"] == tasks[0].display_id
     )
@@ -573,7 +575,7 @@ async def test_export_aap_json_video_project_task_block(
 
     monkeypatch.setattr("app.services.exporting.service.load_coco_rle", _fake_load)
 
-    body = json.loads(await ExportService(db_session).export_aap_json(project.id))
+    body = json.loads(await ExportService(db_session).export_native_json(project.id))
     assert body["schema_version"] == "1.7"
     assert len(body["tasks"]) == 1
     t0 = body["tasks"][0]
@@ -623,7 +625,7 @@ async def test_export_aap_json_video_project_task_block(
         to_frame=7,
     )
     scoped = json.loads(
-        await ExportService(db_session).export_aap_json(
+        await ExportService(db_session).export_native_json(
             project.id,
             video_scope=scope,
         )
@@ -688,7 +690,7 @@ async def test_export_aap_json_preserves_scene_track_presence_intervals(
     )
     await db_session.flush()
 
-    body = json.loads(await ExportService(db_session).export_aap_json(project.id))
+    body = json.loads(await ExportService(db_session).export_native_json(project.id))
     assert body["schema_version"] == "1.7"
     assert body["scene_tracks"] == [
         {

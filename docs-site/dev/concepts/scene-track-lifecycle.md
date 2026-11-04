@@ -72,7 +72,7 @@ Track 同时记录存在模式：
 
 - Scene 时间轴从存在区间判断 selected Track 是否出现；成员标记单独显示关键帧、派生帧和样本帧。
 - Data Manager 使用 Track 类别和区间计算首尾帧、缺失帧与质量问题。
-- AAP JSON 在顶层 `scene_tracks[]` 保存身份、`presence_mode`、轨迹属性和多段区间；逐 task Annotation 保存 `track_id` 与 `temporal_role`。
+- 原生 JSON 在顶层 `scene_tracks[]` 保存身份、`presence_mode`、轨迹属性和多段区间；逐 task Annotation 保存 `track_id` 与 `temporal_role`。
 - 质量规则可以引用 Track revision 与命令 locator，但不能绕过预览直接改真值。
 
 图片和 compact video track 继续使用现有存储合同，不会被自动迁入 Scene Track。跨 Scene 身份、多相机人工 2D 成员和完整 OpenLABEL 交换是建立在该领域之上的独立能力。

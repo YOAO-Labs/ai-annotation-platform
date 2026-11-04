@@ -387,17 +387,17 @@ async def import_native_json(
     try:
         raw = json.loads(file_bytes.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"AAP JSON 文件无法解析: {exc}") from exc
+        raise ValueError(f"原生 JSON 文件无法解析: {exc}") from exc
 
     schema_version = raw.get("schema_version") if isinstance(raw, dict) else None
     if not isinstance(schema_version, str):
-        raise ValueError("AAP JSON 缺少 schema_version 字段 (1.0)")
+        raise ValueError("原生 JSON 缺少 schema_version 字段 (1.0)")
     check_schema_major(schema_version)
 
     try:
         envelope = NativeJsonEnvelope.model_validate(raw)
     except ValidationError as exc:
-        raise ValueError(f"AAP JSON envelope 校验失败: {exc.errors()[:3]}") from exc
+        raise ValueError(f"原生 JSON envelope 校验失败: {exc.errors()[:3]}") from exc
     if not dry_run:
         await _hold_import_authority(db, actor_id=actor_id, project_id=project_id)
 
