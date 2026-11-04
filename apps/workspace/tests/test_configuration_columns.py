@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from aap_workspace.configuration_columns import (
+from yoao_workspace.configuration_columns import (
     ConfigurationColumnError,
     dirty_config_columns,
     encode_config_columns,

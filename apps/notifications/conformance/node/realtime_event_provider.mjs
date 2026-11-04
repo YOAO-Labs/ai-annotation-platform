@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const contractPath = path.resolve(here, "../../src/aap_notifications/realtime_event.schema.json");
+const contractPath = path.resolve(here, "../../src/yoao_notifications/realtime_event.schema.json");
 
 async function loadContract() {
   return JSON.parse(await readFile(contractPath, "utf8"));

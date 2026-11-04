@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.role_audit_contract import (
+from yoao_identity.role_audit_contract import (
     ROLE_AUDIT_PROTOCOL,
     ROLE_AUDIT_SCHEMA,
     ROLE_AUDIT_VIEWS,
@@ -160,7 +160,7 @@ def test_schema_freezes_all_three_read_relations_and_nullable_fields():
 def test_role_audit_schema_files_match():
     import json
     from pathlib import Path
-    import aap_identity.role_audit_contract as contract
+    import yoao_identity.role_audit_contract as contract
 
     expected = contract.role_audit_schema()
     assert (

@@ -14,4 +14,4 @@ RUN groupadd --system --gid 10005 jobs \
 COPY --from=builder --chown=10005:10005 /opt/venv /opt/venv
 WORKDIR /runtime
 USER 10005:10005
-CMD ["aap-jobs-queue"]
+CMD ["yoao-jobs-queue"]

@@ -7,11 +7,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deactivation_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deactivation_contract import (
     native_deactivation_command,
 )
-from aap_identity.deactivation_postgres import (
+from yoao_identity.deactivation_postgres import (
     DeactivationDuePostgresData,
     DeactivationPostgresData,
     DeactivationPostgresTransaction,

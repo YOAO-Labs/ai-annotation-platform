@@ -11,13 +11,13 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from aap_identity.mail_contract import (
+from yoao_identity.mail_contract import (
     MailDeliveryPolicy,
     MailLease,
     MailPolicyReply,
 )
-from aap_identity_runtime.mail_config import MailWorkerSettings
-from aap_identity_runtime.mail_worker import MailExecutor, create_app
+from yoao_identity_runtime.mail_config import MailWorkerSettings
+from yoao_identity_runtime.mail_worker import MailExecutor, create_app
 from httpx import ASGITransport, AsyncClient
 
 TOKEN = "0123456789abcdef" * 4
@@ -37,20 +37,20 @@ class FakeSMTPConfig:
 
 @pytest.fixture(autouse=True)
 def source_injected_crypto_and_smtp(monkeypatch):
-    recovery_crypto = types.ModuleType("aap_identity.recovery_crypto")
+    recovery_crypto = types.ModuleType("yoao_identity.recovery_crypto")
     recovery_crypto.mail_encryption_id = lambda key: "b" * 64
     recovery_crypto.decrypt_mail_token = lambda ciphertext, key, encryption_id: TOKEN
     recovery_crypto.token_hash = lambda token: hashlib.sha256(
         token.encode()
     ).hexdigest()
-    monkeypatch.setitem(sys.modules, "aap_identity.recovery_crypto", recovery_crypto)
+    monkeypatch.setitem(sys.modules, "yoao_identity.recovery_crypto", recovery_crypto)
 
-    transport_module = types.ModuleType("aap_mail_transport")
+    transport_module = types.ModuleType("yoao_mail_transport")
     transport_module.SMTPConfig = FakeSMTPConfig
     transport_module.send_message = lambda config, message: SimpleNamespace(
         outcome="delivered", reason="sent"
     )
-    monkeypatch.setitem(sys.modules, "aap_mail_transport", transport_module)
+    monkeypatch.setitem(sys.modules, "yoao_mail_transport", transport_module)
 
 
 def lease(*, purpose: str = "password_reset", key_id: str = "b" * 64) -> MailLease:

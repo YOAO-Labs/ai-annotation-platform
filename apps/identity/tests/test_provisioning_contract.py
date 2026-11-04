@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.provisioning_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.provisioning_contract import (
     PROVISIONING_PROTOCOL,
     ProvisioningCreateRequest,
     ProvisioningLookupRequest,

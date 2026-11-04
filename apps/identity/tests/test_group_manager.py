@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.group_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.group_contract import (
     NATIVE_GROUP_PROTOCOL,
     decode_native_group_command,
 )
-from aap_identity.group_manager import GroupManager, group_request_fingerprint
+from yoao_identity.group_manager import GroupManager, group_request_fingerprint
 from group_helpers import SECRET, group_request, native_success
 from session_helpers import principal
 

@@ -7,9 +7,9 @@ import sys
 
 import pytest
 
-from aap_notifications.delivery_config import NotificationPublisherSettings
-from aap_notifications.delivery_worker import _serve, run_forever
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.delivery_config import NotificationPublisherSettings
+from yoao_notifications.delivery_worker import _serve, run_forever
+from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
 )
 
@@ -36,8 +36,8 @@ async def test_once_mode_ignores_optional_http_api_and_keeps_existing_output(
     async def forbidden(*_args, **_kwargs):
         raise AssertionError("--once must not start the HTTP API")
 
-    monkeypatch.setattr("aap_notifications.delivery_worker.run_once", run_once)
-    monkeypatch.setattr("aap_notifications.delivery_worker.run_forever", forbidden)
+    monkeypatch.setattr("yoao_notifications.delivery_worker.run_once", run_once)
+    monkeypatch.setattr("yoao_notifications.delivery_worker.run_forever", forbidden)
 
     await _serve(_settings(api_token="service-token"), once=True)
 
@@ -54,7 +54,7 @@ async def test_no_token_keeps_durable_only_run_forever(monkeypatch):
     async def run_forever(settings):
         calls.append(settings)
 
-    monkeypatch.setattr("aap_notifications.delivery_worker.run_forever", run_forever)
+    monkeypatch.setattr("yoao_notifications.delivery_worker.run_forever", run_forever)
 
     await _serve(_settings(), once=False)
 
@@ -115,7 +115,7 @@ async def test_optional_api_runs_beside_durable_loop_and_closes_shared_redis(
         ready_event.set()
         await stop_event.wait()
 
-    monkeypatch.setattr("aap_notifications.delivery_worker.run_forever", run_forever)
+    monkeypatch.setattr("yoao_notifications.delivery_worker.run_forever", run_forever)
 
     await _serve(_settings(api_token="service-token"), once=False)
 

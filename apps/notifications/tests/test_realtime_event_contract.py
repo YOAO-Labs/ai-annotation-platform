@@ -9,7 +9,7 @@ import subprocess
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.realtime_event_contract import (
+from yoao_notifications.realtime_event_contract import (
     NOTIFICATION_REALTIME_PROTOCOL,
     NotificationSyncEvent,
     notification_event_message,
@@ -21,7 +21,7 @@ from aap_notifications.realtime_event_contract import (
 SCHEMA_PATH = (
     Path(__file__).parents[1]
     / "src"
-    / "aap_notifications"
+    / "yoao_notifications"
     / "realtime_event.schema.json"
 )
 NODE_PROVIDER = (
@@ -31,7 +31,7 @@ NODE_PROVIDER = (
 
 def test_frozen_realtime_schema_matches_contract_models():
     frozen = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
-    packaged = files("aap_notifications").joinpath("realtime_event.schema.json")
+    packaged = files("yoao_notifications").joinpath("realtime_event.schema.json")
 
     assert frozen == notification_realtime_json_schema()
     assert json.loads(packaged.read_text(encoding="utf-8")) == frozen

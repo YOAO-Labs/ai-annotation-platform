@@ -9,7 +9,7 @@ from importlib.resources import files
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from aap_workspace.template_query_contract import (
+from yoao_workspace.template_query_contract import (
     TEMPLATE_QUERY_PROTOCOL,
     TEMPLATE_RESPONSE_COLUMNS,
     TEMPLATE_ROW_COLUMNS,
@@ -130,7 +130,7 @@ def test_checked_in_schema_matches_closed_query_request_reply_and_step_models():
     schema["$id"] = TEMPLATE_QUERY_PROTOCOL
     schema["x-template-row-columns"] = list(TEMPLATE_ROW_COLUMNS)
     schema["x-template-enrichment-columns"] = ["created_by_name"]
-    path = files("aap_workspace").joinpath("template_query_protocol.schema.json")
+    path = files("yoao_workspace").joinpath("template_query_protocol.schema.json")
     assert json.loads(path.read_text()) == schema
 
 

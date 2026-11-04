@@ -4,8 +4,8 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_contract import (
     MAIL_NATIVE_PROTOCOL,
     MailAcceptedReply,
     MailClaimReply,
@@ -159,7 +159,7 @@ def test_mail_lease_requires_aware_timestamps_and_hides_link_secrets():
         "lease_token": "lease-secret",
         "lease_expires_at": datetime.now(UTC).isoformat(),
     }
-    from aap_identity.mail_contract import MailLease
+    from yoao_identity.mail_contract import MailLease
 
     lease = MailLease.model_validate_json(__import__("json").dumps(value))
     assert "ciphertext-secret" not in repr(lease)

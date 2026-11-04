@@ -14,15 +14,15 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from aap_identity.mail_contract import MailDeliveryPolicy
-from aap_identity.mail_v2_contract import (
+from yoao_identity.mail_contract import MailDeliveryPolicy
+from yoao_identity.mail_v2_contract import (
     MAIL_V2_POLICY,
     MailV2PolicyReply,
     InvitationMailV2Lease,
 )
-from aap_identity_runtime.mail_config_v2 import MailV2WorkerSettings
-from aap_identity_runtime.mail_worker import MailExecutor
-from aap_identity_runtime.mail_worker_v2 import create_app
+from yoao_identity_runtime.mail_config_v2 import MailV2WorkerSettings
+from yoao_identity_runtime.mail_worker import MailExecutor
+from yoao_identity_runtime.mail_worker_v2 import create_app
 
 TOKEN = "邀请-原始🔐proof"
 KEY = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii")
@@ -43,20 +43,20 @@ class FakeSMTPConfig:
 
 @pytest.fixture(autouse=True)
 def source_injected_crypto_and_smtp(monkeypatch):
-    recovery_crypto = types.ModuleType("aap_identity.recovery_crypto")
+    recovery_crypto = types.ModuleType("yoao_identity.recovery_crypto")
     recovery_crypto.mail_encryption_id = lambda _key: "b" * 64
     recovery_crypto.decrypt_mail_token = lambda _ciphertext, _key, _key_id: TOKEN
     recovery_crypto.token_hash = lambda token: hashlib.sha256(
         token.encode()
     ).hexdigest()
-    monkeypatch.setitem(sys.modules, "aap_identity.recovery_crypto", recovery_crypto)
+    monkeypatch.setitem(sys.modules, "yoao_identity.recovery_crypto", recovery_crypto)
 
-    transport_module = types.ModuleType("aap_mail_transport")
+    transport_module = types.ModuleType("yoao_mail_transport")
     transport_module.SMTPConfig = FakeSMTPConfig
     transport_module.send_message = lambda config, message: SimpleNamespace(
         outcome="delivered", reason="sent"
     )
-    monkeypatch.setitem(sys.modules, "aap_mail_transport", transport_module)
+    monkeypatch.setitem(sys.modules, "yoao_mail_transport", transport_module)
 
 
 def invitation_lease(*, key_id: str = "b" * 64) -> InvitationMailV2Lease:

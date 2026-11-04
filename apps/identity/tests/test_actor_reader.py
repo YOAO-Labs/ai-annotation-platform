@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from aap_identity.actor_contract import (
+from yoao_identity.actor_contract import (
     ACTOR_PROTOCOL,
     ActorContext,
     ActorContextRequest,
@@ -12,8 +12,8 @@ from aap_identity.actor_contract import (
     actor_reply,
     decode_actor_request,
 )
-from aap_identity.actor_reader import ActorContextReader
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.actor_reader import ActorContextReader
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
 
 
 class Data:

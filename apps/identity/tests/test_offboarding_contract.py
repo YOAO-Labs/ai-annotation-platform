@@ -8,8 +8,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.offboarding_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.offboarding_contract import (
     NativeOffboardingApplyCommand,
     OffboardingFailure,
     OffboardingSnapshotFacts,
@@ -18,7 +18,7 @@ from aap_identity.offboarding_contract import (
     decode_offboarding_request,
     offboarding_failure_reply,
 )
-from aap_identity.offboarding_manager import (
+from yoao_identity.offboarding_manager import (
     legacy_offboarding_preview_version,
     legacy_offboarding_resource_state,
 )
@@ -247,7 +247,7 @@ def test_native_prepare_cannot_return_facts_for_another_target():
 
 
 def test_failure_builder_keeps_closed_stale_detail_without_secret_fields():
-    from aap_identity.offboarding_contract import PreviewStaleDetail
+    from yoao_identity.offboarding_contract import PreviewStaleDetail
 
     failure = OffboardingFailure(
         "offboarding_preview_stale",

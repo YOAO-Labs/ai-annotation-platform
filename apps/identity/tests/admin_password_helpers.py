@@ -4,7 +4,7 @@ import uuid
 import json
 from datetime import UTC, datetime
 
-from aap_identity.admin_password_contract import (
+from yoao_identity.admin_password_contract import (
     ADMIN_PASSWORD_PROTOCOL,
     NATIVE_ADMIN_PASSWORD_PROTOCOL,
     decode_admin_password_request,
@@ -49,11 +49,11 @@ def admin_password_data(**changes):
 
 
 def native_admin_password_command(request, *, actor=None, key_hash=None, new_hash=None):
-    from aap_identity.admin_password_manager import (
+    from yoao_identity.admin_password_manager import (
         admin_password_derivation_id,
         admin_password_request_fingerprint,
     )
-    from aap_identity.admin_password_contract import native_admin_password_command
+    from yoao_identity.admin_password_contract import native_admin_password_command
 
     return native_admin_password_command(
         request,

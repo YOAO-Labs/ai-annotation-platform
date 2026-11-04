@@ -1,4 +1,4 @@
-from aap_identity.password_policy import MIN_LENGTH, validate_password_strength
+from yoao_identity.password_policy import MIN_LENGTH, validate_password_strength
 
 
 def test_password_policy_keeps_existing_api_strength_messages_and_minimum():

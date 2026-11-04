@@ -5,12 +5,12 @@ import json
 import pytest
 from sqlalchemy.exc import DBAPIError
 
-from aap_audit.query_contract import (
+from yoao_audit.query_contract import (
     AuditQueryFilters,
     AuditQueryRequest,
     AuditQueryUnavailable,
 )
-from aap_audit.query_postgres import AuditQueryPostgresData
+from yoao_audit.query_postgres import AuditQueryPostgresData
 
 
 class _Session:

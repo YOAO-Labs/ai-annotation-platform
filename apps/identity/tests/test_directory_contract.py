@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.directory_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.directory_contract import (
     NATIVE_DIRECTORY_PROTOCOL,
     DIRECTORY_PROTOCOL,
     DirectoryFailure,
@@ -18,7 +18,7 @@ from aap_identity.directory_contract import (
     decode_native_directory_reply,
     directory_failure_reply,
 )
-from aap_identity.directory_manager import directory_request_fingerprint
+from yoao_identity.directory_manager import directory_request_fingerprint
 from directory_helpers import (
     DIRECTORY_SECRET,
     directory_export_user,

@@ -7,14 +7,14 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity_admission.actor_status_contract import (
+from yoao_identity_admission.actor_status_contract import (
     ACTOR_STATUS_PROTOCOL,
     ActorStatus,
     actor_status_reply,
 )
-from aap_identity.actor_status_reader import ActorStatusData as ActorStatusDataProtocol
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.actor_status_reader import ActorStatusData as ActorStatusDataProtocol
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 
 GENERAL_TOKEN = "identity-general-control"
 ADMISSION_TOKEN = "identity-scoped-admission"

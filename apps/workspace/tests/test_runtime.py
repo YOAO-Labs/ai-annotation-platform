@@ -5,10 +5,10 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 
-from aap_workspace.api import create_app
-from aap_workspace.config import RuntimeSettings, secret_source
-from aap_workspace.contract import MembershipUnavailable
-from aap_workspace.postgres import MembershipPostgresData
+from yoao_workspace.api import create_app
+from yoao_workspace.config import RuntimeSettings, secret_source
+from yoao_workspace.contract import MembershipUnavailable
+from yoao_workspace.postgres import MembershipPostgresData
 
 
 def _request():

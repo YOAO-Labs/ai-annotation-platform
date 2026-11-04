@@ -5,13 +5,13 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
-from aap_identity.directory_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.directory_contract import (
     NATIVE_DIRECTORY_PROTOCOL,
     decode_native_directory_command,
 )
-from aap_identity.directory_manager import (
+from yoao_identity.directory_manager import (
     DirectoryManager,
     directory_request_fingerprint,
 )

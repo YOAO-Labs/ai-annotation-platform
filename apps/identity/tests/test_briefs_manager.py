@@ -5,15 +5,15 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.briefs_contract import (
+from yoao_identity.briefs_contract import (
     BRIEFS_PROTOCOL,
     NATIVE_BRIEFS_PROTOCOL,
     BriefsFailure,
     decode_briefs_request,
     decode_native_briefs_command,
 )
-from aap_identity.briefs_manager import BriefsManager
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.briefs_manager import BriefsManager
+from yoao_identity.contract import IdentityUnavailable
 from briefs_helpers import (
     briefs_request,
     legacy_fixture,
@@ -199,7 +199,7 @@ def test_request_decoder_rejects_alias_extra_fields_and_null_ids():
 
 
 def test_wire_reply_requires_python_compatible_avatar_initial():
-    from aap_identity.briefs_contract import decode_briefs_reply
+    from yoao_identity.briefs_contract import decode_briefs_reply
 
     request = briefs_request("get_user_briefs", [uuid.UUID(int=1)])
     bad = {
@@ -225,7 +225,7 @@ def test_wire_reply_requires_python_compatible_avatar_initial():
 
 
 def test_avatar_initial_matches_unicode_and_whitespace_legacy_behavior():
-    from aap_identity.briefs_contract import avatar_initial
+    from yoao_identity.briefs_contract import avatar_initial
 
     fixture = legacy_fixture()
     for key, expected in (

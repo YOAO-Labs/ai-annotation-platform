@@ -7,9 +7,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.group_contract import native_group_command
-from aap_identity.group_postgres import GroupPostgresData, GroupPostgresTransaction
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.group_contract import native_group_command
+from yoao_identity.group_postgres import GroupPostgresData, GroupPostgresTransaction
 from group_helpers import group_request
 from session_helpers import principal
 

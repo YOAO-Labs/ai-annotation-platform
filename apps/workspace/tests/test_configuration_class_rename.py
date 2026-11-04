@@ -8,8 +8,8 @@ import uuid
 
 import pytest
 
-from aap_workspace.configuration import ConfigurationManager
-from aap_workspace.configuration_contract import (
+from yoao_workspace.configuration import ConfigurationManager
+from yoao_workspace.configuration_contract import (
     CONFIGURATION_PROTOCOL,
     ConfigurationFailure,
     ConfigurationRenameSuccess,
@@ -19,8 +19,8 @@ from aap_workspace.configuration_contract import (
     configuration_rename_success_reply,
     decode_configuration_reply,
 )
-from aap_workspace.project_queries import ProjectQueryManager
-from aap_workspace_contract.project_query_contract import (
+from yoao_workspace.project_queries import ProjectQueryManager
+from yoao_workspace_contract.project_query_contract import (
     PROJECT_JSON_COLUMNS,
     PROJECT_QUERY_PROTOCOL,
     PROJECT_ROW_COLUMNS,
@@ -40,7 +40,7 @@ _NOW = "2026-01-02T00:00:00+00:00"
 def test_configuration_schema_adds_rename_without_widening_legacy_success():
     schema = configuration_schema()
     stored = json.loads(
-        files("aap_workspace")
+        files("yoao_workspace")
         .joinpath("configuration_protocol.schema.json")
         .read_text(encoding="utf-8")
     )
@@ -582,7 +582,7 @@ class _FakePgConnection:
 async def test_standalone_configuration_data_honors_explicit_noop_rollback_marker(
     monkeypatch,
 ):
-    from aap_workspace.configuration_postgres import ConfigurationPostgresData
+    from yoao_workspace.configuration_postgres import ConfigurationPostgresData
 
     data = ConfigurationPostgresData("postgresql://private/test")
     connection = _FakePgConnection()
@@ -690,7 +690,7 @@ def test_rename_success_changed_flag_must_match_the_canonical_request_names(
 
 @pytest.mark.asyncio
 async def test_postgres_adapter_does_not_swallow_unrelated_core_errors(monkeypatch):
-    from aap_workspace.configuration_postgres import ConfigurationPostgresData
+    from yoao_workspace.configuration_postgres import ConfigurationPostgresData
 
     data = ConfigurationPostgresData("postgresql://private/test")
     connection = _FakePgConnection()

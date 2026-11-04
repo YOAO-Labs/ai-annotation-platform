@@ -5,13 +5,13 @@ import uuid
 
 import pytest
 
-from aap_audit_contract import ProjectDeletionAuditContext
-from aap_owner_data import postgres as owner_postgres
-from aap_workspace.project_deletion_contract import (
+from yoao_audit_contract import ProjectDeletionAuditContext
+from yoao_owner_data import postgres as owner_postgres
+from yoao_workspace.project_deletion_contract import (
     PROJECT_DELETION_PROTOCOL,
     ProjectDeletionCommand,
 )
-from aap_workspace.project_deletion_postgres import (
+from yoao_workspace.project_deletion_postgres import (
     _PROJECT_DELETION_FUNCTIONS,
     _DELETE_PROJECT_SQL,
     NATIVE_SCHEMA,

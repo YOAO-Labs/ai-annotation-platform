@@ -5,7 +5,7 @@ from datetime import date, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_audit import AuditDailyFact
+from yoao_audit import AuditDailyFact
 
 
 def _fact(**overrides) -> dict:

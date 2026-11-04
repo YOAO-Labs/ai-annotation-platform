@@ -6,7 +6,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_jobs.lifecycle_contract import (
+from yoao_jobs.lifecycle_contract import (
     JOBS_LIFECYCLE_PROTOCOL,
     AsyncJobLifecycleRow,
     decode_lifecycle_apply_request,

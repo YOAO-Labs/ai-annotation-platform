@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.contract import (
+from yoao_workspace.contract import (
     MEMBERSHIP_NATIVE_PROTOCOL,
     MEMBERSHIP_PROTOCOL,
     AddMemberPayload,

@@ -6,11 +6,11 @@ import uuid
 import httpx
 import pytest
 
-from aap_identity.contract import Principal, principal_reply
-from aap_identity.key_contract import KEY_DERIVATION, KEY_PROTOCOL, NATIVE_KEY_PROTOCOL
-from aap_identity.security import create_access_token
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.contract import Principal, principal_reply
+from yoao_identity.key_contract import KEY_DERIVATION, KEY_PROTOCOL, NATIVE_KEY_PROTOCOL
+from yoao_identity.security import create_access_token
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 
 SECRET = "runtime-key-secret"
 CONTROL = "private-runtime-control"

@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.configuration_contract import (
+from yoao_workspace.configuration_contract import (
     CONFIGURATION_PROTOCOL,
     ConfigurationError,
     ConfigurationErrorDetails,

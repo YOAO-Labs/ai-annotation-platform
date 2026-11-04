@@ -8,13 +8,13 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.contract import Principal, principal_reply
-from aap_identity.deletion_contract import (
+from yoao_identity.contract import Principal, principal_reply
+from yoao_identity.deletion_contract import (
     NATIVE_DELETION_PROTOCOL,
     DeletionPolicyReply,
 )
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from deletion_helpers import (
     DELETION_CONTROL,
     DELETION_SECRET,

@@ -4,17 +4,17 @@ import json
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.offboarding_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.offboarding_contract import (
     OffboardingApplyPayload,
     OffboardingScopeBasis,
     native_apply_offboarding_command,
 )
-from aap_identity.offboarding_manager import (
+from yoao_identity.offboarding_manager import (
     offboarding_derivation_id,
     offboarding_request_fingerprint,
 )
-from aap_identity.offboarding_postgres import (
+from yoao_identity.offboarding_postgres import (
     OffboardingPostgresData,
     OffboardingPostgresTransaction,
 )

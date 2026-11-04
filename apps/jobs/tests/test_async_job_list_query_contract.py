@@ -5,7 +5,7 @@ import json
 import pytest
 from pydantic import ValidationError
 
-from aap_jobs.async_job_list_query_contract import AsyncJobListQuery, AsyncJobListRow
+from yoao_jobs.async_job_list_query_contract import AsyncJobListQuery, AsyncJobListRow
 
 
 def test_async_job_list_query_keeps_empty_and_open_filter_semantics():

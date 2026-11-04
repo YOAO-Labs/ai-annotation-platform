@@ -9,8 +9,8 @@ import pytest
 from pydantic import ValidationError
 from jose import jwt
 
-from aap_identity.contract import FailureReply, IdentityUnavailable
-from aap_identity.session_contract import (
+from yoao_identity.contract import FailureReply, IdentityUnavailable
+from yoao_identity.session_contract import (
     NATIVE_SESSION_PROTOCOL,
     SESSION_PROTOCOL,
     LoginReply,
@@ -31,8 +31,8 @@ from aap_identity.session_contract import (
     decode_session_request,
     session_failure_reply,
 )
-from aap_identity.session_manager import sign_session_claims
-from aap_identity.security import decode_access_token, signing_key
+from yoao_identity.session_manager import sign_session_claims
+from yoao_identity.security import decode_access_token, signing_key
 
 from session_helpers import (
     SECRET,

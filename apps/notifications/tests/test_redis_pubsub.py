@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_notifications import redis_pubsub
+from yoao_notifications import redis_pubsub
 
 
 class FakeRedis:

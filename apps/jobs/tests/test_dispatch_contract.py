@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_jobs.dispatch_data import JobsDispatchDataClient
+from yoao_jobs.dispatch_data import JobsDispatchDataClient
 
 
 def _dispatch(execution_id: str) -> dict:

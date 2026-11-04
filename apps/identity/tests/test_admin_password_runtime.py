@@ -4,9 +4,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.admin_password_contract import AdminPasswordPolicyReply
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.admin_password_contract import AdminPasswordPolicyReply
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from admin_password_helpers import CONTROL, SECRET
 
 

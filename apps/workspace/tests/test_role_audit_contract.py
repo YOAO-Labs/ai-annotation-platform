@@ -7,7 +7,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.role_audit_contract import (
+from yoao_workspace.role_audit_contract import (
     ROLE_AUDIT_PROTOCOL,
     ROLE_AUDIT_SCHEMA,
     ROLE_AUDIT_VIEWS,
@@ -133,7 +133,7 @@ def test_schema_freezes_exact_views_columns_and_legacy_capabilities():
 
 
 def test_schema_files_match_the_portable_descriptor():
-    import aap_workspace.role_audit_contract as contract
+    import yoao_workspace.role_audit_contract as contract
 
     expected = contract.workspace_role_audit_schema()
     package_schema = Path(contract.__file__).with_name("role_audit.schema.json")

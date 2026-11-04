@@ -5,14 +5,14 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.configuration_requests import (
+from yoao_workspace.configuration_requests import (
     ProjectCreate,
     ProjectTemplateCreate,
     ProjectTemplateOut,
     ProjectTemplateUpdate,
     ProjectUpdate,
 )
-from aap_workspace.configuration_values import (
+from yoao_workspace.configuration_values import (
     AttributeField,
     AttributeSchema,
     ClassConfigEntry,
@@ -22,11 +22,11 @@ from aap_workspace.configuration_values import (
     VideoModesConfig,
     VideoSamplingConfig,
 )
-from aap_workspace.mask_configuration_values import (
+from yoao_workspace.mask_configuration_values import (
     MASK_QC_RULE_CODES,
     MaskQCConfig,
 )
-from aap_workspace.point_quality_configuration_values import (
+from yoao_workspace.point_quality_configuration_values import (
     POINT_CLOUD_QUALITY_RULE_CODES,
     PointCloudQualityConfig,
 )

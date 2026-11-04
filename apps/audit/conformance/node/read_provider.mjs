@@ -4,8 +4,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const schemaPath = path.resolve(here, "../../src/aap_audit/read_relations.schema.json");
-const dailySchemaPath = path.resolve(here, "../../src/aap_audit/daily_projection.schema.json");
+const schemaPath = path.resolve(here, "../../src/yoao_audit/read_relations.schema.json");
+const dailySchemaPath = path.resolve(here, "../../src/yoao_audit/daily_projection.schema.json");
 const relationName = "aap_audit_v1.audit_events";
 const dailyRelationName = "aap_audit_v1.audit_daily_facts";
 const refreshFunctionName = "aap_audit_v1.refresh_audit_bi_mv()";

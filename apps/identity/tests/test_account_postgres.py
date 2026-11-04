@@ -7,7 +7,7 @@ import uuid
 import asyncpg
 import pytest
 
-from aap_identity.account_contract import (
+from yoao_identity.account_contract import (
     NATIVE_ACCOUNT_PROTOCOL,
     AccountFailure,
     AccountResultData,
@@ -17,8 +17,8 @@ from aap_identity.account_contract import (
     native_account_apply_command,
     native_account_prepare_command,
 )
-from aap_identity.account_postgres import AccountPostgresData
-from aap_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.account_postgres import AccountPostgresData
+from yoao_identity.contract import IdentityUnavailable, Principal
 
 from account_helpers import account_record, account_request
 from session_helpers import principal

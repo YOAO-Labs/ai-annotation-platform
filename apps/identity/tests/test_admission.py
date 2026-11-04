@@ -10,8 +10,8 @@ import httpx
 import pytest
 from jose import JWTError, jwt
 
-from aap_identity.authenticator import Authenticator, CredentialDecodeFailure
-from aap_identity.contract import (
+from yoao_identity.authenticator import Authenticator, CredentialDecodeFailure
+from yoao_identity.contract import (
     IdentityFailure,
     IdentityUnavailable,
     Principal,
@@ -19,15 +19,15 @@ from aap_identity.contract import (
     failure_reply,
     principal_reply,
 )
-from aap_identity.security import (
+from yoao_identity.security import (
     ALGORITHM,
     ISSUER,
     create_access_token,
     decode_access_token,
     signing_key,
 )
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 
 SECRET = "identity-unit-signing-secret"
 ACTOR = uuid.uuid4()

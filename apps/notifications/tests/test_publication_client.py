@@ -7,8 +7,8 @@ import uuid
 import httpx
 import pytest
 
-from aap_notifications.publication_client import RemotePublicationClient
-from aap_notifications.publication_contract import (
+from yoao_notifications.publication_client import RemotePublicationClient
+from yoao_notifications.publication_contract import (
     IMMEDIATE_PUBLICATION_PROTOCOL,
     ImmediatePublicationRequest,
     ImmediatePublicationUnavailable,

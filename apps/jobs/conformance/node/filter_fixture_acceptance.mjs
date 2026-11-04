@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const jobsRoot = path.resolve(here, "../../src/aap_jobs");
+const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "fixture_filter.schema.json");
 const sqlPath = path.join(jobsRoot, "sql/0331_jobs_filter_fixtures.sql");
 const apiSchemaPath = path.resolve(

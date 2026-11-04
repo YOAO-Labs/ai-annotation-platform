@@ -2,8 +2,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_workspace.configuration_contract import ConfigurationUnavailable
-from aap_workspace.configuration_postgres import ConfigurationPostgresData
+from yoao_workspace.configuration_contract import ConfigurationUnavailable
+from yoao_workspace.configuration_postgres import ConfigurationPostgresData
 
 
 class ClosingFailureConnection:
@@ -80,7 +80,7 @@ async def test_missing_probe_key_maps_only_backend_action_to_unavailable(
     action, expected
 ):
     import asyncpg
-    from aap_workspace.configuration_postgres import ConfigurationPostgresTransaction
+    from yoao_workspace.configuration_postgres import ConfigurationPostgresTransaction
 
     class Connection:
         async def fetchval(self, *args):

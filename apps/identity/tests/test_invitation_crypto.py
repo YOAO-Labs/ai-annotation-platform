@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from aap_identity.invitation_crypto import (
+from yoao_identity.invitation_crypto import (
     decrypt_mail_token,
     encrypt_mail_token,
     invitation_id,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aap_audit.maintenance_config import ConfigurationError, load_config
+from yoao_audit.maintenance_config import ConfigurationError, load_config
 
 
 def test_database_secret_file_is_read_and_never_shown(tmp_path):
@@ -45,9 +45,9 @@ def test_database_secret_file_is_read_and_never_shown(tmp_path):
 def test_interrupted_cli_does_not_report_success(monkeypatch):
     import sys
 
-    from aap_audit import maintenance_runtime
+    from yoao_audit import maintenance_runtime
 
-    monkeypatch.setattr(sys, "argv", ["aap-audit-maintenance", "refresh-daily"])
+    monkeypatch.setattr(sys, "argv", ["yoao-audit-maintenance", "refresh-daily"])
     monkeypatch.setattr(maintenance_runtime, "load_config", lambda **_kwargs: None)
 
     def interrupted(coroutine):

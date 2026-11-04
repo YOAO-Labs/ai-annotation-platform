@@ -6,8 +6,8 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
-from aap_identity.seed_persona_contract import (
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.seed_persona_contract import (
     IDENTITY_SCHEMA,
     SEED_PERSONA_PROTOCOL,
     SeedPersonaReply,

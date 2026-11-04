@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from aap_jobs.queue_contract import (
+from yoao_jobs.queue_contract import (
     JOBS_QUEUE_PROTOCOL,
     JobsQueueContractError,
     QueueCanvas,

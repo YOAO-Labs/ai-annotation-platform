@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.presence_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.presence_contract import (
     PRESENCE_PROTOCOL,
     decode_presence_reply,
     decode_presence_request,

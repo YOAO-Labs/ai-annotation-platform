@@ -1,0 +1,43 @@
+"""Compatibility re-exports for the shared Identity admission contract."""
+
+from yoao_identity_admission.contract import (
+    PROTOCOL,
+    REFRESH_GRACE_SECONDS,
+    AuthenticateRequest,
+    Candidate,
+    CandidatesPage,
+    ClosedModel,
+    FailureCode,
+    FailureDetail,
+    FailureReply,
+    IdentityFailure,
+    IdentityUnavailable,
+    Principal,
+    PrincipalReply,
+    decode_principal_reply,
+    failure_reply,
+    principal_reply,
+    require_jwt_scope,
+    _reject_protocol_alias,
+)
+
+__all__ = [
+    "REFRESH_GRACE_SECONDS",
+    "AuthenticateRequest",
+    "Candidate",
+    "CandidatesPage",
+    "ClosedModel",
+    "FailureCode",
+    "FailureDetail",
+    "FailureReply",
+    "IdentityFailure",
+    "IdentityUnavailable",
+    "Principal",
+    "PrincipalReply",
+    "PROTOCOL",
+    "_reject_protocol_alias",
+    "decode_principal_reply",
+    "failure_reply",
+    "principal_reply",
+    "require_jwt_scope",
+]

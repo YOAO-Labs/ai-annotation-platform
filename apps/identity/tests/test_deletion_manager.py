@@ -5,15 +5,15 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
-from aap_identity.deletion_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.deletion_contract import (
     NATIVE_DELETION_PROTOCOL,
     DeletionFailure,
     decode_native_deletion_command,
     deletion_failure_reply,
 )
-from aap_identity.deletion_manager import (
+from yoao_identity.deletion_manager import (
     DeletionManager,
     deletion_derivation_id,
     deletion_request_fingerprint,

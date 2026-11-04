@@ -10,7 +10,7 @@ import sys
 import pytest
 from pydantic import ValidationError
 
-from aap_audit.read_relation_contract import AuditReadEvent
+from yoao_audit.read_relation_contract import AuditReadEvent
 
 
 def _event(**overrides) -> dict:
@@ -82,9 +82,9 @@ class BlockSQLAlchemy(importlib.abc.MetaPathFinder):
         if fullname == 'sqlalchemy' or fullname.startswith('sqlalchemy.'):
             raise ModuleNotFoundError('blocked optional dependency', name=fullname)
 sys.meta_path.insert(0, BlockSQLAlchemy())
-import aap_audit
-assert aap_audit.READ_RELATION_PROTOCOL == 'aap-audit-read-relations/v1'
-assert aap_audit.AuditReadEvent is not None
+import yoao_audit
+assert yoao_audit.READ_RELATION_PROTOCOL == 'aap-audit-read-relations/v1'
+assert yoao_audit.AuditReadEvent is not None
 """
     result = subprocess.run(
         [sys.executable, "-c", script],

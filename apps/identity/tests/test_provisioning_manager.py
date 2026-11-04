@@ -5,8 +5,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aap_identity.provisioning import AccountProvisioningManager
-from aap_identity.provisioning_contract import PROVISIONING_PROTOCOL, ProvisioningReply
+from yoao_identity.provisioning import AccountProvisioningManager
+from yoao_identity.provisioning_contract import PROVISIONING_PROTOCOL, ProvisioningReply
 
 PRODUCTION_IMPORT_ERROR = (
     "生产环境下未找到 admin 用户,拒绝自动创建弱口令 admin/123456。"
@@ -49,7 +49,7 @@ async def test_bootstrap_existing_email_skips_hash_and_create(monkeypatch):
         hashes.append(value)
         return "hashed"
 
-    monkeypatch.setattr("aap_identity.provisioning.hash_password", hash_password)
+    monkeypatch.setattr("yoao_identity.provisioning.hash_password", hash_password)
 
     created = await AccountProvisioningManager(data).create_bootstrap_super_admin(
         email="raw Admin@Example.test",
@@ -76,7 +76,7 @@ async def test_bootstrap_missing_email_hashes_once_and_passes_raw_caller_values(
         hashes.append(value)
         return "bcrypt-output"
 
-    monkeypatch.setattr("aap_identity.provisioning.hash_password", hash_password)
+    monkeypatch.setattr("yoao_identity.provisioning.hash_password", hash_password)
     now = datetime(2026, 10, 21, 1, 2, 3, tzinfo=UTC)
     account_id = await AccountProvisioningManager(data).create_bootstrap_super_admin(
         email="  Admin@Example.test ",
@@ -103,7 +103,7 @@ async def test_import_existing_admin_is_reused_including_in_production(monkeypat
     data = Data(existing={"admin": existing})
     hashes = []
     monkeypatch.setattr(
-        "aap_identity.provisioning.hash_password",
+        "yoao_identity.provisioning.hash_password",
         lambda value: hashes.append(value) or "must-not-be-used",
     )
 
@@ -125,7 +125,7 @@ async def test_production_missing_import_admin_fails_before_hashing_or_creating(
     data = Data()
     hashes = []
     monkeypatch.setattr(
-        "aap_identity.provisioning.hash_password",
+        "yoao_identity.provisioning.hash_password",
         lambda value: hashes.append(value) or "must-not-be-used",
     )
 
@@ -147,7 +147,7 @@ async def test_non_exact_production_import_uses_the_legacy_seed(
     data = Data()
     hashes = []
     monkeypatch.setattr(
-        "aap_identity.provisioning.hash_password",
+        "yoao_identity.provisioning.hash_password",
         lambda value: hashes.append(value) or "legacy-bcrypt",
     )
 
@@ -172,7 +172,7 @@ async def test_duplicate_create_failure_propagates_without_retry_or_rollback(
     duplicate = RuntimeError("raw duplicate key error")
     data = Data(create_error=duplicate)
     monkeypatch.setattr(
-        "aap_identity.provisioning.hash_password", lambda _value: "hash"
+        "yoao_identity.provisioning.hash_password", lambda _value: "hash"
     )
 
     with pytest.raises(RuntimeError) as error:

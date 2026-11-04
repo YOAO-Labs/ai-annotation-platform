@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from aap_notifications.websocket import (
+from yoao_notifications.websocket import (
     notification_message_allowed,
     run_pubsub_ws,
     serve_notification_socket,
@@ -193,7 +193,7 @@ async def test_missing_row_gets_four_looks_and_three_fixed_waits(monkeypatch):
     async def no_wait(delay):
         delays.append(delay)
 
-    monkeypatch.setattr("aap_notifications.websocket.asyncio.sleep", no_wait)
+    monkeypatch.setattr("yoao_notifications.websocket.asyncio.sleep", no_wait)
     assert not await notification_message_allowed(
         "jwt",
         json.dumps({"id": str(notification_id)}).encode(),
@@ -473,7 +473,7 @@ async def test_heartbeat_uses_thirty_second_interval(monkeypatch):
         delays.append(delay)
         await original_sleep(0)
 
-    monkeypatch.setattr("aap_notifications.websocket.asyncio.sleep", cooperative_sleep)
+    monkeypatch.setattr("yoao_notifications.websocket.asyncio.sleep", cooperative_sleep)
 
     async def listen():
         await asyncio.Future()

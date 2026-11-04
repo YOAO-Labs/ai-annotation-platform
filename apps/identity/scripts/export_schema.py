@@ -10,7 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from aap_identity.account_contract import (  # noqa: E402
+from yoao_identity.account_contract import (  # noqa: E402
     AccountFailureReply,
     AccountReply,
     AccountRequest,
@@ -21,7 +21,7 @@ from aap_identity.account_contract import (  # noqa: E402
     NativePrepareCommand,
     NativePrepareReply,
 )
-from aap_identity.admin_password_contract import (  # noqa: E402
+from yoao_identity.admin_password_contract import (  # noqa: E402
     AdminPasswordFailureReply,
     AdminPasswordReply,
     AdminPasswordRequest,
@@ -30,32 +30,32 @@ from aap_identity.admin_password_contract import (  # noqa: E402
     NativeAdminPasswordPolicyReply,
     NativeAdminPasswordSuccess,
 )
-from aap_identity.contract import (  # noqa: E402
+from yoao_identity.contract import (  # noqa: E402
     AuthenticateRequest,
     CandidatesPage,
     FailureReply,
     PrincipalReply,
 )
-from aap_identity.actor_contract import (  # noqa: E402
+from yoao_identity.actor_contract import (  # noqa: E402
     ActorContextFailureReply,
     ActorContextRequest,
     ActorContextSuccess,
 )
-from aap_identity_admission.actor_status_contract import (  # noqa: E402
+from yoao_identity_admission.actor_status_contract import (  # noqa: E402
     ActorStatusRequest,
     ActorStatusSuccess,
     ActorStatusFailureReply,
 )
-from aap_identity.account_lock_contract import (  # noqa: E402
+from yoao_identity.account_lock_contract import (  # noqa: E402
     AccountLockReply,
     AccountLockRequest,
 )
-from aap_identity.provisioning_contract import (  # noqa: E402
+from yoao_identity.provisioning_contract import (  # noqa: E402
     ProvisioningCreateRequest,
     ProvisioningLookupRequest,
     ProvisioningReply,
 )
-from aap_identity.deactivation_contract import (  # noqa: E402
+from yoao_identity.deactivation_contract import (  # noqa: E402
     DeactivationDueFailureReply,
     DeactivationDuePolicyReply,
     DeactivationDueReply,
@@ -71,7 +71,7 @@ from aap_identity.deactivation_contract import (  # noqa: E402
     NativeDeactivationFailureReply,
     NativeDeactivationSuccess,
 )
-from aap_identity.suspension_contract import (  # noqa: E402
+from yoao_identity.suspension_contract import (  # noqa: E402
     NativeSuspensionCommand,
     NativeSuspensionFailureReply,
     NativeSuspensionSuccess,
@@ -80,7 +80,7 @@ from aap_identity.suspension_contract import (  # noqa: E402
     SuspensionReply,
     SuspensionRequest,
 )
-from aap_identity.deletion_contract import (  # noqa: E402
+from yoao_identity.deletion_contract import (  # noqa: E402
     DeletionFailureReply,
     DeletionPolicyReply,
     DeletionReply,
@@ -89,7 +89,7 @@ from aap_identity.deletion_contract import (  # noqa: E402
     NativeDeletionFailureReply,
     NativeDeletionSuccess,
 )
-from aap_identity.offboarding_contract import (  # noqa: E402
+from yoao_identity.offboarding_contract import (  # noqa: E402
     NativeOffboardingCommand,
     NativeOffboardingFailureReply,
     NativeOffboardingSuccess,
@@ -98,7 +98,7 @@ from aap_identity.offboarding_contract import (  # noqa: E402
     OffboardingReply,
     OffboardingRequest,
 )
-from aap_identity.directory_contract import (  # noqa: E402
+from yoao_identity.directory_contract import (  # noqa: E402
     DirectoryFailureReply,
     DirectoryReply,
     DirectoryRequest,
@@ -107,7 +107,7 @@ from aap_identity.directory_contract import (  # noqa: E402
     NativeDirectoryPolicyReply,
     NativeDirectorySuccess,
 )
-from aap_identity.briefs_contract import (  # noqa: E402
+from yoao_identity.briefs_contract import (  # noqa: E402
     BriefsFailureReply,
     BriefsPolicyReply,
     BriefsReply,
@@ -116,7 +116,7 @@ from aap_identity.briefs_contract import (  # noqa: E402
     NativeBriefsFailureReply,
     NativeBriefsSuccess,
 )
-from aap_identity.platform_role_contract import (  # noqa: E402
+from yoao_identity.platform_role_contract import (  # noqa: E402
     LabelingPlatformRoleFactsReply,
     NativePlatformRoleCommand,
     NativePlatformRoleFailureReply,
@@ -127,7 +127,7 @@ from aap_identity.platform_role_contract import (  # noqa: E402
     PlatformRoleRequest,
     WorkspacePlatformRoleFactsReply,
 )
-from aap_identity.group_contract import (  # noqa: E402
+from yoao_identity.group_contract import (  # noqa: E402
     GroupFailureReply,
     GroupPolicyReply,
     GroupReply,
@@ -136,7 +136,7 @@ from aap_identity.group_contract import (  # noqa: E402
     NativeGroupFailureReply,
     NativeGroupSuccess,
 )
-from aap_identity.invitation_contract import (  # noqa: E402
+from yoao_identity.invitation_contract import (  # noqa: E402
     InvitationFailureReply,
     InvitationReply,
     InvitationRequest,
@@ -147,7 +147,7 @@ from aap_identity.invitation_contract import (  # noqa: E402
     NativeInvitationPrepareCommand,
     NativeInvitationPrepareReply,
 )
-from aap_identity.mail_v2_contract import (  # noqa: E402
+from yoao_identity.mail_v2_contract import (  # noqa: E402
     MailV2AcceptedReply,
     MailV2ClaimReply,
     MailV2ClaimRequest,
@@ -155,10 +155,10 @@ from aap_identity.mail_v2_contract import (  # noqa: E402
     MailV2PolicyReply,
     MailV2RenewRequest,
 )
-from aap_notifications.notification_delivery_contract import (  # noqa: E402
+from yoao_notifications.notification_delivery_contract import (  # noqa: E402
     notification_delivery_protocol_schema,
 )
-from aap_identity.key_contract import (  # noqa: E402
+from yoao_identity.key_contract import (  # noqa: E402
     KeyFailureReply,
     KeyReply,
     KeyRequest,
@@ -166,7 +166,7 @@ from aap_identity.key_contract import (  # noqa: E402
     NativeKeyFailureReply,
     NativeKeyReply,
 )
-from aap_identity.mail_contract import (  # noqa: E402
+from yoao_identity.mail_contract import (  # noqa: E402
     MailAcceptedReply,
     MailClaimReply,
     MailClaimRequest,
@@ -175,15 +175,15 @@ from aap_identity.mail_contract import (  # noqa: E402
     MailPolicyReply,
     MailRenewRequest,
 )
-from aap_identity.preference_models import (  # noqa: E402
+from yoao_identity.preference_models import (  # noqa: E402
     UserPreferences,
     UserPreferencesRead,
 )
-from aap_identity.presence_contract import (  # noqa: E402
+from yoao_identity.presence_contract import (  # noqa: E402
     PresenceReply,
     PresenceRequest,
 )
-from aap_identity.recovery_contract import (  # noqa: E402
+from yoao_identity.recovery_contract import (  # noqa: E402
     NativeRecoveryApplyCommand,
     NativeRecoveryApplyReply,
     NativeRecoveryFailureReply,
@@ -194,7 +194,7 @@ from aap_identity.recovery_contract import (  # noqa: E402
     RecoveryReply,
     RecoveryRequest,
 )
-from aap_identity.session_contract import (  # noqa: E402
+from yoao_identity.session_contract import (  # noqa: E402
     LoginCandidateReply,
     NativeSessionCommand,
     NativeSessionFailureReply,
@@ -270,35 +270,35 @@ def main():
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     schemas = {
-        "../_shared/identity_admission/src/aap_identity_admission/protocol.schema.json": render_schema(
+        "../_shared/identity_admission/src/yoao_identity_admission/protocol.schema.json": render_schema(
             TypeAdapter(
                 AuthenticateRequest | PrincipalReply | FailureReply | CandidatesPage
             ),
             "aap-identity/v1",
         ),
-        "../_shared/identity_admission/src/aap_identity_admission/actor_status.schema.json": render_schema(
+        "../_shared/identity_admission/src/yoao_identity_admission/actor_status.schema.json": render_schema(
             TypeAdapter(
                 ActorStatusRequest | ActorStatusSuccess | ActorStatusFailureReply
             ),
             "aap-identity-actor-status/v1",
         ),
-        "src/aap_identity/protocol.schema.json": render_schema(
+        "src/yoao_identity/protocol.schema.json": render_schema(
             TypeAdapter(
                 AuthenticateRequest | PrincipalReply | FailureReply | CandidatesPage
             ),
             "aap-identity/v1",
         ),
-        "src/aap_identity/actor_protocol.schema.json": render_schema(
+        "src/yoao_identity/actor_protocol.schema.json": render_schema(
             TypeAdapter(
                 ActorContextRequest | ActorContextSuccess | ActorContextFailureReply
             ),
             "aap-identity-actor/v1",
         ),
-        "src/aap_identity/account_lock_protocol.schema.json": render_schema(
+        "src/yoao_identity/account_lock_protocol.schema.json": render_schema(
             TypeAdapter(AccountLockRequest | AccountLockReply),
             "aap-identity-account-locks/v1",
         ),
-        "src/aap_identity/provisioning_protocol.schema.json": render_schema(
+        "src/yoao_identity/provisioning_protocol.schema.json": render_schema(
             TypeAdapter(
                 ProvisioningLookupRequest
                 | ProvisioningCreateRequest
@@ -306,19 +306,19 @@ def main():
             ),
             "aap-identity-provisioning/v1",
         ),
-        "src/aap_identity/key_protocol.schema.json": render_schema(
+        "src/yoao_identity/key_protocol.schema.json": render_schema(
             TypeAdapter(KeyRequest | KeyReply | KeyFailureReply),
             "aap-identity-keys/v1",
         ),
-        "src/aap_identity/native_key_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_key_protocol.schema.json": render_schema(
             TypeAdapter(NativeKeyCommand | NativeKeyReply | NativeKeyFailureReply),
             "aap-identity-keys-native/v1",
         ),
-        "src/aap_identity/session_protocol.schema.json": render_schema(
+        "src/yoao_identity/session_protocol.schema.json": render_schema(
             TypeAdapter(SessionRequest | SessionReply | SessionFailureReply),
             "aap-identity-sessions/v1",
         ),
-        "src/aap_identity/native_session_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_session_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeSessionCommand
                 | NativeSessionReply
@@ -329,17 +329,17 @@ def main():
             ),
             "aap-identity-sessions-native/v1",
         ),
-        "src/aap_identity/account_protocol.schema.json": render_schema(
+        "src/yoao_identity/account_protocol.schema.json": render_schema(
             TypeAdapter(AccountRequest | AccountReply | AccountFailureReply),
             "aap-identity-accounts/v1",
         ),
-        "src/aap_identity/admin_password_protocol.schema.json": render_schema(
+        "src/yoao_identity/admin_password_protocol.schema.json": render_schema(
             TypeAdapter(
                 AdminPasswordRequest | AdminPasswordReply | AdminPasswordFailureReply
             ),
             "aap-identity-admin-passwords/v1",
         ),
-        "src/aap_identity/native_admin_password_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_admin_password_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeAdminPasswordCommand
                 | NativeAdminPasswordSuccess
@@ -348,7 +348,7 @@ def main():
             ),
             "aap-identity-admin-passwords-native/v1",
         ),
-        "src/aap_identity/native_account_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_account_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativePrepareCommand
                 | NativeApplyCommand
@@ -359,15 +359,15 @@ def main():
             ),
             "aap-identity-accounts-native/v1",
         ),
-        "src/aap_identity/presence_protocol.schema.json": render_schema(
+        "src/yoao_identity/presence_protocol.schema.json": render_schema(
             TypeAdapter(PresenceRequest | PresenceReply),
             "aap-identity-presence/v1",
         ),
-        "src/aap_identity/recovery_protocol.schema.json": render_schema(
+        "src/yoao_identity/recovery_protocol.schema.json": render_schema(
             TypeAdapter(RecoveryRequest | RecoveryReply | RecoveryFailureReply),
             "aap-identity-recovery/v1",
         ),
-        "src/aap_identity/native_recovery_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_recovery_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeRecoveryPrepareCommand
                 | NativeRecoveryApplyCommand
@@ -378,11 +378,11 @@ def main():
             ),
             "aap-identity-recovery-native/v1",
         ),
-        "src/aap_identity/group_protocol.schema.json": render_schema(
+        "src/yoao_identity/group_protocol.schema.json": render_schema(
             TypeAdapter(GroupRequest | GroupReply | GroupFailureReply),
             "aap-identity-groups/v1",
         ),
-        "src/aap_identity/native_group_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_group_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeGroupCommand
                 | NativeGroupSuccess
@@ -391,11 +391,11 @@ def main():
             ),
             "aap-identity-groups-native/v1",
         ),
-        "src/aap_identity/invitation_protocol.schema.json": render_schema(
+        "src/yoao_identity/invitation_protocol.schema.json": render_schema(
             TypeAdapter(InvitationRequest | InvitationReply | InvitationFailureReply),
             "aap-identity-invitations/v1",
         ),
-        "src/aap_identity/native_invitation_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_invitation_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeInvitationPrepareCommand
                 | NativeInvitationApplyCommand
@@ -406,13 +406,13 @@ def main():
             ),
             "aap-identity-invitations-native/v1",
         ),
-        "src/aap_identity/deactivation_protocol.schema.json": render_schema(
+        "src/yoao_identity/deactivation_protocol.schema.json": render_schema(
             TypeAdapter(
                 DeactivationRequest | DeactivationReply | DeactivationFailureReply
             ),
             "aap-identity-deactivation/v1",
         ),
-        "src/aap_identity/native_deactivation_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_deactivation_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeDeactivationCommand
                 | NativeDeactivationSuccess
@@ -421,15 +421,15 @@ def main():
             ),
             "aap-identity-deactivation-native/v1",
         ),
-        "src/aap_identity/suspension_protocol.schema.json": render_schema(
+        "src/yoao_identity/suspension_protocol.schema.json": render_schema(
             TypeAdapter(SuspensionRequest | SuspensionReply | SuspensionFailureReply),
             "aap-identity-suspensions/v1",
         ),
-        "src/aap_identity/deletion_protocol.schema.json": render_schema(
+        "src/yoao_identity/deletion_protocol.schema.json": render_schema(
             TypeAdapter(DeletionRequest | DeletionReply | DeletionFailureReply),
             "aap-identity-deletions/v1",
         ),
-        "src/aap_identity/native_deletion_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_deletion_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeDeletionCommand
                 | NativeDeletionSuccess
@@ -438,13 +438,13 @@ def main():
             ),
             "aap-identity-deletions-native/v1",
         ),
-        "src/aap_identity/offboarding_protocol.schema.json": render_schema(
+        "src/yoao_identity/offboarding_protocol.schema.json": render_schema(
             TypeAdapter(
                 OffboardingRequest | OffboardingReply | OffboardingFailureReply
             ),
             "aap-identity-offboarding/v1",
         ),
-        "src/aap_identity/native_offboarding_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_offboarding_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeOffboardingCommand
                 | NativeOffboardingSuccess
@@ -453,7 +453,7 @@ def main():
             ),
             "aap-identity-offboarding-native/v1",
         ),
-        "src/aap_identity/native_suspension_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_suspension_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeSuspensionCommand
                 | NativeSuspensionSuccess
@@ -462,7 +462,7 @@ def main():
             ),
             "aap-identity-suspensions-native/v1",
         ),
-        "src/aap_identity/deactivation_due_protocol.schema.json": render_schema(
+        "src/yoao_identity/deactivation_due_protocol.schema.json": render_schema(
             TypeAdapter(
                 DeactivationDueRequest
                 | DeactivationDueReply
@@ -470,7 +470,7 @@ def main():
             ),
             "aap-identity-deactivation-due/v1",
         ),
-        "src/aap_identity/native_deactivation_due_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_deactivation_due_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeDeactivationDueCommand
                 | NativeDeactivationDueSuccess
@@ -479,11 +479,11 @@ def main():
             ),
             "aap-identity-deactivation-due-native/v1",
         ),
-        "src/aap_identity/directory_protocol.schema.json": render_schema(
+        "src/yoao_identity/directory_protocol.schema.json": render_schema(
             TypeAdapter(DirectoryRequest | DirectoryReply | DirectoryFailureReply),
             "aap-identity-directory/v1",
         ),
-        "src/aap_identity/native_directory_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_directory_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeDirectoryCommand
                 | NativeDirectorySuccess
@@ -492,11 +492,11 @@ def main():
             ),
             "aap-identity-directory-native/v1",
         ),
-        "src/aap_identity/briefs_protocol.schema.json": render_schema(
+        "src/yoao_identity/briefs_protocol.schema.json": render_schema(
             TypeAdapter(BriefsRequest | BriefsReply | BriefsFailureReply),
             "aap-identity-briefs/v1",
         ),
-        "src/aap_identity/native_briefs_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_briefs_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativeBriefsCommand
                 | NativeBriefsSuccess
@@ -505,13 +505,13 @@ def main():
             ),
             "aap-identity-briefs-native/v1",
         ),
-        "src/aap_identity/platform_role_protocol.schema.json": render_schema(
+        "src/yoao_identity/platform_role_protocol.schema.json": render_schema(
             TypeAdapter(
                 PlatformRoleRequest | PlatformRoleReply | PlatformRoleFailureReply
             ),
             "aap-identity-platform-roles/v1",
         ),
-        "src/aap_identity/native_platform_role_protocol.schema.json": render_schema(
+        "src/yoao_identity/native_platform_role_protocol.schema.json": render_schema(
             TypeAdapter(
                 NativePlatformRoleCommand
                 | NativePlatformRoleSuccess
@@ -520,16 +520,16 @@ def main():
             ),
             "aap-identity-platform-roles-native/v1",
         ),
-        "src/aap_identity/platform_role_workspace_facts.schema.json": render_schema(
+        "src/yoao_identity/platform_role_workspace_facts.schema.json": render_schema(
             TypeAdapter(WorkspacePlatformRoleFactsReply),
             "aap-workspace-identity-platform-role-facts/v1",
         ),
-        "src/aap_identity/platform_role_labeling_facts.schema.json": render_schema(
+        "src/yoao_identity/platform_role_labeling_facts.schema.json": render_schema(
             TypeAdapter(LabelingPlatformRoleFactsReply),
             "aap-labeling-identity-platform-role-facts/v1",
         ),
-        "src/aap_identity/notification_delivery_protocol.schema.json": notification_delivery_protocol_schema(),
-        "src/aap_identity/native_mail_protocol.schema.json": render_schema(
+        "src/yoao_identity/notification_delivery_protocol.schema.json": notification_delivery_protocol_schema(),
+        "src/yoao_identity/native_mail_protocol.schema.json": render_schema(
             TypeAdapter(
                 MailClaimRequest
                 | MailRenewRequest
@@ -540,7 +540,7 @@ def main():
             ),
             "aap-identity-recovery-mail-native/v1",
         ),
-        "src/aap_identity/mail_v2_protocol.schema.json": render_schema(
+        "src/yoao_identity/mail_v2_protocol.schema.json": render_schema(
             TypeAdapter(
                 MailV2ClaimRequest
                 | MailV2RenewRequest
@@ -551,13 +551,13 @@ def main():
             ),
             "aap-identity-mail-native/v2",
         ),
-        "src/aap_identity/mail_settings_protocol.schema.json": render_schema(
+        "src/yoao_identity/mail_settings_protocol.schema.json": render_schema(
             TypeAdapter(MailDeliveryPolicy), "aap-identity-mail-settings/v1"
         ),
-        "src/aap_identity/preferences_write.schema.json": render_schema(
+        "src/yoao_identity/preferences_write.schema.json": render_schema(
             TypeAdapter(UserPreferences), "aap-identity-preferences-write/v1"
         ),
-        "src/aap_identity/preferences_read.schema.json": render_schema(
+        "src/yoao_identity/preferences_read.schema.json": render_schema(
             TypeAdapter(UserPreferencesRead), "aap-identity-preferences-read/v1"
         ),
     }

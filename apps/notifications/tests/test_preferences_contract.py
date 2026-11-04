@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.preferences_contract import (
+from yoao_notifications.preferences_contract import (
     GetPreferencesRequest,
     IsInAppMutedRequest,
     PatchPreferenceRequest,
@@ -16,13 +16,13 @@ from aap_notifications.preferences_contract import (
     decode_get_preferences_reply,
     preferences_json_schema,
 )
-from aap_notifications.preferences_policy import (
+from yoao_notifications.preferences_policy import (
     DEFAULT_TOAST_TYPES,
     KNOWN_NOTIFICATION_TYPES,
 )
-from aap_notifications.preferences_postgres import NotificationPreferencesPostgresData
+from yoao_notifications.preferences_postgres import NotificationPreferencesPostgresData
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_notifications"
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 
 def test_wire_schema_is_one_closed_document_with_all_local_references():

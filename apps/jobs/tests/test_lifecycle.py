@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from aap_jobs.lifecycle import JobsLifecycleManager
+from yoao_jobs.lifecycle import JobsLifecycleManager
 
 FIXED_TIME = datetime(2026, 10, 24, 12, 30, tzinfo=timezone.utc)
 

@@ -8,8 +8,8 @@ from datetime import UTC, datetime
 import asyncpg
 import pytest
 
-from aap_identity.contract import IdentityUnavailable, Principal
-from aap_identity.key_postgres import KeyPostgresData
+from yoao_identity.contract import IdentityUnavailable, Principal
+from yoao_identity.key_postgres import KeyPostgresData
 
 
 class Connection:

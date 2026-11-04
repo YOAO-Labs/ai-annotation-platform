@@ -6,8 +6,8 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deactivation_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deactivation_contract import (
     DEACTIVATION_PROTOCOL,
     DUE_PROTOCOL,
     DeactivationDueFailure,
@@ -35,7 +35,7 @@ from deactivation_helpers import (
     requested_account,
     user_success,
 )
-from aap_identity.deactivation_manager import deactivation_request_fingerprint
+from yoao_identity.deactivation_manager import deactivation_request_fingerprint
 from session_helpers import audit_context, principal
 
 

@@ -5,7 +5,7 @@ import re
 
 import pytest
 
-from aap_identity.preferences import (
+from yoao_identity.preferences import (
     PreferencePolicyError,
     PreferenceValidationError,
     patch_preferences,

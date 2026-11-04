@@ -3,8 +3,8 @@
 from pathlib import Path
 import json
 
-from aap_identity.session_contract import SessionClaims
-from aap_identity.session_manager import (
+from yoao_identity.session_contract import SessionClaims
+from yoao_identity.session_manager import (
     login_request_fingerprint,
     session_derivation,
     sign_session_claims,

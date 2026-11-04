@@ -5,7 +5,7 @@ import path from "node:path";
 import { Client } from "pg";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const contractPath = path.resolve(here, "../../src/aap_notifications/terminal_append.schema.json");
+const contractPath = path.resolve(here, "../../src/yoao_notifications/terminal_append.schema.json");
 
 async function loadContract() {
   return JSON.parse(await readFile(contractPath, "utf8"));

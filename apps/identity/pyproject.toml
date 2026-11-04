@@ -3,13 +3,13 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aap-identity"
+name = "yoao-identity"
 version = "0.1.0"
 description = "Portable Identity admission contract and credential verifier"
 requires-python = ">=3.11"
 dependencies = [
-    "aap-identity-admission>=0.1.0",
-    "aap-notifications>=0.1.0",
+    "yoao-identity-admission>=0.1.0",
+    "yoao-notifications>=0.1.0",
     "pydantic>=2.5",
     "python-jose[cryptography]>=3.3.0",
     "bcrypt>=4.0",
@@ -26,8 +26,8 @@ cache-keys = [
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
 runtime = [
-    "aap-mail-transport>=0.1.0",
-    "aap-notifications[runtime]>=0.1.0",
+    "yoao-mail-transport>=0.1.0",
+    "yoao-notifications[runtime]>=0.1.0",
     "asyncpg>=0.29",
     "fastapi>=0.115",
     "pydantic-settings>=2.6",
@@ -42,16 +42,16 @@ test = [
 ]
 
 [tool.uv.sources]
-aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
-aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
-aap-notifications = { path = "../notifications", editable = true }
+yoao-identity-admission = { path = "../_shared/identity_admission", editable = true }
+yoao-mail-transport = { path = "../_shared/mail_transport", editable = true }
+yoao-notifications = { path = "../notifications", editable = true }
 
 [project.scripts]
-aap-identity = "aap_identity_runtime.__main__:main"
-aap-identity-mail = "aap_identity_runtime.mail_worker:main"
+yoao-identity = "yoao_identity_runtime.__main__:main"
+yoao-identity-mail = "yoao_identity_runtime.mail_worker:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aap_identity", "src/aap_identity_runtime"]
+packages = ["src/yoao_identity", "src/yoao_identity_runtime"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

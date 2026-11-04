@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from aap_identity.account_contract import AccountRecord
-from aap_identity.recovery_contract import (
+from yoao_identity.account_contract import AccountRecord
+from yoao_identity.recovery_contract import (
     NATIVE_RECOVERY_PROTOCOL,
     RECOVERY_PROTOCOL,
     NativeRecoveryApplyReply,
@@ -14,8 +14,8 @@ from aap_identity.recovery_contract import (
     RecoveryTokenRecord,
     decode_recovery_request,
 )
-from aap_identity.recovery_crypto import mail_key_from_secret
-from aap_identity.session_contract import SessionClaims
+from yoao_identity.recovery_crypto import mail_key_from_secret
+from yoao_identity.session_contract import SessionClaims
 from account_helpers import account_record
 from session_helpers import ACTOR_ID, audit_context
 

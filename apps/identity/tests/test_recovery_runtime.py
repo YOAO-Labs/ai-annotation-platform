@@ -4,15 +4,15 @@ from contextlib import asynccontextmanager
 
 import httpx
 import pytest
-from aap_identity.recovery_contract import (
+from yoao_identity.recovery_contract import (
     NativeRecoveryPolicyReply,
     NativeRecoveryResult,
     decode_native_recovery_apply_command,
     decode_native_recovery_prepare_command,
 )
-from aap_identity.recovery_crypto import mail_key_from_secret
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.recovery_crypto import mail_key_from_secret
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from pydantic import ValidationError
 from recovery_helpers import (
     CONTROL,

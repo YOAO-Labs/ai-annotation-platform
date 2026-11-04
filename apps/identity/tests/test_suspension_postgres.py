@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.suspension_postgres import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.suspension_postgres import (
     SuspensionPostgresData,
     SuspensionPostgresTransaction,
 )

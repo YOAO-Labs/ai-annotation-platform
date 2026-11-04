@@ -7,15 +7,15 @@ from datetime import UTC
 import bcrypt
 import pytest
 
-from aap_identity.admin_password_contract import decode_native_admin_password_command
-from aap_identity.admin_password_manager import (
+from yoao_identity.admin_password_contract import decode_native_admin_password_command
+from yoao_identity.admin_password_manager import (
     AdminPasswordManager,
     admin_password_derivation_id,
     admin_password_request_fingerprint,
     derive_admin_password,
 )
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
 from admin_password_helpers import (
     SECRET,
     admin_password_data,
@@ -85,7 +85,7 @@ async def test_manager_derives_and_hashes_before_transaction_and_validates_reply
 ):
     actor = principal(role="super_admin")
     original_hash = __import__(
-        "aap_identity.admin_password_manager", fromlist=["_hash_password_cost12"]
+        "yoao_identity.admin_password_manager", fromlist=["_hash_password_cost12"]
     )._hash_password_cost12
 
     def hash_and_record(password):
@@ -93,7 +93,7 @@ async def test_manager_derives_and_hashes_before_transaction_and_validates_reply
         return original_hash(password)
 
     monkeypatch.setattr(
-        "aap_identity.admin_password_manager._hash_password_cost12", hash_and_record
+        "yoao_identity.admin_password_manager._hash_password_cost12", hash_and_record
     )
     data = Data(
         lambda command: native_admin_password_success(
@@ -180,7 +180,7 @@ async def test_authentication_failure_does_not_open_transaction():
     manager = AdminPasswordManager(
         Authenticator(error=IdentityFailure("credential_invalid")), data, SECRET
     )
-    from aap_identity.admin_password_contract import AdminPasswordFailure
+    from yoao_identity.admin_password_contract import AdminPasswordFailure
 
     with pytest.raises(AdminPasswordFailure) as failure:
         await manager.execute(admin_password_request())
@@ -194,7 +194,7 @@ async def test_authentication_invalid_request_maps_to_closed_http_400():
     manager = AdminPasswordManager(
         Authenticator(error=IdentityFailure("invalid_request")), data, SECRET
     )
-    from aap_identity.admin_password_contract import AdminPasswordFailure
+    from yoao_identity.admin_password_contract import AdminPasswordFailure
 
     with pytest.raises(AdminPasswordFailure) as failure:
         await manager.execute(admin_password_request())

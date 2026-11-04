@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.briefs_contract import (
+from yoao_identity.briefs_contract import (
     BRIEFS_PROTOCOL,
     NATIVE_BRIEFS_PROTOCOL,
     BriefsFailure,
@@ -18,7 +18,7 @@ from aap_identity.briefs_contract import (
     decode_briefs_request,
     native_briefs_command,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 
 FIXTURE = Path(__file__).parent / "fixtures" / "identity_briefs_legacy.json"
 

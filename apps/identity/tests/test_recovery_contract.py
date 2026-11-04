@@ -5,8 +5,8 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.recovery_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.recovery_contract import (
     NATIVE_RECOVERY_PROTOCOL,
     RECOVERY_PROTOCOL,
     NativeRecoveryConfig,
@@ -20,8 +20,8 @@ from aap_identity.recovery_contract import (
     native_recovery_prepare_command,
     recovery_failure_reply,
 )
-from aap_identity.recovery_crypto import request_fingerprint, token_hash
-from aap_identity.session_manager import sign_session_claims
+from yoao_identity.recovery_crypto import request_fingerprint, token_hash
+from yoao_identity.session_manager import sign_session_claims
 from pydantic import ValidationError
 from recovery_helpers import SECRET, account, claims, policy, recovery_request
 

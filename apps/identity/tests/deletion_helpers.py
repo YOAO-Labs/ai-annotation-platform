@@ -4,12 +4,12 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.deletion_contract import (
+from yoao_identity.deletion_contract import (
     DELETION_PROTOCOL,
     NATIVE_DELETION_PROTOCOL,
     decode_deletion_request,
 )
-from aap_identity.deletion_manager import deletion_derivation_id
+from yoao_identity.deletion_manager import deletion_derivation_id
 from session_helpers import ACTOR_ID, audit_context, principal
 
 DELETION_SECRET = "identity-deletion-test-secret"
@@ -74,9 +74,9 @@ def deletion_user(**changes):
 
 
 def native_command(request=None, *, actor=None, key_hash=None):
-    from aap_identity.deletion_contract import native_deletion_command
+    from yoao_identity.deletion_contract import native_deletion_command
 
-    from aap_identity.deletion_manager import deletion_request_fingerprint
+    from yoao_identity.deletion_manager import deletion_request_fingerprint
 
     request = request or deletion_request()
     actor = actor or principal(role="super_admin")

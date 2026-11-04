@@ -7,17 +7,17 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.delete import NotificationDeleteManager
-from aap_notifications.delete_contract import (
+from yoao_notifications.delete import NotificationDeleteManager
+from yoao_notifications.delete_contract import (
     ClearReadRequest,
     DeleteOneRequest,
     NotificationDeleteUnavailable,
     decode_delete_reply,
     delete_json_schema,
 )
-from aap_notifications.delete_postgres import NotificationDeletePostgresData
+from yoao_notifications.delete_postgres import NotificationDeletePostgresData
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_notifications"
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 
 def test_delete_wire_schema_and_sql_resource_are_closed_and_versioned():

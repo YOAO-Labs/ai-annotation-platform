@@ -4,9 +4,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.invitation_contract import NativeInvitationPolicyReply
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.invitation_contract import NativeInvitationPolicyReply
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from invitation_helpers import CONTROL, INVITATION_SECRET
 
 

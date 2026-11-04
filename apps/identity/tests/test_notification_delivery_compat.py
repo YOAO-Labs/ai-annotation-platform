@@ -4,25 +4,25 @@ import uuid
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.notification_delivery_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.notification_delivery_contract import (
     NotificationClaimRequest as IdentityNotificationClaimRequest,
     NotificationDeliveryPolicyReply as IdentityNotificationDeliveryPolicyReply,
     decode_notification_delivery_policy as identity_decode_policy,
 )
-from aap_identity.notification_delivery_postgres import (
+from yoao_identity.notification_delivery_postgres import (
     NotificationDeliveryPostgresData as IdentityNotificationDeliveryPostgresData,
 )
-from aap_identity_runtime.notification_config import (
+from yoao_identity_runtime.notification_config import (
     NotificationPublisherSettings as IdentityNotificationPublisherSettings,
 )
-from aap_identity_runtime.notification_worker import (
+from yoao_identity_runtime.notification_worker import (
     NotificationDeliveryPostgresData as IdentityWorkerNotificationDeliveryPostgresData,
     NotificationPublisher as IdentityNotificationPublisher,
 )
-from aap_notifications.delivery_config import NotificationPublisherSettings
-from aap_notifications.delivery_worker import NotificationPublisher
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.delivery_config import NotificationPublisherSettings
+from yoao_notifications.delivery_worker import NotificationPublisher
+from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
     NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
     NotificationClaimRequest,
@@ -30,7 +30,7 @@ from aap_notifications.notification_delivery_contract import (
     NotificationDeliveryUnavailable,
     decode_notification_delivery_policy,
 )
-from aap_notifications.notification_delivery_postgres import (
+from yoao_notifications.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
 )
 
@@ -82,7 +82,7 @@ async def test_identity_postgres_client_translates_invalid_owner_requests():
 
 
 def test_identity_module_cli_path_remains_callable():
-    from aap_identity_runtime import notification_worker
+    from yoao_identity_runtime import notification_worker
 
     assert callable(notification_worker.main)
     assert (

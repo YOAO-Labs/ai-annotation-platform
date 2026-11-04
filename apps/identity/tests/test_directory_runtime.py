@@ -4,9 +4,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.directory_contract import DirectoryPolicyReply
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.directory_contract import DirectoryPolicyReply
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from directory_helpers import CONTROL, DIRECTORY_SECRET
 
 

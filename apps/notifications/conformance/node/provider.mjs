@@ -5,8 +5,8 @@ import path from "node:path";
 import { Client } from "pg";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const contractPath = path.resolve(here, "../../src/aap_notifications/preferences.schema.json");
-const policyPath = path.resolve(here, "../../src/aap_notifications/preferences.policy.json");
+const contractPath = path.resolve(here, "../../src/yoao_notifications/preferences.schema.json");
+const policyPath = path.resolve(here, "../../src/yoao_notifications/preferences.policy.json");
 
 async function loadContract() {
   const [contractText, policyText] = await Promise.all([

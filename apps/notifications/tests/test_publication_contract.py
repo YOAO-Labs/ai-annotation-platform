@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from aap_notifications.publication_contract import (
+from yoao_notifications.publication_contract import (
     IMMEDIATE_PUBLICATION_PROTOCOL,
     ImmediatePublicationRequest,
     ImmediatePublicationUnavailable,
@@ -210,7 +210,9 @@ def test_reply_decoder_requires_closed_schema_and_strict_boolean(reply):
 
 def test_publication_schema_and_checked_resource_match():
     root = Path(__file__).resolve().parents[1]
-    schema_bytes = (root / "src/aap_notifications/publication.schema.json").read_bytes()
+    schema_bytes = (
+        root / "src/yoao_notifications/publication.schema.json"
+    ).read_bytes()
     pyproject = tomllib.loads((root / "pyproject.toml").read_text())
 
     schema = json.loads(schema_bytes)
@@ -234,8 +236,8 @@ def test_publication_schema_and_checked_resource_match():
         == "#/$defs/NotificationSyncEvent"
     )
     assert pyproject["tool"]["hatch"]["build"]["targets"]["wheel"]["force-include"][
-        "src/aap_notifications/publication.schema.json"
-    ] == ("aap_notifications/publication.schema.json")
+        "src/yoao_notifications/publication.schema.json"
+    ] == ("yoao_notifications/publication.schema.json")
     assert (
         "starlette>=1.0.0" in pyproject["project"]["optional-dependencies"]["runtime"]
     )

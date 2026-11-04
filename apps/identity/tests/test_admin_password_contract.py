@@ -7,7 +7,7 @@ import json
 
 import pytest
 
-from aap_identity.admin_password_contract import (
+from yoao_identity.admin_password_contract import (
     ADMIN_PASSWORD_PROTOCOL,
     NATIVE_ADMIN_PASSWORD_PROTOCOL,
     AdminPasswordFailure,
@@ -15,7 +15,7 @@ from aap_identity.admin_password_contract import (
     decode_admin_password_reply,
     decode_native_admin_password_reply,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from admin_password_helpers import (
     admin_password_data,
     admin_password_request,
@@ -23,7 +23,7 @@ from admin_password_helpers import (
     native_admin_password_success,
     wire_admin_password_success,
 )
-from aap_identity.admin_password_manager import (
+from yoao_identity.admin_password_manager import (
     admin_password_derivation_id,
     admin_password_request_fingerprint,
     derive_admin_password,
@@ -190,7 +190,7 @@ def test_native_password_hash_requires_cost_twelve_and_exact_command_shape():
     }
     raw["new_password_hash"] = "$2b$10$" + ("." * 53)
     with pytest.raises(IdentityUnavailable):
-        from aap_identity.admin_password_contract import (
+        from yoao_identity.admin_password_contract import (
             decode_native_admin_password_command,
         )
 

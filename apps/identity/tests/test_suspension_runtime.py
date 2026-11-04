@@ -4,9 +4,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.suspension_contract import SuspensionPolicyReply
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.suspension_contract import SuspensionPolicyReply
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from suspension_helpers import SUSPENSION_CONTROL, SUSPENSION_SECRET
 
 

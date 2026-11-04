@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_jobs.action_idempotency_contract import (
+from yoao_jobs.action_idempotency_contract import (
     ActionIdempotencyLockRequest,
     ActionIdempotencyQueryRequest,
 )

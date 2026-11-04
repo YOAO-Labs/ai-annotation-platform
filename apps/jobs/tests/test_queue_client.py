@@ -6,8 +6,8 @@ import json
 import httpx
 import pytest
 
-from aap_jobs.queue_client import JobsQueueClient, JobsQueueExecutionControl
-from aap_jobs.queue_contract import (
+from yoao_jobs.queue_client import JobsQueueClient, JobsQueueExecutionControl
+from yoao_jobs.queue_contract import (
     JOBS_QUEUE_PROTOCOL,
     JobsQueueContractError,
     JobsQueueUnavailable,

@@ -9,12 +9,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
     NOTIFICATION_DELIVERY_PROTOCOL,
     NotificationDeliveryUnavailable,
 )
-from aap_notifications.notification_delivery_postgres import (
+from yoao_notifications.notification_delivery_postgres import (
     NotificationDeliveryPostgresData,
 )
 
@@ -137,7 +137,7 @@ async def test_claim_validates_reply_and_worker_binding_before_commit(monkeypatc
 @pytest.mark.asyncio
 async def test_malformed_finish_reply_rolls_back_owner_mutation(monkeypatch):
     lease = _claim_reply(WORKER_ID)["data"]["items"][0]
-    from aap_notifications.notification_delivery_contract import (
+    from yoao_notifications.notification_delivery_contract import (
         decode_notification_claim_reply,
     )
 

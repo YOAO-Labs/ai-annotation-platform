@@ -6,8 +6,8 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.scale_seed_actor_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.scale_seed_actor_contract import (
     SCALE_SEED_ACTOR_PROTOCOL,
     ScaleSeedActorReply,
     decode_scale_seed_actor_reply,

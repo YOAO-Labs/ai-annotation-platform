@@ -9,13 +9,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_v2_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_v2_contract import (
     MAIL_V2_NATIVE_PROTOCOL,
     MAIL_V2_POLICY,
     MAIL_V2_POLICY_PROTOCOL,
 )
-from aap_identity.mail_v2_postgres import MailV2PostgresData
+from yoao_identity.mail_v2_postgres import MailV2PostgresData
 
 WORKER_ID = uuid.UUID("73000000-0000-4000-8000-000000000001")
 
@@ -157,7 +157,7 @@ async def test_v2_claim_validates_bound_reply_inside_transaction(monkeypatch):
 async def test_v2_finish_malformed_reply_rolls_back_and_stale_reply_returns_false(
     monkeypatch,
 ):
-    from aap_identity.mail_v2_contract import decode_mail_v2_claim_reply
+    from yoao_identity.mail_v2_contract import decode_mail_v2_claim_reply
 
     lease = decode_mail_v2_claim_reply(_invitation_reply(WORKER_ID)).data.delivery
     invalid = {

@@ -7,13 +7,13 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import (
+from yoao_identity.contract import (
     AuthenticateRequest,
     Candidate,
     IdentityUnavailable,
     Principal,
 )
-from aap_identity.key_contract import (
+from yoao_identity.key_contract import (
     KEY_PROTOCOL,
     NATIVE_KEY_PROTOCOL,
     CreateKeyReply,

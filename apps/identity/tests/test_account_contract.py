@@ -6,7 +6,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.account_contract import (
+from yoao_identity.account_contract import (
     ACCOUNT_PROTOCOL,
     AccountFailure,
     AccountFailureReply,
@@ -21,7 +21,7 @@ from aap_identity.account_contract import (
     native_account_prepare_command,
     account_failure_reply,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 
 from account_helpers import NATIVE_ACCOUNT_PROTOCOL as HELPER_NATIVE_PROTOCOL
 from account_helpers import account_record, account_request
@@ -70,7 +70,7 @@ def test_wire_request_hides_token_and_passwords_and_preserves_large_preferences(
 
 def test_wire_request_rejects_duplicate_unknown_and_wrong_avatar_fields():
     with pytest.raises(ValueError, match="Duplicate JSON field"):
-        from aap_identity.account_contract import decode_account_request
+        from yoao_identity.account_contract import decode_account_request
 
         decode_account_request(
             b'{"schema":"aap-identity-accounts/v1","schema":"aap-identity-accounts/v1"}'

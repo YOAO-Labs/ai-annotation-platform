@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.platform_role_contract import (
+from yoao_identity.platform_role_contract import (
     LABELING_PLATFORM_ROLE_FACTS_PROTOCOL,
     NATIVE_PLATFORM_ROLE_PROTOCOL,
     PLATFORM_ROLE_PROTOCOL,
@@ -12,7 +12,7 @@ from aap_identity.platform_role_contract import (
     decode_platform_role_request,
     native_platform_role_command,
 )
-from aap_identity.platform_role_manager import (
+from yoao_identity.platform_role_manager import (
     platform_role_derivation_id,
     platform_role_request_fingerprint,
 )

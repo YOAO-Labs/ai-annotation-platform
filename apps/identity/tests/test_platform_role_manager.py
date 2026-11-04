@@ -5,14 +5,14 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
-from aap_identity.platform_role_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.platform_role_contract import (
     NATIVE_PLATFORM_ROLE_PROTOCOL,
     PlatformRoleFailure,
     decode_native_platform_role_command,
 )
-from aap_identity.platform_role_manager import (
+from yoao_identity.platform_role_manager import (
     PlatformRoleManager,
     platform_role_derivation_id,
     platform_role_request_fingerprint,

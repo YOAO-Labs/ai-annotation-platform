@@ -8,14 +8,14 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 
-from aap_identity.briefs_client import BriefsClient
-from aap_identity.briefs_contract import (
+from yoao_identity.briefs_client import BriefsClient
+from yoao_identity.briefs_contract import (
     BRIEFS_PROTOCOL,
     GetUserBriefsPayload,
     GetUserBriefsRequest,
     decode_native_briefs_command,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from briefs_helpers import briefs_request, legacy_fixture, native_briefs_success
 
 

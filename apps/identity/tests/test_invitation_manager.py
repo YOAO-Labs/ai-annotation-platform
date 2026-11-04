@@ -6,17 +6,17 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.invitation_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.invitation_contract import (
     NativeBatchResultItem,
     decode_native_invitation_apply_command,
     decode_native_invitation_prepare_command,
     decode_invitation_reply,
 )
-from aap_identity.invitation_crypto import invitation_request_fingerprint
-from aap_identity.invitation_manager import InvitationManager, _safe_bulk_native_error
-from aap_identity.security import decode_access_token
+from yoao_identity.invitation_crypto import invitation_request_fingerprint
+from yoao_identity.invitation_manager import InvitationManager, _safe_bulk_native_error
+from yoao_identity.security import decode_access_token
 from invitation_helpers import (
     INVITATION_SECRET,
     actor_record,
@@ -144,7 +144,7 @@ async def test_manager_rolls_back_apply_when_frozen_url_binding_is_wrong():
 
 
 def test_bulk_native_error_text_is_bound_to_its_item():
-    from aap_identity.invitation_contract import NativeBatchInvitationItem
+    from yoao_identity.invitation_contract import NativeBatchInvitationItem
 
     item = NativeBatchInvitationItem(
         index=2,

@@ -3,11 +3,11 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from aap_audit.maintenance_contract import (
+from yoao_audit.maintenance_contract import (
     AuditMaintenanceUnavailable,
     MAINTENANCE_PROTOCOL,
 )
-from aap_audit.maintenance_data import AuditMaintenanceData
+from yoao_audit.maintenance_data import AuditMaintenanceData
 
 
 @pytest.mark.asyncio

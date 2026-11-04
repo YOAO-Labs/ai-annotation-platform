@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.account_contract import AccountRecord, decode_account_request
+from yoao_identity.account_contract import AccountRecord, decode_account_request
 from session_helpers import ACTOR_ID, audit_context
 
 ACCOUNT_PROTOCOL = "aap-identity-accounts/v1"

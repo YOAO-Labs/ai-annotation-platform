@@ -8,14 +8,14 @@ import bcrypt
 import httpx
 import pytest
 
-from aap_identity.contract import Principal
-from aap_identity.security import ISSUER
-from aap_identity.session_contract import (
+from yoao_identity.contract import Principal
+from yoao_identity.security import ISSUER
+from yoao_identity.session_contract import (
     NATIVE_SESSION_PROTOCOL,
     SessionClaims,
 )
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 
 from session_helpers import ACTOR_ID, CONTROL, SECRET
 

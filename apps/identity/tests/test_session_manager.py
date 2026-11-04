@@ -8,18 +8,18 @@ from datetime import UTC, datetime, timedelta
 import bcrypt
 import pytest
 
-from aap_identity.authenticator import (
+from yoao_identity.authenticator import (
     Authenticator,
     CredentialDecodeFailure,
     VerifiedCredential,
 )
-from aap_identity.contract import (
+from yoao_identity.contract import (
     IdentityFailure,
     failure_reply,
     principal_reply,
 )
-from aap_identity.security import ISSUER, decode_access_token
-from aap_identity.session_contract import (
+from yoao_identity.security import ISSUER, decode_access_token
+from yoao_identity.session_contract import (
     NATIVE_SESSION_PROTOCOL,
     NativeLoginCommand,
     NativeLoginReply,
@@ -34,7 +34,7 @@ from aap_identity.session_contract import (
     SessionClaims,
     decode_native_session_command,
 )
-from aap_identity.session_manager import (
+from yoao_identity.session_manager import (
     SessionManager,
     login_request_fingerprint,
     session_derivation,

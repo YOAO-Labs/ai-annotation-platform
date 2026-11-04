@@ -7,14 +7,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.invitation_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.invitation_contract import (
     NativeInvitationConfig,
     NativeInvitationPrepareReply,
     native_invitation_prepare_command,
 )
-from aap_identity.invitation_crypto import invitation_request_fingerprint
-from aap_identity.invitation_postgres import (
+from yoao_identity.invitation_crypto import invitation_request_fingerprint
+from yoao_identity.invitation_postgres import (
     InvitationPostgresData,
     InvitationPostgresTransaction,
 )

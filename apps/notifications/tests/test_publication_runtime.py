@@ -9,12 +9,12 @@ from types import SimpleNamespace
 from starlette.testclient import TestClient
 import pytest
 
-from aap_notifications.delivery_config import NotificationPublisherSettings
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.delivery_config import NotificationPublisherSettings
+from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
 )
-from aap_notifications.publication_contract import IMMEDIATE_PUBLICATION_PROTOCOL
-from aap_notifications.publication_runtime import create_app
+from yoao_notifications.publication_contract import IMMEDIATE_PUBLICATION_PROTOCOL
+from yoao_notifications.publication_runtime import create_app
 
 
 def _settings(**overrides):

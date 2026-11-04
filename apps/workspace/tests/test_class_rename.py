@@ -4,8 +4,8 @@ from copy import deepcopy
 
 import pytest
 
-from aap_workspace.class_rename import rename_class_bindings
-from aap_workspace.configuration_policy import ConfigurationPolicyError
+from yoao_workspace.class_rename import rename_class_bindings
+from yoao_workspace.configuration_policy import ConfigurationPolicyError
 
 
 def test_selected_unit_renames_only_matching_classes_and_preserves_extras():

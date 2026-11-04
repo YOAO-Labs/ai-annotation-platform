@@ -5,13 +5,13 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr
 
-from aap_identity.deactivation_contract import (
+from yoao_identity.deactivation_contract import (
     DeactivationDuePolicyReply,
     DeactivationDueReply,
     DeactivationPolicyReply,
 )
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from deactivation_helpers import CONTROL, SECRET, due_request
 
 

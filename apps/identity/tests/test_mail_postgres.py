@@ -7,9 +7,9 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_contract import MAIL_NATIVE_PROTOCOL, MailLease
-from aap_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_contract import MAIL_NATIVE_PROTOCOL, MailLease
+from yoao_identity.mail_postgres import MailPostgresData, MailSettingsPostgresData
 
 
 def _lease(worker_id: uuid.UUID) -> dict:

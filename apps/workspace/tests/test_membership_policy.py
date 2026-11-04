@@ -6,7 +6,7 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from aap_workspace.contract import (
+from yoao_workspace.contract import (
     MEMBERSHIP_PROTOCOL,
     LABELING_MEMBERSHIP_WORK_PROTOCOL,
     MembershipAccountFacts,
@@ -22,7 +22,7 @@ from aap_workspace.contract import (
     MembershipTaskFacts,
     PreviewRoleChangePayload,
 )
-from aap_workspace.policy import (
+from yoao_workspace.policy import (
     build_member_resource_snapshot,
     evaluate_role_change,
     snapshot_token,

@@ -6,9 +6,9 @@ import uuid
 import httpx
 import pytest
 
-from aap_workspace.api import create_app
-from aap_workspace.config import RuntimeSettings
-from aap_workspace.owner_transfer_contract import OwnerTransferUnavailable
+from yoao_workspace.api import create_app
+from yoao_workspace.config import RuntimeSettings
+from yoao_workspace.owner_transfer_contract import OwnerTransferUnavailable
 
 
 class RefusingTransfer:

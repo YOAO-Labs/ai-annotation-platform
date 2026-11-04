@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pydantic import TypeAdapter  # noqa: E402
 
-from aap_workspace.owner_transfer_contract import (  # noqa: E402
+from yoao_workspace.owner_transfer_contract import (  # noqa: E402
     OwnerTransferFailure,
     OwnerTransferPolicy,
     OwnerTransferRequest,
@@ -37,7 +37,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    relative_path = Path("src/aap_workspace/owner_transfer_protocol.schema.json")
+    relative_path = Path("src/yoao_workspace/owner_transfer_protocol.schema.json")
     target = ROOT / relative_path
     schema = render_schema()
     if args.check:

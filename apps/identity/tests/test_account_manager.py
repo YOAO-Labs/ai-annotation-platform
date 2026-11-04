@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 import bcrypt
 import pytest
 
-from aap_identity.account_contract import (
+from yoao_identity.account_contract import (
     NATIVE_ACCOUNT_PROTOCOL,
     AccountFailure,
     AccountResultData,
@@ -17,8 +17,8 @@ from aap_identity.account_contract import (
     decode_native_apply_command,
     decode_native_prepare_command,
 )
-from aap_identity.account_manager import AccountManager, account_request_fingerprint
-from aap_identity.authenticator import VerifiedCredential
+from yoao_identity.account_manager import AccountManager, account_request_fingerprint
+from yoao_identity.authenticator import VerifiedCredential
 
 from account_helpers import account_record, account_request
 from session_helpers import SECRET, principal
@@ -280,8 +280,8 @@ async def test_password_replay_skips_old_password_recheck_and_rehash(monkeypatch
     def fail(*args, **kwargs):
         raise AssertionError("replay must not verify or rehash a password")
 
-    monkeypatch.setattr("aap_identity.account_manager.verify_password", fail)
-    monkeypatch.setattr("aap_identity.account_manager.hash_password", fail)
+    monkeypatch.setattr("yoao_identity.account_manager.verify_password", fail)
+    monkeypatch.setattr("yoao_identity.account_manager.hash_password", fail)
     reply = await manager(data).execute(request)
     assert reply.operation == "change_password" and reply.data.account is None
     assert data.events == ["prepare"] and data.committed and data.apply_command is None

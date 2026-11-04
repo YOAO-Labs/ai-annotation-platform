@@ -6,8 +6,8 @@ from contextlib import asynccontextmanager
 
 import asyncpg
 import pytest
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.recovery_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.recovery_contract import (
     NATIVE_RECOVERY_PROTOCOL,
     NativeRecoveryApplyReply,
     NativeRecoveryConfig,
@@ -17,8 +17,8 @@ from aap_identity.recovery_contract import (
     native_recovery_apply_command,
     native_recovery_prepare_command,
 )
-from aap_identity.recovery_crypto import request_fingerprint
-from aap_identity.recovery_postgres import RecoveryPostgresData
+from yoao_identity.recovery_crypto import request_fingerprint
+from yoao_identity.recovery_postgres import RecoveryPostgresData
 from recovery_helpers import prepare_reply, recovery_request
 
 

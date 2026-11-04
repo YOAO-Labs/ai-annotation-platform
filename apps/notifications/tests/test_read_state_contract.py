@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.read_state import NotificationReadStateManager
-from aap_notifications.read_state_contract import (
+from yoao_notifications.read_state import NotificationReadStateManager
+from yoao_notifications.read_state_contract import (
     MarkAllReadRequest,
     MarkReadRequest,
     NotificationReadStateUnavailable,
     decode_read_state_reply,
     read_state_json_schema,
 )
-from aap_notifications.read_state_postgres import NotificationReadStatePostgresData
+from yoao_notifications.read_state_postgres import NotificationReadStatePostgresData
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_notifications"
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 
 def test_wire_schema_is_one_closed_document_with_local_refs():

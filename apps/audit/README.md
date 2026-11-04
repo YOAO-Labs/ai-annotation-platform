@@ -126,7 +126,7 @@ dedicated LOGIN activation and consolidated runtime acceptance remain pending.
 
 ## Independent maintenance runtime
 
-The `aap-audit-maintenance` one-shot CLI provides `ensure-partitions`,
+The `yoao-audit-maintenance` one-shot CLI provides `ensure-partitions`,
 `archive-partitions`, and `refresh-daily`. It uses the same fixed
 `aap_audit_v1.maintenance_command(jsonb)` capability as the retained API/Celery
 adapter and verifies at startup that its database LOGIN can execute only that

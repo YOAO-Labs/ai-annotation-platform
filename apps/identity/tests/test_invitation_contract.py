@@ -5,8 +5,8 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.invitation_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.invitation_contract import (
     INVITATION_PROTOCOL,
     NATIVE_INVITATION_PROTOCOL,
     InvitationFailure,
@@ -14,10 +14,10 @@ from aap_identity.invitation_contract import (
     decode_native_invitation_prepare_reply,
     native_invitation_prepare_command,
 )
-from aap_identity.invitation_crypto import invitation_request_fingerprint
-from aap_identity.invitation_contract import NativeInvitationConfig
-from aap_identity.session_contract import SessionClaims
-from aap_identity.session_manager import sign_session_claims
+from yoao_identity.invitation_crypto import invitation_request_fingerprint
+from yoao_identity.invitation_contract import NativeInvitationConfig
+from yoao_identity.session_contract import SessionClaims
+from yoao_identity.session_manager import sign_session_claims
 from invitation_helpers import (
     INVITATION_SECRET,
     invitation_request,

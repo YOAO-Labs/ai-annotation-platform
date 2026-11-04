@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr, ValidationError
 
-from aap_notifications.websocket_config import NotificationSocketSettings
+from yoao_notifications.websocket_config import NotificationSocketSettings
 
 
 _ENV_KEYS = [

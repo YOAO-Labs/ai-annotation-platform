@@ -4,17 +4,17 @@ import json
 
 import pytest
 
-from aap_identity.briefs_postgres import (
+from yoao_identity.briefs_postgres import (
     BriefsPostgresData,
     BriefsPostgresTransaction,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from briefs_helpers import (
     BRIEFS_POLICY,
     briefs_request,
     native_briefs_success,
 )
-from aap_identity.briefs_contract import native_briefs_command
+from yoao_identity.briefs_contract import native_briefs_command
 
 
 class Connection:

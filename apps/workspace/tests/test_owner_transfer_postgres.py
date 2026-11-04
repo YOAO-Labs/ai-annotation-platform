@@ -9,8 +9,8 @@ import uuid
 import asyncpg
 import pytest
 
-from aap_workspace.owner_transfer import OwnerTransferManager
-from aap_workspace.owner_transfer_contract import (
+from yoao_workspace.owner_transfer import OwnerTransferManager
+from yoao_workspace.owner_transfer_contract import (
     OWNER_TRANSFER_PROTOCOL,
     OwnerTransferFailure,
     OwnerTransferRequest,
@@ -18,7 +18,7 @@ from aap_workspace.owner_transfer_contract import (
     OwnerTransferSuccess,
     OwnerTransferUnavailable,
 )
-from aap_workspace.owner_transfer_postgres import (
+from yoao_workspace.owner_transfer_postgres import (
     _ACCOUNT_LOCK_HINT,
     _OWNER_TRANSFER_FUNCTIONS,
     _OWNER_TRANSFER_SCHEMA,
@@ -108,7 +108,7 @@ class FakeConnection:
 
 
 def _install_capability_helper(monkeypatch, calls):
-    module = ModuleType("aap_owner_data.postgres")
+    module = ModuleType("yoao_owner_data.postgres")
 
     class FunctionRoleUnavailable(Exception):
         pass

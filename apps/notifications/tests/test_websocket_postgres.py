@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_notifications.websocket_postgres import (
+from yoao_notifications.websocket_postgres import (
     NotificationSocketPostgresData,
     configure_notification_jsonb_codec,
     open_notification_socket_data,
@@ -121,7 +121,9 @@ async def test_found_notification_is_cached_for_the_second_delivery_read():
             notification_id=notification_id, user_id=actor_id, payload=[None, 7]
         )
     )
-    data = NotificationSocketPostgresData(connection, SimpleNamespace(actor_id=actor_id))
+    data = NotificationSocketPostgresData(
+        connection, SimpleNamespace(actor_id=actor_id)
+    )
 
     row = await data.notification_by_id(notification_id)
     assert row is not None
@@ -159,7 +161,9 @@ async def test_scope_reads_use_native_jsonb_pairs_in_the_original_order():
         ),
         allowed_pairs=[pair],
     )
-    data = NotificationSocketPostgresData(connection, SimpleNamespace(actor_id=actor_id))
+    data = NotificationSocketPostgresData(
+        connection, SimpleNamespace(actor_id=actor_id)
+    )
 
     assert await data.notification_deliverable(notification_id, actor_id)
 

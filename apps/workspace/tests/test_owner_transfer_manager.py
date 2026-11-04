@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-import aap_workspace.owner_transfer as owner_transfer_module
-from aap_workspace.owner_transfer import (
+import yoao_workspace.owner_transfer as owner_transfer_module
+from yoao_workspace.owner_transfer import (
     OwnerTransferCommandFailure,
     OwnerTransferManager,
 )
-from aap_workspace.owner_transfer_contract import (
+from yoao_workspace.owner_transfer_contract import (
     OWNER_TRANSFER_PROTOCOL,
     OwnerTransferError,
     OwnerTransferFailure,

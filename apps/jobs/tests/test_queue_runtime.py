@@ -3,11 +3,11 @@ from __future__ import annotations
 
 from starlette.testclient import TestClient
 
-from aap_jobs.queue_config import JobsQueueSettings
-from aap_jobs.queue_contract import (
+from yoao_jobs.queue_config import JobsQueueSettings
+from yoao_jobs.queue_contract import (
     JOBS_QUEUE_PROTOCOL,
 )
-from aap_jobs.queue_runtime import create_app
+from yoao_jobs.queue_runtime import create_app
 
 
 class FakeQueueTransport:

@@ -7,8 +7,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deletion_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deletion_contract import (
     DELETION_PROTOCOL,
     NATIVE_DELETION_PROTOCOL,
     DeletionFailure,
@@ -18,7 +18,7 @@ from aap_identity.deletion_contract import (
     decode_native_deletion_reply,
     deletion_failure_reply,
 )
-from aap_identity.deletion_manager import (
+from yoao_identity.deletion_manager import (
     deletion_derivation_id,
     deletion_request_fingerprint,
 )
@@ -361,7 +361,7 @@ def test_receiver_failures_reject_unreachable_legacy_branches(
 
 
 def test_schema_artifacts_have_expected_ids_and_closed_models():
-    root = Path(__file__).resolve().parents[1] / "src" / "aap_identity"
+    root = Path(__file__).resolve().parents[1] / "src" / "yoao_identity"
     for filename, expected_id in (
         ("deletion_protocol.schema.json", DELETION_PROTOCOL),
         ("native_deletion_protocol.schema.json", NATIVE_DELETION_PROTOCOL),

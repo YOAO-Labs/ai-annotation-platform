@@ -5,14 +5,14 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
-from aap_identity.suspension_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.suspension_contract import (
     NATIVE_SUSPENSION_PROTOCOL,
     SuspensionFailure,
     decode_native_suspension_command,
 )
-from aap_identity.suspension_manager import (
+from yoao_identity.suspension_manager import (
     SuspensionManager,
     suspension_derivation_id,
     suspension_request_fingerprint,

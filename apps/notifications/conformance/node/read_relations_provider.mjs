@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const contractPath = path.resolve(here, "../../src/aap_notifications/read_relations.schema.json");
+const contractPath = path.resolve(here, "../../src/yoao_notifications/read_relations.schema.json");
 const columns = [
   "id",
   "user_id",

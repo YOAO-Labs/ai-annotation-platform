@@ -7,15 +7,15 @@ import uuid
 import asyncpg
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.session_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.session_contract import (
     NATIVE_SESSION_PROTOCOL,
     NativeLogin,
     NativeLoginCommand,
     SessionAuditContext,
     SessionPolicy,
 )
-from aap_identity.session_postgres import SessionPostgresData
+from yoao_identity.session_postgres import SessionPostgresData
 
 
 def login_command(*, failed_count=1):

@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.e2e_fixture_contract import (
+from yoao_workspace.e2e_fixture_contract import (
     E2EProjectCleanupGuard,
     E2EProjectRecord,
     E2ETemplateRecord,
@@ -162,7 +162,7 @@ def test_checked_in_schemas_match_the_closed_fixture_contract():
     expected = e2e_fixture_schema()
     workspace_schema = (
         Path(__file__).resolve().parents[1]
-        / "src/aap_workspace/e2e_fixture_protocol.schema.json"
+        / "src/yoao_workspace/e2e_fixture_protocol.schema.json"
     )
     migration_schema = (
         Path(__file__).resolve().parents[2]

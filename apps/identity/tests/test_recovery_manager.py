@@ -6,14 +6,14 @@ from datetime import UTC, datetime
 
 import bcrypt
 import pytest
-from aap_identity.recovery_contract import (
+from yoao_identity.recovery_contract import (
     NativeRecoveryResult,
     RecoveryFailure,
     decode_native_recovery_apply_command,
     decode_native_recovery_prepare_command,
 )
-from aap_identity.recovery_crypto import decrypt_mail_token, token_hash
-from aap_identity.recovery_manager import RecoveryManager
+from yoao_identity.recovery_crypto import decrypt_mail_token, token_hash
+from yoao_identity.recovery_manager import RecoveryManager
 from recovery_helpers import (
     MAIL_KEY,
     SECRET,
@@ -331,7 +331,7 @@ async def test_reset_consumes_inactive_target_without_hashing_new_password(monke
         ),
     )
     monkeypatch.setattr(
-        "aap_identity.recovery_manager.hash_password",
+        "yoao_identity.recovery_manager.hash_password",
         lambda _password: pytest.fail("inactive reset must not hash a new password"),
     )
 

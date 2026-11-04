@@ -5,13 +5,13 @@ import uuid
 
 import pytest
 
-from aap_notifications.delivery_read import (
+from yoao_notifications.delivery_read import (
     GLOBAL_ASYNC_JOB_KINDS,
     NotificationDeliveryReadPolicy,
     notification_project_id,
     unrestricted_delivery_indices,
 )
-from aap_notifications.publication_contract import PublicationAuthorization
+from yoao_notifications.publication_contract import PublicationAuthorization
 
 
 def _row(
@@ -183,13 +183,25 @@ async def test_private_job_retirement_preserves_only_current_super_admin_deliver
     rows = [
         _row(user_id=super_user, target_type="async_job", target_id=retained_id),
         _row(user_id=ordinary_user, target_type="async_job", target_id=retained_id),
-        _row(user_id=super_user, target_type="async_job", target_id=missing_id,
-             payload={"kind": "storage_migration_copy"}),
-        _row(user_id=super_user, target_type="async_job", target_id=unknown_id,
-             payload={"kind": "storage_migration_copy"}),
+        _row(
+            user_id=super_user,
+            target_type="async_job",
+            target_id=missing_id,
+            payload={"kind": "storage_migration_copy"},
+        ),
+        _row(
+            user_id=super_user,
+            target_type="async_job",
+            target_id=unknown_id,
+            payload={"kind": "storage_migration_copy"},
+        ),
         _row(user_id=ordinary_user, target_type="async_job", target_id=other_id),
-        _row(user_id=ordinary_user, target_type="async_job", target_id=allowed_id,
-             payload={"kind": "storage_migration_copy"}),
+        _row(
+            user_id=ordinary_user,
+            target_type="async_job",
+            target_id=allowed_id,
+            payload={"kind": "storage_migration_copy"},
+        ),
     ]
     data = _Data()
     data.jobs = {

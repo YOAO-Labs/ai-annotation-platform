@@ -6,13 +6,13 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_workspace.template_query_contract import (
+from yoao_workspace.template_query_contract import (
     TEMPLATE_QUERY_PROTOCOL,
     TEMPLATE_ROW_COLUMNS,
     TemplateQueryUnavailable,
     template_query_request,
 )
-from aap_workspace.template_queries import TemplateQueryManager
+from yoao_workspace.template_queries import TemplateQueryManager
 
 _ACTOR_ID = uuid.UUID("4c524267-d44b-4419-9dcb-1afd9630d80a")
 _TARGET_ID = uuid.UUID("705ffe3a-dddc-4d15-8bb8-870f88af6586")

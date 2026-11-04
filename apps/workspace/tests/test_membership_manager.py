@@ -6,8 +6,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-import aap_workspace.manager as manager_module
-from aap_workspace.contract import (
+import yoao_workspace.manager as manager_module
+from yoao_workspace.contract import (
     LABELING_MEMBERSHIP_WORK_PROTOCOL,
     MEMBERSHIP_NATIVE_PROTOCOL,
     MEMBERSHIP_PROTOCOL,
@@ -32,8 +32,8 @@ from aap_workspace.contract import (
     PreviewRoleChangePayload,
     RemoveMemberPayload,
 )
-from aap_workspace.manager import MembershipManager
-from aap_workspace.policy import build_member_resource_snapshot, snapshot_token
+from yoao_workspace.manager import MembershipManager
+from yoao_workspace.policy import build_member_resource_snapshot, snapshot_token
 
 _ACTOR = uuid.UUID("4c524267-d44b-4419-9dcb-1afd9630d80a")
 _PROJECT = uuid.UUID("705ffe3a-dddc-4d15-8bb8-870f88af6586")
@@ -188,7 +188,7 @@ class FakeTransaction:
 
     async def prepare_membership_command(self, request_json):
         self.parent.prepared = request_json
-        from aap_workspace.contract import decode_membership_request
+        from yoao_workspace.contract import decode_membership_request
 
         request = decode_membership_request(request_json)
         self.parent.request = request

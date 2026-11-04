@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.notification_delivery_contract import (
+from yoao_notifications.notification_delivery_contract import (
     NOTIFICATION_DELIVERY_POLICY,
     NOTIFICATION_DELIVERY_POLICY_PROTOCOL,
     NOTIFICATION_DELIVERY_PROTOCOL,

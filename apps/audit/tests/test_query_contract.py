@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_audit.query_contract import (
+from yoao_audit.query_contract import (
     EXPORT_MAX_ROWS,
     QUERY_PROTOCOL,
     AuditQueryAfter,
@@ -29,8 +29,8 @@ def test_base_contract_import_does_not_require_postgres_extra():
             sys.executable,
             "-c",
             "import sys; sys.modules['sqlalchemy'] = None; "
-            "from aap_audit import APPEND_PROTOCOL, QUERY_PROTOCOL; "
-            "from aap_audit.query_contract import AuditQueryRequest",
+            "from yoao_audit import APPEND_PROTOCOL, QUERY_PROTOCOL; "
+            "from yoao_audit.query_contract import AuditQueryRequest",
         ],
         check=True,
         capture_output=True,
@@ -215,8 +215,8 @@ def test_query_schema_is_closed_and_has_local_definitions():
 
     check_references(schema)
     package_schema = (
-        Path(__file__).resolve().parents[1] / "src/aap_audit/query.schema.json"
+        Path(__file__).resolve().parents[1] / "src/yoao_audit/query.schema.json"
     )
     assert json.loads(package_schema.read_text()) == schema
-    assert files("aap_audit").joinpath("query.schema.json").is_file()
-    assert files("aap_audit.sql").joinpath("0317_audit_query.sql").is_file()
+    assert files("yoao_audit").joinpath("query.schema.json").is_file()
+    assert files("yoao_audit.sql").joinpath("0317_audit_query.sql").is_file()

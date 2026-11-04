@@ -6,7 +6,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.actor_contract import (
+from yoao_identity.actor_contract import (
     ACTOR_PROTOCOL,
     ActorContext,
     ActorContextRequest,
@@ -15,7 +15,7 @@ from aap_identity.actor_contract import (
     decode_actor_reply,
     decode_actor_request,
 )
-from aap_identity.contract import IdentityFailure, IdentityUnavailable
+from yoao_identity.contract import IdentityFailure, IdentityUnavailable
 
 
 def _request(actor_id: uuid.UUID | None = None, role="employee"):

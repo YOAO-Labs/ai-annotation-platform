@@ -4,7 +4,7 @@ import json
 import uuid
 from pathlib import Path
 
-from aap_identity.briefs_contract import (
+from yoao_identity.briefs_contract import (
     NATIVE_BRIEFS_PROTOCOL,
     BRIEFS_PROTOCOL,
     decode_briefs_request,

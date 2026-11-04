@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 
 from jose import jwt
 
-from aap_identity.contract import Principal
-from aap_identity.security import ALGORITHM, ISSUER, create_access_token, signing_key
-from aap_identity.session_contract import decode_session_request
+from yoao_identity.contract import Principal
+from yoao_identity.security import ALGORITHM, ISSUER, create_access_token, signing_key
+from yoao_identity.session_contract import decode_session_request
 
 SECRET = "identity-session-test-signing-secret"
 CONTROL = "session-runtime-control-token"

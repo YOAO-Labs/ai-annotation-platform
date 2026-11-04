@@ -1,10 +1,10 @@
-# aap-workspace
+# yoao-workspace
 
-`aap-workspace` contains portable contracts and policy for project membership
+`yoao-workspace` contains portable contracts and policy for project membership
 creation, role previews, role changes, member removal, project owner transfer,
 and six project/template configuration commands. The core package
 uses Pydantic and shared Workspace, Inference, task, Audit and owner-data contracts.
-Saved pipeline structure and normalization come from `aap-inference-contract`;
+Saved pipeline structure and normalization come from `yoao-inference-contract`;
 the core and standalone image do not install the Inference provider. Runtime and PostgreSQL bindings are optional;
 the PostgreSQL extra includes HTTP dependencies for the credential-owning Inference probe.
 
@@ -13,10 +13,10 @@ executes the Workspace native prepare/apply capabilities. It contains no API,
 ORM, task-runner, or storage integration. Role-change snapshots preserve the
 existing JSON digest format so a preview can be checked again before a handoff.
 
-Install `aap-workspace[postgres]` for the PostgreSQL client layer,
-`aap-workspace[runtime]` for a standalone service, or
-`aap-workspace[client]` for HTTP clients. Test dependencies are available via
-`aap-workspace[test]`.
+Install `yoao-workspace[postgres]` for the PostgreSQL client layer,
+`yoao-workspace[runtime]` for a standalone service, or
+`yoao-workspace[client]` for HTTP clients. Test dependencies are available via
+`yoao-workspace[test]`.
 
 Owner transfer uses `aap-workspace-owner-transfer/v1` and a separate two-RPC
 function-only credential. The caller-session adapter never commits; standalone
@@ -51,7 +51,7 @@ The bounded local concurrency sample is not a production capacity claim;
 see ADR-0137 for scope.
 
 Project access values and capability policy live in the shared
-`aap_workspace_contract.access` module, including the membership compatibility
+`yoao_workspace_contract.access` module, including the membership compatibility
 rule. Workspace, API, service and worker consumers import this owner directly;
 current SQL authority resolution and locks remain with their existing adapters.
 Fifteen typed foreign read capabilities support the Project query owner. See

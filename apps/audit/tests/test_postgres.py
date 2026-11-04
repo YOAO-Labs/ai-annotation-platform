@@ -4,13 +4,13 @@ import json
 
 from sqlalchemy.exc import IntegrityError
 
-from aap_audit.append_contract import (
+from yoao_audit.append_contract import (
     APPEND_PROTOCOL,
     AppendEvent,
     AppendRequest,
     AuditAppendUnavailable,
 )
-from aap_audit.postgres import AuditAppendPostgresData
+from yoao_audit.postgres import AuditAppendPostgresData
 
 
 class _FakeSession:

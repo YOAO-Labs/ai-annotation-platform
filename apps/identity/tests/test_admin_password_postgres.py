@@ -4,12 +4,12 @@ import json
 
 import pytest
 
-from aap_identity.admin_password_contract import NATIVE_ADMIN_PASSWORD_PROTOCOL
-from aap_identity.admin_password_postgres import (
+from yoao_identity.admin_password_contract import NATIVE_ADMIN_PASSWORD_PROTOCOL
+from yoao_identity.admin_password_postgres import (
     AdminPasswordPostgresData,
     AdminPasswordPostgresTransaction,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 from admin_password_helpers import admin_password_request, native_admin_password_command
 
 

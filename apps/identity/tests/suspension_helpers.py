@@ -4,12 +4,12 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.suspension_contract import (
+from yoao_identity.suspension_contract import (
     NATIVE_SUSPENSION_PROTOCOL,
     SUSPENSION_PROTOCOL,
     decode_suspension_request,
 )
-from aap_identity.suspension_manager import (
+from yoao_identity.suspension_manager import (
     suspension_derivation_id,
     suspension_request_fingerprint,
 )
@@ -75,7 +75,7 @@ def suspension_user(**changes):
 
 
 def native_command(request, *, actor=None, key_hash=None):
-    from aap_identity.suspension_contract import native_suspension_command
+    from yoao_identity.suspension_contract import native_suspension_command
 
     actor = actor or principal(role="super_admin")
     return native_suspension_command(

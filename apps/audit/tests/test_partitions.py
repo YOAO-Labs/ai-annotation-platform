@@ -7,11 +7,11 @@ from pathlib import Path
 
 import pytest
 
-from aap_audit.maintenance_contract import (
+from yoao_audit.maintenance_contract import (
     AuditPartition,
     audit_maintenance_schema,
 )
-from aap_audit.partitions import AuditPartitionManager
+from yoao_audit.partitions import AuditPartitionManager
 
 
 def _previous_month(value: date) -> date:
@@ -115,7 +115,7 @@ def test_maintenance_schema_artifact_matches_closed_contract():
     artifact = json.loads(
         (
             Path(__file__).resolve().parents[1]
-            / "src/aap_audit/maintenance.schema.json"
+            / "src/yoao_audit/maintenance.schema.json"
         ).read_text()
     )
     assert artifact == audit_maintenance_schema()

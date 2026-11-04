@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.registration_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.registration_contract import (
     REGISTRATION_STATUS_PROTOCOL,
     RegistrationStatusRequest,
     decode_registration_status_reply,
     decode_registration_status_request,
 )
-from aap_identity.registration_reader import RegistrationStatusReader
+from yoao_identity.registration_reader import RegistrationStatusReader
 
 
 def request(*, default=False):

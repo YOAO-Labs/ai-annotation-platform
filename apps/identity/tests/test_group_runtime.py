@@ -5,9 +5,9 @@ from pydantic import SecretStr
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from aap_identity.group_contract import GroupPolicyReply
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.group_contract import GroupPolicyReply
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from group_helpers import CONTROL, SECRET
 
 

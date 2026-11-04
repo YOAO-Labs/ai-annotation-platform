@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aap_workspace.project_maintenance_contract import (
+from yoao_workspace.project_maintenance_contract import (
     PROTOCOL,
     PointQualityConfigWrite,
     ProjectMaintenanceUnavailable,

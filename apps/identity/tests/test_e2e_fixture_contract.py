@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.e2e_fixture_contract import (
+from yoao_identity.e2e_fixture_contract import (
     ACCOUNT_PROFILE_FIELDS,
     E2E_FIXTURE_PROTOCOL,
     FixtureAccountProfile,
@@ -95,7 +95,7 @@ def test_schema_snapshots_match_the_owner_descriptor():
     repository_root = Path(__file__).resolve().parents[3]
     snapshots = (
         repository_root
-        / "apps/identity/src/aap_identity/e2e_fixture_protocol.schema.json",
+        / "apps/identity/src/yoao_identity/e2e_fixture_protocol.schema.json",
         repository_root / "apps/api/alembic/sql/0305_identity_e2e_fixtures.schema.json",
     )
 

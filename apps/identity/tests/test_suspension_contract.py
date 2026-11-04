@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.suspension_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.suspension_contract import (
     SuspensionFailure,
     decode_native_suspension_command,
     decode_native_suspension_reply,
@@ -15,7 +15,7 @@ from aap_identity.suspension_contract import (
     decode_suspension_request,
     suspension_failure_reply,
 )
-from aap_identity.suspension_manager import (
+from yoao_identity.suspension_manager import (
     suspension_derivation_id,
     suspension_request_fingerprint,
 )
@@ -329,7 +329,7 @@ def test_project_busy_is_closed_and_suspend_only():
 def test_schema_artifacts_are_generated_from_closed_models():
     import json as json_module
 
-    root = Path(__file__).resolve().parents[1] / "src" / "aap_identity"
+    root = Path(__file__).resolve().parents[1] / "src" / "yoao_identity"
     for filename, protocol in (
         ("suspension_protocol.schema.json", "aap-identity-suspensions/v1"),
         (

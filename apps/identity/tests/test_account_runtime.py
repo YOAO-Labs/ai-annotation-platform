@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.account_contract import (
+from yoao_identity.account_contract import (
     NATIVE_ACCOUNT_PROTOCOL,
     AccountResultData,
     NativeAccountReply,
@@ -17,14 +17,14 @@ from aap_identity.account_contract import (
     decode_native_apply_command,
     decode_native_prepare_command,
 )
-from aap_identity.contract import Principal, principal_reply
-from aap_identity.presence_contract import (
+from yoao_identity.contract import Principal, principal_reply
+from yoao_identity.presence_contract import (
     PRESENCE_PROTOCOL,
     PresenceReply,
 )
-from aap_identity.security import ISSUER
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.security import ISSUER
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 
 from account_helpers import ACCOUNT_PROTOCOL, account_record
 from session_helpers import CONTROL, SECRET, make_jwt

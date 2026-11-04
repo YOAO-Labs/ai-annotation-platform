@@ -7,8 +7,8 @@ import uuid
 
 import pytest
 
-from aap_notifications.publication import NotificationPublicationManager
-from aap_notifications.publication_contract import (
+from yoao_notifications.publication import NotificationPublicationManager
+from yoao_notifications.publication_contract import (
     ImmediatePublicationUnavailable,
     PublicationAuthorization,
 )

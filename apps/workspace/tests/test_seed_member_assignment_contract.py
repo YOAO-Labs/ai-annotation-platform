@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from aap_workspace.seed_member_assignment_contract import (
+from yoao_workspace.seed_member_assignment_contract import (
     SEED_MEMBER_ASSIGNMENT_PROTOCOL,
     SeedMemberAssignmentReceipt,
     SeedMemberAssignmentUnavailable,
@@ -165,7 +165,7 @@ def test_public_and_frozen_migration_schemas_match_contract_descriptor():
     public_schema_path = (
         Path(__file__).resolve().parents[1]
         / "src"
-        / "aap_workspace"
+        / "yoao_workspace"
         / "seed_member_assignment_protocol.schema.json"
     )
     migration_schema_path = (

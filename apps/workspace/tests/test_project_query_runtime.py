@@ -6,15 +6,15 @@ import uuid
 import httpx
 import pytest
 
-from aap_workspace.api import create_app
-from aap_workspace.config import RuntimeSettings
-from aap_workspace.project_queries import ProjectQueryProfilesUnavailable
-from aap_workspace_contract.project_query_contract import (
+from yoao_workspace.api import create_app
+from yoao_workspace.config import RuntimeSettings
+from yoao_workspace.project_queries import ProjectQueryProfilesUnavailable
+from yoao_workspace_contract.project_query_contract import (
     PROJECT_QUERY_PROTOCOL,
     project_query_request,
 )
-from aap_workspace.project_query_profiles import ProjectQueryIdentityProfiles
-from aap_workspace_contract.project_query_values import (
+from yoao_workspace.project_query_profiles import ProjectQueryIdentityProfiles
+from yoao_workspace_contract.project_query_values import (
     decode_project_query_reply,
     materialize_project_query_data,
 )
@@ -108,7 +108,7 @@ async def test_empty_profiles_do_not_resolve_missing_or_conflicting_secrets():
 async def test_selected_identity_http_uses_public_client_without_sql_fallback(
     monkeypatch, status
 ):
-    from aap_identity import briefs_client, briefs_postgres
+    from yoao_identity import briefs_client, briefs_postgres
 
     user_id = uuid.UUID(int=1)
     calls = []

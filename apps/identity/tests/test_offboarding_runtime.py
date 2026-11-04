@@ -8,10 +8,10 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.contract import IdentityUnavailable, principal_reply
-from aap_identity.offboarding_contract import OffboardingPolicyReply
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.contract import IdentityUnavailable, principal_reply
+from yoao_identity.offboarding_contract import OffboardingPolicyReply
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from offboarding_helpers import (
     OFFBOARDING_CONTROL,
     OFFBOARDING_SECRET,

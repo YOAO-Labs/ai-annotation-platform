@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const jobsRoot = path.resolve(here, "../../src/aap_jobs");
+const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "lifecycle.schema.json");
 const sqlPath = path.join(jobsRoot, "sql/0327_jobs_lifecycle.sql");
 const frozenSchemaPath = path.resolve(

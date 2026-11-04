@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_jobs.queue_config import JobsQueueSettings
+from yoao_jobs.queue_config import JobsQueueSettings
 
 
 def test_queue_settings_read_direct_or_file_secrets(tmp_path: Path):

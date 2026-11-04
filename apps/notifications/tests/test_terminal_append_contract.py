@@ -8,19 +8,19 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.terminal_append import NotificationTerminalAppendManager
-from aap_notifications.terminal_append_contract import (
+from yoao_notifications.terminal_append import NotificationTerminalAppendManager
+from yoao_notifications.terminal_append_contract import (
     TERMINAL_APPEND_PROTOCOL,
     NotificationTerminalAppendUnavailable,
     TerminalNotificationRequest,
     decode_terminal_append_reply,
     terminal_append_json_schema,
 )
-from aap_notifications.terminal_append_postgres import (
+from yoao_notifications.terminal_append_postgres import (
     NotificationTerminalAppendPostgresData,
 )
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_notifications"
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 _API = Path(__file__).resolve().parents[2] / "api"
 
 

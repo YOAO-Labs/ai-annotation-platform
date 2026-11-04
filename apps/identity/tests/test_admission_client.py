@@ -8,14 +8,14 @@ import uuid
 
 import pytest
 
-import aap_identity_admission.client as admission_client
-from aap_identity_admission.actor_status_contract import (
+import yoao_identity_admission.client as admission_client
+from yoao_identity_admission.actor_status_contract import (
     ACTOR_STATUS_PROTOCOL,
     ActorStatus,
     actor_status_reply,
 )
-from aap_identity_admission.client import RemoteAdmissionClient
-from aap_identity_admission.contract import (
+from yoao_identity_admission.client import RemoteAdmissionClient
+from yoao_identity_admission.contract import (
     IdentityFailure,
     IdentityUnavailable,
     Principal,

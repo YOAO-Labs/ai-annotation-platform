@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from aap_jobs.notification_scope_contract import NotificationScopeFact
+from yoao_jobs.notification_scope_contract import NotificationScopeFact
 
 
 def test_notification_scope_keeps_unknown_job_kinds_and_null_scope():

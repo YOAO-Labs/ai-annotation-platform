@@ -5,15 +5,15 @@ import uuid
 
 import pytest
 
-from aap_audit_contract import ProjectDeletionAuditContext
-from aap_workspace.dataset_unlink_contract import (
+from yoao_audit_contract import ProjectDeletionAuditContext
+from yoao_workspace.dataset_unlink_contract import (
     DATASET_UNLINK_PREVIEW_PROTOCOL,
     DATASET_UNLINK_PROTOCOL,
     DatasetUnlinkCommand,
     DatasetUnlinkPreviewCommand,
 )
-from aap_workspace import dataset_unlink_postgres as unlink_postgres
-from aap_workspace.dataset_unlink_postgres import (
+from yoao_workspace import dataset_unlink_postgres as unlink_postgres
+from yoao_workspace.dataset_unlink_postgres import (
     _DATASET_UNLINK_FUNCTIONS,
     _PREVIEW_DATASET_UNLINK_SQL,
     _UNLINK_DATASET_SQL,

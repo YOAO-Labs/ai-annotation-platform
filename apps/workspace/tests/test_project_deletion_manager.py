@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 import uuid
 
-from aap_workspace.project_deletion import ProjectDeletionManager
-from aap_workspace.project_deletion_contract import (
+from yoao_workspace.project_deletion import ProjectDeletionManager
+from yoao_workspace.project_deletion_contract import (
     PROJECT_DELETION_PROTOCOL,
     ProjectDeletionCommand,
     ProjectDeletionFailure,

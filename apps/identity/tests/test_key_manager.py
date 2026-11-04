@@ -10,9 +10,9 @@ from datetime import UTC, datetime
 import bcrypt
 import pytest
 
-from aap_identity.authenticator import Authenticator, VerifiedCredential
-from aap_identity.contract import IdentityUnavailable, Principal, principal_reply
-from aap_identity.key_contract import (
+from yoao_identity.authenticator import Authenticator, VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable, Principal, principal_reply
+from yoao_identity.key_contract import (
     KEY_DERIVATION,
     KEY_PROTOCOL,
     NATIVE_KEY_PROTOCOL,
@@ -21,8 +21,8 @@ from aap_identity.key_contract import (
     KeyRecord,
     decode_key_request,
 )
-from aap_identity.key_manager import KeyManager, derive_key_material
-from aap_identity.security import create_access_token
+from yoao_identity.key_manager import KeyManager, derive_key_material
+from yoao_identity.security import create_access_token
 
 SECRET = "runtime-key-derivation-secret"
 ACTOR_ID = uuid.uuid4()

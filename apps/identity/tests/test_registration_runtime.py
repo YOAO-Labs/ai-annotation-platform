@@ -5,9 +5,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.registration_contract import REGISTRATION_STATUS_PROTOCOL
-from aap_identity_runtime.api import create_app
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.registration_contract import REGISTRATION_STATUS_PROTOCOL
+from yoao_identity_runtime.api import create_app
 from test_recovery_runtime import CONTROL, Data, settings
 
 

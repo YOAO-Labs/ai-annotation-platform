@@ -5,7 +5,7 @@ from types import ModuleType
 
 import pytest
 
-from aap_identity.login_counter import RedisLoginCounter
+from yoao_identity.login_counter import RedisLoginCounter
 
 
 class FakeRedis:

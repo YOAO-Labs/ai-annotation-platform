@@ -16,4 +16,4 @@ RUN groupadd --system --gid 10004 notifications \
 COPY --from=builder --chown=10004:10004 /opt/venv /opt/venv
 WORKDIR /runtime
 USER 10004:10004
-CMD ["aap-notifications-publisher"]
+CMD ["yoao-notifications-publisher"]

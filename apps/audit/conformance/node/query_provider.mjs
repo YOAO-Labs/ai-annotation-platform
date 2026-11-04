@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const schemaPath = path.resolve(here, "../../src/aap_audit/query.schema.json");
+const schemaPath = path.resolve(here, "../../src/yoao_audit/query.schema.json");
 const protocol = "aap-audit-query/v1";
 const maxAuditId = 9223372036854775807n;
 const minAuditId = -9223372036854775808n;

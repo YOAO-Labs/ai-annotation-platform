@@ -8,17 +8,17 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.append_contract import (
+from yoao_notifications.append_contract import (
     AppendNotificationRequest,
     NotificationAppendUnavailable,
     append_json_schema,
     decode_append_reply,
 )
-from aap_notifications.append import NotificationAppendManager
-from aap_notifications.append_postgres import NotificationAppendPostgresData
+from yoao_notifications.append import NotificationAppendManager
+from yoao_notifications.append_postgres import NotificationAppendPostgresData
 
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_notifications"
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_notifications"
 
 
 def test_append_wire_schema_and_migration_artifact_match():

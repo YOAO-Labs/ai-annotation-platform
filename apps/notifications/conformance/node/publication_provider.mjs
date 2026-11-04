@@ -55,7 +55,7 @@ function validate(value) {
 async function selfCheck() {
   const schema = JSON.parse(
     await readFile(
-      new URL("../../src/aap_notifications/publication.schema.json", import.meta.url),
+      new URL("../../src/yoao_notifications/publication.schema.json", import.meta.url),
       "utf8",
     ),
   );

@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from pydantic import TypeAdapter  # noqa: E402
 
-from aap_workspace.contract import (  # noqa: E402
+from yoao_workspace.contract import (  # noqa: E402
     MEMBERSHIP_NATIVE_TEXT_CODEC,
     MEMBERSHIP_NATIVE_TEXT_FIELDS,
     MembershipFailure,
@@ -54,7 +54,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
-    relative_path = Path("src/aap_workspace/membership_protocol.schema.json")
+    relative_path = Path("src/yoao_workspace/membership_protocol.schema.json")
     target = ROOT / relative_path
     schema = render_schema()
     if args.check:

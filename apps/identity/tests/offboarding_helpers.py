@@ -4,13 +4,13 @@ import json
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.directory_contract import DirectoryUserRecord
-from aap_identity.offboarding_contract import (
+from yoao_identity.directory_contract import DirectoryUserRecord
+from yoao_identity.offboarding_contract import (
     NATIVE_OFFBOARDING_PROTOCOL,
     OFFBOARDING_PROTOCOL,
     decode_offboarding_request,
 )
-from aap_identity.offboarding_manager import (
+from yoao_identity.offboarding_manager import (
     offboarding_derivation_id,
     offboarding_request_fingerprint,
 )
@@ -111,7 +111,7 @@ def offboarding_facts(
     target: DirectoryUserRecord | None = None,
     other_unreserved: int = 2,
 ):
-    from aap_identity.offboarding_contract import OffboardingSnapshotFacts
+    from yoao_identity.offboarding_contract import OffboardingSnapshotFacts
 
     values = {
         "target": (target or offboarding_user()).model_dump(mode="json"),
@@ -255,7 +255,7 @@ def native_apply_success(
     result_user: DirectoryUserRecord | None = None,
     replayed: bool = False,
 ):
-    from aap_identity.offboarding_contract import OffboardingResultRecord
+    from yoao_identity.offboarding_contract import OffboardingResultRecord
 
     payload = command.payload
     if result_user is None:
@@ -294,7 +294,7 @@ def native_apply_success(
 
 
 def native_command_for_test(request, actor=None, key_hash=None):
-    from aap_identity.offboarding_contract import native_prepare_offboarding_command
+    from yoao_identity.offboarding_contract import native_prepare_offboarding_command
 
     actor = actor or principal(role="super_admin")
     return native_prepare_offboarding_command(

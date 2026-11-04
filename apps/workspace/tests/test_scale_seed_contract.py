@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_workspace.scale_seed_contract import (
+from yoao_workspace.scale_seed_contract import (
     ASSETS_NATIVE_SCHEMA,
     NATIVE_SCHEMA,
     PROTOCOL,
@@ -182,7 +182,7 @@ def test_checked_in_schemas_match_the_contract_descriptor():
     expected = scale_seed_schema()
     package_schema = (
         Path(__file__).resolve().parents[1]
-        / "src/aap_workspace/scale_seed_protocol.schema.json"
+        / "src/yoao_workspace/scale_seed_protocol.schema.json"
     )
     migration_schema = (
         Path(__file__).resolve().parents[2]

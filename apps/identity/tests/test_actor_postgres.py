@@ -5,9 +5,9 @@ import uuid
 
 import pytest
 
-from aap_identity.actor_contract import ActorContext, actor_reply
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.postgres import PostgresData
+from yoao_identity.actor_contract import ActorContext, actor_reply
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.postgres import PostgresData
 
 
 class Transaction:

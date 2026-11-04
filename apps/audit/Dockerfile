@@ -15,5 +15,5 @@ RUN groupadd --system --gid 10006 audit \
 COPY --from=builder --chown=10006:10006 /opt/venv /opt/venv
 WORKDIR /runtime
 USER 10006:10006
-ENTRYPOINT ["aap-audit-maintenance"]
+ENTRYPOINT ["yoao-audit-maintenance"]
 CMD ["--help"]

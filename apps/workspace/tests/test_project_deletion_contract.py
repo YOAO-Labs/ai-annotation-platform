@@ -7,8 +7,8 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_audit_contract import ProjectDeletionAuditContext
-from aap_workspace.project_deletion_contract import (
+from yoao_audit_contract import ProjectDeletionAuditContext
+from yoao_workspace.project_deletion_contract import (
     PROJECT_DELETION_PROTOCOL,
     ProjectDeletionCommand,
     ProjectDeletionFailure,

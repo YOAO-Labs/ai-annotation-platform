@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_notifications.inbox_query_contract import NotificationInboxFact
+from yoao_notifications.inbox_query_contract import NotificationInboxFact
 
 
 @pytest.mark.parametrize(

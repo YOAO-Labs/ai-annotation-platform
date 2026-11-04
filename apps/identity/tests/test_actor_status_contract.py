@@ -6,12 +6,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from aap_identity.contract import (
+from yoao_identity.contract import (
     IdentityUnavailable as LegacyUnavailable,
     Principal as LegacyPrincipal,
     decode_principal_reply as legacy_decode_principal_reply,
 )
-from aap_identity_admission.actor_status_contract import (
+from yoao_identity_admission.actor_status_contract import (
     ACTOR_STATUS_PROTOCOL,
     ActorStatus,
     ActorStatusRequest,
@@ -19,7 +19,7 @@ from aap_identity_admission.actor_status_contract import (
     decode_actor_status_reply,
     decode_actor_status_request,
 )
-from aap_identity_admission.contract import (
+from yoao_identity_admission.contract import (
     IdentityFailure,
     IdentityUnavailable,
     Principal,

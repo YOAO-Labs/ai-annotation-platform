@@ -8,8 +8,8 @@ import uuid
 
 import pytest
 
-from aap_workspace.directory_queries import DirectoryQueryManager
-from aap_workspace.directory_query_contract import (
+from yoao_workspace.directory_queries import DirectoryQueryManager
+from yoao_workspace.directory_query_contract import (
     DIRECTORY_QUERY_PROTOCOL,
     DirectoryQueryInvalidRequest,
     DirectoryQueryUnavailable,
@@ -17,15 +17,15 @@ from aap_workspace.directory_query_contract import (
     decode_directory_query_step,
     directory_query_request,
 )
-from aap_workspace.directory_query_values import (
+from yoao_workspace.directory_query_values import (
     decode_directory_member_rows,
     materialize_directory_query_data,
 )
-from aap_workspace_contract.project_query_contract import (
+from yoao_workspace_contract.project_query_contract import (
     PROJECT_JSON_COLUMNS,
     PROJECT_ROW_COLUMNS,
 )
-from aap_workspace.project_queries import ProjectQueryProfilesUnavailable
+from yoao_workspace.project_queries import ProjectQueryProfilesUnavailable
 
 ACTOR = uuid.UUID(int=1)
 PROJECT = uuid.UUID(int=2)

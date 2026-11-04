@@ -5,19 +5,19 @@ import uuid
 
 import pytest
 
-from aap_identity.account_contract import decode_account_reply, decode_account_request
-from aap_identity.contract import (
+from yoao_identity.account_contract import decode_account_reply, decode_account_request
+from yoao_identity.contract import (
     IdentityUnavailable,
     decode_principal_reply,
     principal_reply,
 )
-from aap_identity.key_contract import decode_key_request
-from aap_identity.presence_contract import (
+from yoao_identity.key_contract import decode_key_request
+from yoao_identity.presence_contract import (
     PRESENCE_PROTOCOL,
     decode_presence_reply,
     decode_presence_request,
 )
-from aap_identity.session_contract import decode_session_request
+from yoao_identity.session_contract import decode_session_request
 
 from account_helpers import account_record, account_request
 from session_helpers import principal, session_request

@@ -4,8 +4,8 @@ import json
 import asyncpg
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.postgres import PostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.postgres import PostgresData
 
 
 @pytest.mark.asyncio

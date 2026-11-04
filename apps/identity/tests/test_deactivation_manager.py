@@ -6,10 +6,10 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.deactivation_contract import decode_native_deactivation_command
-from aap_identity.deactivation_manager import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.deactivation_contract import decode_native_deactivation_command
+from yoao_identity.deactivation_manager import (
     DeactivationManager,
     deactivation_request_fingerprint,
 )

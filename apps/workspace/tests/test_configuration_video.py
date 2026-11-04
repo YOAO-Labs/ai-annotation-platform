@@ -4,9 +4,9 @@ from uuid import UUID
 
 import pytest
 
-from aap_workspace.configuration_policy import ConfigurationPolicyError
-from aap_workspace.configuration_values import VideoCollaborationConfig
-from aap_workspace.configuration_video import (
+from yoao_workspace.configuration_policy import ConfigurationPolicyError
+from yoao_workspace.configuration_values import VideoCollaborationConfig
+from yoao_workspace.configuration_video import (
     derive_video_sampling_step,
     validate_project_collaboration_update,
 )

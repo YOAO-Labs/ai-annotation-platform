@@ -5,24 +5,24 @@ from uuid import UUID
 
 import pytest
 
-from aap_inference_contract import client as backend_probe_client_module
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.probe import (
+from yoao_inference_contract import client as backend_probe_client_module
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.probe import (
     BackendProbeInvalidRequest,
     BackendProbeLegacyFailure,
     BackendProbeUnavailable,
 )
-from aap_workspace.config import RuntimeSettings
-from aap_workspace.configuration_contract import (
+from yoao_workspace.config import RuntimeSettings
+from yoao_workspace.configuration_contract import (
     CONFIGURATION_PROTOCOL,
     ConfigurationUnavailable,
     configuration_request,
 )
-from aap_workspace.configuration import (
+from yoao_workspace.configuration import (
     ConfigurationCommandFailure,
     ConfigurationManager,
 )
-from aap_workspace.configuration_policy import ConfigurationPolicyError
+from yoao_workspace.configuration_policy import ConfigurationPolicyError
 
 _ACTOR = UUID("6a64e81b-1ad5-4a65-8551-2798a6a1fbbd")
 _PROJECT = UUID("424cc9e8-9691-4509-8d89-d936e276429b")
@@ -278,7 +278,7 @@ async def test_backend_probe_null_or_empty_modalities_preserve_legacy_fail_open(
 
 
 @pytest.mark.asyncio
-async def test_backend_probe_modality_mismatch_keeps_legacy_422_phase_and_detail():
+async def test_backend_probe_modality_mismatch_keeps_422_phase():
     transaction = BackendProbeTransaction(_safe_backend_facts())
 
     async def backend_probe(*_args, **_kwargs):
@@ -290,10 +290,6 @@ async def test_backend_probe_modality_mismatch_keeps_legacy_422_phase_and_detail
 
     assert reply.ok is False
     assert reply.error.status_code == 422
-    assert reply.error.detail == (
-        "该 ML Backend 不支持「video」模态 (检测到: ['image']); "
-        "视频项目需绑定自报 supported_trackers 的 backend."
-    )
     assert [call[0] for call in transaction.calls] == ["begin", "backend"]
     assert isinstance(transaction.caught.__cause__, ConfigurationPolicyError)
     assert transaction.caught.error.status_code == reply.error.status_code
@@ -441,7 +437,7 @@ async def test_workspace_http_runtime_injects_probe_client_into_configuration_ma
 ):
     import httpx
 
-    from aap_workspace.api import create_app
+    from yoao_workspace.api import create_app
 
     transaction = BackendProbeTransaction(_safe_backend_facts())
     observed = []

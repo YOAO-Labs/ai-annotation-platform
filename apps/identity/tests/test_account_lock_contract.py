@@ -6,14 +6,14 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.account_lock_contract import (
+from yoao_identity.account_lock_contract import (
     ACCOUNT_LOCK_PROTOCOL,
     AccountLockFacts,
     AccountLockReply,
     AccountLockRequest,
     decode_account_lock_reply,
 )
-from aap_identity.contract import IdentityUnavailable
+from yoao_identity.contract import IdentityUnavailable
 
 
 def _request(account_ids, *, mode="share", nowait=True):

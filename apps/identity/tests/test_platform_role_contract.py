@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.platform_role_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.platform_role_contract import (
     PlatformRoleFailure,
     PlatformRolePreviewData,
     decode_labeling_platform_role_facts,
@@ -19,7 +19,7 @@ from aap_identity.platform_role_contract import (
     platform_role_failure_reply,
     validate_platform_role_fact_coverage,
 )
-from aap_identity.platform_role_manager import (
+from yoao_identity.platform_role_manager import (
     platform_role_derivation_id,
     platform_role_request_fingerprint,
 )

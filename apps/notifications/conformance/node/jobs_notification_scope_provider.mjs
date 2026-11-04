@@ -7,7 +7,7 @@ import path from "node:path";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const contractPath = path.resolve(
   here,
-  "../../../jobs/src/aap_jobs/notification_scope.schema.json",
+  "../../../jobs/src/yoao_jobs/notification_scope.schema.json",
 );
 const columns = ["id", "kind", "scope_project_id"];
 

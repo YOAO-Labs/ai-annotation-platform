@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const schemaPath = path.resolve(here, "../../src/aap_jobs/domain_queries.schema.json");
+const schemaPath = path.resolve(here, "../../src/yoao_jobs/domain_queries.schema.json");
 const rowColumns = [
   "id",
   "kind",

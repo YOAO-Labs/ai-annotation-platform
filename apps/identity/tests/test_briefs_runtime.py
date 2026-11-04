@@ -7,9 +7,9 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from pydantic import SecretStr, ValidationError
 
-from aap_identity.briefs_contract import decode_native_briefs_command
-from aap_identity_runtime.api import create_app
-from aap_identity_runtime.config import Settings
+from yoao_identity.briefs_contract import decode_native_briefs_command
+from yoao_identity_runtime.api import create_app
+from yoao_identity_runtime.config import Settings
 from briefs_helpers import (
     BRIEFS_CONTROL,
     BRIEFS_POLICY,

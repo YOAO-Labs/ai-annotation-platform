@@ -3,9 +3,9 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from aap_identity.account_contract import AccountRecord
-from aap_identity.contract import Principal
-from aap_identity.invitation_contract import (
+from yoao_identity.account_contract import AccountRecord
+from yoao_identity.contract import Principal
+from yoao_identity.invitation_contract import (
     INVITATION_PROTOCOL,
     InvitationNativeResult,
     InvitationPolicy,
@@ -16,7 +16,7 @@ from aap_identity.invitation_contract import (
     NativeInvitationPrepareReply,
     decode_invitation_request,
 )
-from aap_identity.recovery_crypto import mail_key_from_secret
+from yoao_identity.recovery_crypto import mail_key_from_secret
 from account_helpers import account_record
 from session_helpers import audit_context, principal as session_principal
 

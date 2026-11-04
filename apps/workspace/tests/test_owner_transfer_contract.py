@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.owner_transfer_contract import (
+from yoao_workspace.owner_transfer_contract import (
     OWNER_TRANSFER_PROTOCOL,
     OwnerTransferError,
     OwnerTransferFailure,

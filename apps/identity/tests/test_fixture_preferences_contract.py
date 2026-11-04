@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-from aap_identity.fixture_preferences_contract import (
+from yoao_identity.fixture_preferences_contract import (
     FIXTURE_PREFERENCES_PROTOCOL,
     fixture_preferences_schema,
 )

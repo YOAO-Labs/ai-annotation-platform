@@ -6,7 +6,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_jobs.domain_query_contract import (
+from yoao_jobs.domain_query_contract import (
     CrossFramePageRequest,
     FrozenDeploymentUsage,
     FrozenDeploymentUsageRequest,
@@ -41,13 +41,22 @@ def test_count_preserves_signed_bigint_without_boolean_or_string_coercion():
 
 
 def test_frozen_deployment_usage_is_closed_and_requires_real_bigints():
-    ids = {key: str(uuid.uuid4()) for key in ("deployment_id", "registry_id", "model_version_id")}
+    ids = {
+        key: str(uuid.uuid4())
+        for key in ("deployment_id", "registry_id", "model_version_id")
+    }
     request = FrozenDeploymentUsageRequest.model_validate_json(json.dumps(ids))
     assert str(request.deployment_id) == ids["deployment_id"]
     with pytest.raises(ValidationError):
-        FrozenDeploymentUsageRequest.model_validate_json(json.dumps({**ids, "extra": 1}))
-    usage = FrozenDeploymentUsage.model_validate({"active_jobs": 1, "retryable_failures": 2})
+        FrozenDeploymentUsageRequest.model_validate_json(
+            json.dumps({**ids, "extra": 1})
+        )
+    usage = FrozenDeploymentUsage.model_validate(
+        {"active_jobs": 1, "retryable_failures": 2}
+    )
     assert usage.active_jobs == 1 and usage.retryable_failures == 2
     for value in (True, "1", -1, 2**63):
         with pytest.raises(ValidationError):
-            FrozenDeploymentUsage.model_validate({"active_jobs": value, "retryable_failures": 0})
+            FrozenDeploymentUsage.model_validate(
+                {"active_jobs": value, "retryable_failures": 0}
+            )

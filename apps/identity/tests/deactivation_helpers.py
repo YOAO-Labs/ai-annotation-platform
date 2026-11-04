@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from aap_identity.account_contract import AccountRecord
-from aap_identity.deactivation_contract import (
+from yoao_identity.account_contract import AccountRecord
+from yoao_identity.deactivation_contract import (
     DEACTIVATION_PROTOCOL,
     DUE_PROTOCOL,
     NATIVE_DEACTIVATION_PROTOCOL,

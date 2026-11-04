@@ -7,8 +7,8 @@ import uuid
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.actor_status_postgres import ActorStatusPostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.actor_status_postgres import ActorStatusPostgresData
 
 
 class _PostgresError(Exception):

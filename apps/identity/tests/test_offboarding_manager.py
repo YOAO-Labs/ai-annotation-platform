@@ -6,9 +6,9 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_identity.authenticator import VerifiedCredential
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.offboarding_contract import (
+from yoao_identity.authenticator import VerifiedCredential
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.offboarding_contract import (
     NATIVE_OFFBOARDING_PROTOCOL,
     OffboardingFailure,
     OffboardingLockFact,
@@ -17,7 +17,7 @@ from aap_identity.offboarding_contract import (
     OffboardingTransfer,
     decode_native_offboarding_command,
 )
-from aap_identity.offboarding_manager import (
+from yoao_identity.offboarding_manager import (
     OffboardingManager,
     legacy_offboarding_preview_version,
     offboarding_derivation_id,

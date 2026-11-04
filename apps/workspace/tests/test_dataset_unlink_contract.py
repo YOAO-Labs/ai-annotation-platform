@@ -7,8 +7,8 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_audit_contract import ProjectDeletionAuditContext
-from aap_workspace.dataset_unlink_contract import (
+from yoao_audit_contract import ProjectDeletionAuditContext
+from yoao_workspace.dataset_unlink_contract import (
     DATASET_UNLINK_PREVIEW_PROTOCOL,
     DATASET_UNLINK_PROTOCOL,
     DatasetUnlinkCommand,

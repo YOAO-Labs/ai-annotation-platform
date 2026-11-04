@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.platform_role_contract import NATIVE_PLATFORM_ROLE_PROTOCOL
-from aap_identity.platform_role_postgres import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.platform_role_contract import NATIVE_PLATFORM_ROLE_PROTOCOL
+from yoao_identity.platform_role_postgres import (
     PlatformRolePostgresData,
     PlatformRolePostgresTransaction,
 )

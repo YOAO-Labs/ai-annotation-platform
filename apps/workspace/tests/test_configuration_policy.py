@@ -5,7 +5,7 @@ from uuid import UUID
 
 import pytest
 
-from aap_workspace.configuration_policy import (
+from yoao_workspace.configuration_policy import (
     CLONEABLE_PROJECT_FIELDS,
     ConfigurationPolicyError,
     DatasetKind,

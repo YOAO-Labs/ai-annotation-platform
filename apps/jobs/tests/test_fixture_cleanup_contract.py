@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from aap_jobs.fixture_cleanup_contract import (
+from yoao_jobs.fixture_cleanup_contract import (
     FixtureCleanupCount,
     FixtureProjectCleanupRequest,
 )

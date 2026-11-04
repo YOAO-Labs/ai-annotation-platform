@@ -8,14 +8,14 @@ import types
 import pytest
 from pydantic import ValidationError
 
-from aap_identity_runtime.mail_config_v2 import MailV2WorkerSettings
+from yoao_identity_runtime.mail_config_v2 import MailV2WorkerSettings
 
 FERNET_KEY = base64.urlsafe_b64encode(bytes(range(32))).decode("ascii")
 
 
 @pytest.fixture(autouse=True)
 def source_injected_key_validator(monkeypatch):
-    crypto = types.ModuleType("aap_identity.recovery_crypto")
+    crypto = types.ModuleType("yoao_identity.recovery_crypto")
 
     def mail_encryption_id(key: str) -> str:
         decoded = base64.urlsafe_b64decode(key.encode("ascii"))
@@ -24,7 +24,7 @@ def source_injected_key_validator(monkeypatch):
         return hashlib.sha256(decoded).hexdigest()
 
     crypto.mail_encryption_id = mail_encryption_id
-    monkeypatch.setitem(sys.modules, "aap_identity.recovery_crypto", crypto)
+    monkeypatch.setitem(sys.modules, "yoao_identity.recovery_crypto", crypto)
 
 
 def test_v2_worker_requires_only_its_owner_settings_key_and_smtp_sources():

@@ -7,8 +7,8 @@ from datetime import datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.group_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.group_contract import (
     GROUP_PROTOCOL,
     NATIVE_GROUP_PROTOCOL,
     GroupFailure,
@@ -18,7 +18,7 @@ from aap_identity.group_contract import (
     decode_native_group_reply,
     native_group_command,
 )
-from aap_identity.group_manager import group_request_fingerprint
+from yoao_identity.group_manager import group_request_fingerprint
 from group_helpers import (
     assigned_account,
     group_record,

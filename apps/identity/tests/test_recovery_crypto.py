@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from aap_identity.recovery_crypto import (
+from yoao_identity.recovery_crypto import (
     RECOVERY_DERIVATION,
     RECOVERY_MAIL_DERIVATION,
     decrypt_mail_token,

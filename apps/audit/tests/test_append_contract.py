@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_audit.append_contract import (
+from yoao_audit.append_contract import (
     APPEND_PROTOCOL,
     AppendEvent,
     AppendRequest,
@@ -18,7 +18,7 @@ from aap_audit.append_contract import (
     decode_append_reply,
 )
 
-_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_audit"
+_PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_audit"
 
 
 def _event(*, detail_json=None) -> AppendEvent:
@@ -59,8 +59,8 @@ def test_contract_preserves_open_actions_arbitrary_json_detail_and_null():
 def test_schema_is_frozen_package_resource_with_closed_local_references():
     path = _PACKAGE / "append.schema.json"
     schema = json.loads(path.read_text())
-    installed_schema = files("aap_audit").joinpath("append.schema.json")
-    installed_sql = files("aap_audit.sql").joinpath("0315_audit_append.sql")
+    installed_schema = files("yoao_audit").joinpath("append.schema.json")
+    installed_sql = files("yoao_audit.sql").joinpath("0315_audit_append.sql")
     assert installed_schema.is_file()
     assert installed_sql.is_file()
     assert schema == append_json_schema()

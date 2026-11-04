@@ -146,7 +146,7 @@ the existing cached getter without forced refresh.
 
 ## Public notification scope facts
 
-`aap-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`
+`yoao-jobs` publishes the fixed, read-only `aap_jobs_v1.notification_scope_facts`
 relation for consumers that need only an async job's identity, kind, and retained
 project scope. The projection keeps unknown `kind` values intact and derives
 `scope_project_id` from `coalesce(project_id, retained_project_id)`.
@@ -181,7 +181,7 @@ Jobs read/write surface.
 
 ## Private Celery queue owner
 
-The optional `aap-jobs-queue` runtime accepts the existing JSON Celery dispatch
+The optional `yoao-jobs-queue` runtime accepts the existing JSON Celery dispatch
 and cooperative revoke requests over `aap-jobs-queue/v2`. It holds only the
 Celery broker URL and a private service bearer; it has no API, database, or
 Identity dependency. The API keeps its embedded Celery transport when
@@ -251,7 +251,7 @@ existing retry delivery keeps its own ledger. Terminal ordinary Jobs retire
 unsubmitted intents, while tracker retirement has the narrow canonical proof
 above. A lease timeout never proves physical execution stopped.
 
-The relay uses the same immutable image with the `aap-jobs-dispatch-relay`
+The relay uses the same immutable image with the `yoao-jobs-dispatch-relay`
 entrypoint. Install `infra/docker/jobs-dispatch-grants.sql` for an explicit
 database and distinct function-only relay LOGIN, then combine
 `docker-compose.jobs-dispatch-relay.yml` with the queue assembly. Queue secrets
@@ -278,6 +278,6 @@ uv run --project apps/jobs --locked --extra test --extra queue-runtime \
 
 Database-backed API cases must use the verifier-owned disposable database, not
 an everyday development database. The opt-in partial-canvas runtime case also
-requires independently installed `aap-jobs-queue` and
-`aap-jobs-dispatch-relay` entrypoints; it kills the publisher and first queue
+requires independently installed `yoao-jobs-queue` and
+`yoao-jobs-dispatch-relay` entrypoints; it kills the publisher and first queue
 process, replays the saved IDs, and checks actual frame writes.

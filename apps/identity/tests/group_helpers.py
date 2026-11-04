@@ -3,8 +3,8 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.account_contract import AccountRecord
-from aap_identity.group_contract import (
+from yoao_identity.account_contract import AccountRecord
+from yoao_identity.group_contract import (
     GROUP_PROTOCOL,
     NATIVE_GROUP_PROTOCOL,
     GroupRecord,

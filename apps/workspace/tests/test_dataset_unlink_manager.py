@@ -4,8 +4,8 @@ import uuid
 
 import pytest
 
-from aap_workspace.dataset_unlink import DatasetUnlinkManager
-from aap_workspace.dataset_unlink_contract import (
+from yoao_workspace.dataset_unlink import DatasetUnlinkManager
+from yoao_workspace.dataset_unlink_contract import (
     DATASET_UNLINK_PREVIEW_PROTOCOL,
     DATASET_UNLINK_PROTOCOL,
     DatasetUnlinkFailure,
@@ -167,7 +167,7 @@ async def test_manager_preserves_open_failures_and_data_errors_without_owning_tr
 
 @pytest.mark.asyncio
 async def test_manager_revalidates_forged_model_before_calling_data():
-    from aap_workspace.dataset_unlink_contract import decode_unlink_command
+    from yoao_workspace.dataset_unlink_contract import decode_unlink_command
 
     forged = decode_unlink_command(_command()).model_copy(
         update={"cleanup_bucket": "invalid bucket"}

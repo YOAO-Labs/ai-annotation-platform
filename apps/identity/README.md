@@ -55,7 +55,7 @@ second-handshake status read. It uses a dedicated LOGIN with only
 database URL. Without that source, `/v1/identity/actor-status` returns 503.
 
 ```sh
-uv run --project apps/identity --locked --extra runtime python -m aap_identity_runtime
+uv run --project apps/identity --locked --extra runtime python -m yoao_identity_runtime
 ```
 
 `/health` is process liveness; `/ready` calls and checks the native policy and
@@ -139,7 +139,7 @@ in this service.
 
 ## Preference policy
 
-`aap_identity.preferences` owns preference read normalization and sparse patch
+`yoao_identity.preferences` owns preference read normalization and sparse patch
 validation/merge. `AccountManager` keeps the User lock, portable calculation and
 native apply on one owner transaction. The API can bind the same workflow to a
 caller transaction or explicitly select the independent private endpoint;
@@ -370,7 +370,7 @@ embedded kick after commit. Runtime link fallback is
 `IDENTITY_INVITATION_FRONTEND_BASE_URL=http://localhost:5173`, separate from
 Recovery's 3000 fallback; system `frontend_base_url` still overrides it.
 The opt-in Compose `mail-v2` profile runs
-`python -m aap_identity_runtime.mail_worker_v2` with its own four-function
+`python -m yoao_identity_runtime.mail_worker_v2` with its own four-function
 MAILV2 DSN, the existing MAIL_SETTINGS DSN and Recovery Fernet key, and SMTP
 fallbacks; it receives no AUTH/control/JWT/signing credential. See [the private
 protocol](../../docs-site/api/guides/identity-runtime.md#邀请生命周期),
@@ -403,22 +403,22 @@ columns and keeps detail JSON and old notification identity fields. It does not
 claim full GDPR erasure.
 
 The portable user/due command contracts and Postgres owner live in
-`aap_identity.deactivation_contract`, `aap_identity.deactivation_manager`, and
-`aap_identity.deactivation_postgres`; the runtime exposes both private protocols
+`yoao_identity.deactivation_contract`, `yoao_identity.deactivation_manager`, and
+`yoao_identity.deactivation_postgres`; the runtime exposes both private protocols
 through its existing API process.
 
 Identity writes the two fixed deactivation events through the Notifications
 owner in the same database transaction. Delivery uses the separate
 `notification_publish_client`; the existing
-`python -m aap_identity_runtime.notification_worker` entry remains as a
+`python -m yoao_identity_runtime.notification_worker` entry remains as a
 compatibility wrapper around the Notifications publisher. The publisher
 requires only `NOTIFICATION_PUBLISH_DATABASE_URL(_FILE)` and
 `NOTIFICATION_PUBLISH_REDIS_URL(_FILE)`, with no Identity/auth/signing secret.
 The contract, PostgreSQL client, runtime settings, and executor are owned by
-`aap_notifications.notification_delivery_contract`,
-`aap_notifications.notification_delivery_postgres`,
-`aap_notifications.delivery_config`, and
-`aap_notifications.delivery_worker`; Identity's old import paths remain
+`yoao_notifications.notification_delivery_contract`,
+`yoao_notifications.notification_delivery_postgres`,
+`yoao_notifications.delivery_config`, and
+`yoao_notifications.delivery_worker`; Identity's old import paths remain
 compatibility wrappers. The Identity runtime image installs the Notifications
 package as a noneditable dependency so its existing worker deployment remains
 independent.
@@ -516,7 +516,7 @@ credential-mail delivery does not use notification preferences.
 ## Independent credential-mail worker
 
 The `identity-mail` service runs
-`python -m aap_identity_runtime.mail_worker` from the same image as
+`python -m yoao_identity_runtime.mail_worker` from the same image as
 `identity-admission`. It polls the durable outbox, claims one message, commits
 its lease before SMTP, and uses short transactions for claim, renew and finish.
 SMTP never runs under an SQL lock. The default lease is 60 seconds, renewable
@@ -568,7 +568,7 @@ assembly and its local-only limits are recorded above; this evidence does not
 authorize a primary cutover or production deployment, or supply an
 alternate-language provider.
 
-`aap_identity.briefs_client.BriefsClient` provides the strict, batched Briefs client
+`yoao_identity.briefs_client.BriefsClient` provides the strict, batched Briefs client
 for other owners. Empty requests do not initialize a provider; selected HTTP errors
 never fall back to SQL, and a shared deadline covers the selected provider.
 uv cache keys include Python/schema sources and metadata so source-only client

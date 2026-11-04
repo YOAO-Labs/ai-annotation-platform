@@ -6,8 +6,8 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from pydantic import ValidationError
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.mail_v2_contract import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.mail_v2_contract import (
     MAIL_V2_NATIVE_PROTOCOL,
     MAIL_V2_POLICY,
     MAIL_V2_POLICY_PROTOCOL,

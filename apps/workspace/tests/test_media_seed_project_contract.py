@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_workspace.media_seed_project_contract import (
+from yoao_workspace.media_seed_project_contract import (
     MEDIA_SEED_PROJECT_PROTOCOL,
     MEDIA_SEED_PROJECT_PROJECTION_FIELDS,
     MediaSeedProjectCreated,
@@ -265,7 +265,7 @@ def test_checked_in_schemas_match_the_closed_contract():
     expected = media_seed_project_schema()
     workspace_schema = (
         Path(__file__).resolve().parents[1]
-        / "src/aap_workspace/media_seed_project_protocol.schema.json"
+        / "src/yoao_workspace/media_seed_project_protocol.schema.json"
     )
     migration_schema = (
         Path(__file__).resolve().parents[2]

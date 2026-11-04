@@ -3,12 +3,12 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
-from aap_identity.directory_contract import (
+from yoao_identity.directory_contract import (
     DIRECTORY_PROTOCOL,
     NATIVE_DIRECTORY_PROTOCOL,
     decode_directory_request,
 )
-from aap_identity.directory_manager import directory_request_fingerprint
+from yoao_identity.directory_manager import directory_request_fingerprint
 from session_helpers import ACTOR_ID, SECRET, audit_context, principal
 
 CONTROL = "identity-directory-runtime-control-token"
@@ -103,7 +103,7 @@ def native_command(
     actor=None,
     key_hash=None,
 ):
-    from aap_identity.directory_contract import native_directory_command
+    from yoao_identity.directory_contract import native_directory_command
 
     return native_directory_command(
         request,

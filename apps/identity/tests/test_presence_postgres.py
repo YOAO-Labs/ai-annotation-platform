@@ -6,9 +6,9 @@ from datetime import UTC, datetime
 import asyncpg
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.presence_contract import PRESENCE_PROTOCOL
-from aap_identity.presence_postgres import PresencePostgresData
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.presence_contract import PRESENCE_PROTOCOL
+from yoao_identity.presence_postgres import PresencePostgresData
 
 
 class Connection:

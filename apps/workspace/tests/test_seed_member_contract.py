@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace.seed_member_contract import (
+from yoao_workspace.seed_member_contract import (
     SEED_MEMBER_PROTOCOL,
     SeedMemberInsert,
     SeedMemberWriteRequest,

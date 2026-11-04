@@ -6,7 +6,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
-from aap_notifications.delivery_read_contract import (
+from yoao_notifications.delivery_read_contract import (
     DeliveryReadPair,
     NotificationDeliveryReadFact,
 )

@@ -4,9 +4,9 @@ import json
 
 import pytest
 
-from aap_identity.contract import IdentityUnavailable
-from aap_identity.directory_contract import NATIVE_DIRECTORY_PROTOCOL
-from aap_identity.directory_postgres import (
+from yoao_identity.contract import IdentityUnavailable
+from yoao_identity.directory_contract import NATIVE_DIRECTORY_PROTOCOL
+from yoao_identity.directory_postgres import (
     DirectoryPostgresData,
     DirectoryPostgresTransaction,
 )
