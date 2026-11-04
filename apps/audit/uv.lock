@@ -3,45 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-audit"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-postgres = [
-    { name = "sqlalchemy", extra = ["asyncio"] },
-]
-runtime = [
-    { name = "aap-owner-data" },
-    { name = "asyncpg" },
-    { name = "boto3" },
-]
-test = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-owner-data", marker = "extra == 'runtime'", editable = "../_shared/owner_data" },
-    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
-    { name = "boto3", marker = "extra == 'runtime'", specifier = ">=1.35.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
-]
-provides-extras = ["postgres", "runtime", "test"]
-
-[[package]]
-name = "aap-owner-data"
-version = "0.1.0"
-source = { editable = "../_shared/owner_data" }
-
-[[package]]
 name = "annotated-types"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -606,3 +567,42 @@ sdist = { url = "https://files.pythonhosted.org/packages/c7/24/5f1b3bdffd70275f6
 wheels = [
     { url = "https://files.pythonhosted.org/packages/39/08/aaaad47bc4e9dc8c725e68f9d04865dbcb2052843ff09c97b08904852d84/urllib3-2.6.3-py3-none-any.whl", hash = "sha256:bf272323e553dfb2e87d9bfd225ca7b0f467b919d7bbd355436d3fd37cb0acd4", size = 131584, upload-time = "2026-01-07T16:24:42.685Z" },
 ]
+
+[[package]]
+name = "yoao-audit"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "sqlalchemy", extra = ["asyncio"] },
+]
+runtime = [
+    { name = "asyncpg" },
+    { name = "boto3" },
+    { name = "yoao-owner-data" },
+]
+test = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'runtime'", specifier = ">=1.35.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
+    { name = "yoao-owner-data", marker = "extra == 'runtime'", editable = "../_shared/owner_data" },
+]
+provides-extras = ["postgres", "runtime", "test"]
+
+[[package]]
+name = "yoao-owner-data"
+version = "0.1.0"
+source = { editable = "../_shared/owner_data" }

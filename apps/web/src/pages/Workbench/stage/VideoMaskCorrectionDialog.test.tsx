@@ -143,7 +143,7 @@ describe("VideoMaskCorrectionDialog", () => {
       "上次失败：broker unavailable",
     );
     expect(screen.getByRole("button", { name: "启动中…" })).toBeDisabled();
-    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
     fireEvent.keyDown(document, { key: "Escape" });
     expect(props.onOpenChange).not.toHaveBeenCalled();
   });

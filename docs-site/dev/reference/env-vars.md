@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-04
 ---
 
 # 环境变量参考
@@ -918,7 +918,7 @@ last_reviewed: 2026-11-01
 | `INFERENCE_GPU_TOKEN` | `—` | — |
 | `INFERENCE_GPU_TOKEN_FILE` | `—` | — |
 
-## Owner process only: python -m aap_inference. Each DSN has its own closed profile.
+## Owner process only: python -m yoao_inference. Each DSN has its own closed profile.
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|

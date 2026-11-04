@@ -185,6 +185,7 @@ watched_tags = ["*"]
 "POST /api/v1/projects/{project_id}/preannotate" = { status = "covered" }
 "POST /api/v1/projects/{project_id}/transfer" = { status = "covered" }
 "POST /api/v1/tasks/{task_id}/accept-rejection" = { status = "covered" }
+"POST /api/v1/tasks/{task_id}/acceptance-history/{acceptance_key}/restore" = { status = "uncovered", reason = "not-implemented" }
 "POST /api/v1/tasks/{task_id}/ai-mask-candidates/accept" = { status = "covered" }
 "POST /api/v1/tasks/{task_id}/annotation-conversions:dry-run" = { status = "covered" }
 "POST /api/v1/tasks/{task_id}/annotation-conversions:execute" = { status = "covered" }

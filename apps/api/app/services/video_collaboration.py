@@ -111,13 +111,14 @@ async def segment_work_bounds_for_task(
             ).scalar_one()
         )
     if video_metadata is None:
-        video_metadata = (
-            await AssetsTaskMediaSummaryReader(db).current_video_metadata(
+        summary = (
+            await AssetsTaskMediaSummaryReader(db).current_video_summary(
                 task.dataset_item_id
             )
             if task.dataset_item_id is not None
             else None
         )
+        video_metadata = summary[2] if summary is not None else None
         if task.dataset_item_id is not None and video_metadata is None:
             raise HTTPException(
                 status_code=503,

@@ -500,8 +500,7 @@ describe("RuntimeObservePanel · service-pool tree (P4)", () => {
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("inst-1"));
     expect(screen.getByRole("dialog")).toBeInTheDocument();
 
-    // close via Radix Sheet close (aria-label "Close")
-    fireEvent.click(screen.getByRole("button", { name: /close/i }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: "复制实例 ID" })).not.toBeInTheDocument(),
     );

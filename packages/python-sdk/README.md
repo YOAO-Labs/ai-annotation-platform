@@ -160,6 +160,8 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
     client.exports.download(job, "./export.zip")
 ```
 
+异步导出包通过预签名地址下载，不向对象存储附加平台认证凭据；作业查询仍使用平台认证。若服务端返回 `/minio/...` 相对地址，请将 `base_url` 配置为同时提供 API 与对象存储代理的平台入口，而不是只有 API 的内部端口。同步 VOC 导出仍通过带认证的 API 下载。
+
 ### 持久媒体回填
 
 图片尺寸、缩略图和项目任务缩略图回填返回可回放的作业回执，而不是已处理条数或 Celery task ID。需要在响应丢失后重试时，先生成并保存 UUID 幂等键，重试时复用同一个值；省略该参数时 SDK 会为本次调用生成新键。`operation_id`、`job_id` 与 `status` 是回执字段；`pending` 表示作业已接受，不表示处理完成，SDK 和 CLI 都不会等待作业。尺寸回填的 `batch` 参数只为旧调用保留，服务端现在忽略它并自行有界分页。

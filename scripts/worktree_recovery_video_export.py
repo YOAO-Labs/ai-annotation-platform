@@ -62,7 +62,7 @@ def attempt_identifier(state):
 def make_videos():
     """Real ffmpeg output is retained in the fixture receipt, not regenerated later."""
     result = {}
-    with tempfile.TemporaryDirectory(prefix="yoao-recovery-video-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="recovery-video-") as temporary:
         for case, color in zip(CASES, ("red", "blue"), strict=True):
             path = Path(temporary) / case / "same.mp4"
             path.parent.mkdir()

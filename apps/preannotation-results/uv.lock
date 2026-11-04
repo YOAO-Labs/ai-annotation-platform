@@ -3,39 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-owner-data"
-version = "0.1.0"
-source = { editable = "../_shared/owner_data" }
-
-[[package]]
-name = "aap-preannotation-results"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aap-owner-data" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-postgres = [
-    { name = "asyncpg" },
-]
-test = [
-    { name = "pytest" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-owner-data", editable = "../_shared/owner_data" },
-    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
-]
-provides-extras = ["postgres", "test"]
-
-[[package]]
 name = "annotated-types"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -369,3 +336,36 @@ sdist = { url = "https://files.pythonhosted.org/packages/a3/26/b09b8010994eccc3c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/67/81/4add07e5172b7ac40d8ed5ff580409a7801a4fe26d529bdd915401dabfbe/typing_inspection-0.4.4-py3-none-any.whl", hash = "sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147", size = 14750, upload-time = "2026-08-12T12:37:24.648Z" },
 ]
+
+[[package]]
+name = "yoao-owner-data"
+version = "0.1.0"
+source = { editable = "../_shared/owner_data" }
+
+[[package]]
+name = "yoao-preannotation-results"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic" },
+    { name = "yoao-owner-data" },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "asyncpg" },
+]
+test = [
+    { name = "pytest" },
+    { name = "ruff" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.30.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "yoao-owner-data", editable = "../_shared/owner_data" },
+]
+provides-extras = ["postgres", "test"]

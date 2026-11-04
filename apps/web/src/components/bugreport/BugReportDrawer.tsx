@@ -54,6 +54,7 @@ import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { ScreenshotEditor } from "./ScreenshotEditor";
 import { MarkdownBlock } from "./MarkdownBlock";
 import type { MarkdownEditorProps } from "@/components/markdown/MarkdownEditor";
+import { BUG_SEVERITY_HELP, BUG_SEVERITY_LABELS } from "@/constants/bugReports";
 import styles from "./BugReportDrawer.module.css";
 
 interface Props {
@@ -650,7 +651,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
                   </div>
                   <div className={styles.reportMeta}>
                     <span className={cx(styles.severity, severityClassName[r.severity])}>
-                      {r.severity}
+                      {BUG_SEVERITY_LABELS[r.severity] ?? r.severity}
                     </span>
                     {" · "}
                     <span>{statusLabel[r.status] ?? r.status}</span>
@@ -691,17 +692,27 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
                 disabled={submitting}
               />
 
-              <label className={styles.label}>严重程度</label>
+              <label className={styles.label} htmlFor="bug-create-severity">
+                严重程度
+              </label>
               <select
+                id="bug-create-severity"
+                aria-describedby="bug-create-severity-help"
                 value={severity}
                 onChange={(e) => setSeverity(e.target.value)}
                 className={styles.field}
               >
-                <option value="low">低 - 小建议</option>
-                <option value="medium">中 - 影响体验</option>
-                <option value="high">高 - 影响功能</option>
-                <option value="critical">严重 - 系统不可用</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+                <option value="critical">严重</option>
               </select>
+              <p
+                id="bug-create-severity-help"
+                className="mt-1 text-xs leading-relaxed text-muted-foreground"
+              >
+                {BUG_SEVERITY_HELP}
+              </p>
 
               <div className={styles.screenshotSection}>
                 <label className={styles.strongLabel}>截图（可选）</label>
@@ -826,17 +837,27 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
                 variant="compact"
                 disabled={submitting}
               />
-              <label className={styles.label}>严重程度</label>
+              <label className={styles.label} htmlFor="bug-edit-severity">
+                严重程度
+              </label>
               <select
+                id="bug-edit-severity"
+                aria-describedby="bug-edit-severity-help"
                 value={severity}
                 onChange={(e) => setSeverity(e.target.value)}
                 className={styles.field}
               >
-                <option value="low">低 - 小建议</option>
-                <option value="medium">中 - 影响体验</option>
-                <option value="high">高 - 影响功能</option>
-                <option value="critical">严重 - 系统不可用</option>
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+                <option value="critical">严重</option>
               </select>
+              <p
+                id="bug-edit-severity-help"
+                className="mt-1 text-xs leading-relaxed text-muted-foreground"
+              >
+                {BUG_SEVERITY_HELP}
+              </p>
               <button
                 type="submit"
                 disabled={submitting || !title.trim() || !desc.trim()}
@@ -865,7 +886,7 @@ export function BugReportDrawer({ open, onClose, focusBugId = null }: Props) {
               </div>
               <div className={styles.detailMeta}>
                 <span className={cx(styles.severity, severityClassName[detail.severity])}>
-                  {detail.severity}
+                  {BUG_SEVERITY_LABELS[detail.severity] ?? detail.severity}
                 </span>
                 <span className={styles.badge}>{statusLabel[detail.status] ?? detail.status}</span>
                 {detail.reopen_count > 0 && (

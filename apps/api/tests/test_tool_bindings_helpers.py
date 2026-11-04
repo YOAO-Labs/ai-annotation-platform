@@ -1,7 +1,7 @@
 """tool_bindings helper tests.
 
-覆盖 aap_workspace_contract.projections 的 derive_* (读时派生投影) /
-aap_workspace.configuration_policy 的配置归一化与工具单位查询 /
+覆盖 yoao_workspace_contract.projections 的 derive_* (读时派生投影) /
+yoao_workspace.configuration_policy 的配置归一化与工具单位查询 /
 services/prediction.py 的 derive_tool_unit_from_ls_type / derive_tool_unit_from_result.
 
 这些 helper 是 tool_bindings 单源真值的派生 / 反向派生 / 工具单位查表核心,

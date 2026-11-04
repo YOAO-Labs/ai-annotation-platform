@@ -123,9 +123,14 @@ jobs:
           python-version: "3.11"
       - name: Install uv
         run: pip install uv
+      - name: Stage verified Plugin-SDK artifacts
+        env:
+          PLUGIN_SDK_MANIFEST: ${{ vars.YOAO_SDK_MANIFEST }}
+          PLUGIN_SDK_SHA256: ${{ vars.YOAO_SDK_MANIFEST_SHA256 }}
+        run: python scripts/fetch-python-artifacts.py --manifest "$PLUGIN_SDK_MANIFEST" --sha256 "$PLUGIN_SDK_SHA256" --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
       - name: SDK / CLI / TUI tests
         working-directory: packages/python-sdk
-        run: uv run --extra test --extra plugins --with-requirements ../../apps/_shared/requirements-plugin-runtime.txt --with ../../apps/_shared/task_contract --with ../../apps/_shared/lifecycle_contract --with ../../apps/_shared/protocol_v2 --with ../../apps/_shared/training_contract pytest -q --junitxml=sdk-test-results.xml
+        run: uv run --extra test --extra plugins --find-links ../../.artifacts/python/plugin-sdk --with-requirements ../../apps/_shared/requirements-plugin-runtime.txt --with ../../apps/_shared/task_contract --with ../../apps/_shared/lifecycle_contract --with ../../apps/_shared/protocol_v2 --with ../../apps/_shared/training_contract pytest -q --junitxml=sdk-test-results.xml
       - name: Upload SDK results
         if: always()
         uses: actions/upload-artifact@v4

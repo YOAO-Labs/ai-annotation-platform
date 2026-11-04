@@ -294,7 +294,7 @@ class _RegisteredPreflight:
             calibration = (
                 SensorCalibration.model_validate(row.calibration)
                 if row is not None
-                else _metadata_calibration(item)
+                else _metadata_calibration(item.metadata)
             )
             states[item.id] = SensorCalibrationState(
                 item.id,

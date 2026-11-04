@@ -14,6 +14,7 @@ import { useBugReports } from "@/hooks/useBugReports";
 import { useBugAttachmentDownload } from "@/hooks/useBugAttachmentDownload";
 import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
 import { BUGS_URL_DEFAULTS, BUGS_URL_KEYS, bugsUrlCodec } from "./bugsUrlState";
+import { BUG_SEVERITY_LABELS } from "@/constants/bugReports";
 import styles from "./BugsPage.module.css";
 
 const STATUS_OPTIONS = ["new", "triaged", "in_progress", "fixed", "wont_fix", "duplicate"];
@@ -263,7 +264,7 @@ export function BugsPage() {
           <option value="">全部严重度</option>
           {SEVERITY_OPTIONS.map((s) => (
             <option key={s} value={s}>
-              {s}
+              {BUG_SEVERITY_LABELS[s]}
             </option>
           ))}
         </FilterSelect>
@@ -308,7 +309,7 @@ export function BugsPage() {
                     </td>
                     <td>
                       <span className={`${styles.severity} ${severityClass[item.severity] ?? ""}`}>
-                        {item.severity}
+                        {BUG_SEVERITY_LABELS[item.severity] ?? item.severity}
                       </span>
                     </td>
                     <td>

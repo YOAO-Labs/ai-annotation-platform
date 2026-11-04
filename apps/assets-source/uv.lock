@@ -3,142 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-assets-cleanup"
-version = "0.1.0"
-source = { editable = "../assets-cleanup" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-assets-media", marker = "extra == 'worker'", editable = "../assets-media" },
-    { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.30.0" },
-    { name = "boto3", marker = "extra == 'worker'", specifier = ">=1.43.77" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-]
-provides-extras = ["worker"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "pytest", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", specifier = ">=0.24.0" },
-    { name = "ruff", specifier = "==0.15.22" },
-]
-
-[[package]]
-name = "aap-assets-media"
-version = "0.1.0"
-source = { editable = "../assets-media" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-media-probe", extras = ["client"], marker = "extra == 'runtime'", editable = "../media-probe" },
-    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
-    { name = "blurhash-python", marker = "extra == 'runtime'", specifier = ">=1.2.2" },
-    { name = "boto3", marker = "extra == 'runtime'", specifier = ">=1.43.77" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
-    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
-    { name = "pillow", marker = "extra == 'runtime'", specifier = ">=10.0.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "pyvips", marker = "extra == 'runtime'", specifier = ">=3.1.1" },
-    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
-    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
-]
-provides-extras = ["runtime", "client", "server", "test"]
-
-[[package]]
-name = "aap-assets-source"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aap-assets-cleanup" },
-    { name = "aap-audit-contract" },
-    { name = "cryptography" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-client = [
-    { name = "httpx" },
-]
-importer = [
-    { name = "aap-assets-media" },
-    { name = "asyncpg" },
-    { name = "boto3" },
-    { name = "paramiko" },
-    { name = "pillow" },
-]
-server = [
-    { name = "aap-assets-media" },
-    { name = "anyio" },
-    { name = "asyncpg" },
-    { name = "boto3" },
-    { name = "fastapi" },
-    { name = "paramiko" },
-    { name = "pillow" },
-    { name = "uvicorn" },
-]
-test = [
-    { name = "aap-assets-media" },
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-assets-cleanup", editable = "../assets-cleanup" },
-    { name = "aap-assets-media", marker = "extra == 'importer'", editable = "../assets-media" },
-    { name = "aap-assets-media", marker = "extra == 'server'", editable = "../assets-media" },
-    { name = "aap-assets-media", marker = "extra == 'test'", editable = "../assets-media" },
-    { name = "aap-audit-contract", editable = "../_shared/audit_contract" },
-    { name = "anyio", marker = "extra == 'server'", specifier = ">=4.7.0" },
-    { name = "asyncpg", marker = "extra == 'importer'", specifier = ">=0.30.0" },
-    { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
-    { name = "boto3", marker = "extra == 'importer'", specifier = ">=1.43.77" },
-    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
-    { name = "cryptography", specifier = ">=43.0.0" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
-    { name = "paramiko", marker = "extra == 'importer'", specifier = ">=3.4.0" },
-    { name = "paramiko", marker = "extra == 'server'", specifier = ">=3.4.0" },
-    { name = "pillow", marker = "extra == 'importer'", specifier = ">=10.0.0" },
-    { name = "pillow", marker = "extra == 'server'", specifier = ">=10.0.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
-    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
-]
-provides-extras = ["client", "server", "importer", "test"]
-
-[[package]]
-name = "aap-audit-contract"
-version = "0.1.0"
-source = { editable = "../_shared/audit_contract" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-]
-provides-extras = ["test"]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -1097,3 +961,139 @@ sdist = { url = "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cf
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl", hash = "sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf", size = 87427, upload-time = "2026-09-25T06:52:35.829Z" },
 ]
+
+[[package]]
+name = "yoao-assets-cleanup"
+version = "0.1.0"
+source = { editable = "../assets-cleanup" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'worker'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'worker'", specifier = ">=1.43.77" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "yoao-assets-media", marker = "extra == 'worker'", editable = "../assets-media" },
+]
+provides-extras = ["worker"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "pytest", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", specifier = ">=0.24.0" },
+    { name = "ruff", specifier = "==0.15.22" },
+]
+
+[[package]]
+name = "yoao-assets-media"
+version = "0.1.0"
+source = { editable = "../assets-media" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "blurhash-python", marker = "extra == 'runtime'", specifier = ">=1.2.2" },
+    { name = "boto3", marker = "extra == 'runtime'", specifier = ">=1.43.77" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "pillow", marker = "extra == 'runtime'", specifier = ">=10.0.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "pyvips", marker = "extra == 'runtime'", specifier = ">=3.1.1" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "yoao-media-probe", extras = ["client"], marker = "extra == 'runtime'", editable = "../media-probe" },
+]
+provides-extras = ["runtime", "client", "server", "test"]
+
+[[package]]
+name = "yoao-assets-source"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pydantic" },
+    { name = "yoao-assets-cleanup" },
+    { name = "yoao-audit-contract" },
+]
+
+[package.optional-dependencies]
+client = [
+    { name = "httpx" },
+]
+importer = [
+    { name = "asyncpg" },
+    { name = "boto3" },
+    { name = "paramiko" },
+    { name = "pillow" },
+    { name = "yoao-assets-media" },
+]
+server = [
+    { name = "anyio" },
+    { name = "asyncpg" },
+    { name = "boto3" },
+    { name = "fastapi" },
+    { name = "paramiko" },
+    { name = "pillow" },
+    { name = "uvicorn" },
+    { name = "yoao-assets-media" },
+]
+test = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+    { name = "yoao-assets-media" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "anyio", marker = "extra == 'server'", specifier = ">=4.7.0" },
+    { name = "asyncpg", marker = "extra == 'importer'", specifier = ">=0.30.0" },
+    { name = "asyncpg", marker = "extra == 'server'", specifier = ">=0.30.0" },
+    { name = "boto3", marker = "extra == 'importer'", specifier = ">=1.43.77" },
+    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
+    { name = "cryptography", specifier = ">=43.0.0" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "paramiko", marker = "extra == 'importer'", specifier = ">=3.4.0" },
+    { name = "paramiko", marker = "extra == 'server'", specifier = ">=3.4.0" },
+    { name = "pillow", marker = "extra == 'importer'", specifier = ">=10.0.0" },
+    { name = "pillow", marker = "extra == 'server'", specifier = ">=10.0.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "yoao-assets-cleanup", editable = "../assets-cleanup" },
+    { name = "yoao-assets-media", marker = "extra == 'importer'", editable = "../assets-media" },
+    { name = "yoao-assets-media", marker = "extra == 'server'", editable = "../assets-media" },
+    { name = "yoao-assets-media", marker = "extra == 'test'", editable = "../assets-media" },
+    { name = "yoao-audit-contract", editable = "../_shared/audit_contract" },
+]
+provides-extras = ["client", "server", "importer", "test"]
+
+[[package]]
+name = "yoao-audit-contract"
+version = "0.1.0"
+source = { editable = "../_shared/audit_contract" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+]
+provides-extras = ["test"]

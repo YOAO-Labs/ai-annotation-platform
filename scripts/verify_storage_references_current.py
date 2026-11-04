@@ -668,7 +668,7 @@ async def qualify(backend):
         physical_before = object_facts(
             backend.s3, backend.resources["buckets"].values()
         )
-        with tempfile.TemporaryDirectory(prefix="yoao-reference-current-") as directory:
+        with tempfile.TemporaryDirectory(prefix="reference-current-") as directory:
             private = Path(directory)
             source, output = private / "source.jsonl", private / "references.jsonl"
             source_summary = write_inventory(

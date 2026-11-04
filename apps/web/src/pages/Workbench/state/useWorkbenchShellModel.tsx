@@ -2037,7 +2037,7 @@ export function useWorkbenchShellModel({
   const maskRefinementDisabledReason =
     nativeMaskOutputDisabledReason ??
     (!activeModelSupportsMaskPrompt
-      ? "当前模型未声明 Mask prompt 输入能力"
+      ? "当前模型未声明使用已有 Mask 像素作为提示的能力"
       : !activeModelSupportsPromptInput
         ? "当前模型未声明该交互提示输入能力"
         : undefined);
@@ -2049,7 +2049,7 @@ export function useWorkbenchShellModel({
   const maskRefinementToolDisabledReason = (prompt: keyof typeof maskRefinementRoutes) =>
     nativeMaskOutputDisabledReason ??
     (maskRefinementRoutes[prompt] == null
-      ? "没有模型同时支持该提示、Mask prompt 与原生 Mask 输出"
+      ? "没有模型同时支持所选提示、已有 Mask 像素提示和原生 Mask 输出"
       : undefined);
   const effectiveSingleFrameOutputGeometry: "polygon" | "mask" =
     activeAiTool !== "magic-box" &&
@@ -3380,7 +3380,7 @@ export function useWorkbenchShellModel({
         msg: "AI 暂不可用",
         sub: preCfg.isGeometricBackend
           ? "请在 AI 面板选择模型任务"
-          : "请在 AI 面板填写 prompt (或为类别配置英文 alias)",
+          : "请在 AI 面板填写文本提示，或为类别配置英文别名",
         kind: "error",
       });
       return;
@@ -4356,7 +4356,7 @@ export function useWorkbenchShellModel({
         msg: "AI 暂不可用",
         sub: preCfg.isGeometricBackend
           ? "请在 AI 面板选择模型任务"
-          : "请在 AI 面板填写 prompt (或为类别配置英文 alias)",
+          : "请在 AI 面板填写文本提示，或为类别配置英文别名",
         kind: "error",
       });
       return;

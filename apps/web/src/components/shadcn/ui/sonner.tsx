@@ -17,6 +17,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
     <Sonner
       theme={resolved}
       className="toaster group"
+      containerAriaLabel="通知"
       // sonner 通过 CSS 变量注入主题色,这是其官方主题 API,无法用 class 表达
       // eslint-disable-next-line no-restricted-syntax
       style={

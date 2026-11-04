@@ -7,54 +7,6 @@ resolution-markers = [
 ]
 
 [[package]]
-name = "aap-jobs"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-dispatch-relay = [
-    { name = "asyncpg" },
-    { name = "httpx" },
-]
-queue-client = [
-    { name = "httpx" },
-]
-queue-runtime = [
-    { name = "celery" },
-    { name = "redis" },
-    { name = "starlette" },
-    { name = "uvicorn" },
-]
-test = [
-    { name = "celery" },
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "starlette" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "asyncpg", marker = "extra == 'dispatch-relay'", specifier = ">=0.30.0" },
-    { name = "celery", marker = "extra == 'queue-runtime'", specifier = ">=5.4.0" },
-    { name = "celery", marker = "extra == 'test'", specifier = ">=5.4.0" },
-    { name = "httpx", marker = "extra == 'dispatch-relay'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'queue-client'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "redis", marker = "extra == 'queue-runtime'", specifier = ">=5.2.0" },
-    { name = "starlette", marker = "extra == 'queue-runtime'", specifier = ">=1.0.0" },
-    { name = "starlette", marker = "extra == 'test'", specifier = ">=1.0.0" },
-    { name = "uvicorn", marker = "extra == 'queue-runtime'", specifier = ">=0.46.0" },
-]
-provides-extras = ["queue-client", "dispatch-relay", "queue-runtime", "test"]
-
-[[package]]
 name = "amqp"
 version = "5.3.1"
 source = { registry = "https://pypi.org/simple" }
@@ -637,3 +589,51 @@ sdist = { url = "https://files.pythonhosted.org/packages/35/a2/8e3becb46433538a3
 wheels = [
     { url = "https://files.pythonhosted.org/packages/68/5a/199c59e0a824a3db2b89c5d2dade7ab5f9624dbf6448dc291b46d5ec94d3/wcwidth-0.6.0-py3-none-any.whl", hash = "sha256:1a3a1e510b553315f8e146c54764f4fb6264ffad731b3d78088cdb1478ffbdad", size = 94189, upload-time = "2026-02-06T19:19:39.646Z" },
 ]
+
+[[package]]
+name = "yoao-jobs"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+dispatch-relay = [
+    { name = "asyncpg" },
+    { name = "httpx" },
+]
+queue-client = [
+    { name = "httpx" },
+]
+queue-runtime = [
+    { name = "celery" },
+    { name = "redis" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+test = [
+    { name = "celery" },
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "starlette" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'dispatch-relay'", specifier = ">=0.30.0" },
+    { name = "celery", marker = "extra == 'queue-runtime'", specifier = ">=5.4.0" },
+    { name = "celery", marker = "extra == 'test'", specifier = ">=5.4.0" },
+    { name = "httpx", marker = "extra == 'dispatch-relay'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'queue-client'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "redis", marker = "extra == 'queue-runtime'", specifier = ">=5.2.0" },
+    { name = "starlette", marker = "extra == 'queue-runtime'", specifier = ">=1.0.0" },
+    { name = "starlette", marker = "extra == 'test'", specifier = ">=1.0.0" },
+    { name = "uvicorn", marker = "extra == 'queue-runtime'", specifier = ">=0.46.0" },
+]
+provides-extras = ["queue-client", "dispatch-relay", "queue-runtime", "test"]

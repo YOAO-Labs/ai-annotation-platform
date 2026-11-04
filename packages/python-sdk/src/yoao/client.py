@@ -1252,14 +1252,14 @@ class Exports:
         )
 
     def download(self, job_or_id: Job | IdLike, dest_path: str | Path) -> Path:
-        """从 job.result["download_url"] 流式下载导出包到 dest_path。"""
+        """下载 result.download_url 的预签名导出包，不附加平台认证凭据。"""
         job = job_or_id if isinstance(job_or_id, Job) else self._jobs.get(job_or_id)
         url = (job.result or {}).get("download_url")
         if not url:
             raise SDKError(
                 f"async job {job.id} (status={job.status}) 无 result.download_url, 无法下载"
             )
-        return self._http.stream_download(url, Path(dest_path))
+        return self._http.stream_download(url, Path(dest_path), platform_auth=False)
 
 
 class MLBackends:

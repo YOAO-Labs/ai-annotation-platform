@@ -582,7 +582,7 @@ export async function runModelMarketRuntimePool(
   await expect(firstSheet.getByText("yolo11m-vehicle", { exact: true })).toBeVisible();
   await page.waitForTimeout(4_500);
 
-  const closeFirstDetail = firstSheet.getByRole("button", { name: "Close", exact: true });
+  const closeFirstDetail = firstSheet.getByRole("button", { name: "关闭", exact: true });
   await moveTo(page, closeFirstDetail);
   await closeFirstDetail.click();
   await expect(firstSheet).toBeHidden();

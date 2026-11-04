@@ -3,171 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-assets-mask-content"
-version = "0.1.0"
-source = { editable = "../assets-mask-content" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
-    { name = "boto3", marker = "extra == 'storage'", specifier = ">=1.43.77" },
-    { name = "boto3", marker = "extra == 'test'", specifier = ">=1.43.77" },
-    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
-    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
-    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
-    { name = "uvicorn", marker = "extra == 'test'", specifier = ">=0.34.0" },
-]
-provides-extras = ["client", "storage", "server", "test"]
-
-[[package]]
-name = "aap-inference"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aap-assets-mask-content" },
-    { name = "aap-inference-contract" },
-    { name = "aap-owner-data" },
-    { name = "aap-protocol-v2" },
-    { name = "aap-task-contract" },
-    { name = "aap-workspace-contract" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-client = [
-    { name = "httpx" },
-]
-postgres = [
-    { name = "asyncpg" },
-]
-probe = [
-    { name = "httpx" },
-]
-runtime = [
-    { name = "asyncpg" },
-    { name = "cryptography" },
-    { name = "httpx" },
-    { name = "pillow" },
-    { name = "redis" },
-    { name = "structlog" },
-]
-test = [
-    { name = "httpx" },
-    { name = "pillow" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-video-restore = [
-    { name = "asyncpg" },
-    { name = "httpx" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-assets-mask-content", editable = "../assets-mask-content" },
-    { name = "aap-inference-contract", editable = "../_shared/inference_contract" },
-    { name = "aap-owner-data", editable = "../_shared/owner_data" },
-    { name = "aap-protocol-v2", editable = "../_shared/protocol_v2" },
-    { name = "aap-task-contract", editable = "../_shared/task_contract" },
-    { name = "aap-workspace-contract", editable = "../_shared/workspace_contract" },
-    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
-    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
-    { name = "asyncpg", marker = "extra == 'video-restore'", specifier = ">=0.29" },
-    { name = "cryptography", marker = "extra == 'runtime'", specifier = ">=43.0.0" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'probe'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'video-restore'", specifier = ">=0.28.0" },
-    { name = "pillow", marker = "extra == 'runtime'", specifier = ">=10.0.0" },
-    { name = "pillow", marker = "extra == 'test'", specifier = ">=10.0.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
-    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
-    { name = "structlog", marker = "extra == 'runtime'", specifier = ">=25.5.0" },
-]
-provides-extras = ["probe", "postgres", "client", "runtime", "video-restore", "test"]
-
-[[package]]
-name = "aap-inference-contract"
-version = "0.1.0"
-source = { editable = "../_shared/inference_contract" }
-dependencies = [
-    { name = "aap-task-contract" },
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-task-contract", editable = "../_shared/task_contract" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-]
-provides-extras = ["client", "test"]
-
-[[package]]
-name = "aap-owner-data"
-version = "0.1.0"
-source = { editable = "../_shared/owner_data" }
-
-[[package]]
-name = "aap-protocol-v2"
-version = "0.2.0"
-source = { editable = "../_shared/protocol_v2" }
-dependencies = [
-    { name = "aap-task-contract" },
-    { name = "cryptography" },
-    { name = "fastapi" },
-    { name = "pydantic" },
-    { name = "pyjwt" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-task-contract", editable = "../_shared/task_contract" },
-    { name = "cryptography", specifier = ">=43.0.0" },
-    { name = "fastapi", specifier = ">=0.110" },
-    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
-    { name = "pydantic", specifier = ">=2.5" },
-    { name = "pyjwt", specifier = ">=2.10,<3" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
-]
-provides-extras = ["test"]
-
-[[package]]
-name = "aap-task-contract"
-version = "0.1.0"
-source = { editable = "../_shared/task_contract" }
-
-[[package]]
-name = "aap-workspace-contract"
-version = "0.1.0"
-source = { editable = "../_shared/workspace_contract" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-]
-provides-extras = ["test"]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -882,3 +717,168 @@ sdist = { url = "https://files.pythonhosted.org/packages/a3/26/b09b8010994eccc3c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/67/81/4add07e5172b7ac40d8ed5ff580409a7801a4fe26d529bdd915401dabfbe/typing_inspection-0.4.4-py3-none-any.whl", hash = "sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147", size = 14750, upload-time = "2026-08-12T12:37:24.648Z" },
 ]
+
+[[package]]
+name = "yoao-assets-mask-content"
+version = "0.1.0"
+source = { editable = "../assets-mask-content" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "boto3", marker = "extra == 'server'", specifier = ">=1.43.77" },
+    { name = "boto3", marker = "extra == 'storage'", specifier = ">=1.43.77" },
+    { name = "boto3", marker = "extra == 'test'", specifier = ">=1.43.77" },
+    { name = "fastapi", marker = "extra == 'server'", specifier = ">=0.115.0" },
+    { name = "fastapi", marker = "extra == 'test'", specifier = ">=0.115.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.27.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "ruff", marker = "extra == 'test'", specifier = "==0.15.22" },
+    { name = "uvicorn", marker = "extra == 'server'", specifier = ">=0.34.0" },
+    { name = "uvicorn", marker = "extra == 'test'", specifier = ">=0.34.0" },
+]
+provides-extras = ["client", "storage", "server", "test"]
+
+[[package]]
+name = "yoao-inference"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic" },
+    { name = "yoao-assets-mask-content" },
+    { name = "yoao-inference-contract" },
+    { name = "yoao-owner-data" },
+    { name = "yoao-protocol-v2" },
+    { name = "yoao-task-contract" },
+    { name = "yoao-workspace-contract" },
+]
+
+[package.optional-dependencies]
+client = [
+    { name = "httpx" },
+]
+postgres = [
+    { name = "asyncpg" },
+]
+probe = [
+    { name = "httpx" },
+]
+runtime = [
+    { name = "asyncpg" },
+    { name = "cryptography" },
+    { name = "httpx" },
+    { name = "pillow" },
+    { name = "redis" },
+    { name = "structlog" },
+]
+test = [
+    { name = "httpx" },
+    { name = "pillow" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+video-restore = [
+    { name = "asyncpg" },
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
+    { name = "asyncpg", marker = "extra == 'video-restore'", specifier = ">=0.29" },
+    { name = "cryptography", marker = "extra == 'runtime'", specifier = ">=43.0.0" },
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'probe'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'runtime'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'video-restore'", specifier = ">=0.28.0" },
+    { name = "pillow", marker = "extra == 'runtime'", specifier = ">=10.0.0" },
+    { name = "pillow", marker = "extra == 'test'", specifier = ">=10.0.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
+    { name = "structlog", marker = "extra == 'runtime'", specifier = ">=25.5.0" },
+    { name = "yoao-assets-mask-content", editable = "../assets-mask-content" },
+    { name = "yoao-inference-contract", editable = "../_shared/inference_contract" },
+    { name = "yoao-owner-data", editable = "../_shared/owner_data" },
+    { name = "yoao-protocol-v2", editable = "../_shared/protocol_v2" },
+    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
+    { name = "yoao-workspace-contract", editable = "../_shared/workspace_contract" },
+]
+provides-extras = ["probe", "postgres", "client", "runtime", "video-restore", "test"]
+
+[[package]]
+name = "yoao-inference-contract"
+version = "0.1.0"
+source = { editable = "../_shared/inference_contract" }
+dependencies = [
+    { name = "pydantic" },
+    { name = "yoao-task-contract" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
+]
+provides-extras = ["client", "test"]
+
+[[package]]
+name = "yoao-owner-data"
+version = "0.1.0"
+source = { editable = "../_shared/owner_data" }
+
+[[package]]
+name = "yoao-protocol-v2"
+version = "0.2.0"
+source = { editable = "../_shared/protocol_v2" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "pyjwt" },
+    { name = "yoao-task-contract" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "cryptography", specifier = ">=43.0.0" },
+    { name = "fastapi", specifier = ">=0.110" },
+    { name = "numpy", marker = "extra == 'test'", specifier = ">=1.24" },
+    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pyjwt", specifier = ">=2.10,<3" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+    { name = "yoao-task-contract", editable = "../_shared/task_contract" },
+]
+provides-extras = ["test"]
+
+[[package]]
+name = "yoao-task-contract"
+version = "0.1.0"
+source = { editable = "../_shared/task_contract" }
+
+[[package]]
+name = "yoao-workspace-contract"
+version = "0.1.0"
+source = { editable = "../_shared/workspace_contract" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+]
+provides-extras = ["test"]

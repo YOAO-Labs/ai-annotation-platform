@@ -37,8 +37,8 @@ def calibration_digest(calibration: SensorCalibration) -> str:
     return hashlib.sha256(encoded.encode()).hexdigest()
 
 
-def _metadata_calibration(item: DatasetItem) -> SensorCalibration:
-    raw = (item.metadata_ or {}).get("calibration")
+def _metadata_calibration(metadata: dict | None) -> SensorCalibration:
+    raw = (metadata or {}).get("calibration")
     if raw is None:
         raise SensorCalibrationError(
             "camera_calibration_missing", "camera DatasetItem has no calibration"
@@ -71,7 +71,7 @@ async def resolve_calibration_state(
             digest=row.digest,
             created_at=row.created_at,
         )
-    calibration = _metadata_calibration(item)
+    calibration = _metadata_calibration(item.metadata_)
     return SensorCalibrationState(
         dataset_item_id=item.id,
         calibration=calibration,
@@ -109,7 +109,7 @@ async def resolve_calibration_states(
     for item in items:
         row = latest.get(item.id)
         if row is None:
-            calibration = _metadata_calibration(item)
+            calibration = _metadata_calibration(item.metadata_)
             states[item.id] = SensorCalibrationState(
                 dataset_item_id=item.id,
                 calibration=calibration,
@@ -146,7 +146,7 @@ async def list_calibration_revisions(
         ).scalars()
     )
     if not rows:
-        calibration = _metadata_calibration(item)
+        calibration = _metadata_calibration(item.metadata_)
         return [
             SensorCalibrationState(
                 dataset_item_id=item.id,

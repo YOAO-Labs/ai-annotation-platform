@@ -3,6 +3,7 @@
 from collections import defaultdict
 from copy import deepcopy
 from datetime import datetime
+from types import SimpleNamespace
 import uuid
 
 from sqlalchemy import DateTime, Uuid, inspect
@@ -27,7 +28,7 @@ from app.services.sensor_calibration import (
 )
 
 
-def detached(model, facts):
+def _detached_values(model, facts):
     """Rehydrate only typed mapped values, with no session or lazy load owners."""
     mapped = {entry.key: entry.columns[0].type for entry in inspect(model).column_attrs}
     if not isinstance(facts, dict) or not set(facts).issubset(mapped):
@@ -43,7 +44,18 @@ def detached(model, facts):
             else:
                 value = deepcopy(value)
         values[key] = value
-    return model(**values)
+    return values
+
+
+def detached(model, facts):
+    return model(**_detached_values(model, facts))
+
+
+def _detached_item(facts):
+    """Translate persisted ORM field names to the spatial read contract."""
+    values = _detached_values(DatasetItem, facts)
+    values["metadata"] = values.pop("metadata_")
+    return SimpleNamespace(**values)
 
 
 class FrozenLidar:
@@ -58,8 +70,7 @@ class FrozenLidar:
         self.project = detached(Project, snapshot["project"])
         self.tasks = [detached(Task, row) for row in snapshot["tasks"]]
         self.items = {
-            item.id: item
-            for item in (detached(DatasetItem, row) for row in snapshot["items"])
+            item.id: item for item in (_detached_item(row) for row in snapshot["items"])
         }
         self.datasets = {
             row.id: row
@@ -118,8 +129,7 @@ class FrozenLidar:
         scope_items = {
             item.id: item
             for item in (
-                detached(DatasetItem, row)
-                for row in snapshot.get("scene_scope_items", [])
+                _detached_item(row) for row in snapshot.get("scene_scope_items", [])
             )
         }
         scope_links = {
@@ -170,7 +180,7 @@ class FrozenLidar:
                     continue
                 row = latest.get(identifier)
                 if row is None:
-                    calibration = _metadata_calibration(item)
+                    calibration = _metadata_calibration(item.metadata)
                     states[identifier] = SensorCalibrationState(
                         identifier, calibration, 1, calibration_digest(calibration)
                     )

@@ -155,8 +155,9 @@ class HttpTransport:
         params: dict[str, Any] | None = None,
         expected_sha256: str | None = None,
         expected_size: int | None = None,
+        platform_auth: bool = True,
     ) -> Path:
-        """Stream atomically; absolute URLs bypass platform auth, relative paths use it."""
+        """Stream atomically; relative API paths use auth unless explicitly disabled."""
         if expected_sha256 is not None and (
             len(expected_sha256) != 64
             or any(char not in "0123456789abcdefABCDEF" for char in expected_sha256)
@@ -172,7 +173,7 @@ class HttpTransport:
                 target = str(httpx.URL(target).copy_merge_params(params))
                 params = None
         else:
-            client = self._client
+            client = self._client if platform_auth else self.bare
             target = self._origin + (url if url.startswith("/") else "/" + url)
         temp = tempfile.NamedTemporaryFile(
             mode="wb",

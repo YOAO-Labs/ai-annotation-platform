@@ -1,34 +1,34 @@
 [project]
-name = "anno-api"
+name = "api"
 version = "0.26.2"
 requires-python = ">=3.11"
 dependencies = [
-    "aap-identity[postgres]",
-    "aap-identity-admission[http]",
-    "aap-inference",
-    "aap-inference-contract[client]",
-    "aap-lifecycle-contract",
-    "aap-mail-transport",
-    "aap-assets-catalog",
-    "aap-assets-media[client,runtime]",
-    "aap-assets-mask-content[client,storage]",
-    "aap-labeling-mask-gc[client]",
-    "aap-labeling[postgres]",
-    "aap-preannotation-results",
-    "aap-assets-cleanup",
-    "aap-assets-source",
-    "aap-audit-contract",
-    "aap-audit[postgres]",
-    "aap-jobs[queue-client]",
-    "aap-notifications[postgres,publication-client]",
-    "aap-media-probe[client]",
-    "aap-filesystem-read",
-    "aap-site-agent-contract",
-    "aap-task-contract",
-    "aap-training-contract",
-    "aap-workspace-contract",
-    "aap-workspace[postgres]",
-    "aap-protocol-v2",
+    "yoao-identity[postgres]",
+    "yoao-identity-admission[http]",
+    "yoao-inference",
+    "yoao-inference-contract[client]",
+    "yoao-lifecycle-contract",
+    "yoao-mail-transport",
+    "yoao-assets-catalog",
+    "yoao-assets-media[client,runtime]",
+    "yoao-assets-mask-content[client,storage]",
+    "yoao-labeling-mask-gc[client]",
+    "yoao-labeling[postgres]",
+    "yoao-preannotation-results",
+    "yoao-assets-cleanup",
+    "yoao-assets-source",
+    "yoao-audit-contract",
+    "yoao-audit[postgres]",
+    "yoao-jobs[queue-client]",
+    "yoao-notifications[postgres,publication-client]",
+    "yoao-media-probe[client]",
+    "yoao-filesystem-read",
+    "yoao-site-agent-contract",
+    "yoao-task-contract",
+    "yoao-training-contract",
+    "yoao-workspace-contract",
+    "yoao-workspace[postgres]",
+    "yoao-protocol-v2",
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
     "websockets>=15.0",
@@ -67,34 +67,34 @@ dependencies = [
 ]
 
 [tool.uv.sources]
-aap-owner-data = { path = "../_shared/owner_data", editable = true }
-aap-identity = { path = "../identity", editable = true }
-aap-identity-admission = { path = "../_shared/identity_admission", editable = true }
-aap-inference = { path = "../inference", editable = true }
-aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
-aap-lifecycle-contract = { path = "../_shared/lifecycle_contract", editable = true }
-aap-backend-runtime = { url = "https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/aap_backend_runtime-0.1.0-py3-none-any.whl" }
-aap-mail-transport = { path = "../_shared/mail_transport", editable = true }
-aap-assets-catalog = { path = "../assets-catalog", editable = true }
-aap-assets-media = { path = "../assets-media", editable = true }
-aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
-aap-labeling-mask-gc = { path = "../labeling-mask-gc", editable = true }
-aap-labeling = { path = "../labeling", editable = true }
-aap-preannotation-results = { path = "../preannotation-results", editable = true }
-aap-assets-cleanup = { path = "../assets-cleanup", editable = true }
-aap-assets-source = { path = "../assets-source", editable = true }
-aap-audit-contract = { path = "../_shared/audit_contract", editable = true }
-aap-audit = { path = "../audit", editable = true }
-aap-jobs = { path = "../jobs", editable = true }
-aap-notifications = { path = "../notifications", editable = true }
-aap-media-probe = { path = "../media-probe", editable = true }
-aap-filesystem-read = { path = "../_shared/filesystem_read", editable = true }
-aap-site-agent-contract = { path = "../_shared/site_agent_contract", editable = true }
-aap-task-contract = { path = "../_shared/task_contract", editable = true }
-aap-training-contract = { path = "../_shared/training_contract", editable = true }
-aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
-aap-workspace = { path = "../workspace", editable = true }
-aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
+yoao-owner-data = { path = "../_shared/owner_data", editable = true }
+yoao-identity = { path = "../identity", editable = true }
+yoao-identity-admission = { path = "../_shared/identity_admission", editable = true }
+yoao-inference = { path = "../inference", editable = true }
+yoao-inference-contract = { path = "../_shared/inference_contract", editable = true }
+yoao-lifecycle-contract = { path = "../_shared/lifecycle_contract", editable = true }
+yoao-backend-runtime = { path = "../../.artifacts/python/plugin-sdk/yoao_backend_runtime-0.1.0-py3-none-any.whl" }
+yoao-mail-transport = { path = "../_shared/mail_transport", editable = true }
+yoao-assets-catalog = { path = "../assets-catalog", editable = true }
+yoao-assets-media = { path = "../assets-media", editable = true }
+yoao-assets-mask-content = { path = "../assets-mask-content", editable = true }
+yoao-labeling-mask-gc = { path = "../labeling-mask-gc", editable = true }
+yoao-labeling = { path = "../labeling", editable = true }
+yoao-preannotation-results = { path = "../preannotation-results", editable = true }
+yoao-assets-cleanup = { path = "../assets-cleanup", editable = true }
+yoao-assets-source = { path = "../assets-source", editable = true }
+yoao-audit-contract = { path = "../_shared/audit_contract", editable = true }
+yoao-audit = { path = "../audit", editable = true }
+yoao-jobs = { path = "../jobs", editable = true }
+yoao-notifications = { path = "../notifications", editable = true }
+yoao-media-probe = { path = "../media-probe", editable = true }
+yoao-filesystem-read = { path = "../_shared/filesystem_read", editable = true }
+yoao-site-agent-contract = { path = "../_shared/site_agent_contract", editable = true }
+yoao-task-contract = { path = "../_shared/task_contract", editable = true }
+yoao-training-contract = { path = "../_shared/training_contract", editable = true }
+yoao-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+yoao-workspace = { path = "../workspace", editable = true }
+yoao-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
 
 [tool.uv]
 # nuScenes 1.1.11 pins legacy Shapely and Matplotlib. Keep this test oracle
@@ -103,7 +103,7 @@ override-dependencies = ["shapely>=2.0", "matplotlib>=3.9,<4"]
 
 [project.optional-dependencies]
 test = [
-    "aap-backend-runtime",
+    "yoao-backend-runtime",
     "nuscenes-devkit==1.1.11",
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",

@@ -11,7 +11,7 @@ import {
   trackScribbleAcceptance,
 } from "./_smart-scribble-evidence.ts";
 
-// Golden digest and candidate ID come from aap_protocol_v2's Python implementation.
+// Golden digest and candidate ID come from yoao_protocol_v2's Python implementation.
 const CONTENT_DIGEST = "31aac8090eb25a3e167242e7304df317ca8793c84d5b7f3f4700844c6942f72b";
 const CANDIDATE_ID = "sha256:1e92ddc2b04a8d1037861b5689c9cf4614a80581c744e20083c66e742b5db06c";
 const source = {

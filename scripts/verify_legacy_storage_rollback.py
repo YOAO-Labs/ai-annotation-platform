@@ -793,7 +793,7 @@ def main():
         ],
     }
     try:
-        with tempfile.TemporaryDirectory(prefix="yoao-legacy-rollback-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="legacy-rollback-") as temporary:
             try:
                 asyncio.run(qualify(backend, options, Path(temporary), report))
                 report["status"] = "passed"

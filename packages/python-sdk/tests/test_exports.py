@@ -176,19 +176,25 @@ def test_download_presigned_absolute_url_no_auth(client, respx_mock, tmp_path):
     assert "Authorization" not in dl.calls.last.request.headers
 
 
-def test_download_relative_url_with_auth(client, respx_mock, tmp_path):
-    # 传 job_id 时先 GET job, 再按相对路径拼回平台 origin 下载 (带 auth)
-    respx_mock.get(f"{API}/async-jobs/{JOB_ID}").mock(
-        return_value=httpx.Response(
-            200, json=_completed_job("/api/v1/files/export.zip")
-        )
+def test_download_relative_presigned_url_keeps_job_auth_out_of_storage(
+    client, respx_mock, tmp_path
+):
+    url = "/minio/exports/P-1.zip?AWSAccessKeyId=export-key&Signature=test&Expires=2000000000"
+    job_route = respx_mock.get(f"{API}/async-jobs/{JOB_ID}").mock(
+        return_value=httpx.Response(200, json=_completed_job(url))
     )
-    dl = respx_mock.get(f"{BASE}/api/v1/files/export.zip").mock(
-        return_value=httpx.Response(200, content=b"zip2")
-    )
-    dest = client.exports.download(JOB_ID, tmp_path / "out2.zip")
-    assert dest.read_bytes() == b"zip2"
-    assert dl.calls.last.request.headers["Authorization"] == "Bearer ak_test"
+
+    def storage_response(request):
+        if "Authorization" in request.headers:
+            return httpx.Response(400, content=b"multiple authentication types")
+        return httpx.Response(200, content=b"PK\x03\x04export")
+
+    download = respx_mock.get(f"{BASE}{url}").mock(side_effect=storage_response)
+    dest = client.exports.download(JOB_ID, tmp_path / "export.zip")
+
+    assert job_route.calls.last.request.headers["Authorization"] == "Bearer ak_test"
+    assert "Authorization" not in download.calls.last.request.headers
+    assert dest.read_bytes() == b"PK\x03\x04export"
 
 
 def test_download_without_url_raises(client, tmp_path):

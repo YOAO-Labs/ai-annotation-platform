@@ -21,7 +21,6 @@ from sqlalchemy.orm import aliased
 from sqlalchemy.pool import NullPool
 
 from app.config import settings
-from app.db.models.annotation import Annotation
 from app.db.models.dataset import DatasetItem, Scene, SensorCalibrationRevision
 from app.db.models.project import Project
 from app.db.models.scene_pose import SceneFramePose
@@ -31,7 +30,7 @@ from app.services import async_job as async_job_svc
 from app.services import export_outputs, export_storage
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
-from app.services.labeling_core_read_relations import task_row
+from app.services.labeling_core_read_relations import annotation_row, task_row
 from app.services.project_access import get_workspace_project
 from app.services.workspace_read_relations import project_facts
 from app.services.exporting import cache as export_cache
@@ -39,7 +38,7 @@ from app.services.exporting import output_authority
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.video_scope import VideoExportScope
 from app.services.exporting.scope import lock_task_scope
-from app.services.mask_formats import registry as mask_format_registry
+from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.contracts import canonical_digest
 from app.schemas.export import LidarExportOptions
 from app.db.models.notification import Notification
@@ -265,28 +264,33 @@ async def _scope_fingerprint(
     task_ids: list[uuid.UUID] | None = None,
 ) -> tuple[datetime | None, int]:
     """max(project/annotation updated_at) + active annotation count for cache invalidation."""
-    q = select(func.max(Annotation.updated_at), func.count(Annotation.id)).where(
-        Annotation.project_id == project_id,
-        Annotation.is_active.is_(True),
-        Annotation.was_cancelled.is_(False),
+    q = select(
+        func.max(annotation_row.updated_at), func.count(annotation_row.id)
+    ).where(
+        annotation_row.project_id == project_id,
+        annotation_row.is_active.is_(True),
+        annotation_row.was_cancelled.is_(False),
     )
     if batch_id is not None:
         # Annotation 无 batch_id 列；与 _load_data 一致，按 task.batch_id 过滤。
         q = q.where(
-            Annotation.task_id.in_(select(Task.id).where(Task.batch_id == batch_id))
+            annotation_row.task_id.in_(
+                select(task_row.id).where(task_row.batch_id == batch_id)
+            )
         )
     if task_ids is not None:
         q = q.where(
-            Annotation.task_id.in_(
-                select(Task.id).where(
-                    Task.project_id == project_id,
-                    Task.id.in_(task_ids),
+            annotation_row.task_id.in_(
+                select(task_row.id).where(
+                    task_row.project_id == project_id,
+                    task_row.id.in_(task_ids),
                 )
             )
         )
     row = (await db.execute(q)).one()
+    project = project_facts()
     project_updated_at = (
-        await db.execute(select(Project.updated_at).where(Project.id == project_id))
+        await db.execute(select(project.c.updated_at).where(project.c.id == project_id))
     ).scalar_one_or_none()
     timestamps = [ts for ts in (row[0], project_updated_at) if ts is not None]
     return (max(timestamps) if timestamps else None), int(row[1] or 0)

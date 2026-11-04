@@ -209,7 +209,7 @@ test("task columns separate unresolved issues from comments and open a read-only
 
   // Gallery summaries remain correct when restored table columns omit all
   // counters. Additional query projections must not rewrite those columns.
-  await page.getByRole("button", { name: "Close", exact: true }).click();
+  await page.getByRole("button", { name: "关闭", exact: true }).click();
   const gallery = new URLSearchParams({
     layout: "gallery",
     columns: JSON.stringify({ v: 1, value: ["display_id"] }),

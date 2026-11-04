@@ -972,7 +972,7 @@
   "guide_resource": "yoao/AGENT_GUIDE.md",
   "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
   "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
-  "operation_count": 766,
+  "operation_count": 767,
   "operations": [
     {
       "name": "DELETE /api/v1/admin/ml-integrations/registry/{registry_id}",
@@ -47028,6 +47028,74 @@
       }
     },
     {
+      "name": "POST /api/v1/tasks/{task_id}/acceptance-history/{acceptance_key}/restore",
+      "method": "POST",
+      "path": "/api/v1/tasks/{task_id}/acceptance-history/{acceptance_key}/restore",
+      "operation_id": "restore_acceptance_history_api_v1_tasks__task_id__acceptance_history__acceptance_key__restore_post",
+      "summary": "Restore Acceptance History",
+      "description": "Undo or redo one acceptance atomically, preserving its annotation identities.",
+      "tags": [
+        "tasks"
+      ],
+      "status": "uncovered",
+      "sdk_methods": [],
+      "cli_aliases": [],
+      "parameters": [
+        {
+          "name": "task_id",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Task Id",
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        {
+          "name": "acceptance_key",
+          "in": "path",
+          "required": true,
+          "schema": {
+            "title": "Acceptance Key",
+            "type": "string"
+          }
+        }
+      ],
+      "responses": {
+        "200": {
+          "description": "Successful Response",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptanceHistoryRestoreResponse"
+              }
+            }
+          }
+        },
+        "422": {
+          "description": "Validation Error",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HTTPValidationError"
+              }
+            }
+          }
+        }
+      },
+      "reason": "not-implemented",
+      "request_body": {
+        "required": true,
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AcceptanceHistoryRestoreRequest"
+            }
+          }
+        }
+      }
+    },
+    {
       "name": "POST /api/v1/tasks/{task_id}/ai-mask-candidates/accept",
       "method": "POST",
       "path": "/api/v1/tasks/{task_id}/ai-mask-candidates/accept",
@@ -48506,6 +48574,22 @@
           "schema": {
             "title": "Override Class Name",
             "description": "可选: 采纳时把类别落到指定项目标签 (v0.14.17). 用于预测类名既不在项目标签集、又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Idempotency-Key",
+          "in": "header",
+          "required": false,
+          "schema": {
+            "title": "Idempotency-Key",
             "anyOf": [
               {
                 "type": "string"

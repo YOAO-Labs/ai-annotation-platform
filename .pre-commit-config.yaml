@@ -70,7 +70,7 @@ repos:
         name: Regenerate capability registry snapshot (apps/api)
         entry: bash -c 'cd apps/api && uv run python ../../scripts/export_capability_registry.py && cd ../.. && git add apps/api/capability-registry.snapshot.json 2>/dev/null || true'
         language: system
-        files: ^(apps/inference/src/aap_inference/capability_registry\.py|apps/api/app/schemas/ml_capabilities\.py|apps/api/app/api/v1/ml_capabilities\.py)$
+        files: ^(apps/inference/src/yoao_inference/capability_registry\.py|apps/api/app/schemas/ml_capabilities\.py|apps/api/app/api/v1/ml_capabilities\.py)$
         pass_filenames: false
         stages: [pre-commit]
 

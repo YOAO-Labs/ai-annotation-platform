@@ -3,122 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-identity"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aap-identity-admission" },
-    { name = "aap-notifications" },
-    { name = "bcrypt" },
-    { name = "pydantic" },
-    { name = "python-jose", extra = ["cryptography"] },
-]
-
-[package.optional-dependencies]
-postgres = [
-    { name = "asyncpg" },
-]
-runtime = [
-    { name = "aap-mail-transport" },
-    { name = "aap-notifications", extra = ["runtime"] },
-    { name = "asyncpg" },
-    { name = "fastapi" },
-    { name = "pydantic-settings" },
-    { name = "redis" },
-    { name = "uvicorn" },
-]
-test = [
-    { name = "httpx" },
-    { name = "pydantic-settings" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-identity-admission", editable = "../_shared/identity_admission" },
-    { name = "aap-mail-transport", marker = "extra == 'runtime'", editable = "../_shared/mail_transport" },
-    { name = "aap-notifications", editable = "../notifications" },
-    { name = "aap-notifications", extras = ["runtime"], marker = "extra == 'runtime'", editable = "../notifications" },
-    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
-    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
-    { name = "bcrypt", specifier = ">=4.0" },
-    { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.115" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
-    { name = "pydantic", specifier = ">=2.5" },
-    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6" },
-    { name = "pydantic-settings", marker = "extra == 'test'", specifier = ">=2.6" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
-    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
-    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
-    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.30" },
-]
-provides-extras = ["postgres", "runtime", "test"]
-
-[[package]]
-name = "aap-identity-admission"
-version = "0.1.0"
-source = { editable = "../_shared/identity_admission" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27" },
-    { name = "pydantic", specifier = ">=2.5" },
-]
-provides-extras = ["http"]
-
-[[package]]
-name = "aap-mail-transport"
-version = "0.1.0"
-source = { editable = "../_shared/mail_transport" }
-
-[[package]]
-name = "aap-notifications"
-version = "0.1.0"
-source = { editable = "../notifications" }
-dependencies = [
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-runtime = [
-    { name = "asyncpg" },
-    { name = "pydantic-settings" },
-    { name = "redis" },
-    { name = "starlette" },
-    { name = "uvicorn" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-identity-admission", extras = ["http"], marker = "extra == 'websocket'", editable = "../_shared/identity_admission" },
-    { name = "aap-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
-    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
-    { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
-    { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6.0" },
-    { name = "pydantic-settings", marker = "extra == 'test'", specifier = ">=2.6.0" },
-    { name = "pydantic-settings", marker = "extra == 'websocket'", specifier = ">=2.6.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
-    { name = "redis", marker = "extra == 'websocket'", specifier = ">=5.2.0" },
-    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
-    { name = "starlette", marker = "extra == 'runtime'", specifier = ">=1.0.0" },
-    { name = "starlette", marker = "extra == 'test'", specifier = ">=1.0.0" },
-    { name = "starlette", marker = "extra == 'websocket'", specifier = ">=1.0.0" },
-    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.46.0" },
-    { name = "uvicorn", extras = ["standard"], marker = "extra == 'websocket'", specifier = ">=0.46.0" },
-]
-provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]
-
-[[package]]
 name = "annotated-doc"
 version = "0.0.5"
 source = { registry = "https://pypi.org/simple" }
@@ -933,3 +817,119 @@ sdist = { url = "https://files.pythonhosted.org/packages/da/34/30e9280707135d2cf
 wheels = [
     { url = "https://files.pythonhosted.org/packages/38/0c/b54a4fdd7f90a3af8b02ebc9ce6712c2c208b7926a2f7bad95c33ebbe943/uvicorn-0.54.0-py3-none-any.whl", hash = "sha256:505bdb0f318731d45f1f712071fc781a8981f6847a31c902c9f5e652d4f67faf", size = 87427, upload-time = "2026-09-25T06:52:35.829Z" },
 ]
+
+[[package]]
+name = "yoao-identity"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "bcrypt" },
+    { name = "pydantic" },
+    { name = "python-jose", extra = ["cryptography"] },
+    { name = "yoao-identity-admission" },
+    { name = "yoao-notifications" },
+]
+
+[package.optional-dependencies]
+postgres = [
+    { name = "asyncpg" },
+]
+runtime = [
+    { name = "asyncpg" },
+    { name = "fastapi" },
+    { name = "pydantic-settings" },
+    { name = "redis" },
+    { name = "uvicorn" },
+    { name = "yoao-mail-transport" },
+    { name = "yoao-notifications", extra = ["runtime"] },
+]
+test = [
+    { name = "httpx" },
+    { name = "pydantic-settings" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'postgres'", specifier = ">=0.29" },
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.29" },
+    { name = "bcrypt", specifier = ">=4.0" },
+    { name = "fastapi", marker = "extra == 'runtime'", specifier = ">=0.115" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.5" },
+    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6" },
+    { name = "pydantic-settings", marker = "extra == 'test'", specifier = ">=2.6" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24" },
+    { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3.0" },
+    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
+    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.30" },
+    { name = "yoao-identity-admission", editable = "../_shared/identity_admission" },
+    { name = "yoao-mail-transport", marker = "extra == 'runtime'", editable = "../_shared/mail_transport" },
+    { name = "yoao-notifications", editable = "../notifications" },
+    { name = "yoao-notifications", extras = ["runtime"], marker = "extra == 'runtime'", editable = "../notifications" },
+]
+provides-extras = ["postgres", "runtime", "test"]
+
+[[package]]
+name = "yoao-identity-admission"
+version = "0.1.0"
+source = { editable = "../_shared/identity_admission" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'http'", specifier = ">=0.27" },
+    { name = "pydantic", specifier = ">=2.5" },
+]
+provides-extras = ["http"]
+
+[[package]]
+name = "yoao-mail-transport"
+version = "0.1.0"
+source = { editable = "../_shared/mail_transport" }
+
+[[package]]
+name = "yoao-notifications"
+version = "0.1.0"
+source = { editable = "../notifications" }
+dependencies = [
+    { name = "pydantic" },
+]
+
+[package.optional-dependencies]
+runtime = [
+    { name = "asyncpg" },
+    { name = "pydantic-settings" },
+    { name = "redis" },
+    { name = "starlette" },
+    { name = "uvicorn" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "asyncpg", marker = "extra == 'runtime'", specifier = ">=0.30.0" },
+    { name = "asyncpg", marker = "extra == 'websocket'", specifier = ">=0.30.0" },
+    { name = "httpx", marker = "extra == 'publication-client'", specifier = ">=0.28.1" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.1" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pydantic-settings", marker = "extra == 'runtime'", specifier = ">=2.6.0" },
+    { name = "pydantic-settings", marker = "extra == 'test'", specifier = ">=2.6.0" },
+    { name = "pydantic-settings", marker = "extra == 'websocket'", specifier = ">=2.6.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "redis", marker = "extra == 'runtime'", specifier = ">=5.2.0" },
+    { name = "redis", marker = "extra == 'websocket'", specifier = ">=5.2.0" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'postgres'", specifier = ">=2.0.0" },
+    { name = "starlette", marker = "extra == 'runtime'", specifier = ">=1.0.0" },
+    { name = "starlette", marker = "extra == 'test'", specifier = ">=1.0.0" },
+    { name = "starlette", marker = "extra == 'websocket'", specifier = ">=1.0.0" },
+    { name = "uvicorn", marker = "extra == 'runtime'", specifier = ">=0.46.0" },
+    { name = "uvicorn", extras = ["standard"], marker = "extra == 'websocket'", specifier = ">=0.46.0" },
+    { name = "yoao-identity-admission", extras = ["http"], marker = "extra == 'websocket'", editable = "../_shared/identity_admission" },
+    { name = "yoao-owner-data", marker = "extra == 'websocket'", editable = "../_shared/owner_data" },
+]
+provides-extras = ["postgres", "runtime", "publication-client", "websocket", "test"]

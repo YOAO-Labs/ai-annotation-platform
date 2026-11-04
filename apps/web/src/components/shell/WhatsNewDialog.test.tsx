@@ -115,7 +115,7 @@ describe("WhatsNewDialog", () => {
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
     await screen.findByText(/v2.0.0/);
 
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByText("v2.0.0")).toBeNull());
     expect(mockUpdatePreferences).not.toHaveBeenCalled();
 
@@ -135,7 +135,7 @@ describe("WhatsNewDialog", () => {
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
     await screen.findByText(/v2.0.0/);
 
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByText("v2.0.0")).toBeNull());
 
     // 会话结束再登录:不能因缓存的「用户+版本」键而吞掉提醒。
@@ -190,7 +190,7 @@ describe("WhatsNewDialog", () => {
     act(() => signIn({ ui: { changelog_seen_version: "" } }));
     await screen.findByText(/v2.0.0/);
     // 先关掉登录自动弹窗,再手动打开,隔离手动入口。
-    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "关闭" }));
     await waitFor(() => expect(screen.queryByText(/v2.0.0/)).toBeNull());
 
     act(() => useWhatsNewStore.getState().openManually());

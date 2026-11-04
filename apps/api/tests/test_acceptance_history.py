@@ -56,8 +56,9 @@ async def test_acceptance_history_is_atomic_idempotent_and_task_actor_fenced(
     )
     db_session.add(prediction)
     await db_session.commit()
+    task_id, prediction_id = task.id, prediction.id
     key = str(uuid.uuid4())
-    accept_url = f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept"
+    accept_url = f"/api/v1/tasks/{task_id}/predictions/{prediction_id}/accept"
     response = await httpx_client.post(
         accept_url,
         params={"override_class_name": "person"},
@@ -84,7 +85,7 @@ async def test_acceptance_history_is_atomic_idempotent_and_task_actor_fenced(
     assert conflict.status_code == 409
     ids = [row["id"] for row in accepted]
     versions = {row["id"]: row["version"] for row in accepted}
-    url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
+    url = f"/api/v1/tasks/{task_id}/acceptance-history/{key}/restore"
     transition = {
         "target": "before",
         "expected_versions": versions,
@@ -153,17 +154,18 @@ async def test_acceptance_history_is_atomic_idempotent_and_task_actor_fenced(
     assert redo.status_code == 200, redo.text
     rows = (
         await db_session.scalars(
-            select(Annotation).where(Annotation.task_id == task.id)
+            select(Annotation).where(Annotation.task_id == task_id)
         )
     ).all()
     assert {str(row.id) for row in rows} == set(ids)
     assert all(
         row.is_active
-        and row.parent_prediction_id == prediction.id
+        and row.parent_prediction_id == prediction_id
         and row.class_name == "person"
         and row.attributes["weather"] == "rain"
         for row in rows
     )
+    await db_session.refresh(task)
     task.media_source_generation += 1
     await db_session.commit()
     changed_source = await httpx_client.post(
@@ -179,7 +181,7 @@ async def test_acceptance_history_is_atomic_idempotent_and_task_actor_fenced(
     assert changed_source.status_code == 409
     operation = await db_session.scalar(
         select(AnnotationOperation).where(
-            AnnotationOperation.task_id == task.id,
+            AnnotationOperation.task_id == task_id,
             AnnotationOperation.kind == "accept_prediction",
         )
     )
@@ -238,6 +240,7 @@ async def test_multi_annotation_restore_rolls_back_if_one_row_changed(
     )
     db_session.add(prediction)
     await db_session.commit()
+    task_id = task.id
     key = str(uuid.uuid4())
     accepted = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept",
@@ -251,7 +254,7 @@ async def test_multi_annotation_restore_rolls_back_if_one_row_changed(
     changed.version += 1
     await db_session.commit()
     restore = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore",
+        f"/api/v1/tasks/{task_id}/acceptance-history/{key}/restore",
         headers=_headers(token),
         json={
             "target": "before",
@@ -264,7 +267,7 @@ async def test_multi_annotation_restore_rolls_back_if_one_row_changed(
     persisted = (
         await db_session.scalars(
             select(Annotation)
-            .where(Annotation.task_id == task.id)
+            .where(Annotation.task_id == task_id)
             .execution_options(populate_existing=True)
         )
     ).all()
@@ -306,6 +309,7 @@ async def test_restore_rejects_real_editor_takeover_before_undo_and_redo(
     )
     db_session.add(prediction)
     await db_session.commit()
+    task_id, actor_id, other_id = task.id, actor.id, other.id
     key = str(uuid.uuid4())
     accepted = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/predictions/{prediction.id}/accept",
@@ -314,10 +318,10 @@ async def test_restore_rejects_real_editor_takeover_before_undo_and_redo(
     assert accepted.status_code == 200, accepted.text
     annotation = accepted.json()[0]
     locks = TaskLockService(db_session)
-    assert await locks.acquire(task.id, actor.id) is not None
-    assert await locks.acquire(task.id, other.id, force_takeover=True) is not None
+    assert await locks.acquire(task_id, actor_id) is not None
+    assert await locks.acquire(task_id, other_id, force_takeover=True) is not None
     await db_session.commit()
-    url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
+    url = f"/api/v1/tasks/{task_id}/acceptance-history/{key}/restore"
     undo = {
         "target": "before",
         "expected_versions": {annotation["id"]: annotation["version"]},
@@ -331,11 +335,11 @@ async def test_restore_rejects_real_editor_takeover_before_undo_and_redo(
         await db_session.get(Annotation, uuid.UUID(annotation["id"]))
     )
     assert (await db_session.get(Annotation, uuid.UUID(annotation["id"]))).is_active
-    assert await locks.release(task.id, other.id)
+    assert await locks.release(task_id, other_id)
     await db_session.commit()
     undone = await httpx_client.post(url, json=undo, headers=_headers(token))
     assert undone.status_code == 200, undone.text
-    assert await locks.acquire(task.id, other.id) is not None
+    assert await locks.acquire(task_id, other_id) is not None
     await db_session.commit()
     redo = {
         "target": "after",

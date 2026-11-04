@@ -77,6 +77,8 @@ with Client() as client:
 
 `exports.create` 返回 job_id;`exports.wait` 每 2 秒轮询一次,每轮先调 `on_progress(job)`;job 失败抛 `JobFailedError`,超时抛 `JobTimeoutError`。
 
+异步导出包使用服务端提供的预签名地址，下载不附加平台 Bearer 凭据；读取作业本身仍需要平台认证。如果部署返回 `/minio/...` 这类相对地址，`base_url` 必须指向同时提供 API 和对象存储代理的平台入口，不能使用只有 API 的内部端口。完整对象存储 URL 则直接下载。同步 VOC 导出仍使用带平台认证的 API 请求。
+
 ```python
 from yoao import Client, JobFailedError, JobTimeoutError
 from yoao.models import Job

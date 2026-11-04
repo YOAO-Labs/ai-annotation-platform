@@ -20,14 +20,18 @@ last_reviewed: 2026-10-19
 
 ## 一次性初始化（Setup）
 
+先从可信渠道取得候选 Plugin-SDK 制品清单路径或 URL，以及独立核验的清单 SHA256，分别设置为 `SDK_MANIFEST`、`SDK_MANIFEST_SHA256`。wheel 必须与清单位于同一目录；下面的暂存步骤校验摘要，不使用另一 checkout 的 editable SDK 源码，也不代表新发行名已经公开发布。
+
 ```bash
 # 1. 安装前端与工作区依赖
 pnpm install
 # pnpm install 会自动运行 prepare；若本机安装了 pre-commit，可执行 pre-commit install
 
 # 2. 安装后端 Python 环境（含测试依赖）
+python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
+  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
 cd apps/api
-uv sync --extra test
+uv sync --locked --extra test
 
 # 3. 启动基础服务与后台队列容器
 cd ../..
@@ -38,15 +42,19 @@ docker compose up -d       # postgres / redis / minio / mailpit / celery workers
 
 ## Orca 多工作树初始化（Worktree）
 
-仓库根目录的 `orca.yaml` 会在新建工作树时调用 `scripts/orca-worktree-setup.sh`，完成依赖软链接与独立虚拟环境初始化：
+仓库根目录的 `orca.yaml` 使用 `scripts/orca-worktree-setup.sh` 完成依赖软链接与独立虚拟环境初始化。候选 wheel 必须先暂存到新 checkout；创建工作树时先跳过自动 setup，暂存后再调用既有脚本。`.artifacts` 不会从源 checkout 自动复制或共享。
 
 - **环境变量与依赖共享**：`.env`（及 `.env.local`）软链接至主工作树；当锁文件与 `package.json` 未变更时，`node_modules`、`apps/web/node_modules` 与 `docs-site/node_modules` 自动建立软链接，否则回退至 `pnpm install --frozen-lockfile`。
 - **Python 虚拟环境与生成类型隔离**：`apps/api/.venv` 由 `uv sync --project apps/api --locked --extra test` 独立创建（避免 editable 包路径串回主目录）；`pnpm codegen` 根据当前工作树的 `openapi.snapshot.json` 在本地生成 `apps/web/src/api/generated/`。
-- **一键启动隔离开发栈**：主目录已有本机 PostgreSQL / MinIO 后，在工作树内运行 `pnpm dev:worktree` 即可自动创建隔离的数据库、Redis DB、9 个 MinIO 存储桶并启动 API 与 Web（需后台任务时使用 `pnpm dev:worktree -- up --with-worker`）。详见[独立工作树开发环境](../how-to/worktree-environments)。
+- **一键启动隔离开发栈**：主目录已有本机 PostgreSQL / MinIO 后，在工作树内运行 `pnpm dev:worktree` 即可自动创建隔离数据库、Redis 和用途存储桶并启动 API 与 Web（需后台任务时使用 `pnpm dev:worktree -- up --with-worker`）。详见[独立工作树开发环境](../how-to/worktree-environments)。
 
 ```bash
-# 显式运行仓库 setup 创建工作树
-orca worktree create --name my-task --agent codex --setup run --json
+# 先创建工作树；以下路径替换为实际输出的新 checkout 和源 checkout
+orca worktree create --name my-task --agent codex --setup skip --json
+cd /path/to/new-worktree
+python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
+  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+ORCA_ROOT_PATH="/path/to/source-checkout" ORCA_WORKTREE_PATH="$PWD" bash scripts/orca-worktree-setup.sh
 
 # 验证工作树 setup 脚本的软链接与隔离逻辑
 python3 scripts/test-orca-worktree-setup.py

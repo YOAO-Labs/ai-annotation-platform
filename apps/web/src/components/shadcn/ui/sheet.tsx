@@ -41,7 +41,7 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
-  closeButtonLabel = "Close",
+  closeButtonLabel = "关闭",
   closeButtonClassName,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {

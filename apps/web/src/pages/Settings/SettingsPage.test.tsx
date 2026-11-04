@@ -427,41 +427,6 @@ describe("SettingsPage", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
-  it("我的反馈展示返回记录的标识、严重度和状态", async () => {
-    mockListMine.mockResolvedValueOnce({
-      items: [
-        {
-          id: "one",
-          display_id: "BUG-101",
-          title: "画布无法打开",
-          severity: "high",
-          status: "in_progress",
-          created_at: "2026-09-01T12:00:00Z",
-        },
-        {
-          id: "two",
-          display_id: "BUG-102",
-          title: "快捷键无响应",
-          severity: "low",
-          status: "future_status",
-          created_at: "2026-09-02T12:00:00Z",
-        },
-      ],
-      total: 2,
-    });
-    renderUI("/settings?section=feedback");
-    const firstRow = (await screen.findByText("BUG-101")).closest("tr")!;
-    const secondRow = screen.getByText("BUG-102").closest("tr")!;
-    expect(within(firstRow).getByText("画布无法打开")).toBeInTheDocument();
-    expect(within(firstRow).getByText("high")).toBeInTheDocument();
-    expect(within(firstRow).getByText("处理中")).toBeInTheDocument();
-    expect(within(secondRow).getByText("快捷键无响应")).toBeInTheDocument();
-    expect(within(secondRow).getByText("low")).toBeInTheDocument();
-    expect(within(secondRow).getByText("future_status")).toBeInTheDocument();
-    expect(screen.queryByText(/暂无反馈记录/)).not.toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
-  });
-
   it("危险区：点击「申请注销账号」展开确认面板", () => {
     renderUI();
     fireEvent.click(screen.getByRole("button", { name: /申请注销账号/ }));

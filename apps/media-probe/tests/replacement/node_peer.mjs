@@ -128,7 +128,7 @@ async function saveUpload(request, response) {
     }
   }
 
-  const directory = mkdtempSync(path.join(tmpdir(), "yoao-media-probe-"));
+  const directory = mkdtempSync(path.join(tmpdir(), "media-probe-"));
   temporaryDirectories.add(directory);
   const inputPath = path.join(directory, "input.media");
   const output = createWriteStream(inputPath, { flags: "wx" });

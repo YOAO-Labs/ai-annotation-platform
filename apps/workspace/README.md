@@ -64,7 +64,7 @@ Hatchling packages the current source directory directly, preventing an old
 setuptools staging directory from retaining removed modules in a later wheel.
 
 Project query requests, typed read facts, raw value codecs, and row authority
-phases live in the shared `aap_workspace_contract` package. Workspace retains
+phases live in the shared `yoao_workspace_contract` package. Workspace retains
 the query manager, data/SQL adapters, and runtime bindings. API callers select
 borrowed, dedicated PostgreSQL or HTTP bindings. Native0261 and its
 function-only credential pass owned database checks; the standalone runtime

@@ -402,7 +402,7 @@ async def qualify(backend):
             backend.s3.put_object(Bucket=bucket, Key=key, Body=BODY)
         prefix = f"projects/{uuid.uuid4()}/datasets/{uuid.uuid4()}/"
         backend.s3.put_object(Bucket=bucket, Key=prefix + "raw/%2F", Body=BODY)
-        with tempfile.TemporaryDirectory(prefix="yoao-reference-live-") as directory:
+        with tempfile.TemporaryDirectory(prefix="reference-live-") as directory:
             root = Path(directory)
             source = root / "source.jsonl"
             result = write_inventory(

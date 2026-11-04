@@ -26,6 +26,8 @@ import { useWhatsNewStore } from "./WhatsNewDialog";
 import { CommandPalette } from "@/components/CommandPalette";
 import { usePerfHudStore } from "@/components/PerfHud";
 import { appVersion } from "@/utils/releaseNotes";
+import { ROLE_LABELS } from "@/constants/roles";
+import type { UserRole } from "@/types";
 
 const NotificationsPopover = lazy(() =>
   import("./NotificationsPopover").then((module) => ({ default: module.NotificationsPopover })),
@@ -206,7 +208,9 @@ export function TopBar({
               )}
             >
               <span className="text-xs font-medium">{user?.name ?? "—"}</span>
-              <span className="text-2xs text-muted-foreground">{user?.role ?? "—"}</span>
+              <span className="text-2xs text-muted-foreground">
+                {user ? (ROLE_LABELS[user.role as UserRole] ?? user.role) : "—"}
+              </span>
             </div>
           </Link>
           <button

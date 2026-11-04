@@ -36,6 +36,7 @@ from tests.managed_image_inference_fixtures import (
     input_world as input_world,
     sync_world as sync_world,
 )
+from tests.video_derivative_fixtures import owned_metadata
 
 RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [1, 2, 3]}
 ALT_RLE = {"encoding": "coco_rle", "size": [2, 3], "counts": [2, 1, 3]}
@@ -86,9 +87,6 @@ async def _seed(
     )
     db.add(item)
     await db.flush()
-    if media_type == "video":
-        item.media_materialized_generation = item.media_source_generation
-        await db.flush()
     project = Project(
         display_id=f"P-AIM-{suffix}",
         name=f"ai-mask-{suffix}",
@@ -129,7 +127,7 @@ async def _seed(
             db, project, await db.get(User, owner_id), task=task, item=item
         )
     else:
-        await db.commit()
+        await owned_metadata(db, item)
     return task, backend, pool
 
 
@@ -1076,6 +1074,8 @@ async def test_native_refine_history_restores_lineage_and_retains_both_masks(
     accepted_row = accepted.json()["annotation"]
     new_prediction_id = accepted_row["parent_prediction_id"]
     assert new_prediction_id != str(old_prediction_id)
+    await db_session.refresh(source)
+    accepted_geometry = deepcopy(source.geometry)
     key = body["idempotency_key"]
     url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
     undo_body = {
@@ -1104,7 +1104,7 @@ async def test_native_refine_history_restores_lineage_and_retains_both_masks(
     assert redo.status_code == 200, redo.text
     await db_session.refresh(source)
     assert str(source.parent_prediction_id) == new_prediction_id
-    assert source.geometry == accepted_row["geometry"]
+    assert source.geometry == accepted_geometry
     assert source.class_name == "other"
     assert (
         await db_session.scalar(
@@ -1144,6 +1144,10 @@ async def test_native_create_history_reactivates_original_annotation(
     )
     assert accepted.status_code == 200, accepted.text
     row = accepted.json()["annotation"]
+    accepted_annotation = await db_session.get(
+        Annotation, uuid.UUID(row["id"]), populate_existing=True
+    )
+    accepted_geometry = deepcopy(accepted_annotation.geometry)
     url = (
         f"/api/v1/tasks/{task.id}/acceptance-history/{body['idempotency_key']}/restore"
     )
@@ -1174,7 +1178,7 @@ async def test_native_create_history_reactivates_original_annotation(
         Annotation, uuid.UUID(row["id"]), populate_existing=True
     )
     assert annotation.is_active
-    assert annotation.geometry == row["geometry"]
+    assert annotation.geometry == accepted_geometry
     assert str(annotation.parent_prediction_id) == accepted.json()["prediction"]["id"]
 
 

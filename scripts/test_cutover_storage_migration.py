@@ -84,9 +84,7 @@ class InputTests(unittest.TestCase):
                 )
 
     def test_review_is_private_exclusive_and_token_is_not_displayed(self):
-        with tempfile.TemporaryDirectory(
-            prefix="yoao-cutover-review-test-"
-        ) as directory:
+        with tempfile.TemporaryDirectory(prefix="cutover-review-test-") as directory:
             path = Path(directory) / "review.json"
             review = {"context": {"id": CUTOVER}, "impact_token": "private-token"}
             cli.write_review(path, review)
@@ -100,9 +98,7 @@ class InputTests(unittest.TestCase):
             )
 
     def test_review_rejects_shared_parent_or_symlink(self):
-        with tempfile.TemporaryDirectory(
-            prefix="yoao-cutover-review-test-"
-        ) as directory:
+        with tempfile.TemporaryDirectory(prefix="cutover-review-test-") as directory:
             parent = Path(directory)
             parent.chmod(0o755)
             with self.assertRaises(FenceError):

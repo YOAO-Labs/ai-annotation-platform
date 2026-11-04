@@ -1,1 +1,1 @@
-anno-mask-utils @ https://github.com/YOAO-Labs/Plugin-SDK/releases/download/python-sdk-0.1.0/anno_mask_utils-0.1.0-py3-none-any.whl --hash=sha256:065c1e62194562b42b99d3d23117b6c6b6b1b925277687575a7702838b028567
+yoao-mask-utils==0.1.0 --hash=sha256:c16f52c3b2d3fa934238082ae1f846f5cadb2c0955b4163704c7d483b2aa88ca

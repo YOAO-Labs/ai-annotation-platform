@@ -79,7 +79,7 @@ def main() -> None:
         check=True,
     )
     environment = {**os.environ, "SOURCE_DATE_EPOCH": epoch, "PYTHONHASHSEED": "0"}
-    with tempfile.TemporaryDirectory(prefix="yoao-contracts-") as temporary:
+    with tempfile.TemporaryDirectory(prefix="plugin-contracts-") as temporary:
         source = Path(temporary)
         subprocess.run(
             ["tar", "-xf", str(source_archive), "-C", str(source)], check=True

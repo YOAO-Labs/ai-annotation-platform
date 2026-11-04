@@ -255,7 +255,9 @@ export function VideoTrackerReviewBar({
                     >
                       F{preview.correction_frame} 人工纠错帧 · 窗口 F{preview.from_frame}–F
                       {preview.to_frame} · {directionLabel(preview.direction)} ·
-                      {preview.seed_mode === "native_mask" ? " 原生 Mask seed" : " bbox seed 降级"}
+                      {preview.seed_mode === "native_mask"
+                        ? " 原生 Mask 起点"
+                        : " 外接框起点（降级）"}
                       {preview.protect_manual ? " · 保护人工帧" : ""}
                     </p>
                   ) : null}
@@ -358,7 +360,8 @@ export function VideoTrackerReviewBar({
                 data-testid="tracker-review-fallback-warning"
               >
                 <ShieldAlert className="size-4" />
-                当前候选使用 bbox seed 降级：{preview.fallback_reason}。输出仍为 Mask。
+                当前候选已降级为使用外接框作为追踪起点，输出仍为 Mask。原因：
+                {preview.fallback_reason}
               </div>
             ) : null}
 

@@ -17,6 +17,7 @@ def logical_sources(
     """
     # Packaging owns the persisted naming conventions. Import at use time so
     # the collector and packaging can both consume this helper without a cycle.
+    from app.services.exporting.lidar_frozen import _detached_item
     from app.services.exporting.packaging import (
         _camera_name,
         _lidar_frame_key,
@@ -30,7 +31,7 @@ def logical_sources(
     ]
     result: dict[str, dict[str, str]] = {target: {} for target in targets}
     generated = {target: set() for target in targets}
-    items = {item["id"]: SimpleNamespace(**item) for item in snapshot["items"]}
+    items = {item["id"]: _detached_item(item) for item in snapshot["items"]}
     links = {link["id"]: SimpleNamespace(**link) for link in snapshot["links"]}
     scenes = {scene["id"]: scene for scene in snapshot.get("scenes", [])}
     cameras_by_task = {}
@@ -102,9 +103,7 @@ def logical_sources(
                 raw = binding_for(task_id, "raw_lidar")
                 add(
                     target,
-                    primary_item.metadata_["nuscenes_export"]["sample_data"][
-                        "filename"
-                    ],
+                    primary_item.metadata["nuscenes_export"]["sample_data"]["filename"],
                     raw,
                 )
                 scene = scenes.get(str(primary_item.scene_id))
@@ -120,11 +119,11 @@ def logical_sources(
                     if binding["link_id"] != link.id:
                         raise ValueError("lidar_media_binding_conflict")
                     item = items.get(link.dataset_item_id)
-                    if item is None or binding["source"].get("item_id") != item.id:
+                    if item is None or binding["source"].get("item_id") != str(item.id):
                         raise ValueError("lidar_media_item_missing")
                     add(
                         target,
-                        item.metadata_["nuscenes_export"]["sample_data"]["filename"],
+                        item.metadata["nuscenes_export"]["sample_data"]["filename"],
                         binding,
                     )
                 continue

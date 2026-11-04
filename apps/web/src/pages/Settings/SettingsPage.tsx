@@ -26,6 +26,7 @@ const AvatarPickerDialog = lazy(() =>
 );
 import { ROLE_LABELS } from "@/constants/roles";
 import { bugReportsApi, type BugReportResponse } from "@/api/bug-reports";
+import { BUG_SEVERITY_LABELS } from "@/constants/bugReports";
 import { NotificationPreferencesPanel } from "@/components/notifications/NotificationPreferencesPanel";
 import { useWorkbenchConfig } from "@/pages/Workbench/state/useWorkbenchConfig";
 import { SettingsFieldControl } from "@/pages/Workbench/components/SettingsFieldControl";
@@ -627,7 +628,7 @@ function MyFeedbackSection() {
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">
                   <span className={clsx("font-medium", severityClassName(r.severity))}>
-                    {r.severity}
+                    {BUG_SEVERITY_LABELS[r.severity] ?? r.severity}
                   </span>
                 </td>
                 <td className="whitespace-nowrap px-3 py-2">

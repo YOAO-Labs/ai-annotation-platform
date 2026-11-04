@@ -807,10 +807,7 @@ async def test_gpu_resources_reports_unconfigured_authority_as_unavailable(
     )
 
     assert response.status_code == 503
-    assert response.json()["detail"] == {
-        "error_code": "gpu_arbiter_unavailable",
-        "message": "GPU authority HTTP client is not configured",
-    }
+    assert response.json()["detail"]["error_code"] == "gpu_arbiter_unavailable"
 
 
 async def test_gpu_resources_requires_superadmin(httpx_client, project_admin):

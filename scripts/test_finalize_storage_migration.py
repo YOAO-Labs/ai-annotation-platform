@@ -114,9 +114,7 @@ class ArgumentsTests(unittest.TestCase):
 
 class BridgeTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
-        self.temporary = tempfile.TemporaryDirectory(
-            prefix="yoao-finalization-cli-test-"
-        )
+        self.temporary = tempfile.TemporaryDirectory(prefix="finalization-cli-test-")
         self.addCleanup(self.temporary.cleanup)
         self.path = Path(self.temporary.name) / "fence-state.json"
         self.journal = Journal(self.path, DIGEST, create=True).__enter__()
