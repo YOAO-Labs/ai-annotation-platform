@@ -542,7 +542,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
     )
     quality_runs = _quality_facts(runs)
     predictions, scenes, tracks, intervals = [], [], [], []
-    if "aap_json" in targets and identities:
+    if "native_json" in targets and identities:
         predictions = await _rows(
             db,
             Prediction,

@@ -35,9 +35,8 @@ from app.services.project_access import get_workspace_project
 from app.schemas.native_json import (
     ImportErrorEntry,
     ImportResult,
-    NativeJsonEnvelope,
     PredictionEntry,
-    check_schema_major,
+    decode_native_json,
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.prediction import PredictionService, derive_tool_unit_from_result
@@ -389,13 +388,8 @@ async def import_native_json(
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"原生 JSON 文件无法解析: {exc}") from exc
 
-    schema_version = raw.get("schema_version") if isinstance(raw, dict) else None
-    if not isinstance(schema_version, str):
-        raise ValueError("原生 JSON 缺少 schema_version 字段 (1.0)")
-    check_schema_major(schema_version)
-
     try:
-        envelope = NativeJsonEnvelope.model_validate(raw)
+        envelope = decode_native_json(raw)
     except ValidationError as exc:
         raise ValueError(f"原生 JSON envelope 校验失败: {exc.errors()[:3]}") from exc
     if not dry_run:

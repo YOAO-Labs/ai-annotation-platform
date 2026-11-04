@@ -57,7 +57,7 @@ PREDS_FILE = "preds.json"
 with Client() as client:
     # 第一遍: 只校验
     check = client.predictions.import_file(
-        PROJECT_ID, PREDS_FILE, format="aap_json", dry_run=True
+        PROJECT_ID, PREDS_FILE, format="native_json", dry_run=True
     )
     if check.errors:
         print(f"dry-run 发现 {len(check.errors)} 个错误, 中止导入:")
@@ -68,7 +68,7 @@ with Client() as client:
 
     # 第二遍: 正式落库
     result = client.predictions.import_file(
-        PROJECT_ID, PREDS_FILE, format="aap_json"
+        PROJECT_ID, PREDS_FILE, format="native_json"
     )
     print(f"导入完成: imported={result.imported} skipped={result.skipped}")
 ```
@@ -91,7 +91,7 @@ def show_progress(job: Job) -> None:
 
 
 with Client() as client:
-    job_id = client.exports.create(PROJECT_ID, targets=["aap_json"])
+    job_id = client.exports.create(PROJECT_ID, targets=["native_json"])
     print(f"导出 job 已创建: {job_id}")
     try:
         job = client.exports.wait(job_id, timeout=600, on_progress=show_progress)
@@ -133,7 +133,7 @@ with Client() as client:
     client.tasks.approve_review(TASK_ID)
 
     job_id = client.batches.export(
-        PROJECT_ID, batch.id, targets=["aap_json"]
+        PROJECT_ID, batch.id, targets=["native_json"]
     )
     job = client.jobs.wait(job_id)
     client.exports.download(job, "./batch-export.zip")
@@ -150,7 +150,7 @@ yoao tasks review-claim "$TASK_ID" --json
 yoao tasks review-approve "$TASK_ID" --json
 
 job_id=$(yoao batches export "$PROJECT_ID" "$batch_id" \
-  --target aap_json --json | jq -r '.job_id')
+  --target native_json --json | jq -r '.job_id')
 yoao jobs wait "$job_id" --json
 ```
 

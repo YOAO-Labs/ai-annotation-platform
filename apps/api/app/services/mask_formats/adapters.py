@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.project import Project
-from app.schemas.native_json import NativeJsonEnvelope
+from app.schemas.native_json import NativeJsonEnvelope, decode_native_json
 from app.schemas.mask_format import (
     MaskFormatCode,
     MaskFormatPlan,
@@ -36,7 +36,7 @@ from app.services.exporting.video_scope import (
 
 
 _ALLOWED_GEOMETRY: dict[str, frozenset[str] | None] = {
-    "aap_json": None,
+    "native_json": None,
     "coco": frozenset(
         {"bbox", "rotated_bbox", "polygon", "multi_polygon", "keypoint", "raster_mask"}
     ),
@@ -250,9 +250,7 @@ class NativeJsonAdapter(LegacyPackagingAdapter):
         if staged.size_bytes > 64 * 1024 * 1024:
             raise ValueError("resource_budget_exceeded:max_aap_json_bytes")
         try:
-            return NativeJsonEnvelope.model_validate_json(
-                Path(staged.local_path).read_bytes()
-            )
+            return decode_native_json(json.loads(Path(staged.local_path).read_bytes()))
         except Exception as exc:
             raise ValueError(f"aap_json_invalid:{exc}") from exc
 

@@ -78,7 +78,7 @@ export function PredictionImportWizard({
 
   const [step, setStep] = useState<WizardStep>("select");
   const [target, setTarget] = useState<ImportTarget>(initialTarget);
-  const [format, setFormat] = useState<PredictionImportFormat>("aap_json");
+  const [format, setFormat] = useState<PredictionImportFormat>("native_json");
   const [yoloVariant, setYoloVariant] = useState<YoloImportVariant>("det");
   const [files, setFiles] = useState<File[]>([]);
   const [modelVersion, setModelVersion] = useState("");
@@ -93,7 +93,7 @@ export function PredictionImportWizard({
   const reset = () => {
     setStep("select");
     setTarget(initialTarget);
-    setFormat("aap_json");
+    setFormat("native_json");
     setYoloVariant("det");
     setFiles([]);
     setModelVersion("");
@@ -136,7 +136,7 @@ export function PredictionImportWizard({
       modelVersion: modelVersion || undefined,
       overwriteExisting,
     };
-    // COCO 默认尺寸仅对「预测 + COCO」生效; 标注导入只走 aap_json。
+    // COCO 默认尺寸仅对「预测 + COCO」生效; 标注导入只走 native_json。
     if (target !== "predictions") return base;
     if (format === "yolo") return { ...base, yoloVariant };
     if (format !== "coco") return base;
@@ -277,7 +277,7 @@ export function PredictionImportWizard({
                     setImageHeight("");
                   }}
                 >
-                  <option value="aap_json">原生 JSON</option>
+                  <option value="native_json">原生 JSON</option>
                   <option value="coco">COCO Detection</option>
                   <option value="yolo">YOLO (zip)</option>
                 </select>

@@ -93,14 +93,16 @@ def _route(
             return await annotations.import_annotations(
                 request=request,
                 file=files[0],
-                format="aap_json",
+                format="native_json",
                 dry_run=not job,
                 overwrite=True,
                 project=project,
                 db=db,
                 current_user=user,
             )
-        importer_name = "import_native_json" if name == "aap_json" else "import_" + name
+        importer_name = (
+            "import_native_json" if name == "native_json" else "import_" + name
+        )
         monkeypatch.setattr(predictions_import, importer_name, importer)
         return await predictions.import_predictions(
             request=request,
@@ -122,7 +124,7 @@ def _route(
     )
 
 
-@pytest.mark.parametrize("route", ["annotations", "aap_json", "coco"])
+@pytest.mark.parametrize("route", ["annotations", "native_json", "coco"])
 @pytest.mark.parametrize(
     "status,reason",
     [
@@ -163,7 +165,7 @@ async def test_typed_mask_failure_preserves_http_contract_and_rolls_back_import(
     )
 
 
-@pytest.mark.parametrize("format", ["aap_json", "coco"])
+@pytest.mark.parametrize("format", ["native_json", "coco"])
 @pytest.mark.parametrize("fail_at", [0, 1])
 async def test_multifile_mask_failure_stops_later_files_and_rolls_back_earlier_writes(
     monkeypatch, format, fail_at
@@ -185,7 +187,7 @@ async def test_multifile_mask_failure_stops_later_files_and_rolls_back_earlier_w
     assert context.db.events[-4:] == ["rollback", "failed", "notify", "commit"]
 
 
-@pytest.mark.parametrize("route", ["annotations", "aap_json", "coco"])
+@pytest.mark.parametrize("route", ["annotations", "native_json", "coco"])
 @pytest.mark.parametrize("ledger_fails", [False, True])
 async def test_typed_failure_survives_missing_job_or_failed_failure_receipt(
     monkeypatch, route, ledger_fails
@@ -214,7 +216,7 @@ async def test_typed_failure_survives_missing_job_or_failed_failure_receipt(
         assert context.db.events == ["import", "rollback"]
 
 
-@pytest.mark.parametrize("format", ["aap_json", "coco"])
+@pytest.mark.parametrize("format", ["native_json", "coco"])
 @pytest.mark.parametrize("ledger_fails", [False, True])
 async def test_unexpected_failure_survives_missing_job_or_failed_receipt(
     monkeypatch, format, ledger_fails
@@ -232,7 +234,7 @@ async def test_unexpected_failure_survives_missing_job_or_failed_receipt(
     assert context.db.committed == ([()] if ledger_fails else [])
 
 
-@pytest.mark.parametrize("format", ["aap_json", "coco"])
+@pytest.mark.parametrize("format", ["native_json", "coco"])
 async def test_typed_failure_without_job_still_rolls_back_non_dry_import(
     monkeypatch, format
 ):
@@ -257,7 +259,7 @@ async def test_typed_failure_without_job_still_rolls_back_non_dry_import(
     context.failed.assert_not_awaited()
 
 
-@pytest.mark.parametrize("route", ["annotations", "aap_json", "coco"])
+@pytest.mark.parametrize("route", ["annotations", "native_json", "coco"])
 async def test_plain_input_value_error_still_returns_422(monkeypatch, route):
     context = _route(monkeypatch, route, ValueError("invalid input"), job=False)
     with pytest.raises(HTTPException) as caught:
@@ -266,7 +268,7 @@ async def test_plain_input_value_error_still_returns_422(monkeypatch, route):
     assert caught.value.detail == "invalid input"
 
 
-@pytest.mark.parametrize("format", ["aap_json", "coco"])
+@pytest.mark.parametrize("format", ["native_json", "coco"])
 async def test_multifile_plain_input_error_remains_a_skipped_file(monkeypatch, format):
     context = _route(
         monkeypatch, format, ValueError("invalid input"), file_count=3, job=False

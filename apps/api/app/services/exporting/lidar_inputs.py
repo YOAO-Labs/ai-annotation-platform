@@ -630,7 +630,7 @@ async def _collect(
             ),
             order=[Prediction.created_at, Prediction.id],
         )
-        if "aap_json" in targets
+        if "native_json" in targets
         else []
     )
     scope_tasks, scope_items, scope_links = [], [], []

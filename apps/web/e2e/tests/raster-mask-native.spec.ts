@@ -786,7 +786,7 @@ test.describe("raster mask read-only and closed-gate matrix", { tag: "@mask-read
       ],
     };
     const imported = await request.post(
-      `${API_BASE}/api/v1/projects/${data.project_id}/annotations/import?format=aap_json`,
+      `${API_BASE}/api/v1/projects/${data.project_id}/annotations/import?format=native_json`,
       {
         headers: authHeaders(token),
         multipart: {

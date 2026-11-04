@@ -30,15 +30,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ── schema 常量 ─────────────────────────────────────────────────────
 
-SCHEMA_MAJOR = 1
-# v0.10.17 · 升 1.1: envelope 增加 project.tool_bindings (工具维度类别/属性绑定)
-# 与 annotations/predictions 数组每条 tool_unit_id. 1.0 reader 仍能读 (extra=ignore).
-# v0.10.31 · 升 1.2: task 层增加 media_type + video 子块 (视频采样/fps/帧元数据).
-# 1.x reader 走 extra=ignore 容忍, media_type 缺失时默认 "image".
-# v0.22.0 · 升 1.3: envelope 增 mask_objects，令 coco_rle_ref 跨实例可移植。
-# 1.5: annotation entry 增 track_id / temporal_role，envelope 增 scene_tracks。
-# 1.6: annotation entry 增持久化多相机成员及其标定版本关系。
-SCHEMA_VERSION = "1.7"
+SCHEMA_VERSION = "2.0"
 
 
 # ── task_match (oneof) ───────────────────────────────────────────────
@@ -167,7 +159,7 @@ class TaskBlock(BaseModel):
 
 
 class ExportedFrom(BaseModel):
-    platform: Literal["aap"] = "aap"
+    platform: Literal["yoao"] = "yoao"
     platform_version: str | None = None
     project_display_id: str | None = None
     batch_display_id: str | None = None
@@ -190,14 +182,14 @@ class ProjectMeta(BaseModel):
 
 
 class NativeJsonEnvelope(BaseModel):
-    """AAP JSON v1.0 envelope.
+    """Platform native JSON envelope.
 
     导出端用 model_dump(mode="json") 严格写满 null; 导入端 model_validate()
     走 extra="ignore" 实现 lenient.
     """
 
     schema_version: str = SCHEMA_VERSION
-    format: Literal["aap"] = "aap"
+    format: Literal["yoao"] = "yoao"
     task: VisualTaskName | None = None
     available_tasks: list[VisualTaskName] = Field(default_factory=list)
     media_type: Literal["image", "video", "lidar"] = "image"
@@ -230,16 +222,31 @@ class ImportResult(BaseModel):
 # ── helper ──────────────────────────────────────────────────────────
 
 
-def check_schema_major(version: str) -> None:
-    """schema_version > 当前 major 时拒绝解析, 避免静默吃下未知 breaking change."""
-
-    try:
-        major_str = version.split(".", 1)[0]
-        major = int(major_str)
-    except (ValueError, IndexError):
+def decode_native_json(raw: Any) -> NativeJsonEnvelope:
+    """Decode historical 1.x identities into the current internal envelope."""
+    if not isinstance(raw, dict):
+        raise ValueError("原生 JSON envelope 必须是对象")
+    version = raw.get("schema_version")
+    if not isinstance(version, str):
+        raise ValueError("原生 JSON 缺少 schema_version 字段")
+    parts = version.split(".")
+    if len(parts) != 2 or not all(part.isascii() and part.isdigit() for part in parts):
         raise ValueError(f"schema_version {version!r} 格式非法, 应形如 '1.0'")
-    if major > SCHEMA_MAJOR:
-        raise ValueError(
-            f"原生 JSON schema_version {version!r} 超出本平台支持范围 "
-            f"(当前最大支持 major={SCHEMA_MAJOR}); 请升级平台"
-        )
+    major = int(parts[0])
+    if major not in (1, 2):
+        raise ValueError(f"不支持原生 JSON schema_version {version!r}")
+    identity = "aap" if major == 1 else "yoao"
+    exported_from = raw.get("exported_from", {})
+    if not isinstance(exported_from, dict):
+        raise ValueError("原生 JSON exported_from 必须是对象")
+    if raw.get("format", "aap" if major == 1 else None) != identity:
+        raise ValueError("原生 JSON format 与 schema_version 不匹配")
+    if exported_from.get("platform", "aap" if major == 1 else None) != identity:
+        raise ValueError("原生 JSON platform 与 schema_version 不匹配")
+    normalized = {
+        **raw,
+        "schema_version": SCHEMA_VERSION,
+        "format": "yoao",
+        "exported_from": {**exported_from, "platform": "yoao"},
+    }
+    return NativeJsonEnvelope.model_validate(normalized)

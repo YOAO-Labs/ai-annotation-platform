@@ -125,7 +125,7 @@ def check(delivery):
     raw_by_task = {}
     for row in delivery.annotations:
         raw_by_task.setdefault(row.task_id, []).append(row)
-    if "aap_json" in targets:
+    if {"native_json", "aap_json"} & set(targets):
         for prediction in delivery.predictions:
             for shape in prediction.result or []:
                 geometry = to_internal_shape(shape).get("geometry") or {}

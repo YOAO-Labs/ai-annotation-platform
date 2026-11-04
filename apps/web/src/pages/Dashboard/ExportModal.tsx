@@ -56,7 +56,7 @@ const IMAGE_OPTIONS: ImageOption[] = [
   },
   {
     kind: "single",
-    value: "aap_json",
+    value: "native_json",
     label: "原生 JSON",
     description: "分别保存预测候选和正式标注，并保留项目配置。",
   },
@@ -117,7 +117,7 @@ const VIDEO_OPTIONS: TargetOption[] = [
     description: "逐帧导出分割数据，并记录类别、轨迹与帧号的对应关系。",
   },
   {
-    value: "aap_json",
+    value: "native_json",
     label: "原生 JSON",
     description: "保留视频轨迹的受支持标注形状和项目配置。",
   },
@@ -127,7 +127,7 @@ const VIDEO_OPTIONS: TargetOption[] = [
 
 const LIDAR_OPTIONS: TargetOption[] = [
   {
-    value: "aap_json",
+    value: "native_json",
     label: "原生 JSON",
     description: "YOAO 原生交换格式，保留 3D 几何与项目配置。",
   },
@@ -235,7 +235,7 @@ function ExportForm({
   const isVideoProject = projectTypeKey === "video-track";
   const isLidarProject = projectTypeKey === "lidar";
   const [targets, setTargets] = useState<ExportTarget[]>(
-    isVideoProject ? ["video_json"] : isLidarProject ? ["aap_json"] : ["coco"],
+    isVideoProject ? ["video_json"] : isLidarProject ? ["native_json"] : ["coco"],
   );
   const [yoloExpanded, setYoloExpanded] = useState(false);
   const [includeAttributes, setIncludeAttributes] = useState(true);

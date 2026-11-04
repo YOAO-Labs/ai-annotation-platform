@@ -207,6 +207,56 @@ async def test_aap_scene_track_intervals_and_temporal_roles_round_trip(
     assert {row.temporal_role for row in members} == {"keyframe", "sample"}
 
 
+async def test_native_source_axis_import_restores_internal_iso(db_session, super_admin):
+    user, _ = super_admin
+    project, _, tasks = await _seed_scene(db_session, owner_id=user.id, frame_count=1)
+    document = {
+        "schema_version": "2.0",
+        "format": "yoao",
+        "exported_from": {"platform": "yoao"},
+        "tasks": [
+            {
+                "task_match": {"display_id": tasks[0].display_id},
+                "media_type": "lidar",
+                "annotations": [
+                    {
+                        "geometry": {
+                            "type": "box_3d",
+                            "center": [2.0, 3.0, 1.0],
+                            "size": [4.0, 2.0, 1.5],
+                            "rotation": [0.0, 0.0, 0.0],
+                            "axis_frame": "source",
+                            "axis_convention": "kitti_camera",
+                        },
+                        "class_name": "car",
+                        "tool_unit_id": "lidar_box_3d",
+                        "source": "manual",
+                    }
+                ],
+            }
+        ],
+    }
+    payload = json.dumps(document).encode()
+    preview = await import_native_json_annotations(
+        db_session, project.id, payload, operator_user_id=user.id, dry_run=True
+    )
+    assert preview.imported == 1 and not preview.errors
+    result = await import_native_json_annotations(
+        db_session, project.id, payload, operator_user_id=user.id
+    )
+    assert result.imported == 1 and not result.errors
+    annotation = (
+        await db_session.execute(
+            select(Annotation).where(Annotation.task_id == tasks[0].id)
+        )
+    ).scalar_one()
+    assert annotation.geometry["center"] == [1.0, -2.0, -3.0]
+    assert annotation.geometry["size"] == [4.0, 2.0, 1.5]
+    assert annotation.geometry["rotation"] == [0.0, 0.0, 0.0]
+    assert "axis_frame" not in annotation.geometry
+    assert "axis_convention" not in annotation.geometry
+
+
 async def test_aap_camera_member_import_links_role_to_scene_track(
     db_session, super_admin
 ):
@@ -457,7 +507,7 @@ async def test_import_annotations_append_happy(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -561,7 +611,7 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
         ]
     )
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -578,7 +628,7 @@ async def test_import_annotations_overwrite_clears_imported_keeps_manual(
 
     # 第二次 import（overwrite）: 应清 _imported，保留人工，不堆叠
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         data={"overwrite": "true"},
         headers=headers,
@@ -661,7 +711,7 @@ async def test_import_annotations_class_name_not_in_bindings(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -706,7 +756,7 @@ async def test_import_annotations_task_miss(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -751,7 +801,7 @@ async def test_import_annotations_dry_run_not_persisted(
 
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/annotations/import"
-        "?format=aap_json&dry_run=true",
+        "?format=native_json&dry_run=true",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -806,7 +856,7 @@ async def test_import_annotations_batch_transitions_suppressed(
         new_callable=AsyncMock,
     ) as mock_check:
         r = await httpx_client.post(
-            f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+            f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
             files=_upload_files(payload),
             headers=headers,
         )
@@ -917,7 +967,7 @@ async def test_import_annotations_multi_geometry_kinds(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1002,7 +1052,7 @@ async def test_import_annotations_missing_class_name(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1038,7 +1088,7 @@ async def test_import_annotations_forbidden_for_annotator(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1080,7 +1130,7 @@ async def test_import_annotations_source_default_manual(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/annotations/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/annotations/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1097,3 +1147,42 @@ async def test_import_annotations_source_default_manual(
         .all()
     )
     assert rows[0].source == "manual"
+
+
+@pytest.mark.parametrize("kind", ["annotations", "predictions"])
+async def test_native_import_admission_and_empty_document_identity(
+    httpx_client, super_admin, db_session, kind
+):
+    user, token = super_admin
+    project, _ = await _seed_project_with_tasks(db_session, user.id)
+    headers = {"Authorization": f"Bearer {token}"}
+    url = f"/api/v1/projects/{project.id}/{kind}/import"
+    historical = {"schema_version": "1.0", "tasks": []}
+    current = {
+        "schema_version": "2.0",
+        "format": "yoao",
+        "exported_from": {"platform": "yoao"},
+        "tasks": [],
+    }
+    for payload in (historical, current):
+        response = await httpx_client.post(
+            url,
+            params={"format": "native_json", "dry_run": "true"},
+            files=_upload_files(json.dumps(payload).encode()),
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["imported"] == 0
+    for selector, payload in (
+        ("aap_json", historical),
+        ("native_json", {**current, "format": "aap"}),
+        ("native_json", {**historical, "exported_from": {"platform": "yoao"}}),
+        ("native_json", {**current, "schema_version": "3.0"}),
+    ):
+        response = await httpx_client.post(
+            url,
+            params={"format": selector, "dry_run": "true"},
+            files=_upload_files(json.dumps(payload).encode()),
+            headers=headers,
+        )
+        assert response.status_code == 422, response.text

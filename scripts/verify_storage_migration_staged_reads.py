@@ -170,7 +170,7 @@ async def seed_staged(input_path, output_path):
             db,
             project=project,
             user_id=actor_id,
-            format_id="aap_json",
+            format_id="native_json",
             staged_object_key=key,
             staged_sha256=sha256(raw),
             mapping={},
@@ -482,6 +482,10 @@ class StagedReads(RetainedReads):
 
     def after_seal(self, **context):
         owner, http, summary = (context[key] for key in ("owner", "http", "summary"))
+        require(
+            self.value["plan"]["format_id"] == "native_json",
+            "historical_staged_plan_requires_pre_cutover_reconciliation",
+        )
 
         def op(action, **flags):
             return operator(
@@ -527,7 +531,7 @@ class StagedReads(RetainedReads):
         summary["stage"] = "offline_staged_reads"
         preflight_path = f"/api/v1/projects/{self.value['project_id']}/mask-formats/imports:preflight"
         payload = {
-            "format_id": "aap_json",
+            "format_id": "native_json",
             "staged_object_key": self.value["staged_key"],
             "staged_sha256": self.value["staged_sha256"],
             "mapping": {},

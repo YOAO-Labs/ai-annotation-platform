@@ -39,7 +39,7 @@ last_reviewed: 2026-10-24
 | 图像         | Label Studio Brush | `label-studio-brush`          | 与 Label Studio BrushLabels 交换实例 Mask                                 |
 | 图像         | 逐实例 Binary PNG  | `binary-png`                  | 以独立 0/255 PNG 无损保留重叠实例                                         |
 | 图像         | Indexed PNG        | `indexed-png`                 | 每图用一张索引 PNG 区分实例；重叠时需选择处理方式                         |
-| 图像         | 原生 JSON          | `aap_json`                    | 分别保存预测候选与正式标注，保留项目配置                                  |
+| 图像         | 原生 JSON          | `native_json`                 | 分别保存预测候选与正式标注，保留项目配置                                  |
 | **视频轨迹** | Video JSON         | `video_json`                  | 轨迹备份 / 质检 / 继续编辑                                                |
 | 视频轨迹     | YOLO 逐帧检测      | `yolo-frames-det`             | 视频逐帧检测训练（polygon / polyline 降级为顶点外接框）                   |
 | 视频轨迹     | YOLO 逐帧分割      | `yolo-frames-seg`             | 视频逐帧分割训练；支持单帧与轨迹多边形，不支持 Mask、bbox 或 polyline     |
@@ -47,10 +47,10 @@ last_reviewed: 2026-10-24
 | 视频轨迹     | DAVIS Mask         | `davis`                       | 视频对象分割训练 / 评测（每个采样帧一张索引 PNG）                         |
 | 视频轨迹     | YouTube-VOS        | `youtube-vos`                 | 稀疏关键帧对象分割数据交换                                                |
 | 视频轨迹     | MOTS               | `mots`                        | compressed RLE 多对象跟踪与分割数据交换                                   |
-| 视频轨迹     | 原生 JSON          | `aap_json`                    | 保存受支持的视频轨迹形状和项目配置                                        |
+| 视频轨迹     | 原生 JSON          | `native_json`                 | 保存受支持的视频轨迹形状和项目配置                                        |
 | 视频轨迹     | MOT 16/17/20       | `mot`                         | 多目标跟踪评测（trackeval）                                               |
 | 视频轨迹     | KITTI Tracking     | `kitti`                       | KITTI 跟踪工具链                                                          |
-| **点云**     | 原生 JSON          | `aap_json`                    | 点云跨实例迁移 / 备份（保留 3D 几何）                                     |
+| **点云**     | 原生 JSON          | `native_json`                 | 点云跨实例迁移 / 备份（保留 3D 几何）                                     |
 | 点云         | Multi-camera COCO  | `coco-multicamera`            | 把全部相机的持久化人工 2D 框合并为 COCO 训练集                            |
 | 点云         | KITTI 3D           | `kitti`                       | KITTI 3D 检测训练前处理（KITTI camera 坐标）                              |
 | 点云         | nuScenes           | `nuscenes`                    | 官方 devkit 可加载的完整 Scene 关键帧表集                                 |
@@ -276,7 +276,7 @@ names:
 
 ## 原生 JSON {#aap-json-1-5-无损}
 
-> 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。原生格式的文件标识为 `aap`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
+> 任务、输出媒体和格式分别记录为 `task`、`media_type`、`format`。当前原生格式的文件标识为 `yoao`，混合标注通过 `available_tasks` 列出候选，不会自动选择训练任务。新 ZIP 的 `data_contract.json` 按目标记录契约；视频来源另保留原采样参数与绝对源帧号。
 
 > 原生 JSON 保存项目配置及受支持的标注内容。图片任务分别保存预测候选和正式标注：导入预测时只读取 `predictions[]`，导入标注时只读取 `annotations[]`，不会自动把候选转为正式标注。视频导出保留受支持的轨迹形状及视频元数据，但不保证跨实例迁移或视频导入往返。技术字段中，`mask_objects` 携带可校验哈希的 RLE 对象；`scene_tracks` 保存 3D 时序对象身份、轨迹级属性和存在区间。
 
@@ -294,11 +294,12 @@ names:
 
 ```json
 {
-  "schema_version": "1.7",
+  "schema_version": "2.0",
+  "format": "yoao",
   "exported_at": "2026-05-19T10:00:00Z",
   "exported_from": {
-    "platform": "aap",
-    "platform_version": "0.11.17",
+    "platform": "yoao",
+    "platform_version": null,
     "project_display_id": "P-12",
     "batch_display_id": "BT-3"
   },
@@ -368,7 +369,7 @@ names:
 
 关键规则：
 
-- `schema_version` 必填，breaking change 升 major，导入端 `major > 1` 返 422; minor 升级(如 1.0 → 1.1) 只加可空字段, 老 reader 走 `extra="ignore"` 继续兼容。
+- `schema_version` 必填。当前文档为 `2.0`，`format` 和 `exported_from.platform` 均为 `yoao`；历史 `1.x` 使用 `aap`，且保留历史缺省值。身份与版本不匹配或不支持的主版本会被拒绝，旧版 reader 不接受新的主版本。
 - 正式标注 `annotations[]` 与预测候选 `predictions[]` **分开两个数组**（不混 type 字段）；对应的标注导入和预测导入各自读取自己的数组。
 - 3D Scene 的 `scene_tracks[]` 保存稳定 `track_id`、Scene、轨迹级类别/属性、`presence_mode` 和存在区间；各 task 的 `annotations[]` 用同一 `track_id` 关联，并以 `temporal_role` 区分 `keyframe`、`derived` 与 `sample`。
 - 导出严格写满 null；导入 lenient 忽略未知字段、缺失按默认。

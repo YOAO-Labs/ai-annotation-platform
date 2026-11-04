@@ -159,7 +159,7 @@ async def _export_project_or_batch(route, monkeypatch, db, actor, project, **opt
             f"/api/v1/{'projects' if route == 'project' else 'batches'}/export"
         ),
         "body": None,
-        "targets": ["aap_json"],
+        "targets": ["native_json"],
         "project": project,
         "actor": actor,
         "db": db,
@@ -231,7 +231,7 @@ async def test_project_and_batch_export_wire_and_commit_order(route, monkeypatch
         {
             "project_id": str(project.id),
             "batch_id": None if route == "project" else str(_BATCH_ID),
-            "targets": ["aap_json"],
+            "targets": ["native_json"],
             "opts": {
                 **options,
                 **({"indexed_overlap_policy": "z_order"} if route == "project" else {}),
@@ -301,7 +301,7 @@ async def test_data_manager_scope_wire_and_bind_happen_after_durable_publish(
     db, events = _route_boundary(monkeypatch, task_ids=selected)
     payload = DataManagerTaskExportRequest(
         task_ids=list(reversed(selected)),
-        targets=["aap_json"],
+        targets=["native_json"],
         include_attributes=False,
         video_frame_mode="all_frames",
         axis_frame="source",
@@ -336,7 +336,7 @@ async def test_data_manager_scope_wire_and_bind_happen_after_durable_publish(
             "project_id": str(project.id),
             "batch_id": None,
             "task_ids": [str(item) for item in selected],
-            "targets": ["aap_json"],
+            "targets": ["native_json"],
             "opts": {
                 "include_attributes": False,
                 "video_frame_mode": "all_frames",
@@ -358,7 +358,7 @@ async def test_data_manager_dispatch_failure_marks_failed_and_propagates(monkeyp
     selected = [uuid.UUID("00000000-0000-0000-0000-000000000001")]
     failure = RuntimeError("queue unavailable")
     db, events = _route_boundary(monkeypatch, task_ids=selected, failure=failure)
-    payload = DataManagerTaskExportRequest(task_ids=selected, targets=["aap_json"])
+    payload = DataManagerTaskExportRequest(task_ids=selected, targets=["native_json"])
 
     with pytest.raises(RuntimeError) as raised:
         await _export_data_manager(db, actor, project, payload)

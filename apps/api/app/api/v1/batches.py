@@ -1158,7 +1158,7 @@ async def export_batch(
     body: ExportRequestBody | None = None,
     targets: list[str] = Query(
         default=["coco"],
-        description="导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / aap_json"
+        description="导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / native_json"
         " / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis"
         " / youtube-vos / mots / mot / kitti"
         " / coco-multicamera / nuscenes / pointmask"

@@ -301,7 +301,7 @@ async def test_import_aap_json_bbox_happy(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -359,7 +359,7 @@ async def test_import_aap_json_polygon(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -416,7 +416,7 @@ async def test_import_aap_json_multi_polygon(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -464,7 +464,7 @@ async def test_import_aap_json_polyline_and_rotated_bbox(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -534,7 +534,7 @@ async def test_import_aap_json_keypoint(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1079,10 +1079,10 @@ async def test_import_aap_json_future_version_rejected(
     project, _ = await _seed_project_with_tasks(db_session, user.id)
     headers = {"Authorization": f"Bearer {token}"}
 
-    payload = _aap_envelope([], schema_version="2.0")
+    payload = _aap_envelope([], schema_version="3.0")
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1125,7 +1125,7 @@ async def test_import_aap_json_file_path_match(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1191,7 +1191,7 @@ async def test_import_aap_json_relative_path_match_nested(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1244,7 +1244,7 @@ async def test_import_aap_json_task_miss(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1291,7 +1291,7 @@ async def test_import_aap_json_cross_project_display_id_not_matched(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project_b.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project_b.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1336,7 +1336,7 @@ async def test_import_aap_json_dry_run_not_persisted(
 
     r = await httpx_client.post(
         f"/api/v1/projects/{project.id}/predictions/import"
-        "?format=aap_json&dry_run=true",
+        "?format=native_json&dry_run=true",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1399,7 +1399,7 @@ async def test_import_aap_json_default_overwrite_replaces_external_only(
 
     # 第一次: 无旧 external_import, 只写入新导入.
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1407,7 +1407,7 @@ async def test_import_aap_json_default_overwrite_replaces_external_only(
 
     # 第二次不显式传 overwrite_existing: v0.10.57 起默认替换 external_import.
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1464,14 +1464,14 @@ async def test_import_aap_json_explicit_overwrite_false_appends(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
     assert r.status_code == 200, r.text
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         data={"overwrite_existing": "false"},
         headers=headers,
@@ -1582,7 +1582,7 @@ async def test_import_aap_json_multi_file_overwrite_shares_purge_scope(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_multi_files([("a.json", file_a), ("b.json", file_b)]),
         headers=headers,
     )
@@ -1750,7 +1750,7 @@ async def test_import_aap_json_unknown_kind_in_errors(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1811,7 +1811,7 @@ async def test_import_aap_json_entry_shapes_merge_into_one_prediction(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )
@@ -1867,7 +1867,7 @@ async def test_import_aap_json_forbidden_for_annotator(
     )
 
     r = await httpx_client.post(
-        f"/api/v1/projects/{project.id}/predictions/import?format=aap_json",
+        f"/api/v1/projects/{project.id}/predictions/import?format=native_json",
         files=_upload_files(payload),
         headers=headers,
     )

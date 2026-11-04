@@ -279,14 +279,14 @@ yoao annotations bulk-update --id <annotation-id> [--id ...]
 ### yoao predictions
 
 ```text
-yoao predictions import <project-id> <文件> [--format <aap_json|coco|yolo>] [--dry-run] [--json]
+yoao predictions import <project-id> <文件> [--format <native_json|coco|yolo>] [--dry-run] [--json]
 ```
 
 导入外部预测结果。`--dry-run` 只校验不落库,适合正式导入前先验文件。
 
 ```bash
-yoao predictions import 0199bb... preds.json --format aap_json --dry-run
-yoao predictions import 0199bb... preds.json --format aap_json
+yoao predictions import 0199bb... preds.json --format native_json --dry-run
+yoao predictions import 0199bb... preds.json --format native_json
 ```
 
 ### yoao jobs
@@ -412,14 +412,14 @@ yoao export project <project-id> --target <格式> [--target ...] [--body <file|
     [--axis-frame <f>] [--wait/--no-wait] [--json]
 ```
 
-一条命令完成「创建导出 job →(默认 `--wait`)等待完成 → 下载到 `--out`」全流程。`--target` 可重复以一次导出多个格式(如 `aap_json` / `coco` / `yolo-det` / `video_json` / `kitti`,完整清单见[导出格式参考](/user-guide/reference/export-formats))。选项与 Web / TUI 对齐:`--include-attributes`(默认含属性数据)、`--video-frame-mode`(video 项目 `keyframes` | `all_frames`)、`--axis-frame`(lidar 3D box `iso` | `source`)。`--no-wait` 只创建返回 `job_id`(配合 `yoao jobs wait` 跟进),此时不需要 `--out`。
+一条命令完成「创建导出 job →(默认 `--wait`)等待完成 → 下载到 `--out`」全流程。`--target` 可重复以一次导出多个格式(如 `native_json` / `coco` / `yolo-det` / `video_json` / `kitti`,完整清单见[导出格式参考](/user-guide/reference/export-formats))。选项与 Web / TUI 对齐:`--include-attributes`(默认含属性数据)、`--video-frame-mode`(video 项目 `keyframes` | `all_frames`)、`--axis-frame`(lidar 3D box `iso` | `source`)。`--no-wait` 只创建返回 `job_id`(配合 `yoao jobs wait` 跟进),此时不需要 `--out`。
 
 ```bash
 # 多格式一次导出, 等待并下载
 yoao export project 0199bb... --target coco --target yolo-det --out ./export.zip
 
 # 只创建, 异步跟进
-yoao export project 0199bb... --target aap_json --no-wait
+yoao export project 0199bb... --target native_json --no-wait
 ```
 
 视频 `scope` 与点云 `lidar` 选项通过 `--body` 的 JSON 请求体发送；普通格式、坐标和属性选项仍使用具名参数。VOC 使用同步下载路径，必须指定 `--out`，不能混选其他格式或使用 `--no-wait`；JSON 输出仅为 `{"out":"..."}`，没有 Job ID。批次 VOC 使用 `yoao batches download-voc`。完整请求体见 [范围导出与 VOC](./cookbook#_9-范围导出与同步-voc)。
@@ -508,7 +508,7 @@ yoao tui
 pid=$(yoao projects create --name ci-demo --type image --json | jq -r '.id')
 
 # 导入预测,失败时退出码非 0 使 CI 步骤失败
-yoao predictions import "$pid" preds.json --format aap_json --json
+yoao predictions import "$pid" preds.json --format native_json --json
 ```
 
 ## 错误输出约定

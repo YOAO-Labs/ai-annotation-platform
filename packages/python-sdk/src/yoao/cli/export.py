@@ -30,7 +30,7 @@ def project(
     target: list[str] = typer.Option(
         ...,
         "--target",
-        help="导出格式, 可重复: coco / yolo-det / aap_json / video_json / kitti …",
+        help="导出格式, 可重复: coco / yolo-det / native_json / video_json / kitti …",
     ),
     out: Path | None = typer.Option(
         None, "--out", help="导出包输出路径 (--wait 时必填; --no-wait 时忽略)"

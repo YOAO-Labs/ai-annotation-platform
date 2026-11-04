@@ -24,10 +24,10 @@ def test_import_file_multipart(client, respx_mock, tmp_path):
         )
     )
     result = client.predictions.import_file(
-        PROJECT_ID, f, format="aap_json", model_version="v3", dry_run=False
+        PROJECT_ID, f, format="native_json", model_version="v3", dry_run=False
     )
     req = route.calls.last.request
-    assert req.url.params["format"] == "aap_json"
+    assert req.url.params["format"] == "native_json"
     assert req.url.params["dry_run"] == "false"
     # 缺省不传 yolo_variant (走后端默认 det)
     assert "yolo_variant" not in req.url.params

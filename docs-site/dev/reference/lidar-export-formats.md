@@ -12,13 +12,13 @@ last_reviewed: 2026-10-19
 
 | 导出目标（Target） | 用途说明                             | 坐标系约定                   |
 | ------------------ | ------------------------------------ | ---------------------------- |
-| `aap_json`         | 平台原生无损 JSON 格式               | 由 API `axis_frame` 参数指定 |
+| `native_json`      | 平台原生无损 JSON 格式               | 由 API `axis_frame` 参数指定 |
 | `coco-multicamera` | 合并的人工相机 2D 边界框 COCO 数据集 | 图像像素坐标系               |
 | `kitti`            | KITTI 3D 目标检测标签格式            | 所选 KITTI 相机坐标系        |
 | `nuscenes`         | nuScenes 关键帧关系表集合            | 全局 nuScenes 坐标系         |
 | `pointmask`        | 逐点语义分割标签                     | 点云点索引顺序               |
 
-上述导出目标均为纯粹的序列化器。`aap_json` 会完整保留 `SceneTrack` 下的各相机传感器成员（Camera Members）、可见性属性以及按相机角色关联的标定修订（Calibration Revision）关系。
+上述导出目标均为纯粹的序列化器。`native_json` 会完整保留 `SceneTrack` 下的各相机传感器成员（Camera Members）、可见性属性以及按相机角色关联的标定修订（Calibration Revision）关系。
 
 <span id="common-package-files" aria-hidden="true"></span>
 
@@ -107,7 +107,7 @@ category_map.json
 导出注册表识别以下五种点云导出标识符：
 
 ```text
-aap_json, coco-multicamera, kitti, nuscenes, pointmask
+native_json, coco-multicamera, kitti, nuscenes, pointmask
 ```
 
 其中 `kitti` 标识符在视频项目与点云项目间共享名称，但底层由各自独立的序列化器实现：

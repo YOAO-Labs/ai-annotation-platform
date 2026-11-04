@@ -936,7 +936,7 @@ class Annotations:
         path = Path(file_path)
         if path.stat().st_size > 64 * 1024 * 1024:
             raise SDKError("annotation import file must be at most 64 MiB")
-        params = {"format": "aap_json", "dry_run": dry_run}
+        params = {"format": "native_json", "dry_run": dry_run}
         data = {"overwrite": "true" if overwrite else "false"}
         with path.open("rb") as file:
             resp = self._http.request(
@@ -1076,13 +1076,13 @@ class Predictions:
         self,
         project_id: IdLike,
         file_path: str | Path,
-        format: str = "aap_json",
+        format: str = "native_json",
         yolo_variant: str | None = None,
         model_version: str | None = None,
         dry_run: bool = False,
         overwrite_existing: bool = False,
     ) -> ImportResult:
-        """导入外部预测结果 (aap_json / coco / yolo)。
+        """导入外部预测结果 (native_json / coco / yolo)。
 
         注意: 后端 overwrite_existing 缺省为 True, SDK 显式发送、缺省 False (更保守)。
         """

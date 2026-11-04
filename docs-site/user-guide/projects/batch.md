@@ -206,17 +206,17 @@ scene 模式项目在关联数据集时（经新建项目向导）会**自动**�
 
 项目管理员可以按批次导出当前批次内的任务标注。支持格式按项目数据类型如下：
 
-| 数据类型 | 可选导出格式                                                                                                                                                       |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 图片     | `coco`、`yolo`（= `yolo-det`）、`yolo-obb`（旋转框）、`yolo-seg`（实例分割）、`aap_json`、`voc`（仅单独导出，同步下载）                                            |
-| 视频     | `video_json`、`aap_json`、`mot`、`kitti`（tracking label）、`yolo-frames-det`、`yolo-frames-seg`、`coco-frames-seg`、`davis`（palette PNG）、`youtube-vos`、`mots` |
-| 3D 点云  | `aap_json`、`coco-multicamera`（合并人工相机 bbox）、`kitti`（3D label）、`nuscenes`、`pointmask`                                                                  |
+| 数据类型 | 可选导出格式                                                                                                                                                          |
+| -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 图片     | `coco`、`yolo`（= `yolo-det`）、`yolo-obb`（旋转框）、`yolo-seg`（实例分割）、`native_json`、`voc`（仅单独导出，同步下载）                                            |
+| 视频     | `video_json`、`native_json`、`mot`、`kitti`（tracking label）、`yolo-frames-det`、`yolo-frames-seg`、`coco-frames-seg`、`davis`（palette PNG）、`youtube-vos`、`mots` |
+| 3D 点云  | `native_json`、`coco-multicamera`（合并人工相机 bbox）、`kitti`（3D label）、`nuscenes`、`pointmask`                                                                  |
 
 图片异步导出也会固定本次任务、标注和格式输入。托管原图完整核验后生成独立副本，ZIP 和媒体共用七天截止；引用原图继续核验后嵌入 ZIP。下载脚本核对真实大小和摘要，旧未完成任务缺少新合同需重新导出。单次最多20000题，托管单件256MiB、所有图片原字节累计20GiB；Data Manager 选中任务仍最多200题。
 
 KITTI、Point Mask、Multi-camera COCO 与 NuScenes 会冻结本次输入，并在后台完整核验登记原件、保存独立媒体副本。ZIP 与媒体共用请求时起七天的截止，缓存复用不延期；路径重名、原件变化或点掩码记录数不符会拒绝交付。
 
-点云 `aap_json` 支持 `axis_frame` 参数（`iso`（默认，平台内部坐标系）或 `source`（数据集原始传感器坐标系））。Multi-camera COCO 会合并批次内全部相机 role 的持久化人工 bbox，并保留无框图作为负样本；媒体、bbox 与 SceneTrack 关系不可信时会在入队前拒绝。KITTI 必须显式选择相机通道，并通过逐帧标定与图像尺寸预检。nuScenes 只接受由 nuScenes 以 ego 坐标导入、包含完整 Scene 且保留原始媒体、地图、位姿和传感器合同的数据；批次只覆盖部分 Scene 时会在入队前拒绝。NuScenes 的原始二进制点云、全部关联相机及地图来自已登记位置，下载的是固定期限内的独立副本；缺归属的历史数据需使用原始数据显式重导。
+点云 `native_json` 支持 `axis_frame` 参数（`iso`（默认，平台内部坐标系）或 `source`（数据集原始传感器坐标系））。Multi-camera COCO 会合并批次内全部相机 role 的持久化人工 bbox，并保留无框图作为负样本；媒体、bbox 与 SceneTrack 关系不可信时会在入队前拒绝。KITTI 必须显式选择相机通道，并通过逐帧标定与图像尺寸预检。nuScenes 只接受由 nuScenes 以 ego 坐标导入、包含完整 Scene 且保留原始媒体、地图、位姿和传感器合同的数据；批次只覆盖部分 Scene 时会在入队前拒绝。NuScenes 的原始二进制点云、全部关联相机及地图来自已登记位置，下载的是固定期限内的独立副本；缺归属的历史数据需使用原始数据显式重导。
 
 视频轨迹批次支持两种帧模式：
 

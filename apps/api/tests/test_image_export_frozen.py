@@ -60,7 +60,7 @@ def facts(*, reference=False, primary=False):
         "project_id": str(project),
         "batch_id": str(batch),
         "task_ids": None,
-        "targets": ["coco", "aap_json", "yolo-det"],
+        "targets": ["coco", "native_json", "yolo-det"],
         "options": {},
         "project": {
             "id": str(project),
@@ -276,7 +276,7 @@ async def test_single_document_formats_preserve_global_annotation_order():
     "targets",
     [
         ["coco"],
-        ["aap_json"],
+        ["native_json"],
         ["yolo"],
         ["yolo-det"],
         ["yolo-obb"],
@@ -286,7 +286,7 @@ async def test_single_document_formats_preserve_global_annotation_order():
         ["label-studio-brush"],
         [
             "coco",
-            "aap_json",
+            "native_json",
             "yolo",
             "yolo-det",
             "yolo-obb",
@@ -371,7 +371,7 @@ async def test_owned_image_formats_use_saved_receipt_and_uniform_paths(
                     ][0]
                     assert image["file_name"] == ctx.media_paths[task.id]
                     assert (image["width"], image["height"]) == (4, 3)
-                if target == "aap_json":
+                if target == "native_json":
                     assert (
                         json.loads(archive.read(prefix + "annotations.json"))["tasks"][
                             0

@@ -64,6 +64,8 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生成；导入响应的组件类型名与现有 wire 值说明见[导入接口](./docs-site/api/guides/import.md#响应)，外部预测导入的错误与回滚规则见[预测 API](./docs-site/api/guides/predictions.md#导入外部预测)。
 
+原生标注导入与导出使用 `native_json` 选择器；当前 JSON 文档使用 `schema_version: "2.0"` 与 `yoao` 身份。历史 `1.x` 原生文档仍可读取，格式和媒体支持范围见[导出格式](./docs-site/user-guide/reference/export-formats.md#aap-json-1-5-无损)。
+
 ## 工作台 AI 案例
 
 图片标注工作台支持对已确认标注做[二次推理](./docs-site/user-guide/ai/current-task-inference.md)，由标注员、项目管理员或超级管理员使用。审核工作台隐藏相关入口，接口也拒绝审核员调用；人工审核修改保留。

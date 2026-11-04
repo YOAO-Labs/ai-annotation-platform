@@ -349,7 +349,7 @@ async def test_preflight_pins_upload_or_explicit_legacy_and_resume_retains_it(
         db_session,
         project=project,
         user_id=user.id,
-        format_id="aap_json",
+        format_id="native_json",
         staged_object_key=key,
         staged_sha256=hashlib.sha256(payload).hexdigest(),
         mapping={},

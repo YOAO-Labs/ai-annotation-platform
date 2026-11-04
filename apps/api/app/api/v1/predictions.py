@@ -296,7 +296,7 @@ async def restore_failed_prediction(
 async def import_predictions(
     request: Request,
     files: list[UploadFile] = File(..., alias="file"),
-    format: str = Query("aap_json", pattern="^(aap_json|coco|yolo)$"),
+    format: str = Query("native_json", pattern="^(native_json|coco|yolo)$"),
     yolo_variant: str = Query("det", pattern="^(det|obb|seg)$"),
     dry_run: bool = Query(False),
     model_version: str | None = Form(None),
@@ -373,7 +373,7 @@ async def import_predictions(
         purged_tasks: set[uuid.UUID] = set()
         for filename, raw in raw_files:
             try:
-                if format == "aap_json":
+                if format == "native_json":
                     part = await import_native_json(
                         db,
                         project.id,

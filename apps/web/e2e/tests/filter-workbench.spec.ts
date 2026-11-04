@@ -49,7 +49,7 @@ async function importCandidates(
     API_BASE +
       "/api/v1/projects/" +
       filtering.video.project_id +
-      "/predictions/import?format=aap_json&dry_run=false",
+      "/predictions/import?format=native_json&dry_run=false",
     {
       headers,
       multipart: {

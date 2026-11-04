@@ -64,7 +64,7 @@ describe("PredictionImportWizard", () => {
     await waitFor(() => {
       expect(importMock).toHaveBeenCalledWith(
         "p-1",
-        "aap_json",
+        "native_json",
         expect.any(File),
         expect.objectContaining({ overwriteExisting: true }),
         true,
@@ -192,7 +192,7 @@ describe("PredictionImportWizard", () => {
     await waitFor(() => expect(importMock).toHaveBeenCalledTimes(1));
     expect(importMock).toHaveBeenCalledWith(
       "p-batch",
-      "aap_json",
+      "native_json",
       expect.arrayContaining([expect.any(File), expect.any(File)]),
       expect.objectContaining({ overwriteExisting: true }),
       true,
@@ -240,7 +240,7 @@ describe("PredictionImportWizard", () => {
       expect(importMock).toHaveBeenCalledTimes(2);
       expect(importMock).toHaveBeenLastCalledWith(
         "p-3",
-        "aap_json",
+        "native_json",
         expect.any(File),
         expect.any(Object),
         false,

@@ -232,11 +232,11 @@ with Client() as client:
 
 ### client.predictions
 
-| 方法          | 签名                                                                                                                                                                                         | 返回           |
-| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
-| `import_file` | `import_file(project_id, file_path, format: str = "aap_json", yolo_variant: str \| None = None, model_version: str \| None = None, dry_run: bool = False, overwrite_existing: bool = False)` | `ImportResult` |
+| 方法          | 签名                                                                                                                                                                                            | 返回           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `import_file` | `import_file(project_id, file_path, format: str = "native_json", yolo_variant: str \| None = None, model_version: str \| None = None, dry_run: bool = False, overwrite_existing: bool = False)` | `ImportResult` |
 
-导入外部预测结果,`format` 支持 `aap_json` / `coco` / `yolo`(yolo 时可配 `yolo_variant`)。文件格式细节见[预测导入与导出](/user-guide/datasets/prediction-import-export)。
+导入外部预测结果,`format` 支持 `native_json` / `coco` / `yolo`(yolo 时可配 `yolo_variant`)。文件格式细节见[预测导入与导出](/user-guide/datasets/prediction-import-export)。
 
 > **注意**:后端 `overwrite_existing` 缺省为 `True`,SDK 显式发送且缺省 `False`(更保守)。要覆盖已有预测必须显式传 `overwrite_existing=True`。
 

@@ -49,7 +49,7 @@ def contract(monkeypatch):
     project = SimpleNamespace(id=uuid.uuid4(), data_type="lidar", display_id="P-LIDAR")
     batch_id = uuid.uuid4()
     opts = {"include_attributes": True, "lidar": {"kitti_camera_role": "camera_front"}}
-    targets = ["pointmask", "kitti", "aap_json", "nuscenes"]
+    targets = ["pointmask", "kitti", "native_json", "nuscenes"]
     snapshot = {
         "schema": 2,
         "project_id": str(project.id),
@@ -228,7 +228,7 @@ async def test_capture_flushes_only_small_proof_in_the_new_job_transaction(contr
 
 @pytest.mark.parametrize(
     "data_type,targets",
-    [("image", ["kitti"]), ("lidar", ["aap_json"]), ("video", ["kitti"])],
+    [("image", ["kitti"]), ("lidar", ["native_json"]), ("video", ["kitti"])],
 )
 async def test_other_exports_are_unchanged_without_capture(
     contract, data_type, targets

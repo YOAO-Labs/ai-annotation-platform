@@ -13,6 +13,7 @@ TARGETS = frozenset(
         "yolo-det",
         "yolo-obb",
         "yolo-seg",
+        "native_json",
         "aap_json",
         "label-studio-brush",
         "binary-png",
@@ -180,7 +181,7 @@ def logical_sources(snapshot):
                 generated(prefix + "labels/" + stem + ".txt")
                 if include_attributes:
                     generated(prefix + "labels/" + stem + ".attrs.json")
-        elif target in {"coco", "aap_json", "label-studio-brush"}:
+        elif target in {"coco", "native_json", "aap_json", "label-studio-brush"}:
             generated(prefix + "annotations.json")
         else:
             generated(prefix + "manifest.json")

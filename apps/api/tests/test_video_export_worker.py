@@ -61,7 +61,7 @@ class VideoHarness(Harness):
 async def request(db, project, *, task_ids=None):
     await db.refresh(project)
     targets, opts = (
-        ["video_json", "mot", "kitti", "aap_json"],
+        ["video_json", "mot", "kitti", "native_json"],
         {"include_attributes": True},
     )
     payload = {"targets": targets, "batch_id": None, **opts}

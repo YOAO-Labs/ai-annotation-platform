@@ -302,7 +302,7 @@ def test_selected_export_keeps_body_auth_key_and_replay_status(client, respx_moc
     )
     body = DataManagerTaskExportRequest(
         task_ids=[TASK, TASK],
-        targets=["aap_json"],
+        targets=["native_json"],
         include_attributes=False,
         lidar=None,
     )
@@ -314,7 +314,7 @@ def test_selected_export_keeps_body_auth_key_and_replay_status(client, respx_moc
     assert request.headers["Idempotency-Key"] == "same-request"
     assert json.loads(request.content) == {
         "task_ids": [TASK],
-        "targets": ["aap_json"],
+        "targets": ["native_json"],
         "include_attributes": False,
         "lidar": None,
     }
@@ -334,10 +334,10 @@ def test_invisible_object_error_is_not_swallowed(client, respx_mock):
     "factory,kwargs",
     [
         (DataManagerTaskAssignmentRequest, {"task_ids": [TASK]}),
-        (DataManagerTaskExportRequest, {"task_ids": [], "targets": ["aap_json"]}),
+        (DataManagerTaskExportRequest, {"task_ids": [], "targets": ["native_json"]}),
         (
             DataManagerTaskExportRequest,
-            {"task_ids": [TASK] * 201, "targets": ["aap_json"]},
+            {"task_ids": [TASK] * 201, "targets": ["native_json"]},
         ),
         (DataManagerTaskExportRequest, {"task_ids": [TASK], "targets": []}),
         (
@@ -376,7 +376,7 @@ def test_task_export_rejects_video_scope(respx_mock):
             "assignment-apply",
             {"task_ids": [TASK], "annotator_id": None, "preview_version": "a" * 64},
         ),
-        ("export-tasks", {"task_ids": [TASK], "targets": ["aap_json"]}),
+        ("export-tasks", {"task_ids": [TASK], "targets": ["native_json"]}),
     ],
 )
 def test_cli_mutation_refusal_has_zero_requests(command, body, respx_mock):
@@ -454,7 +454,7 @@ def test_cli_export_is_only_submission(respx_mock):
             "--yes",
             "--json",
         ],
-        input=json.dumps({"task_ids": [TASK], "targets": ["aap_json"]}),
+        input=json.dumps({"task_ids": [TASK], "targets": ["native_json"]}),
         env=ENV,
     )
     assert result.exit_code == 0, result.output

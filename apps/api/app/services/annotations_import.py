@@ -16,13 +16,15 @@ from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from yoao_assets_catalog.axis_convention import apply_to_psr
+from yoao_assets_catalog.spatial_values import LidarAxisConvention
 
 from app.services.project_access import get_workspace_project
 from app.schemas.native_json import (
     ImportErrorEntry,
     ImportResult,
     NativeJsonEnvelope,
-    check_schema_major,
+    decode_native_json,
 )
 from app.schemas._jsonb_types import Geometry
 from app.services.annotation_track_identity import prepare_compact_track_identity
@@ -72,6 +74,7 @@ _GEOMETRY_TO_TOOL_UNIT: dict[str, str] = {
 }
 
 _GEOMETRY_ADAPTER = TypeAdapter(Geometry)
+_AXIS_CONVENTION_ADAPTER = TypeAdapter(LidarAxisConvention)
 
 
 def _derive_tool_unit(geometry_type: str | None) -> str:
@@ -171,13 +174,8 @@ async def import_native_json_annotations(
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"原生 JSON 文件无法解析: {exc}") from exc
 
-    schema_version = raw.get("schema_version") if isinstance(raw, dict) else None
-    if not isinstance(schema_version, str):
-        raise ValueError("原生 JSON 缺少 schema_version 字段 (1.0)")
-    check_schema_major(schema_version)
-
     try:
-        envelope = NativeJsonEnvelope.model_validate(raw)
+        envelope = decode_native_json(raw)
     except ValidationError as exc:
         raise ValueError(f"原生 JSON envelope 校验失败: {exc.errors()[:3]}") from exc
 
@@ -256,6 +254,18 @@ async def import_native_json_annotations(
                 entry.geometry = validated_geometry.model_dump(
                     mode="json", by_alias=True, exclude_unset=True
                 )
+                if (
+                    entry.geometry["type"] == "box_3d"
+                    and "axis_frame" in entry.geometry
+                ):
+                    frame = entry.geometry.pop("axis_frame")
+                    if frame == "source":
+                        convention = _AXIS_CONVENTION_ADAPTER.validate_python(
+                            entry.geometry.pop("axis_convention", None)
+                        )
+                        entry.geometry.update(apply_to_psr(entry.geometry, convention))
+                    elif frame != "iso":
+                        raise ValueError("invalid box_3d axis_frame")
                 mask_objects = resolve_mask_reference_objects(
                     entry.geometry, envelope.mask_objects
                 )

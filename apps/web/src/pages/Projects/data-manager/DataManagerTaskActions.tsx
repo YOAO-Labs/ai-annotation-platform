@@ -32,7 +32,7 @@ const IMAGE_EXPORT_TARGETS: Array<{ id: ExportTarget; label: string }> = [
   { id: "yolo-det", label: "YOLO 检测" },
   { id: "yolo-obb", label: "YOLO 旋转框" },
   { id: "yolo-seg", label: "YOLO 分割" },
-  { id: "aap_json", label: "原生 JSON" },
+  { id: "native_json", label: "原生 JSON" },
 ];
 
 const VIDEO_EXPORT_TARGETS: Array<{ id: ExportTarget; label: string }> = [
@@ -44,11 +44,11 @@ const VIDEO_EXPORT_TARGETS: Array<{ id: ExportTarget; label: string }> = [
   { id: "davis", label: "DAVIS" },
   { id: "youtube-vos", label: "YouTube-VOS" },
   { id: "mots", label: "MOTS" },
-  { id: "aap_json", label: "原生 JSON" },
+  { id: "native_json", label: "原生 JSON" },
 ];
 
 const LIDAR_EXPORT_TARGETS: Array<{ id: ExportTarget; label: string }> = [
-  { id: "aap_json", label: "原生 JSON" },
+  { id: "native_json", label: "原生 JSON" },
 ];
 
 function exportTargetsForDataType(dataType: string | null | undefined) {

@@ -325,7 +325,7 @@ def _portable_masks(annotations, predictions, targets):
     """Reserve declared canonical RLE expansion before a Worker reads masks."""
     references = {}
     values = [row.geometry for row in annotations]
-    if "aap_json" in targets:
+    if "native_json" in targets:
         values.extend(row.result for row in predictions)
     for value in values:
         for reference in collect_mask_references(value):
@@ -506,7 +506,7 @@ async def _collect(db, project_id, batch_id, targets, options, *, task_ids, lock
     )
     predictions = []
     tracks = intervals = scenes = []
-    if "aap_json" in targets:
+    if "native_json" in targets:
         predictions = (
             await _rows(
                 db,

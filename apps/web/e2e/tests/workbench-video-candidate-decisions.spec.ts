@@ -43,7 +43,7 @@ async function prepare(page: Page, request: APIRequestContext, seed: SeedAPI) {
   };
   for (const dryRun of [true, false]) {
     const response = await request.post(
-      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=aap_json&dry_run=${dryRun}`,
+      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=native_json&dry_run=${dryRun}`,
       { headers, multipart: { file } },
     );
     expect(response.ok(), await response.text()).toBe(true);

@@ -123,27 +123,27 @@ _EXPORT_TARGETS: dict[str, list[tuple[str, str]]] = {
         ("yolo-det", "YOLO 检测"),
         ("yolo-obb", "YOLO 旋转框"),
         ("yolo-seg", "YOLO 分割"),
-        ("aap_json", "原生 JSON"),
+        ("native_json", "原生 JSON"),
     ],
     "video": [
         ("video_json", "Video JSON"),
         ("yolo-frames-det", "YOLO 逐帧"),
-        ("aap_json", "原生 JSON"),
+        ("native_json", "原生 JSON"),
         ("mot", "MOT"),
         ("kitti", "KITTI"),
     ],
     "lidar": [
-        ("aap_json", "原生 JSON"),
+        ("native_json", "原生 JSON"),
         ("kitti", "KITTI 3D"),
         ("nuscenes", "nuScenes"),
         ("pointmask", "Point Mask"),
     ],
 }
-# 默认勾选项 (对齐 web): image→coco / video→video_json / lidar→aap_json
+# 默认勾选项 (对齐 web): image→coco / video→video_json / lidar→native_json
 _EXPORT_DEFAULT: dict[str, str] = {
     "image": "coco",
     "video": "video_json",
-    "lidar": "aap_json",
+    "lidar": "native_json",
 }
 
 # 全员绩效看板需 super_admin 全局可见 (project_admin 须按项目切分, 用 CLI yoao dashboard people --project)
@@ -3240,7 +3240,7 @@ class TuiApp(App[None]):
     # ---- 动作: 导出 (Projects) / 取消 (Jobs), 均经二次确认 ----
 
     def action_export(self) -> None:
-        """e: 对 Projects tab 选中项目发起导出 (target=aap_json)。"""
+        """e: 对 Projects tab 选中项目打开导出配置。"""
         if self.query_one("#tabs", TabbedContent).active != "tab-projects":
             self._set_status("导出仅在 Projects tab 可用")
             return

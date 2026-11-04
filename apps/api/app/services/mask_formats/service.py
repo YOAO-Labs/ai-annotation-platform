@@ -35,7 +35,7 @@ from app.services import storage_access
 from app.services import storage_migration_artifact_reads as migration_reads
 from app.services import storage_migration_read_publications as read_publications
 from app.services.mask_formats.contracts import StagedObject, canonical_digest
-from app.services.mask_formats.catalog import registry
+from app.services.mask_formats.catalog import registry, saved_import_adapter
 from app.services.storage import storage_service
 from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
@@ -578,7 +578,7 @@ async def execute_import(
             "format import receipt has expired",
             status_code=410,
         )
-    adapter = registry.get(batch.format_id)
+    adapter = saved_import_adapter(batch.format_id)
     if (
         batch.adapter_version != adapter.descriptor.adapter_version
         or batch.manifest_version != adapter.descriptor.manifest_version

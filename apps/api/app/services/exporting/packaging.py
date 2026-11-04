@@ -126,6 +126,7 @@ from app.services.labeling_core_read_relations import (
 
 VIDEO_EXPORT_FORMATS = {
     "video_json",
+    "native_json",
     "aap_json",
     "mot",
     "kitti",
@@ -154,6 +155,7 @@ async def _hydrate_mask_geometry_for_export(geometry: dict, check_cancel=None) -
 
 
 LIDAR_EXPORT_TARGETS = {
+    "native_json",
     "aap_json",
     "coco-multicamera",
     "kitti",
@@ -168,7 +170,7 @@ IMAGE_EXPORT_TARGETS = {
     "yolo-det",
     "yolo-obb",
     "yolo-seg",
-    "aap_json",
+    "native_json",
     "label-studio-brush",
     "binary-png",
     "indexed-png",
@@ -590,6 +592,7 @@ async def build_export_zip(
                 batch_id=batch_id,
                 targets=targets,
                 include_attributes=include_attributes,
+                axis_frame=axis_frame,
                 format_options=format_options or {},
                 lidar_media=lidar_media,
             )
@@ -607,7 +610,7 @@ async def build_export_zip(
             "indexed-png",
         }
         for target in other_targets:
-            if target not in {"coco", "aap_json", *custom_mask_targets}:
+            if target not in {"coco", "native_json", "aap_json", *custom_mask_targets}:
                 raise UnsupportedExportError(f"unsupported export target: {target}")
         has_yolo = bool(yolo_targets)
         # COCO 需 DatasetItem 真值尺寸算像素坐标；仅在请求 coco 时累积全量 items
@@ -839,6 +842,7 @@ async def build_export_zip(
                         project_id,
                         batch_id=batch_id,
                         axis_frame=axis_frame,
+                        historical=target == "aap_json",
                     )
                 zf.writestr(f"{prefix}annotations.json", content)
                 file_count += total_tasks
@@ -1112,6 +1116,7 @@ async def _build_lidar_export_zip(
     batch_id: uuid.UUID | None,
     targets: list[str],
     include_attributes: bool,
+    axis_frame: AxisFrame,
     format_options: dict[str, Any],
     lidar_media=None,
 ) -> tuple[str, int, int]:
@@ -1642,10 +1647,15 @@ async def _build_lidar_export_zip(
 
         for target in targets:
             prefix = f"{target}/" if multi else ""
-            if target == "aap_json":
+            if target in {"native_json", "aap_json"}:
                 zf.writestr(
                     f"{prefix}annotations.json",
-                    await svc.export_native_json(project.id, batch_id=batch_id),
+                    await svc.export_native_json(
+                        project.id,
+                        batch_id=batch_id,
+                        axis_frame=axis_frame,
+                        historical=target == "aap_json",
+                    ),
                 )
                 file_count += frame_count
                 continue
@@ -2083,13 +2093,14 @@ async def _build_video_export_zip(
                         video_scope=video_scope,
                     ),
                 )
-            elif target == "aap_json":
+            elif target in {"native_json", "aap_json"}:
                 zf.writestr(
                     f"{prefix}annotations.json",
                     await svc.export_native_json(
                         project.id,
                         batch_id=batch_id,
                         video_scope=video_scope,
+                        historical=target == "aap_json",
                     ),
                 )
             elif target in ("yolo-frames-det", "yolo-frames-seg"):

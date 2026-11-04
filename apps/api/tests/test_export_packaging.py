@@ -191,10 +191,13 @@ def test_clean_export_targets_rejects_image_target_for_video_project():
         clean_export_targets(["video_json", "coco"], data_type="video")
 
 
-def test_clean_export_targets_aap_json_valid_for_both_modalities():
-    # aap_json 同属图像/视频目标集，两侧都应放行。
-    assert clean_export_targets(["aap_json"], data_type="image") == ["aap_json"]
-    assert clean_export_targets(["aap_json"], data_type="video") == ["aap_json"]
+def test_native_export_admission_rejects_historical_selector():
+    for media_type in ("image", "video", "lidar"):
+        assert clean_export_targets(["native_json"], data_type=media_type) == [
+            "native_json"
+        ]
+        with pytest.raises(ValueError, match="unsupported export target"):
+            clean_export_targets(["aap_json"], data_type=media_type)
 
 
 async def test_video_yolo_frames_zip_writes_grid_labels_and_manifest(monkeypatch):

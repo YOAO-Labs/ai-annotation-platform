@@ -82,7 +82,7 @@ yoao batches create <project-id> --name round-1 --dataset-id <dataset-id>
 yoao members add <project-id> --user-id <user-id> --role annotator
 
 # 4. 触发导出 → 等待完成 → 下载,一条命令全流程
-yoao export project <project-id> --target aap_json --out ./export.zip
+yoao export project <project-id> --target native_json --out ./export.zip
 ```
 
 所有命令支持 `--json`(输出裸 JSON、退出码非 0 表示失败),供 CI / 脚本使用。删除、解绑和移除成员等破坏性命令在 JSON 模式下必须显式传 `--yes`。详见 [CLI 参考](./cli)。
@@ -109,7 +109,7 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
     client.batches.create(project.id, "round-1", dataset_id=dataset.id)
 
     # 4. 异步导出:创建 → 等待 → 下载
-    job_id = client.exports.create(project.id, targets=["aap_json"])
+    job_id = client.exports.create(project.id, targets=["native_json"])
     job = client.exports.wait(job_id, timeout=600)
     client.exports.download(job, "./export.zip")
 ```

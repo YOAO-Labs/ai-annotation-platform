@@ -15,7 +15,7 @@ last_reviewed: 2026-08-12
 ## 端点
 
 ```http
-POST /api/v1/projects/{project_id}/predictions/import?format=aap_json&dry_run=false
+POST /api/v1/projects/{project_id}/predictions/import?format=native_json&dry_run=false
 Content-Type: multipart/form-data
 
 file=<JSON file or YOLO zip>
@@ -27,15 +27,15 @@ image_height=<optional COCO fallback height>
 
 参数：
 
-| 参数                           | 位置  | 类型                           | 必填 | 说明                                                                                                              |
-| ------------------------------ | ----- | ------------------------------ | ---- | ----------------------------------------------------------------------------------------------------------------- |
-| `format`                       | query | `aap_json` \| `coco` \| `yolo` | 是   | input 格式. 默认 `aap_json`.                                                                                      |
-| `yolo_variant`                 | query | `det` \| `obb` \| `seg`        | 否   | 仅 `format=yolo` 生效,默认 `det`.                                                                                 |
-| `dry_run`                      | query | bool                           | 否   | true 时走全部校验路径但**不入库**, 供前端 wizard 预览.                                                            |
-| `file`                         | form  | File                           | 是   | 原生 JSON / COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                         |
-| `model_version`                | form  | string                         | 否   | 原生 JSON 内 `model_version` 缺失时的兜底值.                                                                      |
-| `overwrite_existing`           | form  | bool                           | 否   | 默认 true。true 时按 task 维度删该 task 下 `source='external_import'` 的旧 prediction 后再写入;显式 false 时追加. |
-| `image_width` / `image_height` | form  | int                            | 否   | 仅 `format=coco` 生效。COCO `images[]` 缺 `width/height` 时作为全局兜底；图片自带尺寸优先。两个字段必须同时提供。 |
+| 参数                           | 位置  | 类型                              | 必填 | 说明                                                                                                              |
+| ------------------------------ | ----- | --------------------------------- | ---- | ----------------------------------------------------------------------------------------------------------------- |
+| `format`                       | query | `native_json` \| `coco` \| `yolo` | 是   | input 格式. 默认 `native_json`.                                                                                   |
+| `yolo_variant`                 | query | `det` \| `obb` \| `seg`           | 否   | 仅 `format=yolo` 生效,默认 `det`.                                                                                 |
+| `dry_run`                      | query | bool                              | 否   | true 时走全部校验路径但**不入库**, 供前端 wizard 预览.                                                            |
+| `file`                         | form  | File                              | 是   | 原生 JSON / COCO 为 JSON 文件,可重复提交多个 `file` 字段; YOLO 为 zip 包.                                         |
+| `model_version`                | form  | string                            | 否   | 原生 JSON 内 `model_version` 缺失时的兜底值.                                                                      |
+| `overwrite_existing`           | form  | bool                              | 否   | 默认 true。true 时按 task 维度删该 task 下 `source='external_import'` 的旧 prediction 后再写入;显式 false 时追加. |
+| `image_width` / `image_height` | form  | int                               | 否   | 仅 `format=coco` 生效。COCO `images[]` 缺 `width/height` 时作为全局兜底；图片自带尺寸优先。两个字段必须同时提供。 |
 
 权限：项目 owner 或 super_admin（与 ML backend 配置同位）。
 
@@ -53,7 +53,7 @@ image_height=<optional COCO fallback height>
 }
 ```
 
-OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。界面中的“原生 JSON”仍对应 `format=aap_json`，文件内的 `format: "aap"` 不因显示名称改变。
+OpenAPI 响应组件为 `ImportResult`，逐项错误为 `ImportErrorEntry`；生成客户端使用这两个类型名。界面中的“原生 JSON”对应 `format=native_json`，当前文件使用 `schema_version: "2.0"`、`format: "yoao"` 和 `exported_from.platform: "yoao"`；历史 `1.x` 文档仍可读取。
 
 错误是逐 entry / shape 累计，不让整批挂。多文件上传时后端合并响应，并在 errors[].reason 前缀文件名。单文件 schema_version 不兼容 / JSON 不可解析会整体 422；多文件中的坏文件会作为一条错误累计，其他文件继续处理。
 
@@ -69,7 +69,9 @@ COCO 导入同时识别 bbox、polygon segmentation 与 uncompressed RLE segment
 
 ```json
 {
-  "schema_version": "1.0",
+  "schema_version": "2.0",
+  "format": "yoao",
+  "exported_from": { "platform": "yoao" },
   "tasks": [
     {
       "task_match": { "display_id": "T-101" },
@@ -155,14 +157,14 @@ YOLO 不使用 `task_match` 字段，而是按 label 文件 stem 走相同的项
 
 ```bash
 # Step 1: dry-run 预览
-curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=aap_json&dry_run=true" \
+curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=native_json&dry_run=true" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@external_preds.json"
 
 # 检查 errors[] 是否符合预期，调整 input 后...
 
 # Step 2: 正式导入
-curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=aap_json&dry_run=false" \
+curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=native_json&dry_run=false" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@external_preds.json" \
   -F "overwrite_existing=true"
@@ -171,7 +173,7 @@ curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=aa
 多文件 JSON 可重复传 `file` 字段：
 
 ```bash
-curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=aap_json" \
+curl -X POST "https://platform/api/v1/projects/$PID/predictions/import?format=native_json" \
   -H "Authorization: Bearer $TOKEN" \
   -F "file=@part-a.json" \
   -F "file=@part-b.json"

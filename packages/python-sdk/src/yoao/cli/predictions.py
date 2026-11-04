@@ -16,7 +16,7 @@ from yoao.cli._output import (
 from yoao.management_operation_models import PredictionPurgeRequest
 
 app = typer.Typer(
-    help="预测结果导入: 把外部模型产出 (aap_json / coco / yolo) 导入项目。",
+    help="预测结果导入: 把外部模型产出 (native_json / coco / yolo) 导入项目。",
     no_args_is_help=True,
     rich_markup_mode="rich",
     epilog=(
@@ -30,7 +30,9 @@ app = typer.Typer(
 def import_(
     project_id: str = typer.Argument(..., help="项目 ID"),
     file: Path = typer.Argument(..., exists=True, dir_okay=False, help="预测结果文件"),
-    format_: str = typer.Option("aap_json", "--format", help="aap_json / coco / yolo"),
+    format_: str = typer.Option(
+        "native_json", "--format", help="native_json / coco / yolo"
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="只校验不落库"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:

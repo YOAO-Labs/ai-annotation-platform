@@ -150,12 +150,12 @@ export interface GuideAssetSignedUrlResponse {
   expires_in: number;
 }
 
-// v0.10.31 · Phase 4.7 · 视频项目导出格式 video_json/mot/kitti（aap_json 图像视频共用）。
+// 视频项目支持 video_json、mot、kitti 和原生 JSON。
 export type ExportFormat =
   | "coco"
   | "voc"
   | "yolo"
-  | "aap_json"
+  | "native_json"
   | "video_json"
   | "mot"
   | "kitti"
@@ -177,7 +177,7 @@ export type ExportTarget =
   | "label-studio-brush"
   | "binary-png"
   | "indexed-png"
-  | "aap_json"
+  | "native_json"
   | "video_json"
   | "mot"
   | "kitti"

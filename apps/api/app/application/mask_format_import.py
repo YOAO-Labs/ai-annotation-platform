@@ -12,7 +12,7 @@ from app.services.project_access import get_workspace_project
 from app.schemas.mask_format import MaskFormatPlan
 from app.services import async_job as async_job_svc
 from app.services.async_job_notify import notify_job_terminal
-from app.services.mask_formats.catalog import registry
+from app.services.mask_formats.catalog import saved_import_adapter
 from app.services.mask_formats.contracts import canonical_digest
 from app.services.mask_formats.service import (
     cancel_import_execution,
@@ -85,7 +85,7 @@ async def run_mask_format_import(
             options_digest = batch.options_digest
             plan_digest = batch.plan_digest
 
-        adapter = registry.get(format_id)
+        adapter = saved_import_adapter(format_id)
         if (
             adapter.descriptor.adapter_version != adapter_version
             or adapter.descriptor.manifest_version != manifest_version

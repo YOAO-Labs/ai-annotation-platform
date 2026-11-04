@@ -377,7 +377,7 @@ async def test_export_keeps_exact_task_scope_in_job_worker_and_artifact(
         "Authorization": f"Bearer {token}",
         "Idempotency-Key": f"export-{uuid.uuid4()}",
     }
-    body = {"task_ids": [str(selected.id)], "targets": ["aap_json"]}
+    body = {"task_ids": [str(selected.id)], "targets": ["native_json"]}
     first = await httpx_client.post(endpoint, headers=headers, json=body)
     assert first.status_code == 202, first.text
     job_id = uuid.UUID(first.json()["job_id"])
@@ -440,13 +440,13 @@ async def test_export_rejects_foreign_tasks_empty_selection_and_partial_scene_fo
     endpoint = f"/api/v1/projects/{project.id}/data-manager/tasks/export"
     headers = {"Authorization": f"Bearer {token}"}
     for body, status in [
-        ({"task_ids": [str(foreign.id)], "targets": ["aap_json"]}, 404),
-        ({"task_ids": [], "targets": ["aap_json"]}, 422),
+        ({"task_ids": [str(foreign.id)], "targets": ["native_json"]}, 404),
+        ({"task_ids": [], "targets": ["native_json"]}, 422),
         ({"task_ids": [str(local.id)], "targets": ["voc"]}, 422),
         (
             {
                 "task_ids": [str(uuid.uuid4()) for _ in range(201)],
-                "targets": ["aap_json"],
+                "targets": ["native_json"],
             },
             422,
         ),
