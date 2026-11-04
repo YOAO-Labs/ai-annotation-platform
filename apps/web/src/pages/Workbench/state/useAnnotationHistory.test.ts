@@ -127,97 +127,22 @@ describe("applyLeaf · create redo / update / delete 不受 tmpId 分支影响",
   });
 });
 
-describe("applyLeaf · acceptPrediction undo (v0.20.22 parent_prediction_id 防御过滤)", () => {
-  it("getAnnotation 未注入 → fallback 无过滤直删 (旧行为不 regress)", async () => {
-    const h = makeHandlers();
-    await applyLeaf(
-      {
-        kind: "acceptPrediction",
-        predictionId: "pred-1",
-        createdAnnotationIds: ["a1", "a2"],
-      },
-      "undo",
-      h,
-    );
-    expect(h.deleteAnnotation).toHaveBeenCalledTimes(2);
-    expect(h.deleteAnnotation).toHaveBeenCalledWith("a1");
-    expect(h.deleteAnnotation).toHaveBeenCalledWith("a2");
-  });
-
-  it("getAnnotation 返回 parent_prediction_id === cmd.predictionId → 删", async () => {
-    const getAnnotation = vi.fn(
-      (id: string) =>
-        ({
-          id,
-          parent_prediction_id: "pred-1",
-        }) as never,
-    );
-    const h = makeHandlers({ getAnnotation });
-    await applyLeaf(
-      {
-        kind: "acceptPrediction",
-        predictionId: "pred-1",
-        createdAnnotationIds: ["a1", "a2"],
-      },
-      "undo",
-      h,
-    );
-    expect(h.deleteAnnotation).toHaveBeenCalledTimes(2);
-  });
-
-  it("createdAnnotationIds 混入他 prediction 派生 id → 只删本 predictionId 的", async () => {
-    const getAnnotation = vi.fn((id: string) => {
-      if (id === "own-1" || id === "own-2") {
-        return { id, parent_prediction_id: "pred-1" } as never;
-      }
-      // 他 prediction 派生 (脏 id, 模拟旧后端契约或未来 regression)
-      return { id, parent_prediction_id: "pred-other" } as never;
-    });
-    const h = makeHandlers({ getAnnotation });
-    await applyLeaf(
-      {
-        kind: "acceptPrediction",
-        predictionId: "pred-1",
-        createdAnnotationIds: ["own-1", "dirty-1", "own-2", "dirty-2"],
-      },
-      "undo",
-      h,
-    );
-    expect(h.deleteAnnotation).toHaveBeenCalledTimes(2);
-    expect(h.deleteAnnotation).toHaveBeenCalledWith("own-1");
-    expect(h.deleteAnnotation).toHaveBeenCalledWith("own-2");
-    expect(h.deleteAnnotation).not.toHaveBeenCalledWith("dirty-1");
-    expect(h.deleteAnnotation).not.toHaveBeenCalledWith("dirty-2");
-  });
-
-  it("getAnnotation 返回 null (cache miss) → fallback 直删", async () => {
-    const getAnnotation = vi.fn(() => null);
-    const h = makeHandlers({ getAnnotation });
-    await applyLeaf(
-      {
-        kind: "acceptPrediction",
-        predictionId: "pred-1",
-        createdAnnotationIds: ["a1"],
-      },
-      "undo",
-      h,
-    );
-    expect(h.deleteAnnotation).toHaveBeenCalledWith("a1");
-  });
-
-  it("redo → 不触发 deleteAnnotation (仅消费 redo 栈)", async () => {
-    const h = makeHandlers();
-    await applyLeaf(
-      {
-        kind: "acceptPrediction",
-        predictionId: "pred-1",
-        createdAnnotationIds: ["a1"],
-      },
-      "redo",
-      h,
-    );
-    expect(h.deleteAnnotation).not.toHaveBeenCalled();
-  });
+describe("legacy acceptance history", () => {
+  it.each(["undo", "redo"] as const)(
+    "refuses %s without a durable acceptance receipt",
+    async (direction) => {
+      const handlers = makeHandlers();
+      await expect(
+        applyLeaf(
+          { kind: "acceptPrediction", predictionId: "pred-1", createdAnnotationIds: ["a1"] },
+          direction,
+          handlers,
+        ),
+      ).rejects.toThrow();
+      expect(handlers.deleteAnnotation).not.toHaveBeenCalled();
+      expect(handlers.createAnnotation).not.toHaveBeenCalled();
+    },
+  );
 });
 
 describe("applyLeaf · video keyframe undo / redo", () => {

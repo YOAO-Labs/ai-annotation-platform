@@ -7,6 +7,10 @@ import type {
   AnnotationSliceResponse,
   AnnotationSliceRestoreRequest,
 } from "@/api/annotationSlices";
+import type {
+  AcceptanceHistoryRestoreRequest,
+  AcceptanceHistoryRestoreResponse,
+} from "@/api/acceptanceHistory";
 
 export interface SliceCommand {
   kind: "slice";
@@ -14,6 +18,15 @@ export interface SliceCommand {
   resultVersions: Record<string, number>;
   restoreExpiresAt: string;
   pendingRestore?: { target: "before" | "after"; idempotencyKey: string };
+}
+
+export interface AcceptanceCommand {
+  kind: "acceptance";
+  acceptanceKey: string;
+  videoSegmentId: string | null;
+  resultVersions: Record<string, number>;
+  restoreExpiresAt?: string;
+  pendingRestore?: AcceptanceHistoryRestoreRequest;
 }
 
 export interface VideoMaskFrameState {
@@ -27,6 +40,7 @@ export interface VideoMaskFrameState {
  */
 export type Command =
   | SliceCommand
+  | AcceptanceCommand
   | { kind: "create"; annotationId: string; payload: AnnotationPayload }
   | { kind: "delete"; annotation: AnnotationResponse }
   | {
@@ -53,7 +67,7 @@ export type Command =
   /** 批量命令：undo 时反序应用、redo 时正序应用。子命令必须不含 batch（一层）。 */
   | { kind: "batch"; commands: LeafCommand[] };
 
-export type LeafCommand = Exclude<Command, { kind: "batch" | "slice" }>;
+export type LeafCommand = Exclude<Command, { kind: "batch" | "slice" | "acceptance" }>;
 
 /** v0.6.3 P1：单条非 batch 命令的实际执行。导出为纯函数便于单测。
  *  注意 cmd 在 redo / delete-undo 路径会被就地 mutate（annotationId / annotation.id），与 hook 内栈引用相同。 */
@@ -103,23 +117,7 @@ export async function applyLeaf(cmd: LeafCommand, direction: "undo" | "redo", h:
     const target = direction === "undo" ? cmd.before : cmd.after;
     await h.updateVideoMaskFrame(cmd.annotationId, cmd.frameIndex, target);
   } else if (cmd.kind === "acceptPrediction") {
-    // accept 的 undo：删掉那一批由 prediction 派生的 annotation；redo 走批量删除策略不实现，避免重复采纳引发 ID 漂移。
-    if (direction === "undo") {
-      for (const id of cmd.createdAnnotationIds) {
-        // v0.20.22 · 防御过滤: 只删 parent_prediction_id === cmd.predictionId 的标注,
-        // 防未来别处误把全量 id 塞进 createdAnnotationIds (原因: 后端曾返回整题全量,
-        // 前端把返回值 map 出 id 入历史栈, 撤销会误删他人标注)。
-        // handler 未注入或 cache miss (ann 为空/undefined) → 保持旧行为直删, 不 regress。
-        const ann = h.getAnnotation?.(id);
-        if (ann && ann.parent_prediction_id !== cmd.predictionId) continue;
-        try {
-          await h.deleteAnnotation(id);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    // redo 不再触发后端 accept（对方端点是幂等的但 id 不复用），仅消费 redo 栈无副作用
+    throw new Error("旧的采纳历史缺少恢复凭据，无法安全撤销或重做");
   }
 }
 
@@ -129,6 +127,12 @@ export interface HistoryHandlers {
     operationId: string,
     payload: AnnotationSliceRestoreRequest,
   ) => Promise<AnnotationSliceResponse>;
+  restoreAcceptance?: (
+    taskId: string,
+    acceptanceKey: string,
+    payload: AcceptanceHistoryRestoreRequest,
+  ) => Promise<AcceptanceHistoryRestoreResponse>;
+  onAcceptanceError?: (error: unknown) => void;
   onSliceError?: (error: unknown) => void;
   createAnnotation: (payload: AnnotationPayload) => Promise<AnnotationResponse>;
   deleteAnnotation: (annotationId: string) => Promise<unknown>;
@@ -146,10 +150,6 @@ export interface HistoryHandlers {
   /** v0.6.3 P0：tmpId 上的 create undo 不能走远端（必 404）。
    *  调用方在工作台闭包内提供：从 react-query cache 删 tmpId + 从离线队列删对应 create op。 */
   removeLocalCreate?: (annotationId: string) => Promise<void> | void;
-  /** v0.20.22 · accept 的 undo 过滤: 按 id 查当前 annotation, 用于校验
-   *  parent_prediction_id === cmd.predictionId 才删 (防未来别处再往数组塞脏 id)。
-   *  未注入 / 读不到时 fallback 到无过滤直删, 保持旧行为不 regress。 */
-  getAnnotation?: (annotationId: string) => AnnotationResponse | null | undefined;
 }
 
 // v0.8.7 F8 · sessionStorage 持久化（5min TTL，避免误用过期 prediction id）
@@ -327,7 +327,7 @@ export function useAnnotationHistory(
         return c;
       };
       const swap = (c: Command): Command => {
-        if (c.kind === "slice") return c;
+        if (c.kind === "slice" || c.kind === "acceptance") return c;
         if (c.kind === "batch") return { ...c, commands: c.commands.map(swapLeaf) };
         return swapLeaf(c);
       };
@@ -351,7 +351,8 @@ export function useAnnotationHistory(
       const targetIndex = record[to].length;
       const h = handlersRef.current;
       record.busy = true;
-      if (cmd.kind !== "slice") record[from] = record[from].slice(0, -1);
+      if (cmd.kind !== "slice" && cmd.kind !== "acceptance")
+        record[from] = record[from].slice(0, -1);
       publish(record);
       try {
         const assertOwner = () => {
@@ -379,8 +380,32 @@ export function useAnnotationHistory(
           cmd.restoreExpiresAt = result.restore_expires_at;
           delete cmd.pendingRestore;
           record[from] = record[from].filter((item) => item !== cmd);
+        } else if (cmd.kind === "acceptance") {
+          if (!h.restoreAcceptance || !record.taskId) throw new Error("采纳恢复接口不可用");
+          const target = direction === "undo" ? "before" : "after";
+          if (!cmd.pendingRestore) {
+            cmd.pendingRestore = {
+              target,
+              expected_versions: { ...cmd.resultVersions },
+              idempotency_key: randomId(),
+              video_segment_id: cmd.videoSegmentId,
+            };
+          }
+          if (cmd.pendingRestore.target !== target) throw new Error("采纳历史恢复状态不一致");
+          publish(record);
+          const result = await h.restoreAcceptance(
+            record.taskId,
+            cmd.acceptanceKey,
+            cmd.pendingRestore,
+          );
+          cmd.resultVersions = result.result_versions;
+          cmd.restoreExpiresAt = result.restore_expires_at;
+          delete cmd.pendingRestore;
+          record[from] = record[from].filter((item) => item !== cmd);
         } else if (cmd.kind === "batch") {
           const ordered = direction === "undo" ? [...cmd.commands].reverse() : cmd.commands;
+          if (ordered.some((sub) => sub.kind === "acceptPrediction"))
+            throw new Error("旧的采纳历史缺少恢复凭据，无法安全撤销或重做");
           for (const sub of ordered) {
             try {
               assertOwner();
@@ -392,7 +417,7 @@ export function useAnnotationHistory(
         } else {
           await applyLeaf(cmd, direction, h);
         }
-        if (cmd.kind !== "slice" || record.revision === revision) {
+        if ((cmd.kind !== "slice" && cmd.kind !== "acceptance") || record.revision === revision) {
           record[to] = [...record[to], cmd];
         } else if (direction === "redo") {
           // New edits made during this request stay after the initiating redo.
@@ -404,10 +429,17 @@ export function useAnnotationHistory(
         }
         // A new edit clears redo, even if the preceding undo settles later.
       } catch (error) {
-        if (cmd.kind !== "slice" && !record[from].includes(cmd))
+        if (cmd.kind !== "slice" && cmd.kind !== "acceptance" && !record[from].includes(cmd))
           record[from] = [...record[from], cmd];
-        if (cmd.kind === "slice" && mounted.current && current.current === record)
-          h.onSliceError?.(error);
+        if (mounted.current && current.current === record) {
+          if (cmd.kind === "slice") h.onSliceError?.(error);
+          if (
+            cmd.kind === "acceptance" ||
+            cmd.kind === "acceptPrediction" ||
+            (cmd.kind === "batch" && cmd.commands.some((sub) => sub.kind === "acceptPrediction"))
+          )
+            h.onAcceptanceError?.(error);
+        }
       } finally {
         record.busy = false;
         publish(record);

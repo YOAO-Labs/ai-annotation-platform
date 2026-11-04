@@ -1,26 +1,14 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import type { QueryClient } from "@tanstack/react-query";
 
 import { aiMasksApi, type AiMaskAcceptResponse, type AiMaskAcceptTarget } from "@/api/aiMasks";
 import type { AnnotationResponse } from "@/types";
-import type { AnnotationUpdatePayload } from "@/api/tasks";
+import { isCurrentAuthOwner } from "@/stores/authStore";
 import type { PendingMaskCandidate } from "@/pages/Workbench/state/useInteractiveAI";
+import type { AcceptanceCommand } from "@/pages/Workbench/state/useAnnotationHistory";
 
 interface AnnotationHistoryWriter {
-  push: (
-    command:
-      | {
-          kind: "acceptPrediction";
-          predictionId: string;
-          createdAnnotationIds: string[];
-        }
-      | {
-          kind: "update";
-          annotationId: string;
-          before: AnnotationUpdatePayload;
-          after: AnnotationUpdatePayload;
-        },
-  ) => void;
+  push: (command: AcceptanceCommand) => void;
 }
 
 export interface AcceptNativeMaskCandidateInput {
@@ -39,11 +27,22 @@ export interface AcceptNativeMaskCandidateInput {
 export function useAcceptNativeMaskCandidate(args: {
   taskId: string | undefined;
   videoSegmentId?: string | null;
+  meUserId?: string | null;
   annotationQueryKey?: readonly unknown[];
   queryClient: QueryClient;
   history: AnnotationHistoryWriter;
 }) {
-  const { taskId, videoSegmentId, annotationQueryKey, queryClient, history } = args;
+  const { taskId, videoSegmentId, meUserId, annotationQueryKey, queryClient, history } = args;
+  const owner = useMemo(
+    () => ({ taskId, videoSegmentId, meUserId, active: true }),
+    [taskId, videoSegmentId, meUserId],
+  );
+  useLayoutEffect(() => {
+    owner.active = true;
+    return () => {
+      owner.active = false;
+    };
+  }, [owner]);
   const inFlightRef = useRef(new Set<string>());
 
   return useCallback(
@@ -52,15 +51,12 @@ export function useAcceptNativeMaskCandidate(args: {
       className,
       target,
     }: AcceptNativeMaskCandidateInput): Promise<AiMaskAcceptResponse | undefined> => {
-      if (!taskId || inFlightRef.current.has(candidate.idempotencyKey)) return undefined;
+      const isCurrentOwner = () =>
+        owner.active && (!owner.meUserId || isCurrentAuthOwner(owner.meUserId));
+      if (!taskId || !isCurrentOwner() || inFlightRef.current.has(candidate.idempotencyKey))
+        return undefined;
       inFlightRef.current.add(candidate.idempotencyKey);
       try {
-        const sourceBefore =
-          target.mode === "refine"
-            ? queryClient
-                .getQueryData<AnnotationResponse[]>(annotationQueryKey ?? ["annotations", taskId])
-                ?.find((annotation) => annotation.id === target.source_annotation_id)
-            : undefined;
         const accepted = await aiMasksApi.accept(taskId, {
           idempotency_key: candidate.idempotencyKey,
           candidate: {
@@ -81,6 +77,7 @@ export function useAcceptNativeMaskCandidate(args: {
           routing: candidate.routing,
           inference: candidate.inference,
         });
+        if (!isCurrentOwner()) return undefined;
         queryClient.setQueryData<AnnotationResponse[]>(
           annotationQueryKey ?? ["annotations", taskId],
           (current) => {
@@ -92,31 +89,23 @@ export function useAcceptNativeMaskCandidate(args: {
               : [...existing, accepted.annotation];
           },
         );
-        if (target.mode === "refine" && sourceBefore) {
-          history.push({
-            kind: "update",
-            annotationId: accepted.annotation.id,
-            before: { geometry: sourceBefore.geometry, class_name: sourceBefore.class_name },
-            after: {
-              geometry: accepted.annotation.geometry,
-              class_name: accepted.annotation.class_name,
-            },
-          });
-        } else if (target.mode === "create") {
-          history.push({
-            kind: "acceptPrediction",
-            predictionId: accepted.prediction.id,
-            createdAnnotationIds: [accepted.annotation.id],
-          });
-        }
+        history.push({
+          kind: "acceptance",
+          acceptanceKey: candidate.idempotencyKey,
+          videoSegmentId: videoSegmentId ?? null,
+          resultVersions: { [accepted.annotation.id]: accepted.result_version },
+        });
         void queryClient.invalidateQueries({ queryKey: ["predictions", taskId] });
         void queryClient.invalidateQueries({ queryKey: ["tasks"] });
         void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
         return accepted;
+      } catch (error) {
+        if (!isCurrentOwner()) return undefined;
+        throw error;
       } finally {
         inFlightRef.current.delete(candidate.idempotencyKey);
       }
     },
-    [annotationQueryKey, history, queryClient, taskId, videoSegmentId],
+    [annotationQueryKey, history, queryClient, taskId, videoSegmentId, owner],
   );
 }

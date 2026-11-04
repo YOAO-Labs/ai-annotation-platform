@@ -121,7 +121,7 @@ describe("usePredictionDecisions owner identity", () => {
           complete = resolve;
         }),
       )
-      .mockResolvedValueOnce([{ id: "annotation-q" }]);
+      .mockResolvedValueOnce([{ id: "annotation-q", version: 1 }]);
     let pending!: Promise<unknown>;
     act(() => {
       pending = setupView.view.result.current.acceptAll([setupView.box, second]);
@@ -129,12 +129,13 @@ describe("usePredictionDecisions owner identity", () => {
     expect(setupView.args.accept).toHaveBeenCalledTimes(1);
 
     await act(async () => {
-      complete([{ id: "annotation-p" }]);
+      complete([{ id: "annotation-p", version: 1 }]);
       expect(await pending).toEqual([{ status: "success" }, { status: "success" }]);
     });
-    expect(
-      setupView.args.history.push.mock.calls.map(([entry]) => entry.createdAnnotationIds),
-    ).toEqual([["annotation-p"], ["annotation-q"]]);
+    expect(setupView.args.history.push.mock.calls.map(([entry]) => entry.resultVersions)).toEqual([
+      { "annotation-p": 1 },
+      { "annotation-q": 1 },
+    ]);
   });
 
   it.each(["task", "account"])("does not drain a retired %s's batch", async (changedOwner) => {
@@ -158,11 +159,28 @@ describe("usePredictionDecisions owner identity", () => {
       authState.userId = "user-2";
     }
     await act(async () => {
-      complete([{ id: "annotation-p" }]);
+      complete([{ id: "annotation-p", version: 1 }]);
       expect(await pending).toBeNull();
     });
     expect(setupView.args.accept).toHaveBeenCalledTimes(1);
     expect(setupView.args.history.push).not.toHaveBeenCalled();
+  });
+
+  it("retries the same acceptance after a lost response using the same request key", async () => {
+    const setupView = setup();
+    setupView.args.accept
+      .mockRejectedValueOnce(new TypeError("response lost"))
+      .mockResolvedValueOnce([{ id: "annotation-p", version: 1 }]);
+    await act(async () => {
+      expect(await setupView.view.result.current.acceptPrediction(setupView.box)).toEqual({
+        status: "failed",
+      });
+      expect(await setupView.view.result.current.acceptPrediction(setupView.box)).toEqual({
+        status: "success",
+      });
+    });
+    expect(setupView.args.accept.mock.calls[1][0]).toEqual(setupView.args.accept.mock.calls[0][0]);
+    expect(setupView.args.history.push).toHaveBeenCalledOnce();
   });
 
   it("does not start accept, reject, or batch writes after auth replacement", async () => {

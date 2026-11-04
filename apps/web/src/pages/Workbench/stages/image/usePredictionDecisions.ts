@@ -1,6 +1,7 @@
 import { useCallback, useLayoutEffect, useMemo, useRef } from "react";
 import type { useAcceptPrediction, useRejectPrediction } from "@/hooks/usePredictions";
 import { isCurrentAuthOwner } from "@/stores/authStore";
+import { randomId } from "@/utils/id";
 import { aiBoxOnFrame } from "../../stage/aiBoxFrames";
 import type { AiBox } from "../../state/transforms";
 import type { useAnnotationHistory } from "../../state/useAnnotationHistory";
@@ -35,7 +36,9 @@ interface Decision {
   pickerSeen?: boolean;
   selection: object;
   nextIds: string[];
-  status: "pending" | "awaiting-class" | "success";
+  status: "pending" | "awaiting-class" | "failed" | "success";
+  acceptanceKey: string;
+  overrideClassName?: string;
   promise?: Promise<PredictionDecisionResult>;
 }
 
@@ -141,13 +144,21 @@ export function usePredictionDecisions(args: Args) {
             shapeIndex: box.shapeIndex,
             attributeOverrides: decision.attributes,
             overrideClassName,
+            idempotencyKey: decision.acceptanceKey,
           });
           decision.status = "success";
           if (!currentTask()) return { status: "cancelled" };
+          const resultVersions: Record<string, number> = {};
+          for (const annotation of created) {
+            if (annotation.version == null) throw new Error("采纳结果缺少标注版本");
+            resultVersions[annotation.id] = annotation.version;
+          }
+          if (!created.length) throw new Error("采纳结果没有标注");
           args.history.push({
-            kind: "acceptPrediction",
-            predictionId: box.predictionId,
-            createdAnnotationIds: created.map((ann) => ann.id),
+            kind: "acceptance",
+            acceptanceKey: decision.acceptanceKey,
+            videoSegmentId: videoSegmentId ?? null,
+            resultVersions,
           });
         } else {
           await args.reject({ predictionId: box.predictionId, shapeIndex: box.shapeIndex });
@@ -210,7 +221,8 @@ export function usePredictionDecisions(args: Args) {
           });
           return { status: "awaiting-class" };
         }
-        owner.decisions.delete(box.id);
+        if (kind === "accept") decision.status = "failed";
+        else owner.decisions.delete(box.id);
         if (!decision.bulk)
           args.pushToast({
             msg: kind === "accept" ? "采纳失败" : "忽略失败",
@@ -220,7 +232,7 @@ export function usePredictionDecisions(args: Args) {
         return { status: "failed" };
       }
     },
-    [args, isCurrentOwner, owner, s],
+    [args, isCurrentOwner, owner, s, videoSegmentId],
   );
 
   const decide = useCallback(
@@ -232,13 +244,28 @@ export function usePredictionDecisions(args: Args) {
     ): Promise<PredictionDecisionResult> => {
       const existing = owner.decisions.get(box.id);
       if (existing && existing.kind !== kind) return Promise.resolve({ status: "ignored" });
-      if (existing)
+      if (existing) {
+        if (
+          existing.status === "failed" &&
+          kind === "accept" &&
+          isCurrentOwner() &&
+          !args.isLocked
+        ) {
+          if (JSON.stringify(existing.attributes ?? null) !== JSON.stringify(attributes ?? null)) {
+            args.pushToast({ msg: "请先重试原采纳操作", kind: "warning" });
+            return Promise.resolve({ status: "failed" });
+          }
+          existing.status = "pending";
+          existing.promise = run(existing, "accept", existing.overrideClassName);
+          return existing.promise;
+        }
         return (
           existing.promise ??
           Promise.resolve({
             status: existing.status === "awaiting-class" ? "awaiting-class" : "ignored",
           })
         );
+      }
       if (!isCurrentOwner() || !taskId || args.isLocked || !box.predictionId)
         return Promise.resolve({ status: "ignored" });
       const scoped = args.aiBoxes.filter((b) => bulk || aiBoxOnFrame(b, s.videoFrameIndex));
@@ -248,6 +275,7 @@ export function usePredictionDecisions(args: Args) {
       const decision: Decision = {
         box,
         kind,
+        acceptanceKey: randomId(),
         attributes,
         selection,
         bulk,
@@ -300,6 +328,8 @@ export function usePredictionDecisions(args: Args) {
         return Promise.resolve({ status: "ignored" });
       }
       decision.status = "pending";
+      decision.acceptanceKey = randomId();
+      decision.overrideClassName = cls;
       s.setEditingClass(null);
       s.setActiveClass(cls);
       args.recordRecentClass(cls);

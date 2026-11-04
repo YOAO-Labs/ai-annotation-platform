@@ -15,6 +15,7 @@ import { useLocation, useNavigate, useParams, useSearchParams } from "react-rout
 import { useIsMutating, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useToastStore } from "@/components/ui/Toast";
 import { annotationSlicesApi, type PolygonSliceCommitRequest } from "@/api/annotationSlices";
+import { acceptanceHistoryApi } from "@/api/acceptanceHistory";
 import { randomId } from "@/utils/id";
 import { captureOriginalOwner, isOriginalOwnerCurrent, originalOwnerKey } from "@/api/originals";
 import { readOriginalImage } from "@/utils/originalImageCache";
@@ -2599,6 +2600,18 @@ export function useWorkbenchShellModel({
           sub: error instanceof Error ? error.message : String(error),
           kind: "error",
         }),
+      restoreAcceptance: async (ownerTaskId, acceptanceKey, payload) => {
+        const result = await acceptanceHistoryApi.restore(ownerTaskId, acceptanceKey, payload);
+        void queryClient.invalidateQueries({ queryKey: ["annotations", ownerTaskId] });
+        void queryClient.invalidateQueries({ queryKey: ["predictions", ownerTaskId] });
+        return result;
+      },
+      onAcceptanceError: (error) =>
+        pushToast({
+          msg: "采纳历史恢复失败，记录已保留",
+          sub: error instanceof Error ? error.message : String(error),
+          kind: "error",
+        }),
       createAnnotation: (payload) => createAnnotation.mutateAsync(payload),
       deleteAnnotation: (id) =>
         deleteAnnotationMut.mutateAsync(id).catch((error) => {
@@ -2698,9 +2711,6 @@ export function useWorkbenchShellModel({
         const target = all.find((op) => op.kind === "create" && op.tmpId === id);
         if (target) await offlineQueueRemoveById(target.id, scope);
       },
-      // accept undo 防御过滤依赖 (改动 1.5): annotationsRef 已含全量当前标注,
-      // undo 时按 id 查 parent_prediction_id, 只删本 predictionId 派生的那批。
-      getAnnotation: (id) => annotationsRef.current.find((a) => a.id === id) ?? null,
     },
     meUserId ?? "",
   );
@@ -2708,6 +2718,7 @@ export function useWorkbenchShellModel({
     taskId,
     videoSegmentId: annotationSegmentId,
     annotationQueryKey,
+    meUserId,
     queryClient,
     history,
   });

@@ -44,20 +44,13 @@ export function usePredictions(
 export function useAcceptPrediction(taskId: string, videoSegmentId?: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (
-      vars:
-        | {
-            predictionId: string;
-            shapeIndex?: number;
-            overrideClassName?: string;
-            attributeOverrides?: Record<string, unknown>;
-          }
-        | string,
-    ) => {
-      // 兼容旧调用 (传 string predictionId 直接采纳整条).
-      if (typeof vars === "string") {
-        return predictionsApi.accept(taskId, vars, undefined, undefined, undefined, videoSegmentId);
-      }
+    mutationFn: (vars: {
+      predictionId: string;
+      shapeIndex?: number;
+      overrideClassName?: string;
+      attributeOverrides?: Record<string, unknown>;
+      idempotencyKey: string;
+    }) => {
       return predictionsApi.accept(
         taskId,
         vars.predictionId,
@@ -67,6 +60,7 @@ export function useAcceptPrediction(taskId: string, videoSegmentId?: string | nu
         // v0.18.3 · 采纳前审阅改过的候选属性值.
         vars.attributeOverrides,
         videoSegmentId,
+        vars.idempotencyKey,
       );
     },
     onSuccess: () => {

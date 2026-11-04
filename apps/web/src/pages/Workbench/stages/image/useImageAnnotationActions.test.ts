@@ -240,7 +240,7 @@ describe("ordinary prediction decisions", () => {
     expect(predictionMutations.reject).not.toHaveBeenCalled();
     expect(view.s.setSelectedId).not.toHaveBeenCalled();
     await act(async () => {
-      complete([{ id: "created" }]);
+      complete([{ id: "created", version: 1 }]);
       await first;
     });
     expect(view.s.setSelectedId).toHaveBeenCalledWith("pred-p-1");
@@ -275,7 +275,7 @@ describe("ordinary prediction decisions", () => {
   it("422 补选延续原决定并保留属性，只在最终成功后推进", async () => {
     predictionMutations.accept
       .mockRejectedValueOnce({ status: 422 })
-      .mockResolvedValueOnce([{ id: "created" }]);
+      .mockResolvedValueOnce([{ id: "created", version: 1 }]);
     const view = decisionHarness();
     const candidate = view.result.current.aiBoxes[0];
     await act(async () => {
@@ -296,7 +296,11 @@ describe("ordinary prediction decisions", () => {
       shapeIndex: 0,
       attributeOverrides: { reviewed: true },
       overrideClassName: "Car",
+      idempotencyKey: expect.any(String),
     });
+    expect(predictionMutations.accept.mock.calls[1][0].idempotencyKey).not.toBe(
+      predictionMutations.accept.mock.calls[0][0].idempotencyKey,
+    );
     expect(view.s.setSelectedId).toHaveBeenCalledWith("pred-p-1");
     expect(view.args.history.push).toHaveBeenCalledTimes(1);
   });
@@ -318,7 +322,7 @@ describe("ordinary prediction decisions", () => {
     if (change === "selection") view.s.selectedId = "manual";
     view.rerender();
     await act(async () => {
-      complete([{ id: "created" }]);
+      complete([{ id: "created", version: 1 }]);
       await pending;
     });
     expect(view.s.setSelectedId).not.toHaveBeenCalled();
@@ -326,7 +330,7 @@ describe("ordinary prediction decisions", () => {
   });
 
   it("来源/阈值隐藏不能解除成功防重；真实接受记录出现后撤销可重新接受", async () => {
-    predictionMutations.accept.mockResolvedValue([{ id: "created" }]);
+    predictionMutations.accept.mockResolvedValue([{ id: "created", version: 1 }]);
     const view = decisionHarness();
     const candidate = view.result.current.aiBoxes[0];
     await act(async () => {
@@ -369,7 +373,7 @@ describe("ordinary prediction decisions", () => {
       expect.objectContaining({ predictionId: "p", shapeIndex: 0 }),
     );
     await act(async () => {
-      writes[0].resolve([{ id: "created-0" }]);
+      writes[0].resolve([{ id: "created-0", version: 1 }]);
       await single;
     });
     await waitFor(() => expect(predictionMutations.accept).toHaveBeenCalledTimes(2));
@@ -378,7 +382,7 @@ describe("ordinary prediction decisions", () => {
       expect.objectContaining({ predictionId: "p", shapeIndex: 1 }),
     );
     await act(async () => {
-      writes[1].resolve([{ id: "created-1" }]);
+      writes[1].resolve([{ id: "created-1", version: 1 }]);
     });
     await waitFor(() => expect(predictionMutations.accept).toHaveBeenCalledTimes(3));
     expect(predictionMutations.accept).toHaveBeenNthCalledWith(
@@ -386,14 +390,16 @@ describe("ordinary prediction decisions", () => {
       expect.objectContaining({ predictionId: "p", shapeIndex: 2 }),
     );
     await act(async () => {
-      writes[2].resolve([{ id: "created-2" }]);
+      writes[2].resolve([{ id: "created-2", version: 1 }]);
       await bulk;
     });
-    expect(view.args.history.push.mock.calls.map(([entry]) => entry)).toEqual([
-      { kind: "acceptPrediction", predictionId: "p", createdAnnotationIds: ["created-0"] },
-      { kind: "acceptPrediction", predictionId: "p", createdAnnotationIds: ["created-1"] },
-      { kind: "acceptPrediction", predictionId: "p", createdAnnotationIds: ["created-2"] },
+    const commands = view.args.history.push.mock.calls.map(([entry]) => entry);
+    expect(commands.map((entry) => entry.resultVersions)).toEqual([
+      { "created-0": 1 },
+      { "created-1": 1 },
+      { "created-2": 1 },
     ]);
+    expect(new Set(commands.map((entry) => entry.acceptanceKey)).size).toBe(3);
   });
 
   it.each(["task", "frame"])("补选弹层随所属 %s 退出，不能在新上下文重试", async (change) => {
@@ -456,7 +462,7 @@ describe("ordinary prediction decisions", () => {
     });
     expect(predictionMutations.accept).toHaveBeenCalledTimes(1);
     await act(async () => {
-      complete([{ id: "created" }]);
+      complete([{ id: "created", version: 1 }]);
       await pending;
     });
     expect(view.s.setSelectedId).not.toHaveBeenCalled();
@@ -477,7 +483,7 @@ describe("ordinary prediction decisions", () => {
   });
 
   it("全部帧列表的显式按钮保留操作范围，但不推进当前帧选择", async () => {
-    predictionMutations.accept.mockResolvedValue([{ id: "created" }]);
+    predictionMutations.accept.mockResolvedValue([{ id: "created", version: 1 }]);
     const view = decisionHarness();
     const offFrame = view.result.current.aiBoxes[2];
     view.s.selectedId = offFrame.id;

@@ -7,6 +7,11 @@ import type { AnnotationResponse, PredictionResponse } from "@/types";
 import type { PendingMaskCandidate } from "@/pages/Workbench/state/useInteractiveAI";
 import { useAcceptNativeMaskCandidate } from "./useAcceptNativeMaskCandidate";
 
+const auth = vi.hoisted(() => ({ userId: "user-1" }));
+vi.mock("@/stores/authStore", () => ({
+  isCurrentAuthOwner: (userId: string) => auth.userId === userId,
+}));
+
 function candidate(): PendingMaskCandidate {
   return {
     id: `sha256:${"a".repeat(64)}`,
@@ -111,9 +116,10 @@ describe("useAcceptNativeMaskCandidate", () => {
       accepted.annotation,
     ]);
     expect(push).toHaveBeenCalledWith({
-      kind: "acceptPrediction",
-      predictionId: "prediction-1",
-      createdAnnotationIds: ["annotation-1"],
+      kind: "acceptance",
+      acceptanceKey: "mask:stable-idempotency-key",
+      videoSegmentId: "segment-1",
+      resultVersions: { "annotation-1": 1 },
     });
   });
 
@@ -164,7 +170,7 @@ describe("useAcceptNativeMaskCandidate", () => {
     expect(request.mock.calls[0][1].idempotency_key).toBe(request.mock.calls[1][1].idempotency_key);
   });
 
-  it("精修已存 Mask 原位更新缓存，历史记录 update 而非删除原标注", async () => {
+  it("精修结果以服务端版本记录可恢复历史", async () => {
     const queryClient = new QueryClient();
     const push = vi.fn();
     const before = {
@@ -218,10 +224,71 @@ describe("useAcceptNativeMaskCandidate", () => {
       accepted.annotation,
     ]);
     expect(push).toHaveBeenCalledWith({
-      kind: "update",
-      annotationId: "annotation-source",
-      before: { geometry: before.geometry, class_name: "car" },
-      after: { geometry: accepted.annotation.geometry, class_name: "car" },
+      kind: "acceptance",
+      acceptanceKey: "mask:stable-idempotency-key",
+      videoSegmentId: null,
+      resultVersions: { "annotation-source": 8 },
     });
+  });
+
+  it("does not publish a late native acceptance into a different task or segment", async () => {
+    const queryClient = new QueryClient();
+    const history = { push: vi.fn() };
+    let complete!: (value: AiMaskAcceptResponse) => void;
+    vi.spyOn(aiMasksApi, "accept").mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    const view = renderHook(
+      ({ taskId, videoSegmentId }) =>
+        useAcceptNativeMaskCandidate({ taskId, videoSegmentId, queryClient, history }),
+      { initialProps: { taskId: "task-1", videoSegmentId: "segment-1" } },
+    );
+    let pending!: Promise<AiMaskAcceptResponse | undefined>;
+    act(() => {
+      pending = view.result.current({
+        candidate: candidate(),
+        className: "car",
+        target: { mode: "create" },
+      });
+    });
+    view.rerender({ taskId: "task-2", videoSegmentId: "segment-2" });
+    await act(async () => {
+      complete(response());
+      expect(await pending).toBeUndefined();
+    });
+    expect(history.push).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(["annotations", "task-2", "segment-2"])).toBeUndefined();
+  });
+
+  it("does not publish a response after the authenticated account changes", async () => {
+    auth.userId = "user-1";
+    const queryClient = new QueryClient();
+    const history = { push: vi.fn() };
+    let complete!: (value: AiMaskAcceptResponse) => void;
+    vi.spyOn(aiMasksApi, "accept").mockReturnValue(
+      new Promise((resolve) => {
+        complete = resolve;
+      }),
+    );
+    const view = renderHook(() =>
+      useAcceptNativeMaskCandidate({ taskId: "task-1", meUserId: "user-1", queryClient, history }),
+    );
+    let pending!: Promise<AiMaskAcceptResponse | undefined>;
+    act(() => {
+      pending = view.result.current({
+        candidate: candidate(),
+        className: "car",
+        target: { mode: "create" },
+      });
+    });
+    auth.userId = "user-2";
+    await act(async () => {
+      complete(response());
+      expect(await pending).toBeUndefined();
+    });
+    expect(history.push).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(["annotations", "task-1"])).toBeUndefined();
   });
 });

@@ -18,6 +18,10 @@ import type {
   AnnotationSliceResponse,
   AnnotationSliceRestoreRequest,
 } from "@/api/annotationSlices";
+import type {
+  AcceptanceHistoryRestoreRequest,
+  AcceptanceHistoryRestoreResponse,
+} from "@/api/acceptanceHistory";
 
 function makeHandlers(): HistoryHandlers {
   return {
@@ -426,5 +430,161 @@ describe("atomic slice history", () => {
     rerender({ task: "slice-fail-a" });
     expect(result.current.canUndo).toBe(true);
     expect(result.current.canRedo).toBe(false);
+  });
+});
+
+describe("accepted annotation history", () => {
+  it("retries a lost restore response with the same request and tracks versions across cycles", async () => {
+    let version = 1;
+    let active = true;
+    const receipts = new Map<string, AcceptanceHistoryRestoreResponse>();
+    let loseResponse = true;
+    const restoreAcceptance = vi.fn(
+      async (_task: string, acceptanceKey: string, payload: AcceptanceHistoryRestoreRequest) => {
+        let result = receipts.get(payload.idempotency_key);
+        if (!result) {
+          expect(payload.expected_versions).toEqual({ accepted: version });
+          active = payload.target === "after";
+          version += 1;
+          result = {
+            acceptance_key: acceptanceKey,
+            target: payload.target,
+            result_versions: { accepted: version },
+            active_annotation_ids: active ? ["accepted"] : [],
+            restore_expires_at: "2099-01-01T00:00:00Z",
+            idempotent_replay: false,
+          };
+          receipts.set(payload.idempotency_key, result);
+          if (loseResponse) {
+            loseResponse = false;
+            throw new TypeError("response lost");
+          }
+        }
+        return result;
+      },
+    );
+    const onAcceptanceError = vi.fn();
+    const handlers = { ...makeHandlers(), restoreAcceptance, onAcceptanceError };
+    const first = renderHook(() => useAnnotationHistory("accept-retry", handlers));
+    act(() =>
+      first.result.current.push({
+        kind: "acceptance",
+        acceptanceKey: "accept-key",
+        videoSegmentId: "segment-1",
+        resultVersions: { accepted: 1 },
+      }),
+    );
+    await act(async () => first.result.current.undo());
+    expect(active).toBe(false);
+    expect(first.result.current.canUndo).toBe(true);
+    expect(first.result.current.canRedo).toBe(false);
+    expect(onAcceptanceError).toHaveBeenCalledOnce();
+    const originalRequest = restoreAcceptance.mock.calls[0][2];
+    first.unmount();
+    const second = renderHook(() => useAnnotationHistory("accept-retry", handlers));
+    await act(async () => second.result.current.undo());
+    expect(restoreAcceptance.mock.calls[1][2]).toEqual(originalRequest);
+    expect(second.result.current.canRedo).toBe(true);
+    await act(async () => second.result.current.redo());
+    expect(active).toBe(true);
+    expect(restoreAcceptance.mock.calls[2][2].expected_versions).toEqual({ accepted: 2 });
+    expect(restoreAcceptance.mock.calls[2][2].idempotency_key).not.toBe(
+      originalRequest.idempotency_key,
+    );
+    await act(async () => second.result.current.undo());
+    await act(async () => second.result.current.redo());
+    expect(active).toBe(true);
+    expect(version).toBe(5);
+    expect(second.result.current.canUndo).toBe(true);
+  });
+
+  it("keeps a rejected version-conflict operation available without advancing history", async () => {
+    const onAcceptanceError = vi.fn();
+    const restoreAcceptance = vi.fn(async () => {
+      throw new Error("version conflict");
+    });
+    const { result } = renderHook(() =>
+      useAnnotationHistory("accept-conflict", {
+        ...makeHandlers(),
+        restoreAcceptance,
+        onAcceptanceError,
+      }),
+    );
+    act(() =>
+      result.current.push({
+        kind: "acceptance",
+        acceptanceKey: "accept-key",
+        videoSegmentId: null,
+        resultVersions: { accepted: 1 },
+      }),
+    );
+    await act(async () => result.current.undo());
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
+    expect(onAcceptanceError.mock.calls[0][0]).toEqual(new Error("version conflict"));
+  });
+
+  it("settles an in-flight restore in the original task without modifying the new task", async () => {
+    let complete!: (value: AcceptanceHistoryRestoreResponse) => void;
+    const restoreAcceptance = vi.fn(
+      () =>
+        new Promise<AcceptanceHistoryRestoreResponse>((resolve) => {
+          complete = resolve;
+        }),
+    );
+    const { result, rerender } = renderHook(
+      ({ task }) => useAnnotationHistory(task, { ...makeHandlers(), restoreAcceptance }),
+      { initialProps: { task: "accept-owner-a" } },
+    );
+    act(() =>
+      result.current.push({
+        kind: "acceptance",
+        acceptanceKey: "accept-key",
+        videoSegmentId: null,
+        resultVersions: { accepted: 1 },
+      }),
+    );
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.undo();
+    });
+    rerender({ task: "accept-owner-b" });
+    act(() =>
+      result.current.push({ kind: "update", annotationId: "neighbor", before: {}, after: {} }),
+    );
+    await act(async () => {
+      complete({
+        acceptance_key: "accept-key",
+        target: "before",
+        result_versions: { accepted: 2 },
+        active_annotation_ids: [],
+        restore_expires_at: "2099-01-01T00:00:00Z",
+        idempotent_replay: false,
+      });
+      await pending;
+    });
+    expect(loadHistoryFromSession("accept-owner-b")?.undo).toMatchObject([
+      { annotationId: "neighbor" },
+    ]);
+    expect(loadHistoryFromSession("accept-owner-a")?.redo).toMatchObject([
+      { acceptanceKey: "accept-key", resultVersions: { accepted: 2 } },
+    ]);
+  });
+
+  it("retains an old session entry without deleting annotations", async () => {
+    const handlers = { ...makeHandlers(), onAcceptanceError: vi.fn() };
+    const { result } = renderHook(() => useAnnotationHistory("old-acceptance", handlers));
+    act(() =>
+      result.current.push({
+        kind: "acceptPrediction",
+        predictionId: "prediction",
+        createdAnnotationIds: ["accepted"],
+      }),
+    );
+    await act(async () => result.current.undo());
+    expect(result.current.canUndo).toBe(true);
+    expect(result.current.canRedo).toBe(false);
+    expect(handlers.deleteAnnotation).not.toHaveBeenCalled();
+    expect(handlers.onAcceptanceError).toHaveBeenCalledOnce();
   });
 });

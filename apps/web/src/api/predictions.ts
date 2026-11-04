@@ -71,6 +71,7 @@ export const predictionsApi = {
     overrideClassName?: string,
     attributeOverrides?: Record<string, unknown>,
     videoSegmentId?: string | null,
+    idempotencyKey?: string,
   ) => {
     const qp = new URLSearchParams();
     if (shapeIndex !== undefined) qp.set("shape_index", String(shapeIndex));
@@ -86,6 +87,7 @@ export const predictionsApi = {
     return apiClient.post<AnnotationResponse[]>(
       `/tasks/${taskId}/predictions/${predictionId}/accept${qs ? `?${qs}` : ""}`,
       body,
+      idempotencyKey ? { headers: { "Idempotency-Key": idempotencyKey } } : undefined,
     );
   },
 

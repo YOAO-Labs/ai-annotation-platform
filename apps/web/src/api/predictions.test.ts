@@ -17,6 +17,7 @@ describe("predictionsApi.accept", () => {
     expect(post).toHaveBeenCalledWith(
       "/tasks/task-1/predictions/prediction-1/accept?shape_index=2&video_segment_id=segment-1",
       undefined,
+      undefined,
     );
   });
 });
