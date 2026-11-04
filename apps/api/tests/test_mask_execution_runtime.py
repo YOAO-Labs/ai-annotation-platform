@@ -405,7 +405,13 @@ async def _stage_aap_import(client, world, task_indexes: list[int]) -> dict[str,
             }
         )
     payload = json.dumps(
-        {"schema_version": "1.3", "mask_objects": mask_objects, "tasks": staged_tasks},
+        {
+            "schema_version": "2.0",
+            "format": "yoao",
+            "exported_from": {"platform": "yoao"},
+            "mask_objects": mask_objects,
+            "tasks": staged_tasks,
+        },
         separators=(",", ":"),
     ).encode()
     storage_service.client.put_object(

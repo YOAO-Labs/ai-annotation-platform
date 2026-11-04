@@ -341,6 +341,7 @@ class CreateMaskFormatImport(_Command):
     adapter_version: StrictStr
     manifest_version: StrictStr
     staged_object_key: StrictStr
+    staging_ref: dict[str, object]
     staged_sha256: StrictStr
     mapping_json: dict[str, object]
     options_json: dict[str, object]
@@ -626,6 +627,7 @@ class MaskFormatImportSnapshot(_ClosedModel):
     adapter_version: StrictStr
     manifest_version: StrictStr
     staged_object_key: StrictStr
+    staging_ref: dict[str, object] | None
     staged_sha256: StrictStr
     mapping_json: dict[str, object]
     options_json: dict[str, object]

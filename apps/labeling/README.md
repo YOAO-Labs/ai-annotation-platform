@@ -253,6 +253,9 @@ Native, cold and restore qualification remains a complete-module acceptance gate
 existing import, conversion, camera editing and Mask format-import ledger.
 `task_maintenance_command` owns source-less Task cleanup and derived counters.
 All borrow the original caller transaction and preserve its commit boundary.
+Mask format-import creation records the already-verified staged storage reference
+in the same transaction as its plan and receipt. Reads and resumed executions
+use that saved reference and content digest, not the current import binding.
 
 Public core-row views retain native column types. Row-returning lock functions
 use the explicit published column order and preserve their selected lock mode.

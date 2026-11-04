@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 import uuid
 from typing import Any
 
@@ -78,6 +79,7 @@ async def run_mask_format_import(
             job_id = job.id
             format_id = batch.format_id
             staged_object_key = batch.staged_object_key
+            staging_ref = batch.staging_ref
             staged_sha256 = batch.staged_sha256
             adapter_version = batch.adapter_version
             manifest_version = batch.manifest_version
@@ -92,10 +94,16 @@ async def run_mask_format_import(
         ):
             raise RuntimeError("format_adapter_version_conflict")
 
-        with materialize_staged_object(
-            object_key=staged_object_key,
-            expected_sha256=staged_sha256,
-        ) as staged:
+        async with AsyncExitStack() as stack:
+            materialize_db = await stack.enter_async_context(session_factory())
+            staged = await stack.enter_async_context(
+                materialize_staged_object(
+                    materialize_db,
+                    object_key=staged_object_key,
+                    expected_sha256=staged_sha256,
+                    staging_ref=staging_ref,
+                )
+            )
             async with session_factory() as db:
                 batch = await read_import(db, import_id=import_id)
                 if batch is None:

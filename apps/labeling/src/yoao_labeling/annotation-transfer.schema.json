@@ -1218,6 +1218,11 @@
           "title": "Staged Object Key",
           "type": "string"
         },
+        "staging_ref": {
+          "additionalProperties": true,
+          "title": "Staging Ref",
+          "type": "object"
+        },
         "staged_sha256": {
           "title": "Staged Sha256",
           "type": "string"
@@ -1274,6 +1279,7 @@
         "adapter_version",
         "manifest_version",
         "staged_object_key",
+        "staging_ref",
         "staged_sha256",
         "mapping_json",
         "options_json",
@@ -2233,6 +2239,18 @@
           "title": "Staged Object Key",
           "type": "string"
         },
+        "staging_ref": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Staging Ref"
+        },
         "staged_sha256": {
           "title": "Staged Sha256",
           "type": "string"
@@ -2315,6 +2333,7 @@
         "adapter_version",
         "manifest_version",
         "staged_object_key",
+        "staging_ref",
         "staged_sha256",
         "mapping_json",
         "options_json",

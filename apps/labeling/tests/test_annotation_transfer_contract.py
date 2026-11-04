@@ -90,7 +90,7 @@ def test_transfer_command_is_closed_and_frozen_schema_matches_both_artifacts():
     )
     api_schema = json.loads(
         (
-            root / "apps/api/alembic/sql/0351_labeling_annotation_transfer.schema.json"
+            root / "apps/api/alembic/sql/0431_labeling_mask_staging.schema.json"
         ).read_text()
     )
     assert package_schema == api_schema == expected
