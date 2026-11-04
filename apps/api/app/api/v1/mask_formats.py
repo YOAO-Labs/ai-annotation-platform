@@ -76,7 +76,9 @@ async def _upload_authority(db, project_id, user, key_id, key_proof):
     from app.services.project_write_guard import lock_actor_project_authority
 
     await lock_actor_project_authority(db, user.id, project_id)
-    project = await require_project_owner(project_id, db, user)
+    project = await require_project_owner(
+        project_id=project_id, db=db, actor_id=user.id
+    )
     if key_id is not None:
         try:
             await db.scalar(

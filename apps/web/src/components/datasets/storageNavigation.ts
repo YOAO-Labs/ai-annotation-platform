@@ -140,6 +140,24 @@ export function saveImportTextDraft(
   sessionStorage.setItem(draftKey("current", session, datasetId), raw);
 }
 
+export function upgradeImportTextDraft(
+  session: string,
+  datasetId: string | undefined,
+  record: StoredImportTextDraft,
+): StoredImportTextDraft {
+  if (record.source !== "legacy" || !record.draft) throw new Error("旧版草稿无法升级");
+  const currentKey = draftKey("current", session, datasetId);
+  if (
+    sessionStorage.getItem(draftKey("legacy", session, datasetId)) !== record.raw ||
+    sessionStorage.getItem(currentKey) !== null
+  )
+    throw new Error("草稿已更改或当前草稿尚未处理");
+  sessionStorage.setItem(currentKey, record.raw);
+  if (sessionStorage.getItem(currentKey) !== record.raw) throw new Error("无法核验新草稿");
+  removeImportTextDraft(session, datasetId, record);
+  return { ...record, source: "current" };
+}
+
 /** Act only on the exact bytes presented to the user, never a replacement record. */
 export function removeImportTextDraft(
   session: string,

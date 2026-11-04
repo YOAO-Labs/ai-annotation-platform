@@ -9,6 +9,7 @@ import {
   removeImportTextDraft,
   safeDatasetReturn,
   saveImportTextDraft,
+  upgradeImportTextDraft,
   type ImportTextDraft,
   type StoredImportTextDraft,
 } from "./storageNavigation";
@@ -243,8 +244,11 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
     }
     try {
       if (recover && record.draft) {
+        const ready =
+          record.source === "legacy" ? upgradeImportTextDraft(session, datasetId, record) : record;
+        setStoredDrafts(inspectImportTextDrafts(session, datasetId));
         applyDraft(record.draft);
-        setPendingDraft(record);
+        setPendingDraft(ready);
         return;
       }
       removeImportTextDraft(session, datasetId, record);
@@ -252,6 +256,11 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
       setDraftError(null);
     } catch {
       setDraftError("草稿已更改或浏览器存储不可用；原始内容未被有意覆盖，请重新检查。");
+      try {
+        setStoredDrafts(inspectImportTextDrafts(session, datasetId));
+      } catch {
+        // Keep the previously displayed records available for recovery.
+      }
     }
   };
 
@@ -578,6 +587,11 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
             发现此会话和数据集的导入草稿。恢复会替换当前表单；请逐条恢复或丢弃后再管理存储。
             关闭浏览器标签页后无法保证恢复。
           </p>
+          {storedDrafts.length > 1 && (
+            <p className="text-xs text-muted-foreground">
+              为避免覆盖，需先处理当前草稿，再恢复旧版草稿。
+            </p>
+          )}
           {storedDrafts.map((record) => (
             <div key={record.source} className="space-y-2">
               <p className="text-sm">{record.source === "legacy" ? "旧版草稿" : "当前草稿"}</p>
@@ -595,7 +609,11 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
                 </>
               )}
               {record.draft && (
-                <Button size="sm" onClick={() => resolveDraft(record, true)}>
+                <Button
+                  size="sm"
+                  disabled={record.source === "legacy" && storedDrafts.length > 1}
+                  onClick={() => resolveDraft(record, true)}
+                >
                   恢复{record.source === "legacy" ? "旧版" : "当前"}草稿
                 </Button>
               )}

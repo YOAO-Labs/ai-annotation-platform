@@ -358,22 +358,38 @@ describe("ImportDatasetWizard", () => {
     renderUI();
     expect(screen.getByLabelText("当前草稿原文")).toHaveValue(newer);
     expect(sessionStorage.getItem(oldKey)).toBe(old);
-    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementationOnce(() => {
-      throw new DOMException("Storage unavailable", "SecurityError");
-    });
-    fireEvent.click(screen.getByRole("button", { name: "恢复旧版草稿" }));
-    expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("old/path");
-    expect(sessionStorage.getItem(oldKey)).toBe(old);
-    expect(screen.getByRole("alert")).toBeVisible();
-    remove.mockRestore();
-    fireEvent.click(screen.getByRole("button", { name: "恢复旧版草稿" }));
-    expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("old/path");
-    expect(sessionStorage.getItem(oldKey)).toBeNull();
-    expect(sessionStorage.getItem(newKey)).toBe(newer);
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "恢复旧版草稿" })).toBeDisabled();
     vi.mocked(confirmDialog).mockResolvedValueOnce(true);
     fireEvent.click(screen.getByRole("button", { name: "丢弃当前草稿" }));
     await waitFor(() => expect(sessionStorage.getItem(newKey)).toBeNull());
+    expect(sessionStorage.getItem(oldKey)).toBe(old);
+
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementationOnce(() => {
+      throw new DOMException("Storage full", "QuotaExceededError");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "恢复旧版草稿" }));
+    expect(sessionStorage.getItem(oldKey)).toBe(old);
+    expect(sessionStorage.getItem(newKey)).toBeNull();
+    expect(screen.getByRole("alert")).toBeVisible();
+    write.mockRestore();
+
+    const originalRemove = Storage.prototype.removeItem;
+    const remove = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (
+      this: Storage,
+      key: string,
+    ) {
+      if (key === newKey) throw new DOMException("Storage unavailable", "SecurityError");
+      return originalRemove.call(this, key);
+    });
+    fireEvent.click(screen.getByRole("button", { name: "恢复旧版草稿" }));
+    expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("old/path");
+    expect(sessionStorage.getItem(oldKey)).toBeNull();
+    expect(sessionStorage.getItem(newKey)).toBe(old);
+    expect(screen.getByRole("alert")).toBeVisible();
+    remove.mockRestore();
+    fireEvent.click(screen.getByRole("button", { name: "恢复当前草稿" }));
+    expect(sessionStorage.getItem(newKey)).toBeNull();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("old/path");
   });
 
