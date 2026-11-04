@@ -40,7 +40,7 @@ function detailError(error: unknown): string {
 }
 
 function formatDate(iso: string | null) {
-  if (!iso || !Number.isFinite(Date.parse(iso))) return "未开始";
+  if (!iso || !Number.isFinite(Date.parse(iso))) return "未记录";
   return new Date(iso).toLocaleString("zh-CN");
 }
 
@@ -309,7 +309,7 @@ export function AsyncJobDetailModal({
             <dt className="text-muted-foreground">开始时间</dt>
             <dd className="m-0">{formatDate(job.started_at)}</dd>
             <dt className="text-muted-foreground">完成时间</dt>
-            <dd className="m-0">{job.completed_at ? formatDate(job.completed_at) : "尚未结束"}</dd>
+            <dd className="m-0">{formatDate(job.completed_at)}</dd>
           </dl>
           {job.error_message && (
             <details className="rounded-md border border-border p-3" open={job.status === "failed"}>

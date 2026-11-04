@@ -77,7 +77,7 @@ function GroupEditor({
       )}
       data-filter-path={path.join(".") || "root"}
     >
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <span className="text-xs font-medium text-muted-foreground">组合条件</span>
         <span className="text-2xs text-muted-foreground">{nodeLabel(group, fields)}</span>
         <FilterSelect
@@ -291,7 +291,7 @@ export function DataManagerExpressionEditor({
 
   return (
     <div className={cn("flex flex-col gap-2", className)} data-filter-expression-editor>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="min-w-0 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">{summary}</span>
           {!valid && <span className="ml-2 text-destructive">存在未完成或无效条件</span>}

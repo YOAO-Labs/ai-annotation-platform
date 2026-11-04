@@ -73,7 +73,9 @@ export function FilterBar({
           {filter.label}
         </FilterToggle>
       ))}
-      {!!quickFilters.length && <Separator orientation="vertical" className="mx-0.5 h-6" />}
+      {!!quickFilters.length && (
+        <Separator orientation="vertical" className="mx-0.5 data-[orientation=vertical]:h-6" />
+      )}
       {chips.map((chip) => (
         <Popover key={chip.id}>
           <PopoverTrigger asChild>
