@@ -7,7 +7,7 @@ import * as decisionDialogs from "@/components/ui/decisionDialog";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
-import { trainingRunsApi } from "@/api/trainingRuns";
+import { trainingRunsApi, type TrainingRunOut } from "@/api/trainingRuns";
 import { trainedModelsApi } from "@/api/trainedModels";
 import { trainingPreviewsApi } from "@/api/trainingPreviews";
 import { trainingRecipesApi, type TrainingRecipeOut } from "@/api/trainingRecipes";
@@ -1441,6 +1441,27 @@ describe("training creation ownership", () => {
       expect(localStorage.getItem(trainingDraftKey(owner))).toContain(newer.draftId);
     },
   );
+  it("does not remove a newer same-owner draft after a late create response", async () => {
+    const late = deferred<TrainingRunOut>();
+    vi.mocked(trainingRunsApi.create).mockReturnValue(late.promise);
+    const { user } = await prepare();
+    await check();
+    await user.click(screen.getByRole("button", { name: "开始训练" }));
+    await waitFor(() => expect(trainingRunsApi.create).toHaveBeenCalledOnce());
+    const key = trainingDraftKey(trainingDraftOwner("user-1", "project-1"));
+    const saved = JSON.parse(localStorage.getItem(key)!);
+    const newer = JSON.stringify({
+      ...saved,
+      revision: saved.revision + 1,
+      requestId: crypto.randomUUID(),
+      pending: undefined,
+    });
+    localStorage.setItem(key, newer);
+    await act(async () => late.resolve({ id: "run-1" } as never));
+    expect(await screen.findByText(/草稿在其他标签页发生变化/)).toBeVisible();
+    expect(localStorage.getItem(key)).toBe(newer);
+    expect(screen.getByTestId("location")).toHaveTextContent("/projects/project-1/learning/new");
+  });
   it("checks current authority before preflight and create", async () => {
     const { user } = await prepare();
     await check();

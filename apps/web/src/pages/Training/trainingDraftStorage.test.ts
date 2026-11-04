@@ -4,8 +4,6 @@ import {
   emptyTrainingDraft,
   inspectTrainingDraftRecords,
   legacyTrainingDraftKey,
-  readTrainingDraft,
-  removeMatchingTrainingDraft,
   saveTrainingDraft,
   settledTrainingDraft,
   trainingDraftKey,
@@ -24,7 +22,7 @@ const owner = trainingDraftOwner("user-1", "project-1");
 it("persists task selection and rejects a pending body for another task", () => {
   const draft = { ...pendingDraft(), task: "segment" as const };
   expect(saveTrainingDraft({ ...draft, pending: undefined })).toBeNull();
-  expect(readTrainingDraft(owner).draft?.task).toBe("segment");
+  expect(inspectTrainingDraftRecords(owner).targetDraft?.task).toBe("segment");
   expect(saveTrainingDraft(draft)).not.toBeNull();
   expect(
     saveTrainingDraft({ ...draft, pending: { body: { ...draft.pending.body, task: "segment" } } }),
@@ -43,7 +41,7 @@ it("restores an exact pending study and rejects two pending actions or another r
   };
   const draft = { ...ordinary, pending: undefined, pendingStudy };
   expect(saveTrainingDraft(draft)).toBeNull();
-  expect(readTrainingDraft(owner).draft).toEqual(draft);
+  expect(inspectTrainingDraftRecords(owner).targetDraft).toEqual(draft);
   for (const changed of [
     { ...draft, pending: ordinary.pending },
     {
@@ -62,7 +60,7 @@ it("restores an exact pending study and rejects two pending actions or another r
     },
   ]) {
     localStorage.setItem(trainingDraftKey(owner), JSON.stringify(changed));
-    expect(readTrainingDraft(owner).draft).toBeNull();
+    expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
   }
 });
 
@@ -79,7 +77,7 @@ it("preserves a pinned initialization in exact pending bodies and rejects hidden
     pending: { body: { ...old.pending.body, initialization } },
   };
   expect(saveTrainingDraft(draft)).toBeNull();
-  expect(readTrainingDraft(owner).draft).toEqual(draft);
+  expect(inspectTrainingDraftRecords(owner).targetDraft).toEqual(draft);
   for (const changed of [
     { ...draft, initialization: undefined },
     { ...draft, initialization: { ...initialization, source_digest: "d".repeat(64) } },
@@ -90,7 +88,7 @@ it("preserves a pinned initialization in exact pending bodies and rejects hidden
     },
   ]) {
     localStorage.setItem(trainingDraftKey(owner), JSON.stringify(changed));
-    expect(readTrainingDraft(owner).draft).toBeNull();
+    expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
   }
   expect(
     saveTrainingDraft({
@@ -133,16 +131,20 @@ function pendingDraft() {
 it("restores exact typed submission with owner/model/schema identity and no credentials", () => {
   const draft = pendingDraft();
   expect(saveTrainingDraft(draft)).toBeNull();
-  expect(readTrainingDraft(owner)).toEqual({ draft, error: null });
-  expect(readTrainingDraft(trainingDraftOwner("user-2", "project-1")).draft).toBeNull();
-  expect(readTrainingDraft(trainingDraftOwner("user-1", "project-2")).draft).toBeNull();
+  expect(inspectTrainingDraftRecords(owner).targetDraft).toEqual(draft);
+  expect(
+    inspectTrainingDraftRecords(trainingDraftOwner("user-2", "project-1")).targetDraft,
+  ).toBeNull();
+  expect(
+    inspectTrainingDraftRecords(trainingDraftOwner("user-1", "project-2")).targetDraft,
+  ).toBeNull();
   expect(localStorage.getItem(trainingDraftKey(owner))).not.toContain("token");
 });
 
 it("preserves malformed stored data and surfaces failures", () => {
   const key = trainingDraftKey(owner);
   localStorage.setItem(key, "{broken");
-  expect(readTrainingDraft(owner).error).toMatch(/原记录未被自动覆盖/);
+  expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
   expect(localStorage.getItem(key)).toBe("{broken");
   const draft = pendingDraft();
   expect(
@@ -151,7 +153,7 @@ it("preserves malformed stored data and surfaces failures", () => {
         throw new Error("quota");
       },
     }),
-  ).toMatch(/无法保存/);
+  ).not.toBeNull();
   for (const patch of [
     { schemaDigest: "other" },
     { ownerKey: "foreign" },
@@ -159,7 +161,7 @@ it("preserves malformed stored data and surfaces failures", () => {
     { name: "other" },
   ]) {
     localStorage.setItem(key, JSON.stringify({ ...draft, ...patch }));
-    expect(readTrainingDraft(owner).draft).toBeNull();
+    expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
   }
   localStorage.setItem(
     key,
@@ -168,17 +170,7 @@ it("preserves malformed stored data and surfaces failures", () => {
       pending: { body: { ...draft.pending.body, parameters: { batch: 2 } } },
     }),
   );
-  expect(readTrainingDraft(owner).draft).toBeNull();
-});
-
-it("does not clear another tab's newer or different draft", () => {
-  const draft = pendingDraft();
-  const newer = { ...draft, revision: draft.revision + 1 };
-  saveTrainingDraft(newer);
-  removeMatchingTrainingDraft(draft);
-  expect(readTrainingDraft(owner).draft).toEqual(newer);
-  removeMatchingTrainingDraft(newer);
-  expect(readTrainingDraft(owner).draft).toBeNull();
+  expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
 });
 
 it("restores exact source identity and pending origin, rejects mismatched or executable metadata", () => {
@@ -206,7 +198,7 @@ it("restores exact source identity and pending origin, rejects mismatched or exe
     pending: { body: { ...draft.pending.body, origin: reference } },
   };
   expect(saveTrainingDraft(next)).toBeNull();
-  expect(readTrainingDraft(owner).draft).toEqual(next);
+  expect(inspectTrainingDraftRecords(owner).targetDraft).toEqual(next);
   const key = trainingDraftKey(owner);
   for (const changed of [
     { ...next, source: { ...source, script: "execute" } },
@@ -220,7 +212,7 @@ it("restores exact source identity and pending origin, rejects mismatched or exe
     { ...next, source: { ...source, reference: { ...reference, run_id: crypto.randomUUID() } } },
   ]) {
     localStorage.setItem(key, JSON.stringify(changed));
-    expect(readTrainingDraft(owner).draft).toBeNull();
+    expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
   }
 });
 
@@ -228,12 +220,12 @@ it("restores the exact canonical task for a request whose creation response was 
   const old = pendingDraft();
   const draft = { ...old, pending: { body: { ...old.pending.body, task: "segment" as const } } };
   expect(saveTrainingDraft(draft)).toBeNull();
-  expect(readTrainingDraft(owner).draft?.pending?.body.task).toBe("segment");
+  expect(inspectTrainingDraftRecords(owner).targetDraft?.pending?.body.task).toBe("segment");
   localStorage.setItem(
     trainingDraftKey(owner),
     JSON.stringify({ ...draft, pending: { body: { ...draft.pending.body, task: "aap" } } }),
   );
-  expect(readTrainingDraft(owner).draft).toBeNull();
+  expect(inspectTrainingDraftRecords(owner).targetInvalid).toBe(true);
 });
 
 it.each(["editable", "pending run", "pending study"])(
@@ -264,7 +256,7 @@ it.each(["editable", "pending run", "pending study"])(
     await upgradeTrainingDraft(owner, seen, "legacy", () => true);
     expect(localStorage.getItem(trainingDraftKey(owner))).toBe(raw);
     expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(raw);
-    expect(readTrainingDraft(owner).draft).toEqual(draft);
+    expect(inspectTrainingDraftRecords(owner).targetDraft).toEqual(draft);
   },
 );
 

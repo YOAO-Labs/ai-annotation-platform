@@ -352,22 +352,6 @@ function pendingStudy(value: unknown): value is TrainingStudyCreate {
   );
 }
 
-export function readTrainingDraft(
-  ownerKey: string,
-  storage: Pick<Storage, "getItem"> = localStorage,
-): { draft: TrainingDraft | null; error: string | null } {
-  try {
-    const source = storage.getItem(trainingDraftKey(ownerKey));
-    if (!source) return { draft: null, error: null };
-    if (source.length > 128 * 1024) throw new Error("草稿超出大小限制");
-    const value: unknown = JSON.parse(source);
-    if (!validTrainingDraft(value, ownerKey)) throw new Error("草稿格式或归属不匹配");
-    return { draft: value, error: null };
-  } catch {
-    return { draft: null, error: "无法恢复本地草稿，请检查浏览器存储。原记录未被自动覆盖。" };
-  }
-}
-
 export function saveTrainingDraft(
   draft: TrainingDraft,
   storage: Pick<Storage, "setItem"> = localStorage,
@@ -380,20 +364,6 @@ export function saveTrainingDraft(
     return null;
   } catch {
     return "浏览器无法保存草稿。请保持此页面，以便重试尚未确认的创建请求。";
-  }
-}
-
-export function removeMatchingTrainingDraft(
-  draft: TrainingDraft,
-  storage: Pick<Storage, "getItem" | "removeItem"> = localStorage,
-): void {
-  const stored = readTrainingDraft(draft.ownerKey, storage).draft;
-  if (
-    stored?.draftId === draft.draftId &&
-    stored.revision === draft.revision &&
-    stored.requestId === draft.requestId
-  ) {
-    storage.removeItem(trainingDraftKey(draft.ownerKey));
   }
 }
 
