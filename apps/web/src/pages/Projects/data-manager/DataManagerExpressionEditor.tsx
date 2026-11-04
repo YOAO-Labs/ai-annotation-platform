@@ -81,7 +81,7 @@ function GroupEditor({
         <span className="text-xs font-medium text-muted-foreground">组合条件</span>
         <span className="text-2xs text-muted-foreground">{nodeLabel(group, fields)}</span>
         <FilterSelect
-          className={cn(FIELD_CLASS, "w-28")}
+          className={cn(FIELD_CLASS, "w-36")}
           value={group.op}
           aria-label={`${path.join(".") || "root"} 逻辑关系`}
           onChange={(event) =>
