@@ -12,7 +12,7 @@ last_reviewed: 2026-09-05
 
 <!-- history: prompt-first tools and Magic Box were introduced in separate releases; this page describes the current tool model. -->
 
-工具栏按交互范式拆成 5 个独立 AI 工具（均为**画布手势驱动**）。你直接选择「想怎么交互」，AI 自动走对应模型 prompt。
+工具栏按交互范式拆成 5 个独立 AI 工具（均为**画布手势驱动**）。你选择交互方式后，点、框或笔迹等提示会作为模型输入。
 
 | 工具              | 图标 | 默认快捷键     | 后端要求            | 输出形态                 |
 | ----------------- | ---- | -------------- | ------------------- | ------------------------ |
@@ -89,12 +89,12 @@ last_reviewed: 2026-09-05
 
 先选中一条已保存、未锁定的原生 Raster Mask，再点击智能笔迹。绿色正向笔迹标明应保留的目标区域；按住
 `Alt` 绘制，或在交互工具栏切到负向后绘制红色笔迹，标明应排除的背景区域。没有合格的源 Mask、当前
-模型未同时声明 `mask` 与 `scribble` prompt，或项目不允许写入原生 Mask 时，按钮保持置灰并显示原因。
+模型未同时声明 `mask` 与 `scribble` 提示能力，或项目不允许写入原生 Mask 时，按钮保持置灰并显示原因。
 
 点、框与正负笔迹可以在同一精修会话中交替追加。每次追加后，模型会重新估计轮廓，
 因此要先检查目标边界，再按 `Enter` 选类确认。确认后原位更新已选 Mask，不会创建重复对象；刷新后仍保留该结果。
 
-如果 prompt 请求遇到网络错误，当前候选、已追加的点 / 框 / 笔迹和源 Mask 会保留，交互工具栏可用
+如果提示请求遇到网络错误，当前候选、已追加的点 / 框 / 笔迹和源 Mask 会保留，交互工具栏可用
 「重试」原样发送同一轮输入。主动取消、切题、切帧、切模型或会话过期会清理未接受的候选与短期会话。
 
 ### Magic Box — 拖框 → SAM 收紧到对象紧凑外接矩形
@@ -153,7 +153,7 @@ last_reviewed: 2026-09-05
 
 > 文本提示不再是工具栏交互工具。给词→全图找所有实例属**批量能力**,在悬浮 **AI 面板**(点工具栏「单图」打开)或**批量预标页**使用。
 
-在 AI 面板的 Prompt 输入框填英文 prompt（如 `ripe apple`、`car . truck . bicycle`），GroundingDINO、SAM 3 PCS、YOLO-World 或 YOLOE 会按当前 model 能力批量返回候选。
+在 AI 面板的文本提示输入框填英文短语（如 `ripe apple`、`car . truck . bicycle`），GroundingDINO、SAM 3 PCS、YOLO-World 或 YOLOE 会按当前模型能力批量返回候选。
 
 输出形态按模型任务和后端能力裁剪：检测模型固定输出框并隐藏选择器；分割模型只在支持时显示“掩膜 / 全部”，避免与检测任务重复；通用几何或文档模型才可能显示“框 / 掩膜 / 全部”三种选择。
 
@@ -201,7 +201,7 @@ AI 候选列表行右侧有「精修」按钮（仅 polygon 类型候选显示�
 | `simplify_tolerance`                     | 两者          | 后端自定义 | 像素       | polygon 轮廓 Douglas-Peucker 容差 |
 | `model_variant` / `embedding_cache_size` | —             | —          | —          | 只读信息（禁用展示，不可改）      |
 
-> 文本提示格式：在 AI 面板 Prompt 输入框填英文短语，多个类别用 `.`（空格+点+空格）分隔，格式与 GroundingDINO 一致，例如 `ripe apple . green apple . orange`。
+> 文本提示格式：在 AI 面板的文本提示输入框填英文短语，多个类别用 `.`（空格+点+空格）分隔，格式与 GroundingDINO 一致，例如 `ripe apple . green apple . orange`。
 
 模型变体（SAM2 / DINO 变体）在同一面板的「变体选择器」里切换。backend 若上报 `/setup.supported_variants`，选项会显示显存估算、快速/均衡/精度档位和推荐标识；未上报时回落到 `/setup.params` 的 enum。参数按**所绑定后端**动态显示——绑 sam3 不会出现 DINO 阈值，绑 gsam2 才有。
 

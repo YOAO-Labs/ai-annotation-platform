@@ -182,9 +182,9 @@ export function assertMaskQcTrackerCandidate(
   }
   if (candidate.frameIndex !== targetFrame) throw new Error("Tracker 候选不属于目标帧");
   if (!Number.isInteger(candidate.jobRevision) || candidate.jobRevision < 1) {
-    throw new Error("Tracker 候选缺少有效 revision");
+    throw new Error("追踪候选缺少有效的作业版本（revision）");
   }
-  if (!candidate.digest) throw new Error("Tracker 候选缺少不可变 digest");
+  if (!candidate.digest) throw new Error("追踪候选缺少不可变内容摘要（digest）");
 }
 
 export function collectMaskQcTrackerCandidates(
@@ -473,7 +473,7 @@ export function useMaskQcReview(params: {
             trackerCandidateFromIssue(issue, targetFrame) ??
             dynamicRef.current.getTrackerCandidates(issue, targetFrame)[0] ??
             null;
-          if (!trackerCandidate) throw new Error("当前没有与该标注和帧匹配的 Tracker 候选");
+          if (!trackerCandidate) throw new Error("当前没有与该标注和帧匹配的视频追踪候选");
           assertMaskQcTrackerCandidate(trackerCandidate, issue, targetFrame);
         } else {
           trackerCandidate = null;
@@ -825,7 +825,7 @@ export function useMaskQcReview(params: {
             ...current,
             issue,
             phase: "error",
-            error: "Tracker 评论缺少可重放的候选身份",
+            error: "追踪评论缺少可重放的候选身份，无法恢复原对比证据",
           }));
           return;
         }

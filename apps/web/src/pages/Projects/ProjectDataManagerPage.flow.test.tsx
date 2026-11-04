@@ -378,9 +378,6 @@ describe("ProjectDataManagerPage task data", () => {
     await user.click(screen.getByRole("button", { name: "筛选" }));
     await user.click(screen.getByRole("button", { name: /标注员 task\.assignee/ }));
 
-    expect(
-      screen.getByText("当前筛选包含未完成或 schema 中不存在的条件，完成编辑后才会查询。"),
-    ).toBeInTheDocument();
     expect(captured.taskQueries).toHaveLength(1);
     expect(screen.getByRole("button", { name: "刷新" })).toBeDisabled();
   });

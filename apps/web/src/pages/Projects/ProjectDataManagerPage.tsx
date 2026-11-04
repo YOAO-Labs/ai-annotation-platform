@@ -1135,7 +1135,7 @@ function TaskDataManagerPage({
             />
           ) : (
             <div role="alert" className="text-xs text-destructive">
-              当前字段不在 schema 中，无法执行条件
+              此字段不在当前项目和查看粒度支持的筛选字段中，请移除条件后再查询。
             </div>
           )}
           <Button
@@ -1528,7 +1528,7 @@ function TaskDataManagerPage({
                   )}
                 {!filterReady && (
                   <div role="alert" className="text-xs text-destructive">
-                    当前筛选包含未完成或 schema 中不存在的条件，完成编辑后才会查询。
+                    筛选条件尚未完成，或字段在当前项目和查看粒度下不可用；完成或移除条件后才会查询。
                   </div>
                 )}
                 <div

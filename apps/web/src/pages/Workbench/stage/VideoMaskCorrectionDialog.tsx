@@ -78,10 +78,10 @@ function preferredCorrectionModel(
 }
 
 function modelLabel(model: VideoMaskCorrectionModel | null): string {
-  if (model?.modelKey === "sam3_video_interactive") return "SAM3 PVS · 原生 Mask seed";
-  if (model?.modelKey === "sam2_video") return "Grounded-SAM2 · 原生 Mask seed";
-  if (model?.modelKey === "sam3_video") return "SAM3 Multiplex · bbox seed 降级";
-  if (model) return `${model.modelKey} · ${model.nativeMask ? "原生 Mask seed" : "bbox seed 降级"}`;
+  if (model?.modelKey === "sam3_video_interactive") return "SAM3 PVS · 使用原生 Mask 像素";
+  if (model?.modelKey === "sam2_video") return "Grounded-SAM2 · 使用原生 Mask 像素";
+  if (model?.modelKey === "sam3_video") return "SAM3 Multiplex · 使用外接框";
+  if (model) return `${model.modelKey} · ${model.nativeMask ? "使用原生 Mask 像素" : "使用外接框"}`;
   return "无可用纠错模型";
 }
 
@@ -250,9 +250,10 @@ export function VideoMaskCorrectionDialog({
 
           {fallback && propagationRequested && (
             <FieldSet>
-              <FieldLegend variant="label">显式 bbox 降级</FieldLegend>
+              <FieldLegend variant="label">确认使用外接框</FieldLegend>
               <FieldDescription>
-                当前模型不能消费 Mask seed。服务端会从已保存 RLE 计算 bbox，并在 lineage 记录
+                当前模型不能直接使用修正后的 Mask 像素。服务端会从已保存的 RLE
+                计算外接框作为追踪起点， 并在来源记录中保留原因
                 mask_prompt_unsupported；结果仍要求输出 Mask。
               </FieldDescription>
               <FieldGroup>
@@ -275,7 +276,7 @@ export function VideoMaskCorrectionDialog({
                     aria-invalid={!allowFallback}
                   />
                   <FieldLabel htmlFor="video-mask-correction-fallback">
-                    我确认使用 bbox seed 降级，不将其视为原生 Mask 纠错
+                    我确认使用 bbox seed 降级（外接框作为追踪起点），不将其视为原生 Mask 纠错
                   </FieldLabel>
                 </Field>
               </FieldGroup>

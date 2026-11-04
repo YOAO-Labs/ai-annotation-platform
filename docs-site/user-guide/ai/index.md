@@ -30,27 +30,27 @@ last_reviewed: 2026-10-27
 
 ## 按任务进入
 
-| 我想做的事                                          | 详页                                                         |
-| --------------------------------------------------- | ------------------------------------------------------------ |
-| 用点、框、示例或文本辅助完成当前图片                | [图片交互式 AI](../workbench/sam-tool)                       |
-| 对当前整图运行模型，或对已确认标注补属性 / 子框     | [单图／单帧 AI 与二次推理](./current-task-inference)         |
-| 接受、拒绝或继续编辑图片候选                        | [审阅 AI 候选](./candidate-review)                           |
-| 为多个图片任务运行模型，或配置多阶段预标            | [AI 预标](../projects/ai-preannotate)                        |
-| 冻结已审核标注、训练自定义检测 / 分割模型并发布回流 | [在线学习](../online-learning/)                              |
-| 用模型不确定性启发式算法从待标池人工选样建批次      | [主动学习人工选样](../online-learning/active-learning)       |
-| 在冻结验证集上进行真值与预测逐样本复查及双模型对比  | [逐样本评估与误差复查](../online-learning/sample-evaluation) |
-| 配置样本增量变化门槛与冷却，自动触发周期训练        | [自动训练策略](../online-learning/automation)                |
-| 对视频轨迹发起模型追踪、补种子并审阅整批结果        | [视频关键帧传播与 AI 追踪](../workbench/video-propagate)     |
-| 导入外部模型的预测、替换或清理候选                  | [外部预测导入 / 导出](../datasets/prediction-import-export)  |
-| 让项目可用某个模型服务，并处理模型置灰或路由问题    | [启用模型服务](../projects/ml-backends)                      |
-| 保存、共享或套用一套多阶段预标编排                  | [全局编排库](../projects/pipeline-library)                   |
-| 查看任务历史、取消批量预标或重试可恢复项            | [AI 任务与失败恢复](../workflows/failed-prediction-recovery) |
+| 我想做的事                                             | 详页                                                         |
+| ------------------------------------------------------ | ------------------------------------------------------------ |
+| 用点、框、示例或文本辅助完成当前图片                   | [图片交互式 AI](../workbench/sam-tool)                       |
+| 对当前整图运行模型，或对已确认标注补属性 / 子框        | [单图／单帧 AI 与二次推理](./current-task-inference)         |
+| 接受、拒绝或继续编辑图片候选                           | [审阅 AI 候选](./candidate-review)                           |
+| 为多个图片任务运行模型，或配置多阶段预标               | [AI 预标](../projects/ai-preannotate)                        |
+| 冻结已审核标注、训练自定义检测 / 分割模型并发布回流    | [在线学习](../online-learning/)                              |
+| 用模型不确定性启发式算法从待标池人工选样建批次         | [主动学习人工选样](../online-learning/active-learning)       |
+| 在冻结验证集上进行真值与预测逐样本复查及双模型对比     | [逐样本评估与误差复查](../online-learning/sample-evaluation) |
+| 配置样本增量变化门槛与冷却，自动触发周期训练           | [自动训练策略](../online-learning/automation)                |
+| 对视频轨迹发起模型追踪、补种子并按目标和帧窗口审阅结果 | [视频关键帧传播与 AI 追踪](../workbench/video-propagate)     |
+| 导入外部模型的预测、替换或清理候选                     | [外部预测导入 / 导出](../datasets/prediction-import-export)  |
+| 让项目可用某个模型服务，并处理模型置灰或路由问题       | [启用模型服务](../projects/ml-backends)                      |
+| 保存、共享或套用一套多阶段预标编排                     | [全局编排库](../projects/pipeline-library)                   |
+| 查看任务历史、取消批量预标或重试可恢复项               | [AI 任务与失败恢复](../workflows/failed-prediction-recovery) |
 
 ## 结果会去哪里
 
 批量预标和外部预测先写入 **Prediction（候选）**。标注员在工作台接受后，候选才变成可继续编辑的 **Annotation（正式标注）**；拒绝或清理候选不会删除已经接受的人工标注。
 
-视频 AI 追踪也先生成 job 级候选，必须在候选审阅条中整批接受或丢弃。图片交互工具的候选与确认方式因工具而异，尤其 Magic Box 会在结果返回后立即进入类别确认；以[图片交互式 AI](../workbench/sam-tool)的说明为准。
+视频 AI 追踪也先生成作业级候选。可在候选审阅条中选择目标和帧窗口，分批接受或拒绝；未决范围仍可继续审阅，见[审阅 AI 候选](./candidate-review#视频追踪的不同之处)。图片交互工具的候选与确认方式因工具而异，尤其 Magic Box 会在结果返回后立即进入类别确认；以[图片交互式 AI](../workbench/sam-tool)的说明为准。
 
 ## AI 功能不可用时
 

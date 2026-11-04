@@ -228,7 +228,7 @@ function GroupEditor({
                 />
               ) : (
                 <div role="alert" className="py-2 text-xs text-destructive">
-                  当前字段不在 schema 中，条件将阻止查询
+                  此字段在当前项目和查看粒度下不可用，请更换字段或移除条件后再查询。
                 </div>
               )}
             </div>

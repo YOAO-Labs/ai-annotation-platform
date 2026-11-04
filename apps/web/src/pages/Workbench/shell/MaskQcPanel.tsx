@@ -639,7 +639,7 @@ export function MaskQcPanel({
           >
             <option value="previous_version">上一版本</option>
             <option value="tracker_candidate" disabled={trackerCandidates.length === 0}>
-              Tracker 候选{trackerCandidates.length === 0 ? "（无匹配项）" : ""}
+              视频追踪候选{trackerCandidates.length === 0 ? "（无匹配项）" : ""}
             </option>
             <option value="ai_candidate" disabled={!aiCandidateAvailable}>
               当前 AI 候选
@@ -667,7 +667,7 @@ export function MaskQcPanel({
                 >
                   {historicalTracker && (
                     <option value="historical" disabled>
-                      历史候选 · F{comparedTracker.frame_index}
+                      历史追踪候选 · F{comparedTracker.frame_index}
                     </option>
                   )}
                   {trackerCandidates.map((candidate, index) => (
@@ -678,7 +678,7 @@ export function MaskQcPanel({
                 </select>
               ) : (
                 <span className="text-xs text-muted-foreground">
-                  历史候选 · F{comparedTracker?.frame_index}
+                  历史追踪候选 · F{comparedTracker?.frame_index}
                 </span>
               )}
               <CopyValueButton value={trackerDigest} label="复制 Tracker 候选哈希" />
@@ -754,7 +754,7 @@ export function MaskQcPanel({
           {canDecideTrackerRegion && (
             <div className="flex flex-col gap-1 rounded border border-border bg-muted p-2">
               <span className="text-2xs text-muted-foreground">
-                只处理质检区域内的 Tracker 差异；区域外与其它帧候选保持待审。
+                只处理质检区域内的追踪候选差异；区域外与其它帧候选保持待审。
               </span>
               <div className="flex gap-1">
                 <Button
