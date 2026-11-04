@@ -34,8 +34,72 @@ export interface ImportTextDraft {
   includeGlobs: string;
 }
 
-function draftKey(session: string, datasetId?: string) {
-  return `aap:import-text:${encodeURIComponent(session)}:${datasetId ?? "new"}`;
+type DraftSource = "current" | "legacy";
+
+export interface StoredImportTextDraft {
+  source: DraftSource;
+  raw: string;
+  draft: ImportTextDraft | null;
+}
+
+function draftKey(source: DraftSource, session: string, datasetId?: string) {
+  const prefix = source === "current" ? "datasets" : "aap";
+  return `${prefix}:import-text:${encodeURIComponent(session)}:${datasetId ?? "new"}`;
+}
+
+const stringFields = [
+  "name",
+  "description",
+  "dataType",
+  "axisConvention",
+  "connectionId",
+  "sourcePath",
+  "includeGlobs",
+] as const;
+const booleanFields = ["nameTouched", "isTemporal", "recursive"] as const;
+const axes = [
+  "iso_8855",
+  "ros_rep103",
+  "kitti_camera",
+  "opencv_camera",
+  "apollo",
+  "y_forward",
+  "sustechpoints_demo",
+  "raw",
+];
+
+function parseDraft(raw: string): ImportTextDraft | null {
+  if (raw.length > 20000) return null;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const data = value as Record<string, unknown>;
+    const fields = ["mode", ...stringFields, ...booleanFields];
+    if (
+      Object.keys(data).some((key) => !fields.includes(key)) ||
+      !stringFields.every((key) => typeof data[key] === "string" && data[key].length <= 4000) ||
+      !booleanFields.every((key) => typeof data[key] === "boolean") ||
+      !["files", "zip", "connection"].includes(data.mode as string) ||
+      !["image", "video", "point_cloud", "multimodal", "other"].includes(data.dataType as string) ||
+      !axes.includes(data.axisConvention as string)
+    )
+      return null;
+    return data as unknown as ImportTextDraft;
+  } catch {
+    return null;
+  }
+}
+
+/** Read only this tab's exact owner records; unsupported bytes stay available for recovery. */
+export function inspectImportTextDrafts(
+  session: string | null,
+  datasetId?: string,
+): StoredImportTextDraft[] {
+  if (!session) return [];
+  return (["current", "legacy"] as const).flatMap((source) => {
+    const raw = sessionStorage.getItem(draftKey(source, session, datasetId));
+    return raw === null ? [] : [{ source, raw, draft: parseDraft(raw) }];
+  });
 }
 
 export function saveImportTextDraft(
@@ -43,73 +107,46 @@ export function saveImportTextDraft(
   datasetId: string | undefined,
   draft: ImportTextDraft,
 ) {
-  if (!session) return;
-  try {
-    // Select fields explicitly: files, credentials and job payloads never enter storage.
-    const {
-      mode,
-      name,
-      nameTouched,
-      description,
-      dataType,
-      axisConvention,
-      isTemporal,
-      connectionId,
-      sourcePath,
-      recursive,
-      includeGlobs,
-    } = draft;
-    sessionStorage.setItem(
-      draftKey(session, datasetId),
-      JSON.stringify({
-        mode,
-        name,
-        nameTouched,
-        description,
-        dataType,
-        axisConvention,
-        isTemporal,
-        connectionId,
-        sourcePath,
-        recursive,
-        includeGlobs,
-      }),
-    );
-  } catch {
-    /* Private browsing or full storage must not block configuration. */
-  }
+  if (!session) throw new Error("没有可用的登录会话");
+  if (inspectImportTextDrafts(session, datasetId).length) throw new Error("请先处理已有的导入草稿");
+  // Select fields explicitly: files, credentials and job payloads never enter storage.
+  const {
+    mode,
+    name,
+    nameTouched,
+    description,
+    dataType,
+    axisConvention,
+    isTemporal,
+    connectionId,
+    sourcePath,
+    recursive,
+    includeGlobs,
+  } = draft;
+  const raw = JSON.stringify({
+    mode,
+    name,
+    nameTouched,
+    description,
+    dataType,
+    axisConvention,
+    isTemporal,
+    connectionId,
+    sourcePath,
+    recursive,
+    includeGlobs,
+  });
+  if (!parseDraft(raw)) throw new Error("导入草稿无法安全保存，请检查输入长度和内容");
+  sessionStorage.setItem(draftKey("current", session, datasetId), raw);
 }
 
-export function takeImportTextDraft(
-  session: string | null,
-  datasetId?: string,
-): Partial<ImportTextDraft> | null {
-  if (!session) return null;
-  try {
-    const key = draftKey(session, datasetId);
-    const raw = sessionStorage.getItem(key);
-    sessionStorage.removeItem(key);
-    if (!raw || raw.length > 20000) return null;
-    const data = JSON.parse(raw) as Record<string, unknown>;
-    const draft: Partial<ImportTextDraft> = {};
-    for (const key of [
-      "name",
-      "description",
-      "dataType",
-      "axisConvention",
-      "connectionId",
-      "sourcePath",
-      "includeGlobs",
-    ] as const) {
-      if (typeof data[key] === "string") draft[key] = data[key].slice(0, 4000);
-    }
-    for (const key of ["nameTouched", "isTemporal", "recursive"] as const) {
-      if (typeof data[key] === "boolean") draft[key] = data[key];
-    }
-    if (["files", "zip", "connection"].includes(data.mode as string))
-      draft.mode = data.mode as ImportTextDraft["mode"];
-    return draft;
-  } catch {
-    return null;
-  }
+/** Act only on the exact bytes presented to the user, never a replacement record. */
+export function removeImportTextDraft(
+  session: string,
+  datasetId: string | undefined,
+  record: StoredImportTextDraft,
+) {
+  const key = draftKey(record.source, session, datasetId);
+  if (sessionStorage.getItem(key) !== record.raw) throw new Error("草稿已更改，请重新检查");
+  sessionStorage.removeItem(key);
 }
