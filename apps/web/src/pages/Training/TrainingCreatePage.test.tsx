@@ -571,6 +571,43 @@ it("requires explicit confirmation before replacing an existing current draft", 
   }
 });
 
+it("allows explicit recovery of a valid old draft while preserving corrupt current bytes until confirmation", async () => {
+  const owner = trainingDraftOwner("user-1", "project-1");
+  const old = JSON.stringify({ ...emptyTrainingDraft(owner), name: "旧草稿" });
+  const current = "{broken-current";
+  localStorage.setItem(legacyTrainingDraftKey(owner), old);
+  localStorage.setItem(trainingDraftKey(owner), current);
+  const confirm = vi
+    .spyOn(decisionDialogs, "confirmDialog")
+    .mockResolvedValueOnce(false)
+    .mockResolvedValueOnce(true);
+  try {
+    mount();
+    expect(screen.getByText(current)).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制损坏的当前草稿" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "升级并使用旧草稿" }));
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBe(current);
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "升级并使用旧草稿" }));
+    expect(await screen.findByLabelText("实验名称")).toHaveValue("旧草稿");
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBe(old);
+    expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(old);
+  } finally {
+    confirm.mockRestore();
+  }
+});
+
+it("does not replace an unreadable current draft when no valid old draft exists", () => {
+  const owner = trainingDraftOwner("user-1", "project-1");
+  const current = "{broken-current";
+  localStorage.setItem(trainingDraftKey(owner), current);
+  mount();
+  expect(screen.getByRole("alert")).toHaveTextContent("没有可恢复的旧草稿");
+  expect(screen.queryByLabelText("实验名称")).not.toBeInTheDocument();
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(current);
+  expect(trainingRunsApi.create).not.toHaveBeenCalled();
+});
+
 it.each([
   ["unreadable", true],
   ["unreadable", false],

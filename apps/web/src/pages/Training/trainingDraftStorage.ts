@@ -403,6 +403,7 @@ export type TrainingDraftRecords = {
   settlement: string | null;
   legacyDraft: TrainingDraft | null;
   legacyInvalid: boolean;
+  targetInvalid: boolean;
   targetDraft: TrainingDraft | null;
 };
 
@@ -435,13 +436,21 @@ export function inspectTrainingDraftRecords(owner: string): TrainingDraftRecords
   } catch {
     legacyInvalid = true;
   }
+  let targetDraft: TrainingDraft | null = null;
+  let targetInvalid = false;
+  try {
+    targetDraft = parseRecord(target, owner);
+  } catch {
+    targetInvalid = true;
+  }
   return {
     legacy,
     target,
     settlement,
     legacyDraft,
     legacyInvalid,
-    targetDraft: parseRecord(target, owner),
+    targetDraft,
+    targetInvalid,
   };
 }
 
@@ -478,6 +487,8 @@ export async function upgradeTrainingDraft(
   if (choice === "legacy" && !now.legacyDraft)
     throw new Error("旧草稿格式或归属不匹配，不能升级。");
   if (choice === "ignore" && !now.legacyInvalid) throw new Error("旧草稿可读取，请重新核对。");
+  if (choice !== "legacy" && now.targetInvalid)
+    throw new Error("当前草稿格式或归属不匹配，不能直接使用。");
   const selected = choice === "legacy" ? now.legacy : now.target;
   if (choice !== "ignore" && selected === null) throw new Error("所选草稿不存在，请重新核对。");
   if (choice === "legacy") {

@@ -86,6 +86,7 @@ export function useTrainingDraft(
           if (!ownsSession()) return false;
           const records = inspectTrainingDraftRecords(ownerKey);
           if (
+            records.targetInvalid ||
             records.legacy !== initial.legacy ||
             records.settlement !== initial.settlement ||
             records.target !== expected.current
@@ -133,6 +134,7 @@ export function useTrainingDraft(
             if (!matches(snapshot)) return false;
             const records = inspectTrainingDraftRecords(ownerKey);
             if (
+              records.targetInvalid ||
               records.legacy !== initial.legacy ||
               records.settlement !== initial.settlement ||
               records.target !== expected.current

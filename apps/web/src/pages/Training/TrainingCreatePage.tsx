@@ -195,6 +195,10 @@ function TrainingDraftGate({
           "浏览器不支持草稿协调锁。请使用支持 Web Locks 的浏览器，保留原记录后重试。",
         );
       const records = inspectTrainingDraftRecords(owner);
+      if (records.targetInvalid) {
+        if (records.legacyDraft) return { kind: "choice", records };
+        throw new Error("当前草稿格式或归属不匹配，且没有可恢复的旧草稿。");
+      }
       return records.legacy === null
         ? { kind: "ready", records }
         : records.settlement === null
@@ -230,6 +234,13 @@ function TrainingDraftGate({
         return { records, settled };
       });
       if (!owns() || !value) return;
+      if (value.records.targetInvalid) {
+        if (value.records.legacyDraft) {
+          setResult({ kind: "choice", records: value.records });
+          return;
+        }
+        throw new Error("当前草稿格式或归属不匹配，且没有可恢复的旧草稿。");
+      }
       setResult(
         value.settled
           ? { kind: "ready", records: value.records }
@@ -324,6 +335,17 @@ function TrainingDraftGate({
             <p role="alert" className="mt-2 text-sm text-status-danger">
               旧草稿无法读取或不属于当前账号与项目，不能升级。可明确忽略它，原记录仍会保留。
             </p>
+          )}
+          {result.records.targetInvalid && (
+            <div className="mt-4">
+              <p role="alert" className="text-sm text-status-danger">
+                当前草稿无法读取或归属不匹配；请在替换前复制原始记录。
+              </p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">
+                {result.records.target}
+              </pre>
+              <CopyValueButton value={result.records.target} label="复制损坏的当前草稿" />
+            </div>
           )}
           {(["legacy", "target"] as const).map((choice) => {
             const draft =

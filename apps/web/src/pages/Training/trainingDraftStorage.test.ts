@@ -279,6 +279,22 @@ it("keeps the current target and retained legacy source after explicit conflict 
   expect(await settledTrainingDraft(inspectTrainingDraftRecords(owner))).toBe(true);
 });
 
+it("offers a valid legacy draft without overwriting a corrupt current record", async () => {
+  const draft = pendingDraft();
+  const old = JSON.stringify(draft);
+  const current = "{broken-current";
+  localStorage.setItem(legacyTrainingDraftKey(owner), old);
+  localStorage.setItem(trainingDraftKey(owner), current);
+  const records = inspectTrainingDraftRecords(owner);
+  expect(records.legacyDraft).toEqual(draft);
+  expect(records.targetInvalid).toBe(true);
+  expect(records.target).toBe(current);
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(current);
+  await upgradeTrainingDraft(owner, records, "legacy", () => true);
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(old);
+  expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(old);
+});
+
 it("refuses stale, corrupt, foreign, or unavailable source records without overwriting them", async () => {
   const old = JSON.stringify(pendingDraft());
   localStorage.setItem(legacyTrainingDraftKey(owner), old);
