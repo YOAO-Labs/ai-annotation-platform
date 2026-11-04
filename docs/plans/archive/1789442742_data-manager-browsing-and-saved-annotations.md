@@ -195,7 +195,7 @@ Primary targets: `apps/api/app/services/task_discussion.py`, `services/feedback.
 
 This implementation crosses more than eight files once schemas, client types, tests and documentation are included. Keep the four slices independently reviewable and preserve unrelated work.
 
-Use the existing checkout's Python virtual environment. Before database/browser tests, read `aap-runtime`, inspect `pnpm dev:worktree -- doctor`, and verify the intended disposable test/E2E environment. Read the project `agent-browser` skill before live browser acceptance; prefer the installed CLI and inspect network and console evidence.
+Use the existing checkout's Python virtual environment. Before database/browser tests, read `yoao-runtime`, inspect `pnpm dev:worktree -- doctor`, and verify the intended disposable test/E2E environment. Read the project `agent-browser` skill before live browser acceptance; prefer the installed CLI and inspect network and console evidence.
 
 Focused verification commands after the corresponding changes:
 

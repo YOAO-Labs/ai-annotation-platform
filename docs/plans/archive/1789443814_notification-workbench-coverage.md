@@ -172,7 +172,7 @@ pnpm --filter @anno/web lint:css-tokens
 git diff --check
 ```
 
-For the preferences API work and patch B, load `.agents/skills/aap-runtime/SKILL.md`, verify disposable test-mode resource ownership, and use the checkout's Python virtual environment:
+For the preferences API work and patch B, load `.agents/skills/yoao-runtime/SKILL.md`, verify disposable test-mode resource ownership, and use the checkout's Python virtual environment:
 
 ```bash
 pnpm dev:worktree -- init --mode test

@@ -137,7 +137,7 @@ Adapters determine comparison eligibility from both canonical task and normalize
 - Known partial evidence is returned as partial with reasons; unsupported semantic comparison is explicit, not a valid empty difference.
 - Comparison is directional: label both “baseline” and “current version”. Selecting a comparison baseline never changes parent_id or dataset contents.
 
-For the Python SDK, follow its [contract workflow](../../../.agents/skills/aap-sdk-contracts/SKILL.md): refresh the authoritative OpenAPI snapshot and generated web types, classify the two new task-dataset read operations in api-coverage.toml under the existing training-datasets tag, and retain the existing web-only exclusion rationale for these management endpoints. This plan does not add SDK commands or bump the SDK/application version.
+For the Python SDK, follow its [contract workflow](../../../.agents/skills/yoao-sdk-contracts/SKILL.md): refresh the authoritative OpenAPI snapshot and generated web types, classify the two new task-dataset read operations in api-coverage.toml under the existing training-datasets tag, and retain the existing web-only exclusion rationale for these management endpoints. This plan does not add SDK commands or bump the SDK/application version.
 
 ## Analysis adapters and detection semantics
 

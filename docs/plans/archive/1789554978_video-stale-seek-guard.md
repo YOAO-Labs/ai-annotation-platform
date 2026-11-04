@@ -77,7 +77,7 @@ Late results remain cache-writable (per the issue's suggested pattern: "过期�
 | Changelog entry (Fixed: stale seek overwriting keyboard stepping)                       | `CHANGELOG.md` Unreleased                                    |
 | Troubleshooting symptom 4 note: app-level guard landed, E2E serialization now redundant | `docs-site/dev/troubleshooting/ci-flaky-services.md`         |
 | E2E README "WebCodecs 精确帧 E2E" section wording                                       | `apps/web/e2e/README.md`                                     |
-| Workbench state-ownership skill lifecycle case (optional, one paragraph)                | `.agents/skills/aap-workbench-state/references/lifecycle.md` |
+| Workbench state-ownership skill lifecycle case (optional, one paragraph)                | `.agents/skills/yoao-workbench-state/references/lifecycle.md` |
 
 ## Acceptance criteria
 

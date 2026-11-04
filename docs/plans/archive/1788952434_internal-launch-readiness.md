@@ -86,7 +86,7 @@
 3. 必填校验失败定位具体对象及字段；保留已编辑内容。提交成功、退回、撤回都给出明确结果。
 4. 按现有工作台状态约束验证切任务、切项目、退出账号和旧请求晚到；不允许旧账号/旧任务的队列写入新上下文。
 
-实施时遵循 `.agents/skills/aap-workbench-state/SKILL.md`；重点扩展真实行为验收，不重写已存在的离线机制。
+实施时遵循 `.agents/skills/yoao-workbench-state/SKILL.md`；重点扩展真实行为验收，不重写已存在的离线机制。
 
 验收：断网编辑后能辨认仅本地保存；联网后确认同步；刷新、快速提交、切题和登录过期不会静默丢失或误报成功；有待处理本地记录时退出提供明确处理选择。
 
@@ -107,7 +107,7 @@
 
 - 同步 `docs-site/user-guide/superadmin/user-management.md`、`docs-site/user-guide/getting-started.md`、`docs-site/user-guide/reference/settings.md`、相关工作台/审核指南，以及 `CHANGELOG.md` 的 Unreleased。
 - API 变更同步 `docs-site/api/`、`README.md` 和受影响的 OpenAPI/生成类型。特别纠正文档中与代码不符的解封、逐个添加成员、管理员代管 API Key 描述。
-- 涉及 worker 的实现按 `.agents/skills/aap-runtime/SKILL.md` 刷新预定环境的相关 worker；先查挂载和服务，不能把源码已改视为运行进程已更新。
+- 涉及 worker 的实现按 `.agents/skills/yoao-runtime/SKILL.md` 刷新预定环境的相关 worker；先查挂载和服务，不能把源码已改视为运行进程已更新。
 - 发布采用新增接口与兼容字段；界面可回退到旧入口。账号恢复和交接已经产生的业务变化不能靠代码回滚自动撤销；按审计重新检查并执行显式反向交接，不能回滚整库覆盖新工作。
 - 任一工作包单独落地后仍须保持原有注册、标注、审核与派发路径可用，不等待第二或第三批补完才能工作。
 - 实施完成后追加 `## Outcome`，记录实际提交、正式文档、验收和剩余范围；不把本次计划保存误记为功能完成。

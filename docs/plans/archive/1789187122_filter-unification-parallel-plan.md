@@ -551,7 +551,7 @@ The pointcloud-specific acceptance runs with the existing pointcloud Playwright 
 
 ## 8. Parallel execution and integration runbook
 
-Follow [parallel-work.md](../../../.agents/references/parallel-work.md), the [runtime skill](../../../.agents/skills/aap-runtime/SKILL.md), and [Workbench lifecycle guidance](../../../.agents/skills/aap-workbench-state/SKILL.md).
+Follow [parallel-work.md](../../../.agents/references/parallel-work.md), the [runtime skill](../../../.agents/skills/yoao-runtime/SKILL.md), and [Workbench lifecycle guidance](../../../.agents/skills/yoao-workbench-state/SKILL.md).
 
 The installed Orca CLI guide and worktree-create help were checked during planning; the app/runtime was reachable. No implementation worktree was created. Re-resolve the installed executable and reload its guide at execution time.
 

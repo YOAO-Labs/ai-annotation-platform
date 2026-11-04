@@ -157,7 +157,7 @@ Beat       → presence worker → 有效配置读取 → 在线状态更新
 - 系统设置 API 起点（在 `apps/api`）：`uv run pytest -q tests/test_system_settings_patch.py tests/test_invitations.py tests/test_presence.py tests/test_dataset_import.py tests/test_create_tasks_worker.py tests/test_video_frame_service.py`。补跨进程读取、旧作业快照、显式 reset 和合法 0 的回归。
 - Web 起点：`pnpm --filter @anno/web test src/pages/Settings/SettingsPage.test.tsx src/components/shell/NotificationsPopover.test.tsx src/hooks/useAuth.test.tsx`；补各工作包行为测试。
 - 执行 `pnpm --filter @anno/web typecheck`，样式变更执行 `pnpm --filter @anno/web lint:css-tokens`；API 变更同步 `pnpm openapi:export`、`pnpm codegen`、`pnpm openapi:check`。
-- 系统设置上线需按 `.agents/skills/aap-runtime/SKILL.md` 确认 API 和相关 Celery worker 的实际挂载/镜像，并在刷新后验证新读取路径。仅改配置 UI 不算验收。
+- 系统设置上线需按 `.agents/skills/yoao-runtime/SKILL.md` 确认 API 和相关 Celery worker 的实际挂载/镜像，并在刷新后验证新读取路径。仅改配置 UI 不算验收。
 - 文档同步 `docs-site/user-guide/reference/settings.md`、用户管理、快速开始、通知、数据导入、批次派发及视频播放指南；相关 API 文档、`README.md`、`DEV.md`、`.env.example` 和 `CHANGELOG.md` Unreleased 一并更新。
 - 环境变量说明新增后台覆盖、生效范围和恢复默认语义，运行 `pnpm docs:gen-env-vars`，检查生成文件 `docs-site/dev/reference/env-vars.md` 的变更。
 - 如系统设置的跨进程读取合同成为长期约定，在 `docs-site/dev/concepts/` 持久记录；必要时新增 ADR，不能只把约定留在本计划。

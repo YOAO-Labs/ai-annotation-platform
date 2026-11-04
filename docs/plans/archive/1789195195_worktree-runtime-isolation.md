@@ -52,7 +52,7 @@ Verification: `node --test scripts/dev-worktree.test.mjs`; `apps/api/.venv/bin/p
 
 ## Task 4: Documentation and continuous checks
 
-Files: `DEV.md`, `README.md`, `CHANGELOG.md`, `docs-site/dev/concepts/runtime-environments.md`, `.agents/skills/aap-runtime/SKILL.md`, runtime reference, `.github/workflows/ci.yml`. Document new configuration in `.env.example` and regenerate environment reference if new environment variables are introduced.
+Files: `DEV.md`, `README.md`, `CHANGELOG.md`, `docs-site/dev/concepts/runtime-environments.md`, `.agents/skills/yoao-runtime/SKILL.md`, runtime reference, `.github/workflows/ci.yml`. Document new configuration in `.env.example` and regenerate environment reference if new environment variables are introduced.
 
 Describe prerequisites, first-run data, modes, worker behavior, diagnostics, confirmed reset, resource cleanup, concurrency constraints and migration history policy. Add fast runtime tests to CI using existing dependencies. Do not assign a release version.
 
@@ -67,7 +67,7 @@ Describe prerequisites, first-run data, modes, worker behavior, diagnostics, con
 ## Outcome
 
 - Implemented the owned local runtime, lifecycle commands, per-mode test isolation, public-only frontend environment, current-checkout workers, migration preflight and installed-lock dependency sharing guard.
-- Developer documentation: `DEV.md`, `README.md`, `docs-site/dev/how-to/worktree-environments.md`, `docs-site/dev/concepts/runtime-environments.md`, local-development/deployment pages and the generated environment reference. Runtime procedures are recorded in `.agents/skills/aap-runtime/references/worktree-isolation.md`.
+- Developer documentation: `DEV.md`, `README.md`, `docs-site/dev/how-to/worktree-environments.md`, `docs-site/dev/concepts/runtime-environments.md`, local-development/deployment pages and the generated environment reference. Runtime procedures are recorded in `.agents/skills/yoao-runtime/references/worktree-isolation.md`.
 - CHANGELOG: Unreleased entry added; no release milestone or version assigned.
 - Local verification: 25 Python runtime regression tests; 8 Node launcher tests; Orca/Codex setup regression checks; 4 API database/configuration tests through isolated `exec`; frozen frontend build and documentation build; lint, formatting and diff checks.
 - Live verification: two isolated API/Web environments at independent ports and databases; a current-checkout worker completed task `e0ae0965-2b2a-4de4-a17c-76650bdeb795`; shared `annotation` stayed at `0167` while isolated databases used `0165`. Random-resource acceptance covers database, Redis keys/PubSub/persistence, objects, destruction and rebuilding. Managed Playwright collected 248 tests in 55 files; no browser/E2E test execution is claimed.

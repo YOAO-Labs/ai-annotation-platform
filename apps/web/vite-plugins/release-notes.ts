@@ -10,7 +10,7 @@ const RESOLVED_ID = "\0" + VIRTUAL_ID;
  * 版本的段落注入虚拟模块 `virtual:release-notes`(整文件约 30KB,只随版本增长,
  * 打包全文会无谓吃掉主包预算,因此构建期裁剪到单版本段落)。
  *
- * 发布流程(aap-release)同步 bump 版本号与 changelog,故「版本已 bump 但段落
+ * 发布流程(yoao-release)同步 bump 版本号与 changelog,故「版本已 bump 但段落
  * 缺失」只在发版中间态出现:此时注入空串,前端 `parseChangelogSection` 返回
  * null,弹窗回落为简短提示。dev 修改 CHANGELOG.md 后重启 dev server 生效。
  */
