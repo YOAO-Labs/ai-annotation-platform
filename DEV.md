@@ -660,7 +660,20 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 修改日常 PostgreSQL 的角色。运行命令及参数见
 `scripts/verify_module_data_boundary.py --help`；验证器会创建 workflow、cleanup、catalog 三类受限登录角色并向测试进程注入
 `AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
-记录该命令的 JUnit 与 JSON 结果。
+记录该命令的 JSON、JUnit 和同级 `<output-stem>.collection.json`；未完成的运行也保留已收集的
+node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
+
+默认选集中的旧 `test_dataset_import_cancellation.py` 已删除：其中是旧调用转发 mock，
+当前取消结果由已选的 `test_dataset_import.py`（旧任务 HTTP 取消）和
+`test_dataset_import_native.py`（管理员／原 owner 取消及迟到完成围栏）验证。
+旧 `test_assets_images_api_bridge.py` 测试已移除的 `AssetsImagePyramidApi`；当前
+`test_image_pyramid.py` 覆盖公开 manifest、ETag、资源范围和重试，默认选集还包含
+`test_image_pyramid_http.py`，覆盖实际 HTTP 消费、授权撤销和损坏清单恢复。
+这些是当前消费者的选择调整，不表示已删除实现的内部调用合同仍然存在。
+Labeling video-writer 容器验收还要求不可变 `AAP_LABELING_VIDEO_WRITER_IMAGE` 和
+绝对路径 `AAP_LABELING_VIDEO_WRITER_IMAGE_ARTIFACT`；工件记录镜像 ID、身份、源码提交、
+构建输入哈希和断网安装文件核对结果。验收会重新核对源码、镜像标签与受限容器配置，
+不把历史镜像的旧提交标签当作当前源码资格。
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
 
