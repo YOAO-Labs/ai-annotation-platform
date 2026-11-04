@@ -163,18 +163,18 @@ export function ExportModal({
   open,
   onClose,
   projectId,
-  projectTypeKey,
+  projectDataType,
 }: {
   open: boolean;
   onClose: () => void;
   projectId: string;
-  projectTypeKey?: string;
+  projectDataType?: string;
 }) {
   return (
     <Modal open={open} title="导出标注数据" width={520} onClose={onClose}>
       <ExportForm
         projectId={projectId}
-        projectTypeKey={projectTypeKey}
+        projectDataType={projectDataType}
         onDone={onClose}
         onCancel={onClose}
       />
@@ -223,17 +223,17 @@ function CheckCard({
 
 function ExportForm({
   projectId,
-  projectTypeKey,
+  projectDataType,
   onDone,
   onCancel,
 }: {
   projectId: string;
-  projectTypeKey?: string;
+  projectDataType?: string;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const isVideoProject = projectTypeKey === "video-track";
-  const isLidarProject = projectTypeKey === "lidar";
+  const isVideoProject = projectDataType === "video";
+  const isLidarProject = projectDataType === "lidar";
   const [targets, setTargets] = useState<ExportTarget[]>(
     isVideoProject ? ["video_json"] : isLidarProject ? ["native_json"] : ["coco"],
   );

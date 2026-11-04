@@ -18,9 +18,6 @@ vi.mock("@/components/predictions/PredictionImportWizard", () => ({
 vi.mock("@/components/predictions/PredictionPurgeModal", () => ({
   PredictionPurgeModal: () => null,
 }));
-vi.mock("./ExportModal", () => ({
-  ExportModal: ({ open }: { open: boolean }) => (open ? <div data-testid="export-modal" /> : null),
-}));
 
 import { maskFormatsApi } from "@/api/maskFormats";
 
@@ -38,7 +35,7 @@ function LocationProbe() {
   return <output data-testid="location">{location.pathname + location.search}</output>;
 }
 
-function renderMenu(canManage = true) {
+function renderMenu(canManage = true, selectedProject = project) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -46,7 +43,7 @@ function renderMenu(canManage = true) {
     <QueryClientProvider client={queryClient}>
       <MemoryRouter>
         <LocationProbe />
-        <ProjectActionsMenu project={project} canManage={canManage} />
+        <ProjectActionsMenu project={selectedProject} canManage={canManage} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
@@ -111,11 +108,25 @@ describe("ProjectActionsMenu", () => {
     vi.mocked(maskFormatsApi.list).mockResolvedValue([]);
     renderMenu();
 
-    expect(screen.queryByTestId("export-modal")).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "导出标注数据" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByTitle("更多操作"));
     fireEvent.click(screen.getByRole("menuitem", { name: "导出标注数据" }));
 
-    expect(await screen.findByTestId("export-modal")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "导出标注数据" })).toBeInTheDocument();
+  });
+
+  it("opens LiDAR targets for a LiDAR project regardless of its template key", async () => {
+    const lidar = { ...project, type_key: "lidar-detection", data_type: "lidar" };
+    renderMenu(false, lidar);
+    fireEvent.click(screen.getByTitle("更多操作"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "导出标注数据" }));
+
+    expect(await screen.findByRole("button", { name: /^原生 JSON/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: /^Point Mask/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^COCO 通用/ })).not.toBeInTheDocument();
   });
 
   it("未验证 adapter 不暴露标注导入", async () => {

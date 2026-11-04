@@ -156,7 +156,7 @@ export function ProjectActionsMenu({
             open
             onClose={() => setExportOpen(false)}
             projectId={project.id}
-            projectTypeKey={project.type_key}
+            projectDataType={project.data_type}
           />
         </Suspense>
       )}
