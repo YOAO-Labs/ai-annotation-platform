@@ -25,7 +25,7 @@ from app.db.models.storage_maintenance import StorageOperation
 from app.services import audit_archive_reads as reads
 from app.services import audit_archive_storage as storage, storage_access
 from tests.feedback_committed_fixtures import (
-    committed_feedback_world as committed_feedback_world,
+    rollback_audit_world as rollback_audit_world,
 )
 from tests.test_reference_original_cache import referenced_cache as referenced_cache
 
@@ -146,16 +146,6 @@ async def seed_archive(db, objects, *, ready=True, month=1, tail=None):
         compressed
     )
     return row, [json.loads(line) for line in canonical]
-
-
-async def key_for(client, actor):
-    result = await client.post(
-        "/api/v1/me/api-keys",
-        headers=bearer(actor[1]),
-        json={"name": "Archive read", "scopes": ["datasets:read"]},
-    )
-    assert result.status_code == 201, result.text
-    return result.json()
 
 
 async def read(client, token, **params):
@@ -313,17 +303,15 @@ async def test_no_partial_page_escapes_full_validation(
     assert not await owned_operations(db_session, row)
 
 
+@pytest.mark.parametrize("path", [ARCHIVES, ARCHIVES + "/2024/1"])
 async def test_narrow_admin_key_preserves_existing_role_only_contract(
-    committed_feedback_world, objects
+    path, rollback_audit_world, objects
 ):
-    httpx_client = committed_feedback_world.client
-    super_admin = committed_feedback_world.super_admin
-    db_session = committed_feedback_world.db
-    await seed_archive(db_session, objects)
-    key = await key_for(httpx_client, super_admin)
-    for path in (ARCHIVES, ARCHIVES + "/2024/1"):
-        response = await httpx_client.get(path, headers=bearer(key["plaintext"]))
-        assert response.status_code == 200, response.text
+    world = rollback_audit_world
+    await seed_archive(world.db, objects)
+    key = await world.make_key()
+    response = await world.client.get(path, headers=bearer(key["plaintext"]))
+    assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize("stage", ["admission", "final"])
@@ -331,13 +319,13 @@ async def test_narrow_admin_key_preserves_existing_role_only_contract(
     "change", ["inactive", "role", "hash", "scopes", "expiry", "revoked"]
 )
 async def test_original_authority_rechecked_before_and_after_physical_read(
-    stage, change, committed_feedback_world, objects, monkeypatch
+    stage, change, rollback_audit_world, objects, monkeypatch
 ):
-    httpx_client = committed_feedback_world.client
-    super_admin = committed_feedback_world.super_admin
-    db_session = committed_feedback_world.db
+    httpx_client = rollback_audit_world.client
+    super_admin = rollback_audit_world.super_admin
+    db_session = rollback_audit_world.db
     await seed_archive(db_session, objects)
-    created = await key_for(httpx_client, super_admin)
+    created = await rollback_audit_world.make_key()
     key = await db_session.get(ApiKey, uuid.UUID(created["id"]))
 
     async def mutate():
@@ -400,21 +388,18 @@ async def test_list_rechecks_current_role_after_query(
 
 @pytest.mark.parametrize("credential", ["jwt", "key"])
 async def test_natural_expiry_after_final_gate_wait(
-    credential, committed_feedback_world, objects, monkeypatch
+    credential, rollback_audit_world, objects, monkeypatch
 ):
-    httpx_client = committed_feedback_world.client
-    super_admin = committed_feedback_world.super_admin
-    db_session = committed_feedback_world.db
+    httpx_client = rollback_audit_world.client
+    super_admin = rollback_audit_world.super_admin
+    db_session = rollback_audit_world.db
     await seed_archive(db_session, objects)
     token = create_access_token(
         str(super_admin[0].id), "super_admin", timedelta(seconds=30)
     )
     expiration = datetime.fromtimestamp(decode_access_token(token)["exp"], timezone.utc)
     if credential == "key":
-        created = await key_for(httpx_client, super_admin)
-        key = await db_session.get(ApiKey, uuid.UUID(created["id"]))
-        key.expires_at = expiration
-        await db_session.flush()
+        created = await rollback_audit_world.make_key(expires_at=expiration)
         token = created["plaintext"]
     original = storage_access.check
 
