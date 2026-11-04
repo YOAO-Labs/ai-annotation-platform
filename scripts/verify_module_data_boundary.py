@@ -3490,6 +3490,19 @@ def _installed_function_body_sha256(
     if match is None:
         raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
     expected = match.group(1)
+    if signature == "aap_labeling_v1.mask_edit_command(jsonb)":
+        # Revision bo0430 derives the installed owner from this frozen body.
+        marker = "    v_operation := p_request ->> 'operation';\n"
+        if expected.count(marker) != 1:
+            raise RuntimeError("frozen mask edit operation marker is not unique")
+        expected = expected.replace(
+            marker,
+            marker
+            + "    IF v_operation = 'acceptance_history' THEN\n"
+            + "        RETURN aap_labeling_v1._acceptance_history(p_request);\n"
+            + "    END IF;\n",
+            1,
+        )
     encoded = _psql(
         container_id,
         container_name,

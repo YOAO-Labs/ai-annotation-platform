@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import sys
 from pathlib import Path
@@ -41,6 +42,33 @@ def test_installed_body_uses_named_function_in_multi_function_resource(
         hashlib.sha256(b"SELECT 2").hexdigest()
     )
     monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: b"SELECT 1".hex())
+    with pytest.raises(RuntimeError, match="differs from frozen SQL"):
+        _installed_function_body_sha256("id", "name", "identity", **arguments)
+
+
+def test_installed_mask_owner_requires_acceptance_history_dispatch(monkeypatch):
+    path = verifier.ROOT / "apps/api/alembic/versions/0430_acceptance_history.py"
+    spec = importlib.util.spec_from_file_location("acceptance_history_migration", path)
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+    captured = []
+    monkeypatch.setattr(migration, "_apply", captured.append)
+    migration._mask_command(history=True)
+    installed = captured[0].split("$function$", 2)[1].encode()
+    arguments = dict(
+        database="owned_test",
+        owner_password="fixture-only",
+        signature="aap_labeling_v1.mask_edit_command(jsonb)",
+        sql_name="0348_labeling_mask_edits.sql",
+    )
+    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: installed.hex())
+    assert _installed_function_body_sha256("id", "name", "identity", **arguments) == (
+        hashlib.sha256(installed).hexdigest()
+    )
+    captured.clear()
+    migration._mask_command(history=False)
+    old_body = captured[0].split("$function$", 2)[1].encode()
+    monkeypatch.setattr(verifier, "_psql", lambda *_args, **_kwargs: old_body.hex())
     with pytest.raises(RuntimeError, match="differs from frozen SQL"):
         _installed_function_body_sha256("id", "name", "identity", **arguments)
 
