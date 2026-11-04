@@ -1,8 +1,9 @@
 import { beforeEach, expect, it } from "vitest";
 import {
   safeDatasetReturn,
+  inspectImportTextDrafts,
+  removeImportTextDraft,
   saveImportTextDraft,
-  takeImportTextDraft,
   storageLocationLink,
 } from "./storageNavigation";
 
@@ -42,12 +43,14 @@ it("isolates single-use non-secret drafts by session and dataset and never persi
     secret: "credential",
   };
   saveImportTextDraft("session-a", "dataset-a", draft);
-  expect(takeImportTextDraft("session-b", "dataset-a")).toBeNull();
-  expect(takeImportTextDraft("session-a", "dataset-b")).toBeNull();
+  expect(inspectImportTextDrafts("session-b", "dataset-a")).toEqual([]);
+  expect(inspectImportTextDrafts("session-a", "dataset-b")).toEqual([]);
+  expect(sessionStorage.getItem("datasets:import-text:session-a:dataset-a")).not.toBeNull();
   const raw = Object.values(sessionStorage).join("");
   expect(raw).not.toContain("secret.png");
   expect(raw).not.toContain("credential");
-  expect(takeImportTextDraft("session-a", "dataset-a")).toEqual({
+  const [record] = inspectImportTextDrafts("session-a", "dataset-a");
+  expect(record.draft).toEqual({
     mode: "connection",
     name: "Vehicles",
     nameTouched: true,
@@ -60,5 +63,22 @@ it("isolates single-use non-secret drafts by session and dataset and never persi
     recursive: true,
     includeGlobs: "*.jpg",
   });
-  expect(takeImportTextDraft("session-a", "dataset-a")).toBeNull();
+  removeImportTextDraft("session-a", "dataset-a", record);
+  expect(inspectImportTextDrafts("session-a", "dataset-a")).toEqual([]);
+});
+
+it("retains corrupt, newer and conflicting records and never removes replacement bytes", () => {
+  const current = "datasets:import-text:session-a:new";
+  const legacy = "aap:import-text:session-a:new";
+  sessionStorage.setItem(current, '{"version":2,"name":"future"}');
+  sessionStorage.setItem(legacy, "{broken");
+  const records = inspectImportTextDrafts("session-a");
+  expect(records.map((record) => record.draft)).toEqual([null, null]);
+  expect(sessionStorage.getItem(current)).toBe('{"version":2,"name":"future"}');
+  expect(sessionStorage.getItem(legacy)).toBe("{broken");
+  expect(() => saveImportTextDraft("session-a", undefined, {} as never)).toThrow();
+  sessionStorage.setItem(current, "replacement");
+  expect(() => removeImportTextDraft("session-a", undefined, records[0])).toThrow();
+  expect(sessionStorage.getItem(current)).toBe("replacement");
+  expect(sessionStorage.getItem(legacy)).toBe("{broken");
 });

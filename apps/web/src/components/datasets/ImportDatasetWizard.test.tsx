@@ -8,6 +8,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
+import { confirmDialog } from "@/components/ui/decisionDialog";
+
+vi.mock("@/components/ui/decisionDialog", () => ({ confirmDialog: vi.fn() }));
 
 const mockCreateDatasetMutateAsync = vi.fn();
 const mockCreateDatasetReset = vi.fn();
@@ -315,6 +318,54 @@ describe("ImportDatasetWizard", () => {
     expect(screen.getByRole("combobox")).toHaveValue("c1");
     expect(screen.getByPlaceholderText("*.jpg, *.png")).toHaveValue("*.png");
     expect(screen.getByLabelText("递归扫描")).not.toBeChecked();
+  });
+
+  it("keeps unsaved form text in place when session storage rejects the handoff", () => {
+    renderUI();
+    fireEvent.click(screen.getByRole("button", { name: /连接器导入/ }));
+    fireEvent.change(screen.getByPlaceholderText("batch-a/"), {
+      target: { value: "unsaved/path" },
+    });
+    const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new DOMException("Storage full", "QuotaExceededError");
+    });
+    fireEvent.click(screen.getByRole("button", { name: "管理存储位置" }));
+    expect(screen.getByTestId("wizard-url")).toHaveTextContent("/datasets");
+    expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("unsaved/path");
+    expect(screen.getByRole("alert")).toHaveTextContent("无法保存导入草稿");
+    write.mockRestore();
+  });
+
+  it("requires an explicit choice for conflicting legacy and unsupported current drafts", async () => {
+    const oldKey = "aap:import-text:wizard-session:new";
+    const newKey = "datasets:import-text:wizard-session:new";
+    const old = JSON.stringify({
+      mode: "connection",
+      name: "Old",
+      nameTouched: true,
+      description: "",
+      dataType: "image",
+      axisConvention: "iso_8855",
+      isTemporal: false,
+      connectionId: "c1",
+      sourcePath: "old/path",
+      recursive: true,
+      includeGlobs: "",
+    });
+    const newer = '{"version":2,"name":"newer"}';
+    sessionStorage.setItem(oldKey, old);
+    sessionStorage.setItem(newKey, newer);
+    renderUI();
+    expect(screen.getByLabelText("当前草稿原文")).toHaveValue(newer);
+    expect(sessionStorage.getItem(oldKey)).toBe(old);
+    fireEvent.click(screen.getByRole("button", { name: "恢复旧版草稿" }));
+    expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("old/path");
+    expect(sessionStorage.getItem(oldKey)).toBeNull();
+    expect(sessionStorage.getItem(newKey)).toBe(newer);
+    vi.mocked(confirmDialog).mockResolvedValueOnce(true);
+    fireEvent.click(screen.getByRole("button", { name: "丢弃当前草稿" }));
+    await waitFor(() => expect(sessionStorage.getItem(newKey)).toBeNull());
+    expect(screen.getByPlaceholderText("batch-a/")).toHaveValue("old/path");
   });
 
   it("连接器提交响应不确定时手动重试复用同一个键", async () => {

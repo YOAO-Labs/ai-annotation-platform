@@ -4,9 +4,17 @@ import { useLocation, useNavigate } from "react-router-dom";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionGuard, useSessionRevision } from "@/hooks/useSessionGuard";
 import { safeDatasetsReturn } from "@/pages/Datasets/datasetsUrlState";
-import { safeDatasetReturn, saveImportTextDraft, takeImportTextDraft } from "./storageNavigation";
+import {
+  inspectImportTextDrafts,
+  removeImportTextDraft,
+  safeDatasetReturn,
+  saveImportTextDraft,
+  type ImportTextDraft,
+  type StoredImportTextDraft,
+} from "./storageNavigation";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { confirmDialog } from "@/components/ui/decisionDialog";
 import { Icon } from "@/components/ui/Icon";
 import { useElementStyle } from "@/components/ui/useElementStyle";
 import { useToastStore } from "@/components/ui/Toast";
@@ -118,6 +126,9 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
   const [sourcePath, setSourcePath] = useState("");
   const [recursive, setRecursive] = useState(true);
   const [includeGlobs, setIncludeGlobs] = useState("");
+  const [storedDrafts, setStoredDrafts] = useState<StoredImportTextDraft[]>([]);
+  const [draftError, setDraftError] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<StoredImportTextDraft | null>(null);
   const [connectionJobId, setConnectionJobId] = useState<string | null>(null);
   const [connectionImportError, setConnectionImportError] = useState<string | null>(null);
   const [connectionImportRetryable, setConnectionImportRetryable] = useState(false);
@@ -133,6 +144,14 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
     key: string;
   } | null>(null);
   const [, force] = useState(0);
+  const activeRef = useRef(false);
+
+  useEffect(() => {
+    activeRef.current = open;
+    return () => {
+      activeRef.current = false;
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -168,49 +187,97 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
+  const applyDraft = (draft: ImportTextDraft) => {
+    setMode(draft.mode);
+    setName(draft.name);
+    setNameTouched(draft.nameTouched);
+    setDescription(draft.description);
+    setDataType(draft.dataType);
+    setAxisConvention(draft.axisConvention as LidarAxisConvention);
+    setIsTemporal(draft.isTemporal);
+    setConnectionId(draft.connectionId);
+    setSourcePath(draft.sourcePath);
+    setRecursive(draft.recursive);
+    setIncludeGlobs(draft.includeGlobs);
+  };
+
   useEffect(() => {
     if (!open) return;
-    const draft = takeImportTextDraft(session, datasetId);
-    if (!draft) return;
-    setMode(draft.mode ?? "connection");
-    setName(draft.name ?? "");
-    setNameTouched(draft.nameTouched ?? false);
-    setDescription(draft.description ?? "");
-    if (DATA_TYPES.some((type) => type.key === draft.dataType)) setDataType(draft.dataType!);
-    if (
-      [
-        "iso_8855",
-        "ros_rep103",
-        "kitti_camera",
-        "opencv_camera",
-        "apollo",
-        "y_forward",
-        "sustechpoints_demo",
-        "raw",
-      ].includes(draft.axisConvention ?? "")
-    )
-      setAxisConvention(draft.axisConvention as LidarAxisConvention);
-    setIsTemporal(draft.isTemporal ?? false);
-    setConnectionId(draft.connectionId ?? "");
-    setSourcePath(draft.sourcePath ?? "");
-    setRecursive(draft.recursive ?? true);
-    setIncludeGlobs(draft.includeGlobs ?? "");
+    try {
+      const records = inspectImportTextDrafts(session, datasetId);
+      // Only an unambiguous current handoff is automatic. Legacy and conflicts require a choice.
+      if (session && records.length === 1 && records[0].source === "current" && records[0].draft) {
+        applyDraft(records[0].draft);
+        setPendingDraft(records[0]);
+      } else {
+        setStoredDrafts(records);
+      }
+    } catch {
+      setDraftError("无法读取或移除导入草稿。请保留此页面并检查浏览器存储设置。");
+    }
   }, [open, session, datasetId]);
 
+  useEffect(() => {
+    if (!pendingDraft || !session) return;
+    try {
+      removeImportTextDraft(session, datasetId, pendingDraft);
+      setStoredDrafts(inspectImportTextDrafts(session, datasetId));
+      setPendingDraft(null);
+    } catch {
+      setDraftError("无法移除已恢复的草稿；原记录已保留，请重新检查。");
+      setPendingDraft(null);
+    }
+  }, [pendingDraft, session, datasetId]);
+
+  const resolveDraft = async (record: StoredImportTextDraft, recover: boolean) => {
+    if (!session) return;
+    if (!recover) {
+      const confirmed = await confirmDialog({
+        tone: "danger",
+        title: "丢弃导入草稿",
+        description: "确定丢弃这条导入草稿？此操作不可撤销。",
+        confirmLabel: "丢弃",
+      });
+      if (!confirmed || !currentOwner() || !activeRef.current) return;
+    }
+    try {
+      if (recover && record.draft) {
+        applyDraft(record.draft);
+        setPendingDraft(record);
+        return;
+      }
+      removeImportTextDraft(session, datasetId, record);
+      setStoredDrafts(inspectImportTextDrafts(session, datasetId));
+      setDraftError(null);
+    } catch {
+      setDraftError("草稿已更改或浏览器存储不可用；原始内容未被有意覆盖，请重新检查。");
+    }
+  };
+
   const manageStorage = () => {
-    saveImportTextDraft(session, datasetId, {
-      mode,
-      name,
-      nameTouched,
-      description,
-      dataType,
-      axisConvention,
-      isTemporal,
-      connectionId,
-      sourcePath,
-      recursive,
-      includeGlobs,
-    });
+    try {
+      saveImportTextDraft(session, datasetId, {
+        mode,
+        name,
+        nameTouched,
+        description,
+        dataType,
+        axisConvention,
+        isTemporal,
+        connectionId,
+        sourcePath,
+        recursive,
+        includeGlobs,
+      });
+    } catch {
+      setDraftError("无法保存导入草稿，未跳转到存储配置。请检查浏览器存储或先处理已有草稿。");
+      try {
+        setStoredDrafts(inspectImportTextDrafts(session, datasetId));
+      } catch {
+        // Keep the form and its unsaved text in place.
+      }
+      return;
+    }
     const fallback = datasetId ? `/datasets/${datasetId}` : "/datasets";
     const back = new URL(
       safeDatasetReturn(`${location.pathname}${location.search}`) ?? fallback,
@@ -499,6 +566,45 @@ function ImportDatasetWizardOwner({ open, onClose, datasetId, datasetName, onUpl
   return (
     <Modal open={open} onClose={onClose} title={`导入数据集${titleSuffix}`} width={640}>
       <Stepper current={step} steps={stepNums} />
+      {draftError && (
+        <p role="alert" className="text-sm text-status-danger">
+          {draftError}
+        </p>
+      )}
+      {storedDrafts.length > 0 && (
+        <section aria-label="导入草稿恢复" className="space-y-3">
+          <p className="text-sm">
+            发现此会话和数据集的导入草稿。恢复会替换当前表单；请逐条恢复或丢弃后再管理存储。
+            关闭浏览器标签页后无法保证恢复。
+          </p>
+          {storedDrafts.map((record) => (
+            <div key={record.source} className="space-y-2">
+              <p className="text-sm">{record.source === "legacy" ? "旧版草稿" : "当前草稿"}</p>
+              {!record.draft && (
+                <>
+                  <p className="text-xs text-muted-foreground">
+                    草稿损坏或来自不支持的版本，可复制原文后手动恢复。
+                  </p>
+                  <textarea
+                    aria-label={`${record.source === "legacy" ? "旧版" : "当前"}草稿原文`}
+                    className="w-full"
+                    readOnly
+                    value={record.raw}
+                  />
+                </>
+              )}
+              {record.draft && (
+                <Button size="sm" onClick={() => resolveDraft(record, true)}>
+                  恢复{record.source === "legacy" ? "旧版" : "当前"}草稿
+                </Button>
+              )}
+              <Button size="sm" onClick={() => resolveDraft(record, false)}>
+                丢弃{record.source === "legacy" ? "旧版" : "当前"}草稿
+              </Button>
+            </div>
+          ))}
+        </section>
+      )}
 
       {step === 2 && !skipCreate && (
         <Step1
