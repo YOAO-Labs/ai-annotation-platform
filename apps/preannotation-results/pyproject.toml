@@ -3,22 +3,22 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aap-preannotation-results"
+name = "yoao-preannotation-results"
 version = "0.1.0"
 description = "Portable durable batch preannotation result contract and native adapter"
 requires-python = ">=3.11"
-dependencies = ["aap-owner-data", "pydantic>=2.10.0"]
+dependencies = ["yoao-owner-data", "pydantic>=2.10.0"]
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.30.0"]
 test = ["pytest>=8.3.0", "ruff==0.15.22"]
 
 [project.scripts]
-aap-preannotation-results = "aap_preannotation_results_runtime.__main__:main"
-aap-prediction-retries = "aap_preannotation_results_runtime.retry_main:main"
+yoao-preannotation-results = "yoao_preannotation_results_runtime.__main__:main"
+yoao-prediction-retries = "yoao_preannotation_results_runtime.retry_main:main"
 
 [tool.uv.sources]
-aap-owner-data = { path = "../_shared/owner_data", editable = true }
+yoao-owner-data = { path = "../_shared/owner_data", editable = true }
 
 [tool.uv]
 cache-keys = [
@@ -29,7 +29,7 @@ cache-keys = [
 ]
 
 [tool.setuptools.package-data]
-aap_preannotation_results = ["*.json"]
+yoao_preannotation_results = ["*.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

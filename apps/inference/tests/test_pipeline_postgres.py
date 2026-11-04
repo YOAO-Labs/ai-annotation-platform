@@ -8,14 +8,14 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_contract import (
     PipelineInvalidRequest,
     PipelineRejected,
     PipelineUnavailable,
     pipeline_policy,
     pipeline_command_request,
 )
-from aap_inference.pipeline_postgres import (
+from yoao_inference.pipeline_postgres import (
     PipelinePostgresData,
     PipelinePostgresTransaction,
     _POLICY_SQL,
@@ -107,7 +107,7 @@ def _fake_asyncpg(monkeypatch, connection):
 
     monkeypatch.setitem(
         sys.modules,
-        "aap_owner_data.postgres",
+        "yoao_owner_data.postgres",
         SimpleNamespace(
             FunctionRoleUnavailable=type("FunctionRoleUnavailable", (Exception,), {}),
             verify_function_only_role=verify_function_only_role,

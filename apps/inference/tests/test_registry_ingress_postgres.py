@@ -7,16 +7,16 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.registry_ingress import (
     REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS,
 )
 
-from aap_inference.health_data_postgres import (
+from yoao_inference.health_data_postgres import (
     BackendHealthRow,
     HealthDataUnavailable,
     HealthServicePoolRow,
 )
-from aap_inference.registry_ingress_postgres import (
+from yoao_inference.registry_ingress_postgres import (
     RegistryIngressPostgresData,
     _APPLY_OBSERVATION_SQL,
     _BIND_TRANSACTION_SQL,
@@ -146,7 +146,7 @@ def _install_role_verifier(monkeypatch):
 
     monkeypatch.setitem(
         sys.modules,
-        "aap_owner_data.postgres",
+        "yoao_owner_data.postgres",
         SimpleNamespace(verify_function_only_role=verify),
     )
     return verified

@@ -5,8 +5,12 @@ import uuid
 
 import pytest
 
-from aap_inference.pipeline_contract import PipelineActor, PipelineRejected, PipelineRow
-from aap_inference.pipeline_policy import (
+from yoao_inference.pipeline_contract import (
+    PipelineActor,
+    PipelineRejected,
+    PipelineRow,
+)
+from yoao_inference.pipeline_policy import (
     assert_can_create_pipeline_scope,
     assert_pipeline_visible,
     can_edit_pipeline,

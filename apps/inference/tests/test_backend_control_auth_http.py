@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from aap_inference_contract.backend_control import (
+from yoao_inference_contract.backend_control import (
     BACKEND_CONTROL_PROTOCOL,
     BackendRequestOnlyEndpoint,
     BackendRequestOnlyProbeRequest,
@@ -16,8 +16,8 @@ from aap_inference_contract.backend_control import (
     BackendUnregisteredSmokeOptions,
 )
 
-from aap_inference.backend_control_manager import BackendControlManager
-from aap_inference.backend_transport import BackendTransport
+from yoao_inference.backend_control_manager import BackendControlManager
+from yoao_inference.backend_transport import BackendTransport
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -133,8 +133,12 @@ async def test_owner_requests_ignore_proxy_and_never_follow_credentialed_redirec
         _server() as (attacker, attacker_url),
     ):
         for key in (
-            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-            "http_proxy", "https_proxy", "all_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
         ):
             monkeypatch.setenv(key, proxy_url)
         monkeypatch.setenv("NO_PROXY", "")
@@ -145,9 +149,7 @@ async def test_owner_requests_ignore_proxy_and_never_follow_credentialed_redirec
         manager = _manager()
         fact = await manager.execute(_probe("manual_probe", endpoint))
         assert fact.result["results"][0]["ok"]
-        observed = await manager.execute(
-            _probe("environment_observation", endpoint)
-        )
+        observed = await manager.execute(_probe("environment_observation", endpoint))
         assert observed.result["results"][0]["ok"]
         smoke = await manager.execute(_smoke(endpoint))
         assert smoke.result["auto_unloaded"] is True
@@ -169,7 +171,9 @@ async def test_owner_requests_ignore_proxy_and_never_follow_credentialed_redirec
         backend.invalid_paths.clear()
         backend.redirect_url = attacker_url + "/stolen"
         backend.redirect_paths = {"/setup"}
-        setup_redirect = await manager.execute(_probe("environment_observation", endpoint))
+        setup_redirect = await manager.execute(
+            _probe("environment_observation", endpoint)
+        )
         assert setup_redirect.result["results"][0]["setup"] is None
         backend.redirect_paths = {"/health", "/reload"}
         redirected = await manager.execute(_probe("manual_probe", endpoint))
@@ -187,8 +191,12 @@ async def test_registered_transport_ignores_proxy_and_redirects(monkeypatch):
         _server() as (attacker, attacker_url),
     ):
         for key in (
-            "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
-            "http_proxy", "https_proxy", "all_proxy",
+            "HTTP_PROXY",
+            "HTTPS_PROXY",
+            "ALL_PROXY",
+            "http_proxy",
+            "https_proxy",
+            "all_proxy",
         ):
             monkeypatch.setenv(key, proxy_url)
         monkeypatch.setenv("NO_PROXY", "")

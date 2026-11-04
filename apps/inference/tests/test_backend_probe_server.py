@@ -6,8 +6,8 @@ import json
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.probe import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.probe import (
     BACKEND_PROBE_PROTOCOL,
     BackendProbeFailure,
     BackendProbeSuccess,
@@ -17,7 +17,7 @@ from aap_inference_contract.probe import (
     make_backend_probe_request,
 )
 
-from aap_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.pipeline_server import PipelineHttpServer
 
 
 _REGISTRY_ID = UUID("764c1509-a323-4b89-8cc3-991cb3a0f72f")

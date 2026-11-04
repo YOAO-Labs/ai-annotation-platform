@@ -6,7 +6,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_preannotation_results.video_execution_journal import (
+from yoao_preannotation_results.video_execution_journal import (
     NATIVE_FUNCTIONS,
     SCHEMA,
     BeginWindowRequest,
@@ -20,20 +20,20 @@ from aap_preannotation_results.video_execution_journal import (
     decode_native_reply,
     request_bytes,
 )
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.video_execution_plan import (
     BackendCompatibilityIdentity,
     VideoContinuationPostState,
 )
-from aap_preannotation_results.video_execution_planner import (
+from yoao_preannotation_results.video_execution_planner import (
     VideoExecutionInputFacts,
     build_video_execution_plan,
     freeze_video_window_settings,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     make_video_window_checkpoint_payload,
     snapshot_video_window_checkpoint,
 )
-from aap_preannotation_results_runtime.video_journal_database import (
+from yoao_preannotation_results_runtime.video_journal_database import (
     VideoJournalPostgresData,
 )
 
@@ -319,7 +319,7 @@ def test_part_reads_and_unknown_errors_fail_without_echoing_private_values():
 
 def test_journal_data_binding_expires_with_the_actual_transaction(monkeypatch):
     async def exercise():
-        from aap_owner_data import postgres
+        from yoao_owner_data import postgres
 
         verify = AsyncMock()
         monkeypatch.setattr(postgres, "verify_function_only_role", verify)

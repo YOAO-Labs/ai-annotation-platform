@@ -5,8 +5,8 @@ from types import ModuleType
 
 import pytest
 
-from aap_inference.routing_postgres import RoutingPostgresData
-from aap_inference.routing_runtime import RoutingRuntime
+from yoao_inference.routing_postgres import RoutingPostgresData
+from yoao_inference.routing_runtime import RoutingRuntime
 
 
 class _Transaction:

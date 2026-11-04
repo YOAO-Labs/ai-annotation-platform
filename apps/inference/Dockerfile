@@ -7,6 +7,7 @@ COPY apps/_shared/inference_contract /_shared/inference_contract
 COPY apps/_shared/workspace_contract /_shared/workspace_contract
 COPY apps/_shared/task_contract /_shared/task_contract
 COPY apps/_shared/protocol_v2 /_shared/protocol_v2
+COPY apps/assets-mask-content /assets-mask-content
 COPY apps/inference/pyproject.toml apps/inference/uv.lock ./
 RUN uv sync --frozen --no-dev --extra runtime --no-install-project
 COPY apps/inference/src ./src
@@ -21,4 +22,4 @@ USER 10008:10008
 EXPOSE 8768
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8768/health', timeout=4)"
-CMD ["python", "-m", "aap_inference"]
+CMD ["python", "-m", "yoao_inference"]

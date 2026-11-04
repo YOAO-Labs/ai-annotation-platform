@@ -5,9 +5,9 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.probe import BackendProbeUnavailable
+from yoao_inference_contract.probe import BackendProbeUnavailable
 
-from aap_inference.backend_probe_postgres import (
+from yoao_inference.backend_probe_postgres import (
     BackendProbePostgresData,
     _FUNCTIONS,
     _OPEN_SUBJECT_SQL,
@@ -94,7 +94,7 @@ def _fake_runtime(monkeypatch, connection):
     )
     monkeypatch.setitem(
         sys.modules,
-        "aap_owner_data.postgres",
+        "yoao_owner_data.postgres",
         SimpleNamespace(
             FunctionRoleUnavailable=type("FunctionRoleUnavailable", (Exception,), {}),
             verify_function_only_role=verify,

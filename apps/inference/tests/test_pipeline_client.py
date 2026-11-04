@@ -6,8 +6,8 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference.pipeline_client import PipelineHttpClient
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_client import PipelineHttpClient
+from yoao_inference.pipeline_contract import (
     PIPELINE_PROTOCOL,
     PipelineErrorDetails,
     PipelineFailure,

@@ -2,17 +2,17 @@ from __future__ import annotations
 
 import pytest
 
-from aap_protocol_v2 import vocab
-from aap_protocol_v2.lifecycle import ManagedLifecycleCapabilities
+from yoao_protocol_v2 import vocab
+from yoao_protocol_v2.lifecycle import ManagedLifecycleCapabilities
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference import (
     ModelCapability,
     derive_modalities,
     extract_capabilities,
     resolve_model_task,
 )
-from aap_inference.capability_registry import (
+from yoao_inference.capability_registry import (
     GEOMETRY_VALUES,
     INFRA_VALUES,
     INPUT_VALUES,
@@ -251,7 +251,7 @@ def test_registry_protocol_mirrors_stay_in_sync():
     assert TASK_VALUES == vocab.TASK_VALUES
     assert GEOMETRY_VALUES == vocab.GEOMETRY_VALUES
     assert INPUT_VALUES == vocab.INPUT_VALUES
-    from aap_inference.capability_registry import PROMPT_VALUES
+    from yoao_inference.capability_registry import PROMPT_VALUES
 
     assert PROMPT_VALUES == vocab.PROMPT_VALUES
     assert {

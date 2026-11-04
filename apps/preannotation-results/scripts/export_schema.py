@@ -5,10 +5,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aap_preannotation_results.contract import contract_document
+from yoao_preannotation_results.contract import contract_document
 
 
-PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_preannotation_results"
+PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_preannotation_results"
 PRINT_WIDTH = 100
 
 

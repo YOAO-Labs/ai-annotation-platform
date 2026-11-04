@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-import aap_inference.__main__ as launcher
+import yoao_inference.__main__ as launcher
 
 
 class _StopRuntime(Exception):

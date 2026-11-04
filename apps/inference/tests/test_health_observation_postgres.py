@@ -5,12 +5,12 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.health_observation import (
     BackendHealthObservationUnavailable,
     HEALTH_OBSERVATION_NATIVE_FUNCTIONS,
 )
 
-from aap_inference.health_observation_postgres import (
+from yoao_inference.health_observation_postgres import (
     BackendHealthObservationPostgresData,
     _FUNCTIONS,
     _OPEN_SUBJECT_SQL,
@@ -94,7 +94,7 @@ def _runtime(monkeypatch, connections):
     )
     monkeypatch.setitem(
         sys.modules,
-        "aap_owner_data.postgres",
+        "yoao_owner_data.postgres",
         SimpleNamespace(
             FunctionRoleUnavailable=type("FunctionRoleUnavailable", (Exception,), {}),
             verify_function_only_role=verify,

@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from aap_inference.pipeline_server import PipelineHttpServer, _PayloadTooLarge
+from yoao_inference.pipeline_server import PipelineHttpServer, _PayloadTooLarge
 
 
 class _Manager:

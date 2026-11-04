@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 import httpx
 import pytest
 
-from aap_inference.request_tracking import http_client
+from yoao_inference.request_tracking import http_client
 
 
 class Stream(httpx.AsyncByteStream):

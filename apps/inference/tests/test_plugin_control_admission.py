@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_inference.backend_control_manager import BackendControlManager
+from yoao_inference.backend_control_manager import BackendControlManager
 
 
 @pytest.mark.asyncio

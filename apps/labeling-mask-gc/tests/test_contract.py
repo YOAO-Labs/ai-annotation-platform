@@ -7,13 +7,13 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_mask_content.gc_contract import (
+from yoao_assets_mask_content.gc_contract import (
     DeleteOperationStatus,
     GcCandidate,
     GcScanPage,
 )
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc_runtime.database import (
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc_runtime.database import (
     prepare_native_call,
     validate_native_result,
 )

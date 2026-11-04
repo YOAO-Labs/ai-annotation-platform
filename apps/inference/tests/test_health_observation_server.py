@@ -6,7 +6,7 @@ import json
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.health_observation import (
     HEALTH_OBSERVATION_PROTOCOL,
     BackendHealthObservationReply,
     BackendHealthObservationUnavailable,
@@ -15,7 +15,7 @@ from aap_inference_contract.health_observation import (
     make_health_observation_request,
 )
 
-from aap_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.pipeline_server import PipelineHttpServer
 
 _REGISTRY_ID = UUID("9ad8377b-f969-4135-8f48-22eb45c80bbd")
 _OTHER_REGISTRY_ID = UUID("f6b0124e-872a-4ae8-8244-7cb8fe69bc1f")

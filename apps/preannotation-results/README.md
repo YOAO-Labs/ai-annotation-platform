@@ -1,6 +1,6 @@
 # Durable preannotation results
 
-`aap-preannotation-results` defines the closed `aap-preannotation-results/v1`
+`yoao-preannotation-results` defines the closed `aap-preannotation-results/v1`
 contract for durable per-Task batch prediction results. The portable package
 contains the immutable DTOs, native operation allowlist, response validators,
 hash-chain digest, and temporary-file JSON snapshot codec.
@@ -13,14 +13,14 @@ dataclasses to JSON-safe values and owns the transaction that applies Prediction
 and Meta rows.
 
 The optional `postgres` extra supplies asyncpg for the small standalone
-`aap-preannotation-results` CLI. It accepts one executor operation name and one
+`yoao-preannotation-results` CLI. It accepts one executor operation name and one
 request DTO as JSON on stdin, connects with `PREANNOTATION_RESULTS_DATABASE_URL`
 or its `_FILE` variant, and writes a closed response envelope to stdout. It does
 not start an HTTP server, import the application, or expose Labeling writer
 completion through its executor adapter.
 
-Prediction retries have a separate `aap-preannotation-results.retry_contract`
-registry and the `aap-prediction-retries` CLI. Its six operations use the
+Prediction retries have a separate `yoao_preannotation_results.retry_contract`
+registry and the `yoao-prediction-retries` CLI. Its six operations use the
 `aap-prediction-retries/v1` envelope and `prediction-retries.schema.json`; the
 original batch-result registry remains `aap-preannotation-results/v1` with 17
 operations. The retry executor exposes only attempt reads and delivery claim /

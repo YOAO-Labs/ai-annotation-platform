@@ -6,10 +6,10 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from aap_inference.gpu.client import GPUAuthorityHTTPClient
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
-from aap_inference.pipeline_server import PipelineHttpServer
-from aap_inference_contract.gpu import (
+from yoao_inference.gpu.client import GPUAuthorityHTTPClient
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from yoao_inference.pipeline_server import PipelineHttpServer
+from yoao_inference_contract.gpu import (
     GPU_ADMIN_INSTALLATION_ACTIVATE_PATH,
     GPU_ADMIN_INSTALLATION_QUIESCE_PATH,
     GPUInstallationActivationReply,

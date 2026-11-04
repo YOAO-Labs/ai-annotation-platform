@@ -1,7 +1,7 @@
 """Framework contracts, selected explicitly before the training subprocess runs."""
 
 from __future__ import annotations
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 import json
 import math
 from pathlib import Path, PurePosixPath

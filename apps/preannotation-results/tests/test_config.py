@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_preannotation_results_runtime.config import (
+from yoao_preannotation_results_runtime.config import (
     ConfigurationError,
     load_config,
 )

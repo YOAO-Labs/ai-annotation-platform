@@ -5,7 +5,7 @@ from importlib.resources import files
 
 
 def test_pool_reference_schema_and_packaged_sql_describe_fixed_primary_key_read():
-    package_dir = files("aap_inference").joinpath("sql")
+    package_dir = files("yoao_inference").joinpath("sql")
     schema = json.loads(
         (package_dir / "0356_inference_pool_reference.schema.json").read_text()
     )

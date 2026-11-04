@@ -3,12 +3,12 @@ from uuid import uuid4
 
 import pytest
 
-from aap_inference.model_execution import BackendTransportModelExecutionProvider
-from aap_inference_contract.backend_endpoint import (
+from yoao_inference.model_execution import BackendTransportModelExecutionProvider
+from yoao_inference_contract.backend_endpoint import (
     BackendEndpointAuthority,
     BackendEndpointSubject,
 )
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     FrozenModelOperation,
     ModelExecutionError,
     ModelExecutionRouteBinding,

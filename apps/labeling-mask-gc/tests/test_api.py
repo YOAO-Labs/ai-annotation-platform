@@ -7,9 +7,9 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from aap_assets_mask_content.gc_contract import GcScanPage
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc_runtime.api import create_app
+from yoao_assets_mask_content.gc_contract import GcScanPage
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc_runtime.api import create_app
 
 TOKEN = "t" * 48
 WORKER = UUID("00000000-0000-0000-0000-000000000031")

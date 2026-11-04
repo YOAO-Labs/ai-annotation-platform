@@ -7,9 +7,9 @@ from uuid import UUID
 
 import pytest
 
-from aap_assets_mask_content import gc_contract as byte
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc.coordinator import run_cycle
+from yoao_assets_mask_content import gc_contract as byte
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc.coordinator import run_cycle
 
 KEY_A = "raster-masks/sha256/a0/a0/" + "a0a0" + "a" * 60 + ".json"
 KEY_B = "raster-masks/sha256/b0/b0/" + "b0b0" + "b" * 60 + ".json"

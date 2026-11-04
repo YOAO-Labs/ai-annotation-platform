@@ -3,12 +3,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aap-labeling-mask-gc"
+name = "yoao-labeling-mask-gc"
 version = "0.1.0"
 description = "Portable Labeling-owned Mask deletion fences and cleanup runtime"
 requires-python = ">=3.11"
 dependencies = [
-    "aap-assets-mask-content>=0.1.0",
+    "yoao-assets-mask-content>=0.1.0",
     "pydantic>=2.10.0",
 ]
 
@@ -32,13 +32,13 @@ test = [
 ]
 
 [project.scripts]
-aap-labeling-mask-gc = "aap_labeling_mask_gc_runtime.__main__:main"
+yoao-labeling-mask-gc = "yoao_labeling_mask_gc_runtime.__main__:main"
 
 [tool.uv.sources]
-aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
+yoao-assets-mask-content = { path = "../assets-mask-content", editable = true }
 
 [tool.setuptools.package-data]
-aap_labeling_mask_gc = ["protocol.schema.json", "openapi.snapshot.json"]
+yoao_labeling_mask_gc = ["protocol.schema.json", "openapi.snapshot.json"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

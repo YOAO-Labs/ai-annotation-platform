@@ -7,16 +7,16 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from aap_inference.health import (
+from yoao_inference.health import (
     GPU_HEALTH_CHALLENGE_ECHO_MARKER,
     BackendHealthCoordinator,
     reconcile_pool_capability,
 )
-from aap_inference.pool_capability import (
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
 )
-from aap_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.capabilities import CapabilityLimits
 
 _ENDPOINT_SHA256 = "a" * 64
 
@@ -307,7 +307,9 @@ async def test_managed_batchability_seed_is_stable_and_changes_disable():
     )
     caps = {
         "models": [{"id": "t", "resource_profile": {"batchable": True}}],
-        "managed_model_compatibility": [{"framework": "libreyolo", "runtime_device": "cuda"}],
+        "managed_model_compatibility": [
+            {"framework": "libreyolo", "runtime_device": "cuda"}
+        ],
     }
     data = _Data(member=member, pool=pool)
     await reconcile_pool_capability(data, registry_id, caps)

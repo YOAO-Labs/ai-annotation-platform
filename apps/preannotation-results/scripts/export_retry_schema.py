@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aap_preannotation_results.retry_contract import contract_document
+from yoao_preannotation_results.retry_contract import contract_document
 from export_schema import _format_json
 
 
-PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_preannotation_results"
+PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_preannotation_results"
 
 
 def main() -> None:

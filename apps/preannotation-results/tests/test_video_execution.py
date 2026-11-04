@@ -3,8 +3,8 @@ from uuid import uuid4
 
 import pytest
 
-from aap_preannotation_results import contract as c
-from aap_preannotation_results.video_execution import (
+from yoao_preannotation_results import contract as c
+from yoao_preannotation_results.video_execution import (
     SCHEMA,
     ClaimRequest,
     ExecutionClaim,

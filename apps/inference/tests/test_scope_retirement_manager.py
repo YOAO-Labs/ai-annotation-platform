@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 
 import pytest
 
-from aap_inference.scope_retirement_manager import ScopeRetirementManager
-from aap_inference_contract.scope_retirement import (
+from yoao_inference.scope_retirement_manager import ScopeRetirementManager
+from yoao_inference_contract.scope_retirement import (
     SCOPE_RETIREMENT_DATA_PROTOCOL,
     SCOPE_RETIREMENT_NATIVE_FUNCTIONS,
     make_scope_retirement_request,

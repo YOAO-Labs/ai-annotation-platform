@@ -6,8 +6,8 @@ from uuid import UUID
 
 import pytest
 
-from aap_preannotation_results import contract as c
-from aap_preannotation_results.codec import (
+from yoao_preannotation_results import contract as c
+from yoao_preannotation_results.codec import (
     PayloadAssembler,
     decode_part,
     encode_part,

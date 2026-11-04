@@ -5,7 +5,7 @@ from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     ROUTING_DATA_PROTOCOL,
     RoutingRejectedResult,
     RoutingUnavailable,
@@ -15,11 +15,11 @@ from aap_inference_contract.routing import (
     routing_command_sha256,
 )
 
-from aap_inference.pool_capability import (
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
 )
-from aap_inference.routing import RoutingManager
+from yoao_inference.routing import RoutingManager
 
 _POOL_ID = UUID("e57fd804-5e3c-448d-9aee-a4cb50c4e640")
 _PROJECT_ID = UUID("f3deddb7-507b-4914-bbc4-8ac9e1e53b54")

@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     ROUTING_REPLY_MAX_BYTES,
     ROUTING_REQUEST_MAX_BYTES,
     ROUTING_RESULT_PROTOCOL,
@@ -23,7 +23,7 @@ from aap_inference_contract.routing import (
     routing_runtime_request_bytes,
     routing_status_request_bytes,
 )
-from aap_inference_contract.scope_retirement import (
+from yoao_inference_contract.scope_retirement import (
     SCOPE_RETIREMENT_REPLY_MAX_BYTES,
     SCOPE_RETIREMENT_REQUEST_MAX_BYTES,
     SCOPE_RETIREMENT_RESULT_PROTOCOL,
@@ -33,7 +33,7 @@ from aap_inference_contract.scope_retirement import (
     make_scope_retirement_request,
     scope_retirement_request_bytes,
 )
-from aap_inference_contract.video_execution import (
+from yoao_inference_contract.video_execution import (
     VIDEO_EXECUTION_DATA_PROTOCOL,
     VIDEO_EXECUTION_STATUS_PATH,
     VIDEO_EXECUTION_STATUS_REPLY_MAX_BYTES,
@@ -42,7 +42,7 @@ from aap_inference_contract.video_execution import (
     video_execution_status_request_bytes,
 )
 
-from aap_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.pipeline_server import PipelineHttpServer
 
 _REGISTRY_ID = UUID("22222222-2222-4222-8222-222222222222")
 

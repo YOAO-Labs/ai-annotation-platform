@@ -7,10 +7,10 @@ from uuid import uuid4
 
 import pytest
 
-from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
-from aap_inference.gpu.installation_quiescence import quiesce_gpu_installation
-from aap_inference_contract.gpu import (
+from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from yoao_inference.gpu.installation_quiescence import quiesce_gpu_installation
+from yoao_inference_contract.gpu import (
     GPUAuthorityUnavailable,
     GPUInstallationControlRequest,
 )
@@ -223,7 +223,7 @@ async def run_quiescence(
             raise GPUAuthorityUnavailable()
 
     monkeypatch.setattr(
-        "aap_inference.gpu.installation_quiescence.ensure_installation_domain",
+        "yoao_inference.gpu.installation_quiescence.ensure_installation_domain",
         ensure_domain,
     )
     try:

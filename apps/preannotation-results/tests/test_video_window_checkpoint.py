@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.video_execution_plan import (
     BackendCompatibilityIdentity,
     FrozenWindowSettings,
     VideoContinuationPostState,
@@ -21,7 +21,7 @@ from aap_preannotation_results.video_execution_plan import (
     make_video_context_span,
     make_video_execution_plan,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     MAX_VIDEO_WINDOW_CHECKPOINT_PARTS,
     assemble_video_window_checkpoint_parts,
     decide_video_window_resume,
@@ -949,13 +949,13 @@ def test_empty_first_window_can_preserve_its_accepted_track_seed(kind):
 
 
 def test_packaged_window_schema_matches_its_generator():
-    from aap_preannotation_results.video_window_checkpoint import (
+    from yoao_preannotation_results.video_window_checkpoint import (
         video_window_checkpoint_schema,
     )
 
     assert (
         json.loads(
-            files("aap_preannotation_results")
+            files("yoao_preannotation_results")
             .joinpath("video-window-checkpoints.schema.json")
             .read_text()
         )

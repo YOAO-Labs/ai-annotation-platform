@@ -8,11 +8,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_inference.pool_capability import (
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
 )
-from aap_inference.registry_ingress import (
+from yoao_inference.registry_ingress import (
     endpoint_snapshot,
     ensure_singleton_pool,
     get_or_create_seed,
@@ -20,7 +20,7 @@ from aap_inference.registry_ingress import (
     sync_environment,
     RegistrySeedFacts,
 )
-from aap_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.capabilities import CapabilityLimits
 
 
 def _row(
@@ -47,15 +47,17 @@ def _row(
         extra_params=extra_params,
     )
 
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("extra", [{"plugin": {"status": "active"}}, {"plugin_lifecycle": None}])
+@pytest.mark.parametrize(
+    "extra", [{"plugin": {"status": "active"}}, {"plugin_lifecycle": None}]
+)
 async def test_screenshot_seed_cannot_take_over_plugin_registry(extra):
     row = _row("http://plugin", source="manual", extra_params=extra)
     data = _Data([row])
     with pytest.raises(ValueError, match="Plugin installations"):
         await get_or_create_seed(data, row.url, "seed", {"managed_by": "seed"})
     assert data.staged_seed_markers == []
-
 
 
 class _Data:

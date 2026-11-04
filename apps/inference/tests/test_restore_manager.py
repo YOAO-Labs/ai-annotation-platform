@@ -5,8 +5,8 @@ import copy
 
 import pytest
 
-from aap_inference.restore import VideoRestoreManager
-from aap_inference.restore_contract import (
+from yoao_inference.restore import VideoRestoreManager
+from yoao_inference.restore_contract import (
     RESTORE_DATA_PROTOCOL,
     RESTORE_PROTOCOL,
     RestoreCommand,
@@ -16,7 +16,7 @@ from aap_inference.restore_contract import (
     decode_native_envelope,
     decode_restore_command,
 )
-from aap_protocol_v2.routing import ROUTE_CONTROL_REPLY_PROTOCOL
+from yoao_protocol_v2.routing import ROUTE_CONTROL_REPLY_PROTOCOL
 
 RESTORE_ID = "11111111-1111-4111-8111-111111111111"
 CONTROL_ID = "22222222-2222-4222-8222-222222222222"

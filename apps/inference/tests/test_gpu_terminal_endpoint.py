@@ -8,22 +8,22 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from aap_inference.backend_endpoint import BackendEndpointSnapshot
-from aap_inference.gpu.endpoint_source import (
+from yoao_inference.backend_endpoint import BackendEndpointSnapshot
+from yoao_inference.gpu.endpoint_source import (
     GPUOwnedBackendEndpointSource,
     GPUOwnedEndpointUnavailable,
     _decode_object,
 )
-from aap_inference.owner_transport import (
+from yoao_inference.owner_transport import (
     BackendTransportGPUControlAdapter,
     _ActiveGPUControl,
 )
-from aap_inference_contract.backend_endpoint import (
+from yoao_inference_contract.backend_endpoint import (
     BACKEND_ENDPOINT_MAX_BYTES,
     BackendEndpointBinding,
     make_backend_endpoint_subject,
 )
-from aap_inference_contract.routing import RoutingUnavailable
+from yoao_inference_contract.routing import RoutingUnavailable
 
 
 class Connection:
@@ -101,10 +101,10 @@ async def test_terminal_opener_binds_exact_native_inputs_and_snapshot(monkeypatc
         assert purpose == "gpu_control"
 
     monkeypatch.setattr(
-        "aap_inference.gpu.endpoint_source._verify_endpoint_profile", verify_profile
+        "yoao_inference.gpu.endpoint_source._verify_endpoint_profile", verify_profile
     )
     monkeypatch.setattr(
-        "aap_inference.gpu.endpoint_source.backend_endpoint_policy_ready",
+        "yoao_inference.gpu.endpoint_source.backend_endpoint_policy_ready",
         lambda policy: True,
     )
     source = GPUOwnedBackendEndpointSource(
@@ -186,7 +186,7 @@ async def test_terminal_capability_only_sends_exact_signed_target(monkeypatch):
                         pass
             return {"ok": True}
 
-    monkeypatch.setattr("aap_inference.owner_transport.BackendTransport", Transport)
+    monkeypatch.setattr("yoao_inference.owner_transport.BackendTransport", Transport)
     adapter = BackendTransportGPUControlAdapter(object())
     grant = object()
     assert await adapter.lifecycle_terminal_drain(

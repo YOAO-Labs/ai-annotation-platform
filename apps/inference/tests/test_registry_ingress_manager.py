@@ -5,8 +5,8 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     REGISTRY_ENV_SYNC_RESULT_PROTOCOL,
     RegistryEnvSyncUnavailable,
     make_registry_env_sync_request,
@@ -14,8 +14,8 @@ from aap_inference_contract.registry_ingress import (
     registry_env_sync_status_request,
 )
 
-import aap_inference.registry_ingress_manager as manager_module
-from aap_inference.registry_ingress_manager import RegistryEnvSyncManager
+import yoao_inference.registry_ingress_manager as manager_module
+from yoao_inference.registry_ingress_manager import RegistryEnvSyncManager
 
 _REQUEST_ID = UUID("b9894ce1-f23c-4624-b8c7-7316c386f275")
 _URL = "http://trusted-backend.test"

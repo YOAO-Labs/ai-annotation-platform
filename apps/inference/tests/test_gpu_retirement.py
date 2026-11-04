@@ -4,7 +4,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_inference.gpu.retirement import retire_gpu_backend_membership
+from yoao_inference.gpu.retirement import retire_gpu_backend_membership
 
 
 @pytest.mark.asyncio

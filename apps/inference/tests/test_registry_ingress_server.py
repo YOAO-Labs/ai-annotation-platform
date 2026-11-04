@@ -4,8 +4,8 @@ import json
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     REGISTRY_ENV_SYNC_RESULT_PROTOCOL,
     RegistryEnvSyncResult,
     RegistryEnvSyncUnavailable,
@@ -18,7 +18,7 @@ from aap_inference_contract.registry_ingress import (
     registry_env_sync_status_request_bytes,
 )
 
-from aap_inference.pipeline_server import PipelineHttpServer
+from yoao_inference.pipeline_server import PipelineHttpServer
 
 _REQUEST_ID = UUID("b9894ce1-f23c-4624-b8c7-7316c386f275")
 _URL = "http://trusted-backend.test"

@@ -8,17 +8,17 @@ import time
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     LifecycleModeResponse,
     LifecycleResetResponse,
     verify_admission_token,
 )
 
-from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-from aap_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
-from aap_inference.gpu.installation_bootstrap import bootstrap_gpu_installation
-from aap_inference.gpu.signing import GPUAdmissionTokenSigner
-from aap_inference_contract.gpu import GPUInstallationControlRequest
+from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError, GPUArbiterErrorCode
+from yoao_inference.gpu.installation_bootstrap import bootstrap_gpu_installation
+from yoao_inference.gpu.signing import GPUAdmissionTokenSigner
+from yoao_inference_contract.gpu import GPUInstallationControlRequest
 
 
 class Clock:

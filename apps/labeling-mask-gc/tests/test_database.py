@@ -4,8 +4,8 @@ import json
 
 import pytest
 
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
 
 
 class FakeTransaction:

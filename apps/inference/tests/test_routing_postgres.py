@@ -6,15 +6,15 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     ROUTING_DATA_PROTOCOL,
     ROUTING_NATIVE_ACTIONS,
     ROUTING_NATIVE_FUNCTIONS,
     ROUTING_NATIVE_POLICY_SCHEMA,
 )
 
-from aap_inference.routing_postgres import RoutingPostgresData
-from aap_inference_contract.routing import RoutingUnavailable
+from yoao_inference.routing_postgres import RoutingPostgresData
+from yoao_inference_contract.routing import RoutingUnavailable
 
 _POLICY = {
     "schema": ROUTING_NATIVE_POLICY_SCHEMA,
@@ -63,7 +63,7 @@ async def _bind(monkeypatch, connection):
 
     monkeypatch.setitem(
         sys.modules,
-        "aap_owner_data.postgres",
+        "yoao_owner_data.postgres",
         SimpleNamespace(verify_function_only_role=verify),
     )
     data = await RoutingPostgresData.bind(connection)

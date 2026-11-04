@@ -6,12 +6,12 @@ import json
 from copy import deepcopy
 from pathlib import Path
 
-from aap_inference.pool_capability import (
+from yoao_inference.pool_capability import (
     canonicalize_capability,
     capability_fingerprint,
     diff_capabilities,
 )
-from aap_inference_contract.topology import freeze_json
+from yoao_inference_contract.topology import freeze_json
 
 _VECTORS = Path(__file__).parent / "fixtures" / "pool_capability_legacy.json"
 
@@ -51,12 +51,14 @@ def test_legacy_capability_diff_vectors() -> None:
 
 def test_managed_batchable_models_are_idempotent_and_semantically_distinct() -> None:
     raw = {
-        "models": [{
-            "id": "t",
-            "task": "detect",
-            "resource_profile": {"batchable": True},
-            "supported_variants": [{"key": "size", "variants": [{"value": "t"}]}],
-        }],
+        "models": [
+            {
+                "id": "t",
+                "task": "detect",
+                "resource_profile": {"batchable": True},
+                "supported_variants": [{"key": "size", "variants": [{"value": "t"}]}],
+            }
+        ],
         "managed_model_compatibility": [
             {"framework": "libreyolo", "format": "libreyolo", "runtime_device": "cuda"}
         ],
@@ -73,7 +75,10 @@ def test_managed_batchable_models_are_idempotent_and_semantically_distinct() -> 
     nonbatchable["models"][0]["resource_profile"]["batchable"] = False
     incompatible = deepcopy(raw)
     incompatible["managed_model_compatibility"][0]["runtime_device"] = "cpu"
-    for changed, field in ((nonbatchable, "models"), (incompatible, "managed_model_compatibility")):
+    for changed, field in (
+        (nonbatchable, "models"),
+        (incompatible, "managed_model_compatibility"),
+    ):
         assert capability_fingerprint(changed) != capability_fingerprint(raw)
         mismatch = diff_capabilities(canonical, canonicalize_capability(changed))
         assert mismatch is not None

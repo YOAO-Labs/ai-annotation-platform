@@ -1,6 +1,6 @@
 # Labeling Mask garbage collection
 
-`aap-labeling-mask-gc` is an independently deployable Python worker for the
+`yoao-labeling-mask-gc` is an independently deployable Python worker for the
 Labeling-owned Mask deletion fence. Its portable package contains the frozen
 JSON contract, a small HTTP client, and the bounded coordinator. The runtime
 package calls only the six cleanup `aap_labeling_v1` JSONB functions and
@@ -34,7 +34,7 @@ authenticated manual run requests remain available.
 Run one bounded pass with:
 
 ```sh
-python -m aap_labeling_mask_gc_runtime --once
+python -m yoao_labeling_mask_gc_runtime --once
 ```
 
 The one-shot command prints one JSON object containing numeric cycle counts.

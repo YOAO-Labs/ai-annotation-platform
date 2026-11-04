@@ -5,13 +5,13 @@ import json
 
 import httpx
 import pytest
-from aap_protocol_v2.routing import (
+from yoao_protocol_v2.routing import (
     ROUTE_CONTROL_PATH,
     ROUTE_CONTROL_REPLY_PROTOCOL,
     ROUTE_STATUS_PATH,
 )
 
-from aap_inference.routing_backend_control import (
+from yoao_inference.routing_backend_control import (
     BackendRoutingControl,
     BackendRoutingControlUnavailable,
 )
@@ -237,7 +237,7 @@ async def test_status_rejects_a_different_frozen_incarnation():
 def test_registered_control_target_preserves_exact_encoded_base_path(
     url, method, accepted
 ):
-    from aap_inference.owner_transport import _matches_backend_control_target
+    from yoao_inference.owner_transport import _matches_backend_control_target
 
     assert (
         _matches_backend_control_target(

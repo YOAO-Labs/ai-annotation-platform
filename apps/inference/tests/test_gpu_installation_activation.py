@@ -9,15 +9,15 @@ from uuid import uuid4
 
 import pytest
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from aap_protocol_v2.lifecycle import LifecycleModeResponse, verify_admission_token
+from yoao_protocol_v2.lifecycle import LifecycleModeResponse, verify_admission_token
 
-from aap_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
-from aap_inference.gpu import membership_activation
-from aap_inference.gpu.control_preparation import GPULegacyAckPreparation
-from aap_inference.gpu.contracts import GPUArbiterDispatchError
-from aap_inference.gpu.installation_activation import activate_gpu_installation
-from aap_inference.gpu.signing import GPUAdmissionTokenSigner
-from aap_inference_contract.gpu import GPUInstallationControlRequest
+from yoao_inference.backend_transport import GPU_HEALTH_CHALLENGE_ECHO_MARKER
+from yoao_inference.gpu import membership_activation
+from yoao_inference.gpu.control_preparation import GPULegacyAckPreparation
+from yoao_inference.gpu.contracts import GPUArbiterDispatchError
+from yoao_inference.gpu.installation_activation import activate_gpu_installation
+from yoao_inference.gpu.signing import GPUAdmissionTokenSigner
+from yoao_inference_contract.gpu import GPUInstallationControlRequest
 
 
 class Harness:

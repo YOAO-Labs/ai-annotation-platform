@@ -9,9 +9,9 @@ lines = ["# Generated from uv.lock; binary Torch/CUDA packages use the Docker ba
 for package in lock["package"]:
     name = package["name"]
     if name in {
-        "aap-training-executor",
-        "aap-training-contract",
-        "aap-task-contract",
+        "yoao-training-executor",
+        "yoao-training-contract",
+        "yoao-task-contract",
         "torch",
         "torchvision",
         "triton",

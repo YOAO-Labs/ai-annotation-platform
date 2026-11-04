@@ -5,10 +5,10 @@ import json
 import uuid
 
 import pytest
-from aap_workspace_contract.project_query_contract import ProjectQueryUnavailable
-from aap_workspace_contract.project_query_values import decode_postgres_timestamp
+from yoao_workspace_contract.project_query_contract import ProjectQueryUnavailable
+from yoao_workspace_contract.project_query_values import decode_postgres_timestamp
 
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_contract import (
     PIPELINE_ACTIONS,
     PIPELINE_INSERT_COLUMNS,
     PIPELINE_POLICY_PROTOCOL,
@@ -31,7 +31,7 @@ from aap_inference.pipeline_contract import (
     pipeline_schema,
     pipeline_status_request,
 )
-from aap_inference.pipeline_values import (
+from yoao_inference.pipeline_values import (
     decode_pipeline_row,
     decode_pipeline_rows,
     dirty_pipeline_payload,
@@ -39,7 +39,9 @@ from aap_inference.pipeline_values import (
 )
 
 
-def _command(operation="update_pipeline", *, actor_id=None, target_id=None, payload=None):
+def _command(
+    operation="update_pipeline", *, actor_id=None, target_id=None, payload=None
+):
     actor_id = actor_id or uuid.uuid4()
     if operation != "create_pipeline" and target_id is None:
         target_id = uuid.uuid4()
@@ -105,9 +107,12 @@ def test_command_wire_preserves_omission_explicit_null_and_saved_payload_values(
         },
     )
     assert json.loads(saved.payload_ascii)["stages"] == {"legacy_scalar": True}
-    assert decode_pipeline_command_request(
-        explicit_null.model_dump(mode="json", by_alias=True)
-    ) == explicit_null
+    assert (
+        decode_pipeline_command_request(
+            explicit_null.model_dump(mode="json", by_alias=True)
+        )
+        == explicit_null
+    )
 
 
 def test_command_operation_target_and_apply_payload_are_closed():
@@ -342,7 +347,9 @@ def test_policy_exports_the_fixed_native_contract_and_rejects_drift():
     assert policy.insert_columns == list(PIPELINE_INSERT_COLUMNS)
     assert policy.update_columns == list(PIPELINE_UPDATE_COLUMNS)
     assert policy.actions == list(PIPELINE_ACTIONS)
-    assert decode_pipeline_policy(policy.model_dump(mode="json", by_alias=True)) == policy
+    assert (
+        decode_pipeline_policy(policy.model_dump(mode="json", by_alias=True)) == policy
+    )
 
     drift = policy.model_dump(mode="json", by_alias=True)
     drift["actions"].reverse()
@@ -451,14 +458,15 @@ def test_dirty_comparison_uses_python_json_equality_and_uuid_value_equality():
         created_at=datetime(2026, 1, 1, tzinfo=UTC),
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
-    assert dirty_pipeline_payload(
-        current,
-        {
-            "project_id": str(project_id),
-            "name": "same",
-            "stages": {"enabled": 1},
-        },
-    ) == {}
-    assert dirty_pipeline_payload(current, {"name": "changed"}) == {
-        "name": "changed"
-    }
+    assert (
+        dirty_pipeline_payload(
+            current,
+            {
+                "project_id": str(project_id),
+                "name": "same",
+                "stages": {"enabled": 1},
+            },
+        )
+        == {}
+    )
+    assert dirty_pipeline_payload(current, {"name": "changed"}) == {"name": "changed"}

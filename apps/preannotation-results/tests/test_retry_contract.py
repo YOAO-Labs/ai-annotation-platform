@@ -11,9 +11,9 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_preannotation_results import contract as result_contract
-from aap_preannotation_results import retry_contract as c
-from aap_preannotation_results_runtime.retry_database import (
+from yoao_preannotation_results import contract as result_contract
+from yoao_preannotation_results import retry_contract as c
+from yoao_preannotation_results_runtime.retry_database import (
     AsyncpgPredictionRetryDatabase,
     EXECUTOR_OPERATIONS,
     WRITER_OPERATIONS,
@@ -575,7 +575,7 @@ def test_retry_cli_uses_shared_config_and_returns_sanitized_failure():
         [
             sys.executable,
             "-m",
-            "aap_preannotation_results_runtime.retry_main",
+            "yoao_preannotation_results_runtime.retry_main",
             "claim_prediction_retry_deliveries",
         ],
         input=c.json_bytes(request),

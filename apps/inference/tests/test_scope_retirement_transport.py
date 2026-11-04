@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from aap_inference.scope_retirement_transport import (
+from yoao_inference.scope_retirement_transport import (
     BackendScopeRetirementUnavailable,
     execute_backend_scope_retirement,
 )

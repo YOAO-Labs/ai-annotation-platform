@@ -8,8 +8,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_preannotation_results import contract as c
-from aap_preannotation_results_runtime.database import (
+from yoao_preannotation_results import contract as c
+from yoao_preannotation_results_runtime.database import (
     AsyncpgBatchResultDatabase,
     EXECUTOR_OPERATIONS,
     prepare_native_call,
@@ -44,7 +44,7 @@ def test_cli_configuration_failure_returns_error_and_nonzero_exit():
         [
             sys.executable,
             "-m",
-            "aap_preannotation_results_runtime",
+            "yoao_preannotation_results_runtime",
             "read_batch_result_execution",
         ],
         input=c.json_bytes(read_request()),

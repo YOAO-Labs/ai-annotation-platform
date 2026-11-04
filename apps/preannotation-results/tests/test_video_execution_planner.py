@@ -2,11 +2,11 @@ from uuid import uuid4
 
 import pytest
 
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.video_execution_plan import (
     BackendCompatibilityIdentity,
     VideoExecutionContractFailure,
 )
-from aap_preannotation_results.video_execution_planner import (
+from yoao_preannotation_results.video_execution_planner import (
     VideoExecutionInputFacts,
     build_video_execution_plan,
     freeze_video_window_settings,

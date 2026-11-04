@@ -4,7 +4,7 @@ from dataclasses import FrozenInstanceError
 
 import pytest
 
-from aap_labeling_mask_gc_runtime.config import ConfigurationError, load_config
+from yoao_labeling_mask_gc_runtime.config import ConfigurationError, load_config
 
 TOKEN = "g" * 48
 CONTENT_TOKEN = "c" * 48

@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_inference.pipeline_contract import (
+from yoao_inference.pipeline_contract import (
     PIPELINE_STEP_PROTOCOL,
     PipelineRejected,
     PipelineStepSuccess,
@@ -15,7 +15,7 @@ from aap_inference.pipeline_contract import (
     pipeline_query_request,
     pipeline_status_request,
 )
-from aap_inference.pipeline_manager import PipelineManager
+from yoao_inference.pipeline_manager import PipelineManager
 
 
 class _Transaction:

@@ -4,28 +4,28 @@ import uuid
 
 import pytest
 
-from aap_inference import (
+from yoao_inference import (
     PipelineValidationError as LegacyPipelineValidationError,
     validate_saved_pipeline as legacy_validate_saved_pipeline,
 )
-from aap_inference.pipeline import (
+from yoao_inference.pipeline import (
     PipelineValidationError as PipelineModuleValidationError,
     validate_saved_pipeline as pipeline_module_validate_saved_pipeline,
 )
-from aap_inference.preannotate import (
+from yoao_inference.preannotate import (
     PipelineStage as LegacyPipelineStage,
     PreannotateRequest as LegacyPreannotateRequest,
 )
-from aap_inference_contract.pipeline import (
+from yoao_inference_contract.pipeline import (
     PipelineValidationError,
     validate_saved_pipeline,
 )
-from aap_inference_contract.preannotate import PipelineStage, PreannotateRequest
+from yoao_inference_contract.preannotate import PipelineStage, PreannotateRequest
 
 
 def test_inference_reexports_shared_pipeline_contracts_by_identity():
-    from aap_inference import PipelineStage as PackagePipelineStage
-    from aap_inference import PreannotateRequest as PackagePreannotateRequest
+    from yoao_inference import PipelineStage as PackagePipelineStage
+    from yoao_inference import PreannotateRequest as PackagePreannotateRequest
 
     assert LegacyPipelineValidationError is PipelineValidationError
     assert PipelineModuleValidationError is PipelineValidationError

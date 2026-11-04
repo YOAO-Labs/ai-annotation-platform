@@ -5,8 +5,8 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference import (
     BackendSetupLocator,
     fetch_backend_setup,
     probe_backend_capabilities,

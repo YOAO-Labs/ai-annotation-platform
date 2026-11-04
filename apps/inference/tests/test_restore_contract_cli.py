@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from aap_inference import restore_cli
-from aap_inference.restore_contract import (
+from yoao_inference import restore_cli
+from yoao_inference.restore_contract import (
     RESTORE_DATA_PROTOCOL,
     RESTORE_PROTOCOL,
     RestoreUnavailable,

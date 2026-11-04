@@ -15,7 +15,7 @@ WORKDIR /app
 COPY apps/labeling-mask-gc/pyproject.toml apps/labeling-mask-gc/uv.lock ./apps/labeling-mask-gc/
 COPY apps/labeling-mask-gc/src/ ./apps/labeling-mask-gc/src/
 COPY apps/assets-mask-content/pyproject.toml ./apps/assets-mask-content/pyproject.toml
-COPY apps/assets-mask-content/src/aap_assets_mask_content/ ./apps/assets-mask-content/src/aap_assets_mask_content/
+COPY apps/assets-mask-content/src/yoao_assets_mask_content/ ./apps/assets-mask-content/src/yoao_assets_mask_content/
 
 WORKDIR /app/apps/labeling-mask-gc
 RUN uv venv /opt/venv \
@@ -38,4 +38,4 @@ USER 10003:10003
 EXPOSE 8771
 HEALTHCHECK --interval=30s --timeout=3s --start-period=60s --retries=3 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8771/health/ready', timeout=2)"]
-CMD ["python", "-m", "aap_labeling_mask_gc_runtime"]
+CMD ["python", "-m", "yoao_labeling_mask_gc_runtime"]

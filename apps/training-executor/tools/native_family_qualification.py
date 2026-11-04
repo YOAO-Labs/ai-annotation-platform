@@ -98,8 +98,8 @@ def qualify_managed_return(path, base_model, root):
     }
     if framework == "libreyolo":
         # The official LibreYOLO distribution is installed in the qualification environment.
-        from aap_backend_runtime.managed_models import ManagedModelStore
-        from aap_libreyolo_plugin.install import (
+        from yoao_backend_runtime.managed_models import ManagedModelStore
+        from yoao_libreyolo_plugin.install import (
             inspect,
             install_request_model,
             validate_installed_receipt,

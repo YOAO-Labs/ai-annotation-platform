@@ -3,14 +3,14 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aap-inference"
+name = "yoao-inference"
 version = "0.1.0"
 description = "Portable inference values, pipeline ownership and standalone runtime"
 requires-python = ">=3.11"
-dependencies = ["aap-inference-contract", "aap-task-contract", "aap-protocol-v2", "aap-owner-data", "aap-workspace-contract", "aap-assets-mask-content", "pydantic>=2.10.0"]
+dependencies = ["yoao-inference-contract", "yoao-task-contract", "yoao-protocol-v2", "yoao-owner-data", "yoao-workspace-contract", "yoao-assets-mask-content", "pydantic>=2.10.0"]
 
 [project.scripts]
-aap-video-restore = "aap_inference.restore_cli:main"
+yoao-video-restore = "yoao_inference.restore_cli:main"
 
 [project.optional-dependencies]
 probe = ["httpx>=0.28.0"]
@@ -21,12 +21,12 @@ video-restore = ["asyncpg>=0.29", "httpx>=0.28.0"]
 test = ["pytest>=8.3.0", "pytest-asyncio>=0.24", "httpx>=0.28.0", "Pillow>=10.0.0"]
 
 [tool.uv.sources]
-aap-inference-contract = { path = "../_shared/inference_contract", editable = true }
-aap-task-contract = { path = "../_shared/task_contract", editable = true }
-aap-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
-aap-owner-data = { path = "../_shared/owner_data", editable = true }
-aap-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
-aap-assets-mask-content = { path = "../assets-mask-content", editable = true }
+yoao-inference-contract = { path = "../_shared/inference_contract", editable = true }
+yoao-task-contract = { path = "../_shared/task_contract", editable = true }
+yoao-protocol-v2 = { path = "../_shared/protocol_v2", editable = true }
+yoao-owner-data = { path = "../_shared/owner_data", editable = true }
+yoao-workspace-contract = { path = "../_shared/workspace_contract", editable = true }
+yoao-assets-mask-content = { path = "../assets-mask-content", editable = true }
 
 [tool.uv]
 cache-keys = [
@@ -41,7 +41,7 @@ cache-keys = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-aap_inference = ["*.json", "sql/*.sql", "sql/*.json", "gpu/**/*.lua", "gpu/**/*.json", "gpu/**/*.sql"]
+yoao_inference = ["*.json", "sql/*.sql", "sql/*.json", "gpu/**/*.lua", "gpu/**/*.json", "gpu/**/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

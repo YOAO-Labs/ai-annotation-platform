@@ -5,8 +5,8 @@ import json
 import httpx
 import pytest
 
-from aap_labeling_mask_gc import contract as c
-from aap_labeling_mask_gc.client import (
+from yoao_labeling_mask_gc import contract as c
+from yoao_labeling_mask_gc.client import (
     LabelingMaskGcClient,
     LabelingMaskGcClientFailure,
 )

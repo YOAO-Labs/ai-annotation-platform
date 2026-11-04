@@ -12,9 +12,9 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
-from aap_protocol_v2.lifecycle import AdmissionScope
+from yoao_protocol_v2.lifecycle import AdmissionScope
 
-from aap_inference.backend_transport import (
+from yoao_inference.backend_transport import (
     BackendTransport,
     BackendTransportError,
     PredictionResult,

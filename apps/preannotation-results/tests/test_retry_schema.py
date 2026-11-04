@@ -3,14 +3,14 @@ from __future__ import annotations
 import json
 from importlib.resources import files
 
-from aap_preannotation_results.retry_contract import (
+from yoao_preannotation_results.retry_contract import (
     OPERATION,
     SCHEMA,
     contract_document,
 )
 
 
-SCHEMA_PATH = files("aap_preannotation_results").joinpath(
+SCHEMA_PATH = files("yoao_preannotation_results").joinpath(
     "prediction-retries.schema.json"
 )
 

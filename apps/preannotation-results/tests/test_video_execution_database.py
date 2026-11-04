@@ -4,11 +4,11 @@ from uuid import uuid4
 
 import pytest
 
-from aap_preannotation_results.video_execution import (
+from yoao_preannotation_results.video_execution import (
     ClaimRequest,
     VideoExecutionFailure,
 )
-from aap_preannotation_results_runtime.video_execution_database import (
+from yoao_preannotation_results_runtime.video_execution_database import (
     VideoExecutionPostgresData,
 )
 
@@ -40,7 +40,7 @@ class Connection:
 
 def test_binding_cannot_carry_writer_authority_across_transactions(monkeypatch):
     async def exercise():
-        from aap_owner_data import postgres
+        from yoao_owner_data import postgres
 
         verify = AsyncMock()
         monkeypatch.setattr(postgres, "verify_function_only_role", verify)
@@ -65,7 +65,7 @@ def test_binding_cannot_carry_writer_authority_across_transactions(monkeypatch):
 
 def test_broad_database_role_cannot_bind_video_owner(monkeypatch):
     async def exercise():
-        from aap_owner_data import postgres
+        from yoao_owner_data import postgres
 
         monkeypatch.setattr(
             postgres,

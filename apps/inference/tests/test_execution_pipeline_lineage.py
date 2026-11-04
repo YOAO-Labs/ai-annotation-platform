@@ -7,13 +7,13 @@ import uuid
 from PIL import Image
 import pytest
 
-from aap_assets_mask_content.codec import build_rle_reference
-from aap_inference.execution_pipeline import (
+from yoao_assets_mask_content.codec import build_rle_reference
+from yoao_inference.execution_pipeline import (
     NativeMaskChildOutputUnsupported,
     execute_task_pipeline,
     lineage_shape_id,
 )
-from aap_inference_contract.execution import (
+from yoao_inference_contract.execution import (
     ExecutionProvenance,
     FrozenModelOperation,
     ModelExecutionDispatch,
@@ -498,7 +498,7 @@ async def test_awaitable_crop_publisher_uploads_before_child_dispatch():
 
 
 def test_crop_remap_honors_explicit_percent_coordinate_units():
-    from aap_inference.roi import remap_geometry_to_image
+    from yoao_inference.roi import remap_geometry_to_image
 
     remapped = remap_geometry_to_image(
         [

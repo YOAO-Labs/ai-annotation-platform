@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.video_execution_plan import (
     MAX_VIDEO_CHECKPOINT_BYTES,
     MAX_VIDEO_CHECKPOINT_PART_BASE64_CHARS,
     BackendCompatibilityIdentity,
@@ -590,7 +590,7 @@ def test_missing_release_identity_allows_fresh_execution_but_blocks_reuse():
 def test_schema_snapshot_matches_the_portable_value_contract():
     from importlib.resources import files
 
-    schema_path = files("aap_preannotation_results").joinpath(
+    schema_path = files("yoao_preannotation_results").joinpath(
         "video-execution-plan.schema.json"
     )
     document = json.loads(schema_path.read_text(encoding="utf-8"))

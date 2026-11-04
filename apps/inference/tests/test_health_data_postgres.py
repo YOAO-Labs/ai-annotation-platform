@@ -8,7 +8,7 @@ from uuid import UUID
 
 import pytest
 
-from aap_inference.health_data_postgres import (
+from yoao_inference.health_data_postgres import (
     BackendHealthRow,
     HealthDataPostgresData,
     HealthDataUnavailable,
@@ -155,7 +155,7 @@ def _bind_runtime(monkeypatch, connection):
 
     monkeypatch.setitem(
         sys.modules,
-        "aap_owner_data.postgres",
+        "yoao_owner_data.postgres",
         SimpleNamespace(verify_function_only_role=verify),
     )
     return verified

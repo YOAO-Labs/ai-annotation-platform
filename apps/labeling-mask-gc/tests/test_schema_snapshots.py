@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aap_labeling_mask_gc.contract import contract_document
-from aap_labeling_mask_gc_runtime.api import openapi_document
+from yoao_labeling_mask_gc.contract import contract_document
+from yoao_labeling_mask_gc_runtime.api import openapi_document
 
-SCHEMA_DIR = Path(__file__).resolve().parents[1] / "src" / "aap_labeling_mask_gc"
+SCHEMA_DIR = Path(__file__).resolve().parents[1] / "src" / "yoao_labeling_mask_gc"
 
 
 def test_protocol_schema_snapshot_matches_contract():
