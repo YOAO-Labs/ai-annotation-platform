@@ -1,14 +1,24 @@
-import { beforeEach, expect, it } from "vitest";
+import { webcrypto } from "node:crypto";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import {
   emptyTrainingDraft,
+  inspectTrainingDraftRecords,
+  legacyTrainingDraftKey,
   readTrainingDraft,
   removeMatchingTrainingDraft,
   saveTrainingDraft,
+  settledTrainingDraft,
   trainingDraftKey,
   trainingDraftOwner,
+  upgradeTrainingDraft,
+  withTrainingDraftLock,
 } from "./trainingDraftStorage";
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  vi.stubGlobal("crypto", webcrypto);
+});
+afterEach(() => vi.unstubAllGlobals());
 const owner = trainingDraftOwner("user-1", "project-1");
 
 it("persists task selection and rejects a pending body for another task", () => {
@@ -224,4 +234,116 @@ it("restores the exact canonical task for a request whose creation response was 
     JSON.stringify({ ...draft, pending: { body: { ...draft.pending.body, task: "aap" } } }),
   );
   expect(readTrainingDraft(owner).draft).toBeNull();
+});
+
+it.each(["editable", "pending run", "pending study"])(
+  "upgrades the exact %s record only after explicit choice",
+  async (kind) => {
+    const run = pendingDraft();
+    const draft =
+      kind === "editable"
+        ? { ...run, pending: undefined }
+        : kind === "pending study"
+          ? {
+              ...run,
+              pending: undefined,
+              pendingStudy: {
+                base: run.pending.body,
+                grid: { lr0: [0.01, 0.005] },
+                budgets: { max_trials: 2, max_planned_epochs: 10, max_native_seconds: 100 },
+                objective: "metrics/mAP50-95",
+                direction: "maximize",
+                preview_digest: "c".repeat(64),
+              },
+            }
+          : run;
+    const raw = JSON.stringify(draft);
+    localStorage.setItem(legacyTrainingDraftKey(owner), raw);
+    const seen = inspectTrainingDraftRecords(owner);
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBeNull();
+    await upgradeTrainingDraft(owner, seen, "legacy", () => true);
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBe(raw);
+    expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(raw);
+    expect(readTrainingDraft(owner).draft).toEqual(draft);
+  },
+);
+
+it("keeps the current target and retained legacy source after explicit conflict resolution", async () => {
+  const old = JSON.stringify(pendingDraft());
+  const current = JSON.stringify({ ...pendingDraft(), pending: undefined, name: "current" });
+  localStorage.setItem(legacyTrainingDraftKey(owner), old);
+  localStorage.setItem(trainingDraftKey(owner), current);
+  await upgradeTrainingDraft(owner, inspectTrainingDraftRecords(owner), "target", () => true);
+  expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(old);
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(current);
+  expect(await settledTrainingDraft(inspectTrainingDraftRecords(owner))).toBe(true);
+});
+
+it("refuses stale, corrupt, foreign, or unavailable source records without overwriting them", async () => {
+  const old = JSON.stringify(pendingDraft());
+  localStorage.setItem(legacyTrainingDraftKey(owner), old);
+  const seen = inspectTrainingDraftRecords(owner);
+  localStorage.setItem(legacyTrainingDraftKey(owner), "{broken");
+  await expect(upgradeTrainingDraft(owner, seen, "legacy", () => true)).rejects.toThrow();
+  expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe("{broken");
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBeNull();
+  localStorage.setItem(
+    legacyTrainingDraftKey(owner),
+    JSON.stringify({ ...pendingDraft(), ownerKey: "foreign" }),
+  );
+  expect(inspectTrainingDraftRecords(owner).legacyInvalid).toBe(true);
+  await expect(
+    upgradeTrainingDraft(owner, inspectTrainingDraftRecords(owner), "legacy", () => true),
+  ).rejects.toThrow();
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBeNull();
+});
+
+it("leaves the legacy record intact when the target write fails", async () => {
+  const raw = JSON.stringify(pendingDraft());
+  localStorage.setItem(legacyTrainingDraftKey(owner), raw);
+  const seen = inspectTrainingDraftRecords(owner);
+  const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new DOMException("quota", "QuotaExceededError");
+  });
+  try {
+    await expect(upgradeTrainingDraft(owner, seen, "legacy", () => true)).rejects.toThrow();
+    expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(raw);
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBeNull();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it("recognizes a settled source and exposes a late old-tab write without changing either record", async () => {
+  const original = JSON.stringify(pendingDraft());
+  localStorage.setItem(legacyTrainingDraftKey(owner), original);
+  await upgradeTrainingDraft(owner, inspectTrainingDraftRecords(owner), "legacy", () => true);
+  expect(await settledTrainingDraft(inspectTrainingDraftRecords(owner))).toBe(true);
+  const later = JSON.stringify({ ...pendingDraft(), pending: undefined, name: "late" });
+  localStorage.setItem(legacyTrainingDraftKey(owner), later);
+  expect(await settledTrainingDraft(inspectTrainingDraftRecords(owner))).toBe(false);
+  expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(later);
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(original);
+});
+
+it("does not treat an unreadable record as a missing draft", () => {
+  const spy = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new DOMException("denied", "SecurityError");
+  });
+  try {
+    expect(() => inspectTrainingDraftRecords(owner)).toThrow();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it("fails closed when Web Locks are unavailable", async () => {
+  const original = Object.getOwnPropertyDescriptor(navigator, "locks");
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+  try {
+    await expect(withTrainingDraftLock(owner, () => "unsafe")).rejects.toThrow(/Web Locks/);
+  } finally {
+    if (original) Object.defineProperty(navigator, "locks", original);
+    else Reflect.deleteProperty(navigator, "locks");
+  }
 });

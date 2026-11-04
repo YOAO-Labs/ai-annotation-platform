@@ -1,7 +1,9 @@
+import { webcrypto } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import * as decisionDialogs from "@/components/ui/decisionDialog";
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { projectsApi } from "@/api/projects";
 import { trainingDatasetsApi } from "@/api/trainingDatasets";
@@ -14,6 +16,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { TrainingCreatePage } from "./TrainingCreatePage";
 import {
   emptyTrainingDraft,
+  legacyTrainingDraftKey,
   saveTrainingDraft,
   trainingDraftKey,
   trainingDraftOwner,
@@ -181,6 +184,13 @@ function mount(entry = "/projects/project-1/learning/new") {
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
+  vi.stubGlobal("crypto", webcrypto);
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (_name: string, callback: () => unknown) => Promise.resolve().then(callback),
+    },
+  });
   useAuthStore.getState().setAuth("session-1", { id: "user-1" } as never);
   vi.mocked(projectsApi.getAccess).mockImplementation(
     async (id) =>
@@ -503,6 +513,133 @@ async function check() {
   await userEvent.click(screen.getByRole("button", { name: "检查训练配置" }));
   await screen.findByText("训练检查通过 · 请核对最终配置");
 }
+
+it("requires a supported coordination lock before opening the draft", () => {
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
+  mount();
+  expect(screen.getByRole("alert")).toHaveTextContent("Web Locks");
+  expect(screen.queryByLabelText("实验名称")).not.toBeInTheDocument();
+  expect(trainingRunsApi.create).not.toHaveBeenCalled();
+});
+
+it("upgrades an owner-scoped old draft only after explicit confirmation", async () => {
+  const owner = trainingDraftOwner("user-1", "project-1");
+  const draft = { ...emptyTrainingDraft(owner), name: "旧草稿" };
+  const raw = JSON.stringify(draft);
+  localStorage.setItem(legacyTrainingDraftKey(owner), raw);
+  const view = mount();
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "升级并使用旧草稿" }));
+  expect(await screen.findByLabelText("实验名称")).toHaveValue("旧草稿");
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(raw);
+  expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(raw);
+  view.unmount();
+  const reloaded = mount();
+  expect(await screen.findByLabelText("实验名称")).toHaveValue("旧草稿");
+  expect(screen.queryByRole("button", { name: "升级并使用旧草稿" })).not.toBeInTheDocument();
+  reloaded.unmount();
+  localStorage.setItem(
+    legacyTrainingDraftKey(owner),
+    JSON.stringify({ ...draft, name: "迟到的旧草稿" }),
+  );
+  mount();
+  expect(await screen.findByRole("button", { name: "升级并使用旧草稿" })).toBeVisible();
+  expect(trainingRunsApi.create).not.toHaveBeenCalled();
+});
+
+it("requires explicit confirmation before replacing an existing current draft", async () => {
+  const owner = trainingDraftOwner("user-1", "project-1");
+  const old = JSON.stringify({ ...emptyTrainingDraft(owner), name: "旧草稿" });
+  const current = JSON.stringify({ ...emptyTrainingDraft(owner), name: "当前草稿" });
+  localStorage.setItem(legacyTrainingDraftKey(owner), old);
+  localStorage.setItem(trainingDraftKey(owner), current);
+  const confirm = vi
+    .spyOn(decisionDialogs, "confirmDialog")
+    .mockResolvedValueOnce(false)
+    .mockResolvedValueOnce(true);
+  try {
+    mount();
+    await userEvent.click(screen.getByRole("button", { name: "升级并使用旧草稿" }));
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBe(current);
+    expect(screen.getByRole("button", { name: "复制当前草稿" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "升级并使用旧草稿" }));
+    expect(await screen.findByLabelText("实验名称")).toHaveValue("旧草稿");
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBe(old);
+    expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(old);
+  } finally {
+    confirm.mockRestore();
+  }
+});
+
+it.each([
+  ["unreadable", true],
+  ["unreadable", false],
+  ["foreign", true],
+  ["foreign", false],
+] as const)(
+  "explicitly ignores a %s legacy draft without deleting it (current=%s)",
+  async (kind, hasCurrent) => {
+    const owner = trainingDraftOwner("user-1", "project-1");
+    const current = { ...emptyTrainingDraft(owner), name: "当前草稿" };
+    const old =
+      kind === "foreign"
+        ? JSON.stringify({ ...emptyTrainingDraft("another-user:project-1"), name: "外部草稿" })
+        : "{unreadable";
+    localStorage.setItem(legacyTrainingDraftKey(owner), old);
+    if (hasCurrent) localStorage.setItem(trainingDraftKey(owner), JSON.stringify(current));
+    const view = mount();
+    expect(screen.queryByRole("button", { name: "升级并使用旧草稿" })).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", {
+        name: hasCurrent ? "忽略旧草稿并保留当前草稿" : "忽略旧草稿并开始新草稿",
+      }),
+    );
+    expect(await screen.findByLabelText("实验名称")).toHaveValue(hasCurrent ? "当前草稿" : "");
+    expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(old);
+    expect(localStorage.getItem(trainingDraftKey(owner))).toBe(
+      hasCurrent ? JSON.stringify(current) : null,
+    );
+    view.unmount();
+    mount();
+    expect(await screen.findByLabelText("实验名称")).toHaveValue(hasCurrent ? "当前草稿" : "");
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+  },
+);
+
+it("does not create a run when the pending request cannot be saved", async () => {
+  const { user } = await prepare();
+  await check();
+  const setItem = Storage.prototype.setItem;
+  const spy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (
+    this: Storage,
+    key,
+    value,
+  ) {
+    if (key === trainingDraftKey("user-1:project-1") && value.includes('"pending"'))
+      throw new DOMException("quota", "QuotaExceededError");
+    setItem.call(this, key, value);
+  });
+  try {
+    await user.click(screen.getByRole("button", { name: "开始训练" }));
+    await screen.findByText(/浏览器无法保存草稿/);
+    expect(trainingRunsApi.create).not.toHaveBeenCalled();
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+it("does not create when an old tab writes a legacy draft after the page opens", async () => {
+  const { user } = await prepare();
+  await check();
+  const owner = trainingDraftOwner("user-1", "project-1");
+  const target = localStorage.getItem(trainingDraftKey(owner))!;
+  localStorage.setItem(legacyTrainingDraftKey(owner), target);
+  await user.click(screen.getByRole("button", { name: "开始训练" }));
+  await screen.findByText(/其他标签页发生变化/);
+  expect(trainingRunsApi.create).not.toHaveBeenCalled();
+  expect(localStorage.getItem(legacyTrainingDraftKey(owner))).toBe(target);
+  expect(localStorage.getItem(trainingDraftKey(owner))).toBe(target);
+});
 
 it("selects the task first, filters compatible options and updates only generated names", async () => {
   const segmented = { ...dataset, id: "segment-data", name: "分割数据", task: "segment" as const };
@@ -1204,6 +1341,31 @@ describe("training creation ownership", () => {
       localStorage.getItem(trainingDraftKey(trainingDraftOwner("user-1", "project-1"))),
     ).toBeNull();
   });
+  it.each(["project", "session"])(
+    "does not save or submit after a delayed draft lock and changed %s",
+    async (context) => {
+      const { user } = await prepare();
+      await check();
+      const owner = trainingDraftOwner("user-1", "project-1");
+      const before = localStorage.getItem(trainingDraftKey(owner));
+      const gate = deferred<void>();
+      const request = vi.fn((_name: string, callback: () => unknown) =>
+        gate.promise.then(callback),
+      );
+      Object.defineProperty(navigator, "locks", { configurable: true, value: { request } });
+      await user.click(screen.getByRole("button", { name: "开始训练" }));
+      await waitFor(() => expect(request).toHaveBeenCalledOnce());
+      act(() => {
+        if (context === "project") navigate("/projects/project-2/learning/new");
+        else useAuthStore.getState().setAuth("session-2", { id: "user-2" } as never);
+      });
+      await act(async () => {
+        gate.resolve();
+      });
+      expect(trainingRunsApi.create).not.toHaveBeenCalled();
+      expect(localStorage.getItem(trainingDraftKey(owner))).toBe(before);
+    },
+  );
   it.each(["success", "error"])("ignores a late preflight %s after editing", async (outcome) => {
     const late = deferred<typeof report>();
     vi.mocked(trainingRunsApi.preflight).mockReturnValue(late.promise);

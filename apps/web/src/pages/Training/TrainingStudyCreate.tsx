@@ -36,8 +36,8 @@ export function TrainingStudyCreate({
   pending?: TrainingStudyCreate;
   onBusy: (busy: boolean) => void;
   beforeStart: () => Promise<boolean>;
-  persist: (body: TrainingStudyCreate) => boolean;
-  onCreated: (id: string) => void;
+  persist: (body: TrainingStudyCreate) => boolean | Promise<boolean>;
+  onCreated: (id: string) => void | Promise<void>;
   onDiscard: () => void;
 }) {
   const session = useTrainingViewOwner(
@@ -125,11 +125,12 @@ export function TrainingStudyCreate({
           pending ??
           (reviewed ? { ...reviewed.body, preview_digest: reviewed.preview_digest } : null);
         if (!body) throw new Error("请重新预览全部组合与预算");
-        if (!persist(body)) return;
+        if (!(await persist(body))) return;
+        session.assert();
         const study = await trainingStudiesApi.create(projectId, body);
         session.assert();
         if (study.project_id !== projectId) throw new Error("搜索归属已变化");
-        onCreated(study.id);
+        await onCreated(study.id);
       } else {
         const body = build();
         const result = await trainingStudiesApi.preview(projectId, body);

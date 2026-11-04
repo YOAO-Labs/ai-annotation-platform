@@ -36,12 +36,16 @@ export type TrainingDraftSource = {
   schemaDigest: string;
 };
 
-const prefix = "aap-training-draft:1";
+const prefix = "training:draft:1";
+const legacyPrefix = "aap-training-draft:1";
 const unsafeKeys = new Set(["__proto__", "prototype", "constructor"]);
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const sha = /^[0-9a-f]{64}$/;
 export const trainingDraftOwner = (userId: string, projectId: string) => `${userId}:${projectId}`;
 export const trainingDraftKey = (ownerKey: string) => `${prefix}:${ownerKey}`;
+export const legacyTrainingDraftKey = (ownerKey: string) => `${legacyPrefix}:${ownerKey}`;
+export const trainingDraftSettlementKey = (ownerKey: string) =>
+  `${trainingDraftKey(ownerKey)}:legacy-settled`;
 
 export function emptyTrainingDraft(ownerKey: string, framework = "ultralytics"): TrainingDraft {
   return {
@@ -391,4 +395,102 @@ export function removeMatchingTrainingDraft(
   ) {
     storage.removeItem(trainingDraftKey(draft.ownerKey));
   }
+}
+
+export type TrainingDraftRecords = {
+  legacy: string | null;
+  target: string | null;
+  settlement: string | null;
+  legacyDraft: TrainingDraft | null;
+  legacyInvalid: boolean;
+  targetDraft: TrainingDraft | null;
+};
+
+function parseRecord(raw: string | null, owner: string): TrainingDraft | null {
+  if (raw === null) return null;
+  if (raw.length > 128 * 1024) throw new Error("草稿超出大小限制");
+  const value: unknown = JSON.parse(raw);
+  if (!validTrainingDraft(value, owner)) throw new Error("草稿格式或归属不匹配");
+  return value;
+}
+
+export async function withTrainingDraftLock<T>(
+  owner: string,
+  action: () => T | Promise<T>,
+): Promise<T> {
+  if (!navigator.locks?.request) {
+    throw new Error("浏览器不支持草稿协调锁。请使用支持 Web Locks 的浏览器，保留原记录后重试。");
+  }
+  return navigator.locks.request(`training:draft:1:${owner}`, action);
+}
+
+export function inspectTrainingDraftRecords(owner: string): TrainingDraftRecords {
+  const legacy = localStorage.getItem(legacyTrainingDraftKey(owner));
+  const target = localStorage.getItem(trainingDraftKey(owner));
+  const settlement = localStorage.getItem(trainingDraftSettlementKey(owner));
+  let legacyDraft: TrainingDraft | null = null;
+  let legacyInvalid = false;
+  try {
+    legacyDraft = parseRecord(legacy, owner);
+  } catch {
+    legacyInvalid = true;
+  }
+  return {
+    legacy,
+    target,
+    settlement,
+    legacyDraft,
+    legacyInvalid,
+    targetDraft: parseRecord(target, owner),
+  };
+}
+
+async function legacyFingerprint(raw: string): Promise<string> {
+  if (!crypto.subtle) throw new Error("浏览器不支持核验旧草稿，请使用支持 Web Crypto 的浏览器。");
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function settledTrainingDraft(records: TrainingDraftRecords): Promise<boolean> {
+  if (records.legacy === null) return true;
+  return (
+    records.settlement !== null && (await legacyFingerprint(records.legacy)) === records.settlement
+  );
+}
+
+// Called only while holding the owner's Web Lock after explicit user choice.
+export async function upgradeTrainingDraft(
+  owner: string,
+  seen: TrainingDraftRecords,
+  choice: "legacy" | "target" | "ignore",
+  owns: () => boolean,
+): Promise<void> {
+  if (seen.legacy === null) throw new Error("旧草稿不存在，请重新核对。");
+  const fingerprint = await legacyFingerprint(seen.legacy);
+  if (!owns()) throw new Error("账号或项目已变化。");
+  const now = inspectTrainingDraftRecords(owner);
+  if (
+    now.legacy !== seen.legacy ||
+    now.target !== seen.target ||
+    now.settlement !== seen.settlement
+  )
+    throw new Error("草稿已在其他标签页更改，请重新核对。");
+  if (choice === "legacy" && !now.legacyDraft)
+    throw new Error("旧草稿格式或归属不匹配，不能升级。");
+  if (choice === "ignore" && !now.legacyInvalid) throw new Error("旧草稿可读取，请重新核对。");
+  const selected = choice === "legacy" ? now.legacy : now.target;
+  if (choice !== "ignore" && selected === null) throw new Error("所选草稿不存在，请重新核对。");
+  if (choice === "legacy") {
+    localStorage.setItem(trainingDraftKey(owner), selected!);
+    if (localStorage.getItem(trainingDraftKey(owner)) !== selected)
+      throw new Error("无法验证升级后的草稿。");
+  }
+  if (localStorage.getItem(legacyTrainingDraftKey(owner)) !== now.legacy)
+    throw new Error("旧草稿已更改，请重新核对。");
+  localStorage.setItem(trainingDraftSettlementKey(owner), fingerprint);
+  if (
+    localStorage.getItem(trainingDraftSettlementKey(owner)) !== fingerprint ||
+    localStorage.getItem(legacyTrainingDraftKey(owner)) !== now.legacy
+  )
+    throw new Error("旧草稿已更改或无法验证，请重新核对。");
 }
