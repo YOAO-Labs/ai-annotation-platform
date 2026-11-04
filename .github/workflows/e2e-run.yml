@@ -168,6 +168,13 @@ jobs:
           done
           docker logs minio
           exit 1
+      - name: Prepare pinned MinIO client
+        run: |
+          mkdir -p "$RUNNER_TEMP/minio-client"
+          docker cp minio:/usr/bin/mc "$RUNNER_TEMP/minio-client/mc"
+          chmod 700 "$RUNNER_TEMP/minio-client/mc"
+          "$RUNNER_TEMP/minio-client/mc" --version
+          echo "$RUNNER_TEMP/minio-client" >> "$GITHUB_PATH"
       - uses: actions/setup-node@v4
         with:
           node-version: "22"

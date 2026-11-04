@@ -1184,6 +1184,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 8. 当前生产者先登记准确运行／item 身份、提交真实待写入 item，再开始物理创建。中断恢复只将已验证且 I/O 已结束的 Creation 挂回原有、身份未变的 item；尚未写入的分配仅允许经过精确 CAS 放弃。未知写入、并发挂接及身份变化继续阻止清理；不为旧的无 item 孤立对象扩展退休记录类型或伪造业务锚点。
 9. 裸原件 URL 的签名限制必须在数据集预留前生效，并在最后一个根运行退役后保留，直到相应物理存储被准确退役；UUID 难猜、HEAD 不存在或 URL 到期均不能代替这个闭环。受跟踪的 owner delivery 与其他物理存储的普通读取保持各自合同。
 10. 沿用原件回收 owner 的 location 级 `active → draining → stopped` 维护门。共享该专用 location 的 B 有实际活动操作时，A 清理保持阻塞且不改动双方数据；真实排空后串行进入维护窗口、仅回收 A 的准确版本，再由同一 owner 恢复并验证 B。交错运行的邻居保护不等于不同运行可以独立并发执行物理回收，不停止共享平台 location，也不新增逐 run 绕过。
+11. nuScenes 截图实际使用独立 `map`／`raw_lidar` 辅助原件，不能伪造成 DatasetItem。沿现有 Assets 辅助原件 owner，在物理写入前登记准确运行、准入、原件／Creation 身份及来源合同；只恢复或退休本轮身份一致、已验证且 I/O 结束的真实意图。复用同一回收引擎，新增明确的 `dataset_auxiliary` 变体；原 `dataset_asset` 变体仍强制真实 item／asset 身份，不能扩成无锚点的通用 Creation 回收。公开回收 DTO、OpenAPI 与真实 UI／SDK 消费者同步表达互斥身份。私有准入能力不因测试库后缀授予普通 API 账号；未知状态、外部引用及普通非夹具行为继续保留原保护。
 
 ### 16.4 迁移验收矩阵
 
@@ -1241,6 +1242,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - 当前截图链仍依赖共享账号、固定 display ID 和宽泛 repair；必须将真实 producer、spec、catalog 与清理端一起切到本轮准确身份。仅给 reconciliation 增加 run ID 不能证明两个截图运行互不干扰，旧 repair 不作为验证捷径。
 - GPU 标量回归、待写入 item 恢复及根存储签名围栏当前只有未执行的候选；真实 signer、跨进程读取、维护窗口和并发激活尚未验收。T1 默认完整资格、J1 以及 N5／N6 后继门继续保持未通过。
 - CI 的 E2E 入口已改用现有工作树协调器，不再以初始 owner 连接另起普通 API，并保留已构建 Web 的指纹核验与 preview。本地以此前不存在的 `test` 模式实际执行该入口：独立 `_app` LOGIN 的五项高权限标志均关闭，公共 schema 建表返回 `42501`，专属导入／已受理输入桶版本控制已启用，清除 owner 选择变量的冷 API `/health/db` 返回 200。21 项工作树资源回归、配置格式及 workflow 命名检查通过。探针原先错误地要求 SIGTERM 后退出码为零；原始失败回执保留，实际日志显示完成优雅关闭，安装的 Uvicorn 随后重抛信号并返回 `-15`。核实零连接与资源归属后，该临时 `test` 模式已准确销毁，既有 e2e 未动。此证据不含尚未集成的夹具协调器、T2 回收或远端 CI。
+- 固定 MinIO 服务镜像实际包含 `/usr/bin/mc`；主进程核对镜像身份、提取该二进制并在宿主机执行，得到 `RELEASE.2025-08-13T08-35-41Z`，SHA256 为 `01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891`。E2E CI 复用这份镜像内客户端，不新增 Go 构建依赖，也不使用已返回 410 的旧官方下载地址。此证据只证明工具准备和宿主执行，不证明新的 IAM／协调器／回收生命周期已通过。
+- 当前 native Media／Images 的额外只读目标与私有协调器已形成待集成源码，真实独立进程读取仍未验收。源码审查补齐了取消后的物理线程／子进程排空、真实版本删除拒绝探针、引导前工具检查及销毁全程持有同一归属锁；这些修正尚未取得运行证据。nuScenes 辅助原件与回收响应的明确变体正在同一 T2 owner 内收敛，不改变前述未通过状态。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 

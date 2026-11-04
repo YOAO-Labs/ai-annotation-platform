@@ -107,6 +107,8 @@ ai-annotation-platform/
 
 MinIO 使用 `icr.io/fusion-open/minio/minio` 的固定 digest，Compose 与两个 CI 启动入口保持一致。原 Quay 镜像已停止分发；若拉取失败，先按[CI 服务依赖排障](docs-site/dev/troubleshooting/ci-flaky-services.md)核验镜像和 manifest，不要改用浮动标签或延长应用超时。
 
+E2E CI 从同一个固定 MinIO 镜像的 `/usr/bin/mc` 提取管理客户端到 Job 临时目录，再加入该 Job 的 `PATH` 并打印实际版本。客户端与服务端共用镜像来源，不依赖 runner 预装版本、浮动二进制下载或额外 Go 工具链。
+
 从可信渠道取得候选 SDK manifest 路径或 URL 及独立核验的 manifest SHA256，并分别设置
 `SDK_MANIFEST`、`SDK_MANIFEST_SHA256`；所选 wheel 须与 manifest 相邻。以下命令将核验后的
 运行时和 Mask wheel 暂存到当前 checkout，API 从相对路径使用运行时 wheel，而不是将 SDK 源码作为
