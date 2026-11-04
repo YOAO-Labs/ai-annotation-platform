@@ -8,7 +8,7 @@ import pytest
 from yoao_assets_media import contract as c
 from app.services import assets_media
 from app.workers import _db
-from app.workers import media as media_workers
+from app.workers import assets_media as media_workers
 
 
 @pytest.mark.asyncio
@@ -37,7 +37,5 @@ async def test_video_worker_and_bound_gateway_reuse_no_closed_loop_connections(
                 )
 
     for _ in range(2):
-        await asyncio.to_thread(
-            media_workers.execute_video_media.run, str(uuid.uuid4())
-        )
+        await asyncio.to_thread(media_workers.run_video_media.run, str(uuid.uuid4()))
         await asyncio.to_thread(asyncio.run, read())

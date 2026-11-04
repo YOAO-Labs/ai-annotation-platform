@@ -39,6 +39,15 @@ def mark_unsettled(exc):
     return exc
 
 
+def failure_unsettled(exc: BaseException) -> bool:
+    """Keep an admission open when any retained physical failure is uncertain."""
+    if getattr(exc, "storage_operation_unsettled", False):
+        return True
+    return isinstance(exc, BaseExceptionGroup) and any(
+        failure_unsettled(child) for child in exc.exceptions
+    )
+
+
 def close_registered(resource):
     """A failed close is not proof that a registered physical handle ended."""
     try:

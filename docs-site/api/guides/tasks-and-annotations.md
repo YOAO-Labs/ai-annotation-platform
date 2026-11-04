@@ -9,7 +9,7 @@ last_reviewed: 2026-10-24
 
 ## 任务文件与数据集场景
 
-任务文件使用 `POST /files/upload-init` 创建 uploading 占位并取得 PUT URL，上传字节后明确调用 `POST /files/upload-complete/{task_id}`。初始化和完成在存储签名／验证或排队前要求项目负责人或超级管理员；`GET /files/tasks/{task_id}/file-url` 按当前任务可见性签发短期下载 URL，`POST /files/projects/{project_id}/backfill-thumbnails` 要求项目管理权限并接受持久图像作业。上传完成或作业受理回执不代表缩略图已生成。
+任务文件使用 `POST /files/upload-init` 创建 uploading 占位并取得 PUT URL，上传字节后明确调用 `POST /files/upload-complete/{task_id}`。初始化和完成在存储签名／验证或排队前要求项目负责人或超级管理员。读取托管原件时，先按任务当前可见性请求原件身份，再使用认证下载接口；旧 `/file-url` 入口返回 `409 original_requires_authenticated_download`。`POST /files/projects/{project_id}/backfill-thumbnails` 要求项目管理权限并接受持久图像作业。上传完成或作业受理回执不代表缩略图已生成。
 
 `GET /scenes?dataset_id=...`、`GET /scenes/{scene_id}` 和 `GET /scenes/{scene_id}/trajectory` 沿用全局数据集目录读取策略，API key 需 `datasets:read`。`PATCH /scenes/{scene_id}` 沿用数据集管理员写策略，限 project_admin/super_admin；显式 null 当前不修改字段，空 source_metadata 对象可清空元数据，没有 revision/CAS。SDK 与 CLI 分步用法见 [文件上传与数据集场景](../../dev/sdk/files-and-scenes)。
 
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-24
 | ------------------------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------- |
 | `POST /api/v1/files/upload-init`                              | 请求项目的当前管理者                           | `task_id`、`upload_url`、`expires_in`                                                 |
 | `POST /api/v1/files/upload-complete/:task_id`                 | 任务所属项目的当前管理者                       | `status: ok`、`task_id`                                                               |
-| `GET /api/v1/files/tasks/:task_id/file-url`                   | 当前任务可见性，非管理者也可读取有权访问的任务 | `url`、`expires_in`                                                                   |
+| `GET /api/v1/files/tasks/:task_id/original-identity`          | 当前任务可见性，非管理者也可读取有权访问的任务 | 已验证原件的内容标识、摘要、大小和认证下载路径                                        |
 | `POST /api/v1/files/projects/:project_id/backfill-thumbnails` | 当前项目管理者                                 | `202`、`project_id`、`job_id`、`operation_id`、`purpose`、`status`、`accepted_before` |
 
 初始化请求使用 `project_id`、`file_name` 和 `content_type`；文件类型按 MIME 推断。上传地址只针对本次项目/任务的对象键。客户端按返回地址上传对象，再确认完成；普通项目成员即使被指派该任务，也不能代替项目管理者完成这些管理操作。

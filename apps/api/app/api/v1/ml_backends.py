@@ -69,6 +69,7 @@ from app.services.inference_backend_control import (
 from app.services.inference_model_execution import model_execution_port
 from app.services.prediction_inputs import prediction_inputs
 from app.services.reference_inference import reference_image_operation
+from app.services.storage import resolve_task_url
 from app.services.project_access import get_workspace_project
 from app.services.inference_limits import capability_limits_from_settings
 from app.services.ml_interaction_proxy import (
@@ -381,21 +382,6 @@ def _control_http_error(error: BackendControlOperationError) -> HTTPException:
         detail=failure.detail or failure.code,
         headers=headers,
     )
-
-
-def _resolve_task_url(task: Task) -> str:
-    """v0.9.4 · 把 task.file_path (MinIO 对象 key) 转成 ML backend 可访问的 presigned URL。
-
-    SAM backend 协议要求 file_path 是 http(s):// URL 或本地路径; tasks 表里存的是 key,
-    必须先签发 presigned URL。当平台 api 跑在 host 进程而 ML backend 在 docker 网内时,
-    再把 host 替换为 ``settings.ml_backend_storage_host`` (容器可达地址)。
-
-    v0.23.0 · 实现已下沉到 :func:`app.services.storage.resolve_task_url`, 供 router、
-    worker 与 video tracker runner 共用; 这里仅保留薄别名。
-    """
-    from app.services.storage import resolve_task_url
-
-    return resolve_task_url(task)
 
 
 @router.post(
@@ -1319,7 +1305,7 @@ async def predict_test(
                 "id": str(task.id),
                 "file_path": image_input.url
                 if image_input
-                else _resolve_task_url(task),
+                else await resolve_task_url(db, task),
             },
             max_response_bytes=(64 * 1024**2) if video_input else None,
             before_dispatch=video_boundary if video_input else None,
@@ -1437,7 +1423,7 @@ async def interactive_annotating(
                     "id": str(task.id),
                     "file_path": image_input.url
                     if image_input
-                    else _resolve_task_url(task),
+                    else await resolve_task_url(db, task),
                 },
                 context=context,
                 max_response_bytes=max_response_bytes,
@@ -1530,8 +1516,8 @@ async def predict_frame(
 ):
     """v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。
 
-    视频 task 的 ``file_path`` 是整段 mp4, 图像 backend 从 task URL 取不到帧 (见
-    ``_resolve_task_url``)。故前端把当前帧解成 JPEG 随 multipart 传入; 服务端上传 import 桶换
+    视频 task 的 ``file_path`` 是整段 mp4，图像 backend 不能直接读取单帧。
+    因此前端把当前帧解成 JPEG 随 multipart 传入；服务端上传 import 桶换
     presigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走
     ``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有
     ``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。
@@ -1682,8 +1668,8 @@ async def interactive_annotating_frame(
 
     与 ``interactive-annotating`` 同一个 backend 契约（兼容 ``context`` 透传，显式
     原生 Mask 请求会经过能力预检与响应校验，见 ``InteractiveRequest.context``），
-    唯一差别是**图从哪来**: 图片 task 由服务端
-    ``_resolve_task_url(task)`` 取, 而视频 task 的 ``file_path`` 是整段 mp4, SAM 吃不到帧。
+    唯一差别是**图从哪来**：图片 task 使用受管原件输入，而视频 task 的
+    ``file_path`` 是整段 mp4，SAM 吃不到帧。
     故前端把当前帧解成 JPEG 随 multipart 传入 (复用 ``predict-frame`` 的 client 供图机制:
     上传 import 桶换 presigned URL, 通用 http URL, 不走 ``data:`` 捷径)。
 

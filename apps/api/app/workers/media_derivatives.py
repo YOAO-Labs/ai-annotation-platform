@@ -392,11 +392,12 @@ async def fail_with_retry(factory, identifier, token, code):
             await asyncio.sleep(0.05 * (attempt + 1))
 
 
-async def run_outputs(identifiers):
+async def run_outputs(identifiers, *, propagate_failure=False):
     """Reuse one full capture for a batch with the same frozen input/authority."""
     engine = create_async_engine(settings.database_url, echo=False)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     groups = {}
+    failure = None
     try:
         for raw in dict.fromkeys(identifiers):
             identifier = uuid.UUID(str(raw))
@@ -408,7 +409,17 @@ async def run_outputs(identifiers):
                     error_code(exc),
                     type(exc).__name__,
                 )
-                await fail_with_retry(factory, identifier, None, error_code(exc))
+                try:
+                    await fail_with_retry(factory, identifier, None, error_code(exc))
+                except BaseException as settlement_failure:
+                    if not propagate_failure:
+                        raise
+                    raise BaseExceptionGroup(
+                        "Video derivative claim and failure settlement failed",
+                        [exc, settlement_failure],
+                    ) from None
+                if propagate_failure:
+                    raise
                 continue
             if claimed is None:
                 continue
@@ -493,19 +504,38 @@ async def run_outputs(identifiers):
                         await final.commit()
             except BaseException as exc:
                 code = error_code(exc)
-                for claimed in claims:
-                    await originals.drain(
-                        asyncio.create_task(
-                            fail_with_retry(
-                                factory, claimed.output.id, claimed.token, code
+                try:
+                    for claimed in claims:
+                        await originals.drain(
+                            asyncio.create_task(
+                                fail_with_retry(
+                                    factory, claimed.output.id, claimed.token, code
+                                )
                             )
                         )
-                    )
+                except BaseException as settlement_failure:
+                    if not propagate_failure:
+                        raise
+                    raise BaseExceptionGroup(
+                        "Video derivative generation and failure settlement failed",
+                        [exc, settlement_failure],
+                    ) from None
                 log.warning("video derivative generation refused: code=%s", code)
-                if not isinstance(exc, Exception):
+                if propagate_failure or not isinstance(exc, Exception):
                     raise
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        await originals.drain(asyncio.create_task(engine.dispose()))
+        try:
+            await originals.drain(asyncio.create_task(engine.dispose()))
+        except BaseException as disposal_failure:
+            if propagate_failure and failure is not None:
+                raise BaseExceptionGroup(
+                    "Video derivative and engine disposal failed",
+                    [failure, disposal_failure],
+                ) from None
+            raise
 
 
 async def run_legacy(

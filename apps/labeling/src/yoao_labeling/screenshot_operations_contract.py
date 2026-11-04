@@ -17,7 +17,7 @@ from pydantic import (
     TypeAdapter,
 )
 
-SCREENSHOT_OPERATIONS_PROTOCOL = "aap-labeling-screenshot-operations/v1"
+SCREENSHOT_OPERATIONS_PROTOCOL = "aap-labeling-screenshot-operations/v2"
 SCREENSHOT_OPERATIONS_FUNCTION = "aap_labeling_v1.screenshot_operations_command(jsonb)"
 
 
@@ -26,17 +26,12 @@ class _Closed(BaseModel):
 
 
 class _Command(_Closed):
-    schema_: Literal["aap-labeling-screenshot-operations/v1"] = Field(alias="schema")
+    schema_: Literal["aap-labeling-screenshot-operations/v2"] = Field(alias="schema")
+    run_id: uuid.UUID
     operation: StrictStr
 
 
-ScreenshotProjectDisplayId = Literal[
-    "P-COCO8",
-    "P-VIDEO-DEV",
-    "P-PC-DEV",
-    "P-PC-MULTI",
-    "P-OCR",
-]
+ScreenshotProjectDisplayId = Annotated[StrictStr, Field(pattern=r"^P-[1-9][0-9]*$")]
 
 
 class SeedTaskReset(_Closed):

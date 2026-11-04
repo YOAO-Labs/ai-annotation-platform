@@ -12,6 +12,12 @@
     "app.workers.analytics.sync_to_duckdb": {
       "queue": "cleanup"
     },
+    "app.workers.assets_media.reconcile_video_media": {
+      "queue": "media"
+    },
+    "app.workers.assets_media.run_video_media": {
+      "queue": "media"
+    },
     "app.workers.async_jobs_cleanup.purge_old_async_jobs": {
       "queue": "cleanup"
     },
@@ -96,9 +102,6 @@
     "app.workers.mask_repair.run_mask_repair": {
       "queue": "media"
     },
-    "app.workers.media.backfill_media": {
-      "queue": "media"
-    },
     "app.workers.media.run_media_backfill": {
       "queue": "media"
     },
@@ -109,9 +112,6 @@
       "queue": "media"
     },
     "app.workers.media.ensure_video_chunks": {
-      "queue": "media"
-    },
-    "app.workers.media.execute_video_media": {
       "queue": "media"
     },
     "app.workers.media.extract_video_frames": {

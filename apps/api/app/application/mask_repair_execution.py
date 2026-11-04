@@ -263,7 +263,9 @@ async def _run_sam_candidate(
     requested_pool_id = await backend_service.pool_id_for_registry(backend_id)
     task_data = {
         "id": str(task_id),
-        "file_path": source_owner.url if source_owner else resolve_task_url(task),
+        "file_path": source_owner.url
+        if source_owner
+        else await resolve_task_url(db, task),
     }
     await db.commit()
 

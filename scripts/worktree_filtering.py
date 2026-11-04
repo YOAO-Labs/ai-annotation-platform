@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import os
 from pathlib import Path
 import sys
 from urllib.parse import urlencode
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from worktree_env import (
     WorktreeError,
@@ -22,7 +23,7 @@ from worktree_env import (
 MANUAL_NAMESPACE = "manualfilter"
 
 
-async def _seed_filtering():
+async def _fixture_request(payload: dict):
     script = (
         Path(__file__).resolve().parents[1] / "apps/web/e2e/fixtures/seed-request.py"
     )
@@ -33,10 +34,6 @@ async def _seed_filtering():
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    payload = {
-        "path": "/api/v1/__test/seed/filtering",
-        "data": {"namespace": MANUAL_NAMESPACE},
-    }
     stdout, _stderr = await process.communicate((json.dumps(payload) + "\n").encode())
     if process.returncode != 0:
         raise WorktreeError(f"筛选夹具 owner 进程失败：exit {process.returncode}")
@@ -48,15 +45,33 @@ async def _seed_filtering():
     return json.loads(response["body"])
 
 
+async def _seed_filtering(suite_id: UUID, run_id: UUID):
+    return await _fixture_request(
+        {
+            "path": "/api/v1/__test/seed/filtering",
+            "data": {
+                "namespace": MANUAL_NAMESPACE,
+                "suite_id": str(suite_id),
+                "run_id": str(run_id),
+            },
+        }
+    )
+
+
 def acceptance_guide(manifest: dict) -> dict:
     image, video = manifest["image"], manifest["video"]
 
     prefix, _, domain = manifest["user_emails"]["admin"].partition("@")
     namespace = prefix.removeprefix("admin-") if prefix.startswith("admin-") else None
     if namespace and domain == "e2e.test":
-        from app.api.v1._test_seed_filters import _FilterIds
+        from app.api.v1._test_seed_filters import (
+            _FILTER_OWNED_IDS,
+            _FILTER_OWNED_PARAMETRIC,
+        )
 
-        display = _FilterIds(namespace).display
+        def display(base, *args):
+            template = _FILTER_OWNED_PARAMETRIC.get(base) or _FILTER_OWNED_IDS[base]
+            return template.format(*args, ns=namespace)
     else:
 
         def display(base, *args):
@@ -142,21 +157,24 @@ def acceptance_guide(manifest: dict) -> dict:
 
 
 async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
-    from sqlalchemy import func, select, text
+    from sqlalchemy import select, text
     from sqlalchemy.engine import make_url
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.api.v1._test_seed import _require_e2e_seed_database
     from app.api.v1._test_seed_filters import FilteringSeedManifest
     from app.config import settings
-    from app.db.models.dataset import Dataset
-    from app.services.identity_read_relations import account_profiles
+    from app.db.models.fixture_run import FixtureRun, FixtureRunResource
     from app.services.labeling_e2e_fixture_writes import LabelingE2EFixtureWrites
     from app.services.workspace_seed_data import seed_projects
+    from scripts.fixture_suite_coordinator import (
+        prepare_fixture_suite,
+        verified_fixture_owner_url,
+    )
 
     if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
         raise WorktreeError("手动验收必须通过 up --mode e2e --scenario filtering 启动")
-    owner_url = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
+    owner_url = await verified_fixture_owner_url()
     runtime_url = make_url(settings.database_url)
     if (
         owner_url.get_backend_name() != "postgresql"
@@ -183,11 +201,26 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
             if manifest_path.exists():
                 document = read_state(manifest_path)
                 if (
-                    document.get("version") != 1
+                    document.get("version") != 2
                     or document.get("owner") != resources["owner"]
                 ):
                     raise WorktreeError(
                         "验收记录不匹配；请检查当前环境，不会自动重置数据"
+                    )
+                if document.get("state") != "ready":
+                    raise WorktreeError(
+                        "筛选夹具上次准备未完成；保留 run 记录并先执行精确清理"
+                    )
+                suite_id, run_id = UUID(document["suite_id"]), UUID(document["run_id"])
+                run = await db.get(FixtureRun, run_id)
+                if (
+                    run is None
+                    or run.parent_run_id != suite_id
+                    or run.scope_key != MANUAL_NAMESPACE
+                    or run.state != "open"
+                ):
+                    raise WorktreeError(
+                        "筛选夹具 run 身份不匹配；不会采用或覆盖现有数据"
                     )
                 manifest = FilteringSeedManifest.model_validate(document["manifest"])
                 project_ids = {
@@ -210,16 +243,35 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                 )
                 if present != project_ids:
                     raise WorktreeError(
-                        "验收项目已被删除或测试清理；请显式 reset 后重新启动，不会自动覆盖数据"
+                        "验收项目已被删除或测试清理；请先检查精确 run，不会自动覆盖数据"
                     )
+                owned_projects = set(
+                    await db.scalars(
+                        select(FixtureRunResource.resource_id).where(
+                            FixtureRunResource.run_id == run_id,
+                            FixtureRunResource.kind == "project",
+                        )
+                    )
+                )
+                if owned_projects != project_ids:
+                    raise WorktreeError("筛选项目不属于记录的 run；拒绝复用")
                 print("[dev:worktree] 复用筛选验收数据，保留已有操作", flush=True)
             else:
-                for model in (account_profiles, seed_projects, Dataset):
-                    if await db.scalar(select(func.count()).select_from(model)):
-                        raise WorktreeError(
-                            "e2e 库已有数据但没有手动验收记录；请先确认并 reset --mode e2e"
-                        )
-                manifest = FilteringSeedManifest.model_validate(await _seed_filtering())
+                suite_id, run_id = uuid4(), uuid4()
+                atomic_json(
+                    manifest_path,
+                    {
+                        "version": 2,
+                        "owner": resources["owner"],
+                        "state": "preparing",
+                        "suite_id": str(suite_id),
+                        "run_id": str(run_id),
+                    },
+                )
+                await prepare_fixture_suite(str(suite_id), "owned")
+                manifest = FilteringSeedManifest.model_validate(
+                    await _seed_filtering(suite_id, run_id)
+                )
                 # Supply renderable geometry without changing the fixture's literal
                 # memberships/counts. The automatic tests keep their metric-only data.
                 await LabelingE2EFixtureWrites(db).prepare_filtering_rendering(
@@ -232,8 +284,11 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
                 print("[dev:worktree] 已创建筛选验收数据", flush=True)
             payload = manifest.model_dump(mode="json", by_alias=True)
             document = {
-                "version": 1,
+                "version": 2,
                 "owner": resources["owner"],
+                "state": "ready",
+                "suite_id": str(suite_id),
+                "run_id": str(run_id),
                 "manifest": payload,
                 "guide": acceptance_guide(payload),
             }
@@ -243,12 +298,42 @@ async def prepare_filtering(resources: dict, manifest_path: Path) -> dict:
         await engine.dispose()
 
 
+async def cleanup_filtering(resources: dict, manifest_path: Path) -> None:
+    """Clean only the suite recorded by this manual session."""
+    from scripts.fixture_suite_coordinator import verified_fixture_owner_url
+
+    if os.environ.get("AAP_WORKTREE_MODE") != "e2e" or resources["mode"] != "e2e":
+        raise WorktreeError("精确清理要求当前 e2e 工作树")
+    if not manifest_path.exists():
+        raise WorktreeError("没有可清理的筛选夹具 run 记录")
+    document = read_state(manifest_path)
+    if document.get("version") != 2 or document.get("owner") != resources["owner"]:
+        raise WorktreeError("筛选夹具记录归属不明；拒绝自动清理")
+    suite_id = UUID(document["suite_id"])
+    await verified_fixture_owner_url()
+    await _fixture_request(
+        {
+            "path": "/api/v1/__test/seed/cleanup",
+            "data": {"suite_id": str(suite_id)},
+        }
+    )
+    manifest_path.unlink()
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--cleanup", action="store_true", help="clean the recorded exact suite"
+    )
+    args = parser.parse_args()
     root = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(root / "apps/api"))
     resources = topology(root, load_identity(root), "e2e")
     path = state_path(root, "e2e", "data", "filtering.json")
-    asyncio.run(prepare_filtering(resources, path))
+    if args.cleanup:
+        asyncio.run(cleanup_filtering(resources, path))
+    else:
+        asyncio.run(prepare_filtering(resources, path))
 
 
 if __name__ == "__main__":

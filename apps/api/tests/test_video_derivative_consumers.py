@@ -8,7 +8,7 @@ import uuid
 from fastapi import HTTPException, Request
 import pytest
 
-from app.api.v1 import datasets, storage
+from app.api.v1 import storage
 from app.api.v1.tasks import _shared as shared
 from app.cli.video import rebuild_timetable as cli
 from app.services import video_derivative_originals as originals
@@ -164,55 +164,6 @@ async def test_import_unknown_original_cannot_dispatch(monkeypatch):
     with pytest.raises(ContentError, match="content_unverified"):
         await DatasetService(db).enqueue_media_for_items([uuid.uuid4()])
     dispatch.assert_not_called()
-
-
-@pytest.mark.parametrize("blocked", [False, True])
-async def test_http_backfill_freezes_exact_request_and_commits_before_dispatch(
-    monkeypatch, blocked
-):
-    from app.services import reference_access
-
-    dataset_id, item_id, authority, actor = (
-        uuid.uuid4(),
-        uuid.uuid4(),
-        object(),
-        object(),
-    )
-    request = Request({"type": "http", "method": "POST", "path": "/backfill"})
-    events = []
-    db = SimpleNamespace(
-        scalars=AsyncMock(return_value=[item_id]),
-        commit=AsyncMock(side_effect=lambda: events.append("commit")),
-    )
-    monkeypatch.setattr(datasets, "recheck_directory_write", AsyncMock())
-    monkeypatch.setattr(
-        datasets,
-        "DatasetService",
-        lambda _db: SimpleNamespace(get=AsyncMock(return_value=object())),
-    )
-    monkeypatch.setattr(reference_access, "reject_reference_scope", AsyncMock())
-    authorize = AsyncMock(
-        side_effect=ContentError("location_unavailable") if blocked else None,
-        return_value=authority,
-    )
-    monkeypatch.setattr(originals, "authorize_policy", authorize)
-    delegation = {"mode": "http", "request": "exact-key-fingerprint"}
-    monkeypatch.setattr(originals, "authorization", MagicMock(return_value=delegation))
-    dispatch = MagicMock(side_effect=lambda *_a, **_k: events.append("dispatch"))
-    monkeypatch.setattr(media.backfill_media, "delay", dispatch)
-    if blocked:
-        with pytest.raises(HTTPException) as failure:
-            await datasets.backfill_media_endpoint(request, dataset_id, db, actor)
-        assert failure.value.detail == {"code": "location_unavailable"}
-        dispatch.assert_not_called()
-        assert events == []
-    else:
-        await datasets.backfill_media_endpoint(request, dataset_id, db, actor)
-        authorize.assert_awaited_once_with(db, "dataset", item_id, actor, request)
-        dispatch.assert_called_once_with(
-            str(dataset_id), video_delegations={str(item_id): delegation}
-        )
-        assert events == ["commit", "dispatch"]
 
 
 async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatch):

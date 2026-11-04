@@ -191,6 +191,9 @@ async def seed_coco8(
     owner_id: uuid.UUID,
     fixture: Path | None = None,
     prediction_model_version: str | None = None,
+    fixture_scope: tuple[uuid.UUID, uuid.UUID] | None = None,
+    fixture_project_display_id: str | None = None,
+    fixture_dataset_display_id: str | None = None,
 ) -> dict | None:
     """把 coco8 灌入当前栈,owner 为传入用户。
 
@@ -211,10 +214,19 @@ async def seed_coco8(
     from app.services.predictions_import import import_yolo
     from app.services.storage import storage_service
 
+    if fixture_scope is not None and (
+        not fixture_project_display_id or not fixture_dataset_display_id
+    ):
+        raise ValueError("fixture COCO seed requires exact run-local display IDs")
+    project_display_id = fixture_project_display_id or PROJECT_DISPLAY_ID
+    dataset_display_id = fixture_dataset_display_id or DATASET_DISPLAY_ID
+
     existing = await db.scalar(
-        select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
+        select(seed_projects).where(seed_projects.display_id == project_display_id)
     )
     if existing:
+        if fixture_scope is not None:
+            raise ValueError("fixture COCO project display ID is already in use")
         # 幂等补绑定:旧 P-COCO8 只有 bbox,补齐 旋转框 / 折线 / 区域 工具单位(已存在的不覆盖)。
         tb = dict(existing.tool_bindings or {})
         added = [u for u in EXTRA_TOOL_BINDINGS if u not in tb]
@@ -242,7 +254,7 @@ async def seed_coco8(
     }
 
     ds = Dataset(
-        display_id=DATASET_DISPLAY_ID,
+        display_id=dataset_display_id,
         name=DATASET_NAME,
         data_type="image",
         description="Ultralytics coco8(8 张 COCO 图)dev 夹具",
@@ -252,11 +264,28 @@ async def seed_coco8(
     project_id = await create_media_seed_project(
         db,
         kind="coco8",
-        display_id=PROJECT_DISPLAY_ID,
+        display_id=project_display_id,
         name="COCO8 图片检测 (dev)",
         owner_id=owner_id,
         tool_bindings=tool_bindings,
     )
+    if fixture_scope is not None:
+        from app.services import fixture_run_ownership as ownership
+
+        await db.flush()
+        await ownership.reserve_original_dataset(
+            db, fixture_scope[0], ds.id, logical_key="image_demo"
+        )
+        await ownership.publish_resource(db, fixture_scope[0], "dataset", ds.id)
+        await ownership.reserve(
+            db,
+            fixture_scope[0],
+            "project",
+            project_id,
+            logical_key="image_demo",
+            published=True,
+        )
+        await db.commit()
 
     bucket = storage_service.datasets_bucket
 
@@ -268,24 +297,59 @@ async def seed_coco8(
                 w_px, h_px = im.size
             key = f"{DATASET_FOLDER}/{split}/{jpg.name}"
             payload = jpg.read_bytes()
-            storage_service.client.put_object(
-                Bucket=bucket,
-                Key=key,
-                Body=payload,
-                ContentType="image/jpeg",
-            )
-            db.add(
-                DatasetItem(
+            if fixture_scope is None:
+                storage_service.client.put_object(
+                    Bucket=bucket,
+                    Key=key,
+                    Body=payload,
+                    ContentType="image/jpeg",
+                )
+                db.add(
+                    DatasetItem(
+                        dataset_id=ds.id,
+                        file_name=jpg.name,
+                        file_path=key,
+                        file_type="image",
+                        file_size=len(payload),
+                        content_hash=hashlib.sha256(payload).hexdigest(),
+                        width=w_px,
+                        height=h_px,
+                    )
+                )
+            else:
+                item_id = uuid.uuid4()
+                await ownership.reserve(
+                    db,
+                    fixture_scope[0],
+                    "item",
+                    item_id,
+                    logical_key=f"image_demo/{split}/{jpg.name}",
+                )
+                await db.commit()
+                item = DatasetItem(
+                    id=item_id,
                     dataset_id=ds.id,
                     file_name=jpg.name,
-                    file_path=key,
+                    file_path="",
                     file_type="image",
-                    file_size=jpg.stat().st_size,
-                    content_hash=hashlib.sha256(payload).hexdigest(),
+                    file_size=len(payload),
                     width=w_px,
                     height=h_px,
+                    metadata_={"storage_relative_path": f"{split}/{jpg.name}"},
                 )
-            )
+                allocation, original = await ownership.create_original(
+                    db,
+                    run_id=fixture_scope[0],
+                    admission_id=fixture_scope[1],
+                    item=item,
+                    logical_path=f"{split}/{jpg.name}",
+                    payload=payload,
+                    content_type="image/jpeg",
+                    requested_by=owner_id,
+                )
+                item.content_hash = original.sha256
+                await ownership.attach_original(db, item, allocation, original)
+                await ownership.publish_resource(db, fixture_scope[0], "item", item_id)
             n_images += 1
 
     ds.file_count = n_images
@@ -313,7 +377,7 @@ async def seed_coco8(
     await db.flush()
 
     return {
-        "project": PROJECT_DISPLAY_ID,
+        "project": project_display_id,
         "images": n_images,
         "tasks": tasks_result,
         "predictions": pred.imported,

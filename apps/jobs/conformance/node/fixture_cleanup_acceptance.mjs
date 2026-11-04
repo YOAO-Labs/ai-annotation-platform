@@ -5,13 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
-const schemaPath = path.join(jobsRoot, "fixture_cleanup.schema.json");
-const sqlPath = path.join(jobsRoot, "sql/0330_jobs_fixture_cleanup.sql");
-const apiSchemaPath = path.resolve(
-  here,
-  "../../../api/alembic/sql/0330_jobs_fixture_cleanup.schema.json",
-);
-const apiSqlPath = path.resolve(here, "../../../api/alembic/sql/0330_jobs_fixture_cleanup.sql");
+const schemaPath = path.join(jobsRoot, "fixture_guard.schema.json");
 const functionName = "aap_jobs_v1.delete_fixture_project_jobs";
 const jobColumns = ["id", "project_id", "retained_project_id", "kind", "status", "payload"];
 
@@ -36,22 +30,16 @@ function parseArray(name) {
 
 async function selfCheck() {
   phase = "read language-neutral contract";
-  const [schemaText, apiSchemaText, sql, apiSql] = await Promise.all([
-    readFile(schemaPath, "utf8"),
-    readFile(apiSchemaPath, "utf8"),
-    readFile(sqlPath, "utf8"),
-    readFile(apiSqlPath, "utf8"),
-  ]);
-  const schema = JSON.parse(schemaText);
-  assert.deepEqual(JSON.parse(apiSchemaText), schema);
-  assert.equal(sql, apiSql);
-  assert.equal(schema.$id, "aap-jobs-fixture-cleanup/v1");
+  const schema = JSON.parse(await readFile(schemaPath, "utf8"));
+  assert.equal(schema.$id, "aap-jobs-fixture-guard/v1");
   const fn = schema["x-postgresql-functions"][functionName];
   assert.equal(fn.arguments, "uuid[]");
   assert.equal(fn.returns, "bigint");
   assert.equal(fn.volatility, "volatile");
-  assert.match(sql, /CREATE FUNCTION aap_jobs_v1\.delete_fixture_project_jobs\(/);
-  assert.match(sql, /REVOKE ALL ON FUNCTION aap_jobs_v1\.delete_fixture_project_jobs\(/);
+  assert.equal(
+    schema["x-postgresql-functions"]["aap_jobs_v1.guard_fixture_project_jobs"].returns,
+    "void",
+  );
   process.stdout.write("Jobs fixture-cleanup contract self-check passed\n");
 }
 
@@ -107,9 +95,11 @@ async function liveAcceptance() {
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','INSERT') AS can_insert, " +
         "pg_catalog.has_any_column_privilege(current_user,'public.async_jobs','INSERT') AS can_column_insert, " +
         "pg_catalog.has_table_privilege(current_user,'public.async_jobs','UPDATE') AS can_update, " +
-        "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE') AS can_delete",
+        "pg_catalog.has_table_privilege(current_user,'public.async_jobs','DELETE') AS can_delete, " +
+        "pg_catalog.has_function_privilege(current_user," +
+        "'aap_jobs_v1.guard_fixture_project_jobs(uuid[])','EXECUTE') AS can_guard",
     );
-    assert.deepEqual(Object.values(rights.rows[0]), [true, false, false, false, false]);
+    assert.deepEqual(Object.values(rights.rows[0]), [true, false, false, false, false, false]);
 
     phase = "inspect owner ABI and function grants";
     const catalog = await client.query(
@@ -200,60 +190,24 @@ async function liveAcceptance() {
     await client.query("ROLLBACK");
     inTransaction = false;
 
-    phase = "preserve caller rollback";
-    await client.query("BEGIN");
-    inTransaction = true;
-    const rollbackDelete = await client.query(
-      `SELECT ${functionName}($1::pg_catalog.uuid[]) AS deleted`,
-      [[projectId]],
-    );
-    assert.equal(rollbackDelete.fields[0].dataTypeID, 20);
-    assert.equal(typeof rollbackDelete.rows[0].deleted, "string");
-    assert.equal(rollbackDelete.rows[0].deleted, String(targetIds.length));
-    assert.deepEqual(
-      (await readRows(allIds)).map((row) => row.id),
-      [...unrelatedIds, ...retainedIds].sort(),
-    );
-    await client.query("ROLLBACK");
-    inTransaction = false;
-    assert.deepEqual(
-      (await readRows(allIds)).map((row) => row.id),
-      [...allIds].sort(),
-    );
-
-    phase = "preserve savepoint rollback and commit exact scope";
+    phase = "preserve unsettled Jobs through savepoint and caller rollback";
     await client.query("BEGIN");
     inTransaction = true;
     await client.query("SAVEPOINT scoped_delete");
-    const savepointDelete = await client.query(
-      `SELECT ${functionName}($1::pg_catalog.uuid[]) AS deleted`,
-      [[projectId]],
-    );
-    assert.equal(savepointDelete.fields[0].dataTypeID, 20);
-    assert.equal(savepointDelete.rows[0].deleted, String(targetIds.length));
+    let unsettled;
+    try {
+      await client.query(`SELECT ${functionName}($1::pg_catalog.uuid[]) AS deleted`, [[projectId]]);
+    } catch (error) {
+      unsettled = error;
+    }
+    assert.equal(unsettled?.code, "23514");
+    assert.match(unsettled.message, /fixture_job_execution_unsettled/);
     await client.query("ROLLBACK TO SAVEPOINT scoped_delete");
-    assert.deepEqual(
-      (await readRows(allIds)).map((row) => row.id),
-      [...allIds].sort(),
-    );
+    assert.deepEqual(await readRows(allIds), originalRows);
     await client.query("RELEASE SAVEPOINT scoped_delete");
-    const committedDelete = await client.query(
-      `SELECT ${functionName}($1::pg_catalog.uuid[]) AS deleted`,
-      [[projectId]],
-    );
-    assert.equal(committedDelete.fields[0].dataTypeID, 20);
-    assert.equal(committedDelete.rows[0].deleted, String(targetIds.length));
-    const inTransactionRows = await readRows(allIds);
-    assert.deepEqual(
-      inTransactionRows.map((row) => row.id),
-      [...unrelatedIds, ...retainedIds].sort(),
-    );
     await client.query("COMMIT");
     inTransaction = false;
-    assert.deepEqual(
-      (await readRows(allIds)).map((row) => row.id),
-      [...unrelatedIds, ...retainedIds].sort(),
-    );
+    assert.deepEqual(await readRows(allIds), originalRows);
 
     phase = "verify empty scope ABI";
     const empty = await client.query(`SELECT ${functionName}($1::pg_catalog.uuid[]) AS deleted`, [
@@ -262,7 +216,7 @@ async function liveAcceptance() {
     assert.equal(empty.fields[0].dataTypeID, 20);
     assert.equal(empty.rows[0].deleted, "0");
     process.stdout.write(
-      `Jobs fixture-cleanup Node acceptance passed (${targetIds.length} rows, int8, rollback/savepoint/commit)\n`,
+      `Jobs fixture-cleanup Node acceptance passed (${allIds.length} retained rows, int8, savepoint/commit)\n`,
     );
   } finally {
     if (connected && inTransaction) {

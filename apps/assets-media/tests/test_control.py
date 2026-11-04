@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from builtins import BaseExceptionGroup
 from uuid import uuid4
 
 import pytest
@@ -13,6 +15,10 @@ class Storage:
     def __init__(self, existing=()):
         self.existing = set(existing)
         self.signed = []
+
+    def bind_original(self, permit):
+        assert permit.ownership == "ordinary"
+        return self
 
     async def head_source(self, key):
         return c.ObjectIdentity(etag="etag", byte_size=12)
@@ -32,6 +38,16 @@ class Storage:
         assert key in self.existing
         self.signed.append(key)
         return "http://s3.local/cache/" + key
+
+
+class OrdinarySourceDatabase:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    async def call(self, name, request):
+        if name in {"begin_media_original_actor", "begin_media_original_system"}:
+            return c.OriginalRead(ownership="ordinary", object_key=request.object_key)
+        return await self.delegate.call(name, request)
 
 
 def frame(s, key=None, **changes):
@@ -64,7 +80,7 @@ async def test_drift_is_recorded_before_reference_is_rejected():
                 else s.model_copy(update={"source_drifted": True})
             )
 
-    control = MediaControl(Database(), Storage())
+    control = MediaControl(OrdinarySourceDatabase(Database()), Storage())
     with pytest.raises(c.MediaFailure, match="source_changed"):
         await control.source_reference(
             c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=s.dataset_item_id)
@@ -93,7 +109,9 @@ async def test_missing_frame_invalidates_and_does_not_repeat_force_command():
             return c.InvalidationResult(source=s, changed=True)
 
     storage = Storage()
-    result = await MediaControl(Database(), storage).assets_reference(
+    result = await MediaControl(
+        OrdinarySourceDatabase(Database()), storage
+    ).assets_reference(
         c.AssetsRequest(
             actor_id=uuid4(),
             dataset_item_id=s.dataset_item_id,
@@ -117,7 +135,9 @@ async def test_ready_frame_verifies_object_before_signing():
                 return s
             return c.MediaAssets(source=s, assets=[frame(s, key)])
 
-    result = await MediaControl(Database(), Storage([key])).assets_reference(
+    result = await MediaControl(
+        OrdinarySourceDatabase(Database()), Storage([key])
+    ).assets_reference(
         c.AssetsRequest(
             actor_id=uuid4(),
             dataset_item_id=s.dataset_item_id,
@@ -184,7 +204,9 @@ async def test_accepted_background_source_uses_no_actor_and_keeps_export_lifetim
             observations.append(request)
             return s
 
-    result = await MediaControl(Database(), Storage()).internal_source_reference(
+    result = await MediaControl(
+        OrdinarySourceDatabase(Database()), Storage()
+    ).internal_source_reference(
         c.InternalSourceRequest(dataset_item_id=s.dataset_item_id), expires_in=604800
     )
     assert observations[0].object_identity is None
@@ -212,7 +234,9 @@ async def test_internal_frame_never_signs_cached_frame_after_external_source_dri
 
     storage = Storage()
     with pytest.raises(c.MediaFailure, match="source_changed"):
-        await MediaControl(Database(), storage).internal_frame_reference(
+        await MediaControl(
+            OrdinarySourceDatabase(Database()), storage
+        ).internal_frame_reference(
             c.InternalFrameRequest(dataset_item_id=s.dataset_item_id, frame_index=0)
         )
     assert calls == ["resolve_internal_media_source", "resolve_internal_media_source"]
@@ -236,7 +260,9 @@ async def test_source_replacement_during_head_is_rejected_even_without_drift_fla
 
     storage = Storage()
     with pytest.raises(c.MediaFailure, match="source_changed"):
-        await MediaControl(Database(), storage).source_reference(
+        await MediaControl(
+            OrdinarySourceDatabase(Database()), storage
+        ).source_reference(
             c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=s.dataset_item_id)
         )
     assert storage.signed == []
@@ -262,7 +288,9 @@ async def test_missing_cache_cas_cannot_mix_a_new_source_with_old_urls():
             return c.InvalidationResult(source=replacement, changed=False)
 
     with pytest.raises(c.MediaFailure, match="source_changed"):
-        await MediaControl(Database(), Storage()).source_reference(
+        await MediaControl(
+            OrdinarySourceDatabase(Database()), Storage()
+        ).source_reference(
             c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=s.dataset_item_id)
         )
 
@@ -301,7 +329,9 @@ async def test_internal_source_is_checked_again_after_implicit_frame_admission()
             )
 
     with pytest.raises(c.MediaFailure, match="source_changed"):
-        await MediaControl(Database(), Storage()).internal_frame_reference(
+        await MediaControl(
+            OrdinarySourceDatabase(Database()), Storage()
+        ).internal_frame_reference(
             c.InternalFrameRequest(dataset_item_id=s.dataset_item_id, frame_index=0)
         )
 
@@ -319,8 +349,42 @@ async def test_raw_task_source_lookup_does_not_depend_on_object_head():
         async def head_source(self, key):
             pytest.fail("raw Task metadata tried to read object storage")
 
-    result = await MediaControl(Database(), Unavailable()).raw_source_reference(
+    result = await MediaControl(
+        OrdinarySourceDatabase(Database()), Unavailable()
+    ).raw_source_reference(
         c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=s.dataset_item_id)
     )
     assert result.original_url.endswith(s.file_path)
     assert result.video_url == result.original_url
+
+
+@pytest.mark.asyncio
+async def test_source_batch_drains_peers_and_retains_uncertain_failure(monkeypatch):
+    failed, peer = uuid4(), uuid4()
+    first_seen = asyncio.Event()
+    settled = []
+    control = MediaControl(None, None)
+
+    async def read(request):
+        if request.dataset_item_id == failed:
+            first_seen.set()
+            raise c.MediaFailure("source_missing")
+        await first_seen.wait()
+        settled.append(request.dataset_item_id)
+        error = c.MediaFailure("storage_unavailable")
+        error.storage_operation_unsettled = True
+        raise error
+
+    monkeypatch.setattr(control, "source_reference", read)
+    requests = [
+        c.ReadSourceRequest(actor_id=uuid4(), dataset_item_id=item)
+        for item in (failed, peer)
+    ]
+    with pytest.raises(BaseExceptionGroup) as caught:
+        await control.source_references(requests)
+    assert settled == [peer]
+    assert [str(error) for error in caught.value.exceptions] == [
+        "source_missing",
+        "storage_unavailable",
+    ]
+    assert caught.value.storage_operation_unsettled

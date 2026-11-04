@@ -27,10 +27,11 @@ import {
   type APIRequestContext,
   type TestInfo,
 } from "@playwright/test";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { screenshotCatalogPath } from "../screenshots/recording-plan.mjs";
 import {
   closeFixtureTransport,
+  getScreenshotCatalog,
   postFixture,
   type SeedResponse,
 } from "../helpers/seed-owner-transport.mjs";
@@ -241,6 +242,7 @@ export interface ScreenshotCatalogProject {
 
 export interface ScreenshotSeedCatalog {
   schema_version: 1;
+  run_id: string;
   seed_revision: string;
   backend_requirements?: string[];
   users: Record<ScreenshotUserKey, ScreenshotCatalogUser>;
@@ -332,25 +334,35 @@ export interface SeedPeekData {
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
-/**
- * Collision-resistant namespace token for one test attempt: a hash of the
- * spec file plus the full test title. Deterministic across retries (the
- * owned route rebuilds the same namespace) and unique across tests, suites
- * and shards, bounded to the backend's `^[a-z0-9]{4,12}$` namespace rule.
- */
-export function ownedNamespaceFor(testInfo?: TestInfo): string {
-  if (!testInfo) throw new Error("seed.owned() needs a namespace outside a Playwright test");
+function namespaceForKey(key: string): string {
+  const runId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
+  if (!runId) throw new Error("Fixture run identity is required");
   const digest = createHash("sha256")
-    .update(`${testInfo.file}::${testInfo.titlePath.join("::")}`)
+    .update(`${runId}::${key}`)
     .digest("base64url")
     .replace(/[^a-zA-Z0-9]/g, "")
     .toLowerCase();
   return digest.slice(0, 12).padStart(4, "0");
 }
 
+/**
+ * Collision-resistant token for a test in one run. Retries retain the same
+ * token, while independent runs of the same test use different namespaces.
+ * The result remains within the backend's `^[a-z0-9]{4,12}$` namespace rule.
+ */
+export function ownedNamespaceFor(testInfo?: TestInfo): string {
+  if (!testInfo) throw new Error("seed.owned() needs a namespace outside a Playwright test");
+  return namespaceForKey(`${testInfo.file}::${testInfo.titlePath.join("::")}`);
+}
+
 export class SeedAPI {
   /** Namespaces built by this test via `owned()`; cleaned up in teardown. */
   private ownedNamespaces: string[] = [];
+  private explicitNamespaces = new Map<string, string>();
+  private ownedRunIds = new Map<string, string>();
+  private retiredRunIds = new Map<string, string>();
+  private workbenchBuilt = new Set<string>();
+  private projectNamespaces = new Map<string, string>();
   /** Pages this test bound through `injectToken`; retired before cleanup. */
   private boundPages = new Set<Page>();
 
@@ -511,44 +523,84 @@ export class SeedAPI {
   }
 
   /**
-   * Resolve (and register for post-test cleanup) this test's namespace token.
-   * Explicit tokens are for helpers that own their lifecycle; everything else
-   * derives the same per-test token the `owned()` fixture uses.
+   * Resolve and register this test's namespace. Explicit labels are also
+   * scoped to the current run.
    */
   private ownedNamespace(explicit?: string): string {
-    const token = explicit ?? ownedNamespaceFor(this.testInfo);
+    if (explicit !== undefined && !/^[a-z0-9]{4,12}$/.test(explicit)) {
+      throw new Error("Fixture namespace must contain 4–12 lowercase letters or digits");
+    }
+    const defaultToken = this.testInfo ? ownedNamespaceFor(this.testInfo) : undefined;
+    const token =
+      explicit !== undefined
+        ? explicit === defaultToken
+          ? explicit
+          : namespaceForKey(`explicit::${explicit}`)
+        : defaultToken;
+    if (!token) throw new Error("seed.owned() needs a namespace outside a Playwright test");
+    if (explicit !== undefined) this.explicitNamespaces.set(explicit, token);
     if (!this.ownedNamespaces.includes(token)) this.ownedNamespaces.push(token);
+    if (!this.ownedRunIds.has(token)) {
+      this.ownedRunIds.set(token, randomUUID());
+      this.retiredRunIds.delete(token);
+    }
     return token;
+  }
+
+  private ownedScope(token: string, includeRetired = false) {
+    const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
+    const runId =
+      this.ownedRunIds.get(token) ?? (includeRetired ? this.retiredRunIds.get(token) : undefined);
+    if (!suiteId || !runId) throw new Error("Fixture suite and run identities are required");
+    return { namespace: token, suite_id: suiteId, run_id: runId };
   }
 
   /**
    * Build this test's own namespaced image-workbench fixture without touching
-   * any other namespace. Without an explicit namespace the token derives
-   * deterministically from the spec file and test title, so retries rebuild
-   * the same namespace while every other test owns a different one. The
-   * namespace is registered on this SeedAPI instance (fresh per test) and
+   * any other namespace. Tokens derive from the run identity and either an
+   * explicit label or the test identity; retries reuse that token within a run.
+   * The namespace is registered on this SeedAPI instance (fresh per test) and
    * `cleanupOwnedFixtures()` removes every registered namespace in the
    * seed-fixture teardown after the test.
    */
   async owned(namespace?: string): Promise<SeedData> {
+    const token = this.ownedNamespace(namespace);
+    if (this.workbenchBuilt.has(token)) {
+      await this.cleanupOwned(token);
+      this.ownedRunIds.set(token, randomUUID());
+      this.retiredRunIds.delete(token);
+      this.ownedNamespaces.push(token);
+    }
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned`, {
-      data: { namespace: this.ownedNamespace(namespace) },
+      data: this.ownedScope(token),
       timeout: 60_000,
     });
     if (!res.ok()) {
       throw new Error(`seed/owned failed: ${res.status()} ${await res.text()}`);
     }
-    return (await res.json()) as SeedData;
+    this.workbenchBuilt.add(token);
+    const data = (await res.json()) as SeedData;
+    this.projectNamespaces.set(data.project_id, token);
+    return data;
   }
 
   /** Delete exactly one namespace's fixture; idempotent and neighbour-safe. */
   async cleanupOwned(namespace: string): Promise<void> {
+    const token = this.explicitNamespaces.get(namespace) ?? namespace;
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned-cleanup`, {
-      data: { namespace },
+      data: this.ownedScope(token, true),
       timeout: 60_000,
     });
     if (!res.ok()) {
       throw new Error(`seed/owned-cleanup failed: ${res.status()} ${await res.text()}`);
+    }
+    this.workbenchBuilt.delete(token);
+    const runId = this.ownedRunIds.get(token);
+    if (runId) this.retiredRunIds.set(token, runId);
+    this.ownedRunIds.delete(token);
+    this.ownedNamespaces = this.ownedNamespaces.filter((entry) => entry !== token);
+    for (const [projectId, owner] of this.projectNamespaces) {
+      if (owner === token) this.projectNamespaces.delete(projectId);
     }
   }
 
@@ -583,7 +635,7 @@ export class SeedAPI {
   async projectRoles(namespace?: string): Promise<ProjectRolesSeedData> {
     const token = this.ownedNamespace(namespace);
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/project-roles`, {
-      data: { namespace: token },
+      data: this.ownedScope(token),
       timeout: 60_000,
     });
     if (!res.ok()) {
@@ -598,7 +650,7 @@ export class SeedAPI {
   ): Promise<FilteringSeedManifest> {
     const token = this.ownedNamespace(options.namespace);
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/filtering`, {
-      data: { namespace: token, video_ready: options.videoReady === true },
+      data: { ...this.ownedScope(token), video_ready: options.videoReady === true },
       timeout: 120_000,
     });
     if (!res.ok()) {
@@ -607,9 +659,63 @@ export class SeedAPI {
     return (await res.json()) as FilteringSeedManifest;
   }
 
+  /** Bind a real invite/register transaction to this owned project's run. */
+  async withOwnedInvitation<T>(
+    projectId: string,
+    inviterId: string,
+    email: string,
+    perform: () => Promise<T>,
+  ): Promise<T> {
+    const namespace = this.projectNamespaces.get(projectId);
+    if (!namespace) throw new Error("Invitation project has no owned fixture run");
+    const { run_id: runId } = this.ownedScope(namespace);
+    const intentId = randomUUID();
+    let confirmed = false;
+    let failed = false;
+    let failure: unknown;
+    let result!: T;
+    try {
+      const response = await postFixture(`${API_BASE}/api/v1/__test/seed/invitation-intent`, {
+        data: {
+          run_id: runId,
+          intent_id: intentId,
+          project_id: projectId,
+          inviter_id: inviterId,
+          email,
+        },
+      });
+      if (!response.ok()) {
+        throw new Error(`Invitation intent failed: ${response.status()} ${await response.text()}`);
+      }
+      const intent = (await response.json()) as { intent_id: string };
+      if (intent.intent_id !== intentId) throw new Error("Invitation intent identity changed");
+      confirmed = true;
+      result = await perform();
+    } catch (error) {
+      failed = true;
+      failure = error;
+    }
+    try {
+      const response = await postFixture(`${API_BASE}/api/v1/__test/seed/invitation-finish`, {
+        data: { run_id: runId, intent_id: intentId },
+      });
+      if (!response.ok() && (confirmed || response.status() !== 404)) {
+        throw new Error(`Invitation finish failed: ${response.status()} ${await response.text()}`);
+      }
+    } catch (cleanupError) {
+      failure = failed
+        ? new AggregateError([failure, cleanupError], "Invitation and ownership settlement failed")
+        : cleanupError;
+      failed = true;
+    }
+    if (failed) throw failure;
+    return result;
+  }
+
   /** 截图专用只读 catalog：解析稳定逻辑键，服务端会对完整 profile fail-closed。 */
   async screenshotCatalog(): Promise<ScreenshotSeedCatalog> {
-    const res = await this.request.get(`${API_BASE}${screenshotCatalogPath()}`);
+    const runId = process.env.SCREENSHOT_FIXTURE_RUN_ID ?? "";
+    const res = await getScreenshotCatalog(`${API_BASE}${screenshotCatalogPath(runId)}`);
     if (!res.ok()) {
       throw new Error(
         `seed/catalog failed: ${res.status()} ${await res.text()}\n` +
@@ -683,7 +789,7 @@ export class SeedAPI {
   async seedLidar(namespace?: string): Promise<SeedLidarData> {
     const token = this.ownedNamespace(namespace);
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/lidar`, {
-      data: { namespace: token },
+      data: this.ownedScope(token),
     });
     if (!res.ok()) {
       throw new Error(`seed/lidar failed: ${res.status()} ${await res.text()}`);
@@ -701,9 +807,15 @@ export class SeedAPI {
     }
   }
 
+  private projectScope(projectId: string) {
+    const token = this.projectNamespaces.get(projectId);
+    if (!token) throw new Error("Project is not owned by this fixture scope");
+    return this.ownedScope(token);
+  }
+
   async videoTask(projectId: string): Promise<{ task_id: string }> {
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/video-task`, {
-      data: { project_id: projectId },
+      data: { ...this.projectScope(projectId), project_id: projectId },
     });
     if (!res.ok()) {
       throw new Error(`seed/video-task failed: ${res.status()} ${await res.text()}`);
@@ -728,6 +840,7 @@ export class SeedAPI {
   }> {
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/video-webcodecs`, {
       data: {
+        ...this.projectScope(projectId),
         project_id: projectId,
         ...(options?.batchId ? { batch_id: options.batchId } : {}),
         fixture: options?.fixture ?? "h264-baseline-gop12",

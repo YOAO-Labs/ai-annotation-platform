@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+import builtins
 from hashlib import sha256
 from pathlib import Path
 import re
@@ -14,7 +14,10 @@ from yoao_assets_media.contract import (
     MediaFailure,
     MediaSource,
     ObjectIdentity,
+    OriginalRead,
 )
+
+from .original_read import blocks_physical_source
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 _CACHE_KEY = re.compile(
@@ -29,10 +32,16 @@ _LEGACY_PLAYBACK_KEY = re.compile(rf"^playback/{_UUID}\.mp4$")
 _CHUNK_BYTES = 1024 * 1024
 
 
-class MediaStorage(Protocol):
+class MediaOriginalStorage(Protocol):
+    original_sha256: str | None
+
     async def head_source(self, key: str) -> ObjectIdentity: ...
 
     async def download_source(self, source: MediaSource, destination: Path) -> None: ...
+
+
+class MediaStorage(Protocol):
+    def bind_original(self, permit: OriginalRead) -> BoundMediaOriginal: ...
 
     async def head_cache(self, key: str) -> ObjectIdentity | None: ...
 
@@ -42,9 +51,106 @@ class MediaStorage(Protocol):
 
     async def delete_cache_prefix(self, prefix: str) -> int: ...
 
-    async def sign_source(self, key: str, expires_in: int = 3600) -> str: ...
-
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str: ...
+
+
+class BoundMediaOriginal:
+    """Read one owner-authorized key, pinning a version for fixture originals."""
+
+    def __init__(self, storage: S3MediaStorage, permit: OriginalRead):
+        from .additional_original import physical_identity
+
+        actual_endpoint = getattr(
+            getattr(storage._client, "meta", None), "endpoint_url", None
+        )
+        self._client = storage._client
+        self._bucket = storage.datasets_bucket
+        if permit.ownership == "fixture":
+            primary = (
+                isinstance(actual_endpoint, str)
+                and actual_endpoint.rstrip("/") == storage._endpoint
+                and permit.endpoint_url.rstrip("/") == storage._endpoint
+                and permit.bucket == storage.datasets_bucket
+                and permit.storage_identity
+                == physical_identity(storage._endpoint, storage.datasets_bucket)
+            )
+            if (
+                storage._additional_original is not None
+                and storage._additional_original.matches(permit)
+            ):
+                self._client = storage._additional_original.client
+                self._bucket = storage._additional_original.bucket
+            elif not primary:
+                raise MediaFailure("source_changed")
+        if (
+            permit.ownership == "ordinary"
+            and (permit.blocked_storage_identities or permit.source_storage_identity)
+            and (
+                not isinstance(actual_endpoint, str)
+                or actual_endpoint.rstrip("/") != storage._endpoint
+                or blocks_physical_source(
+                    permit, storage._endpoint, storage.datasets_bucket
+                )
+            )
+        ):
+            raise MediaFailure("source_changed")
+        self._storage = storage
+        self._permit = permit
+        self.original_sha256 = permit.sha256
+
+    async def sign_source(self, key: str, expires_in: int) -> str | None:
+        _validate_key(key)
+        if key != self._permit.object_key:
+            raise MediaFailure("source_changed")
+        if self._permit.ownership == "fixture":
+            return None
+        return await asyncio.to_thread(
+            self._storage._signer.generate_presigned_url,
+            "get_object",
+            Params={"Bucket": self._storage.datasets_bucket, "Key": key},
+            ExpiresIn=_valid_expiry(expires_in, maximum=604800),
+        )
+
+    async def head_source(self, key: str) -> ObjectIdentity:
+        _validate_key(key)
+        if key != self._permit.object_key:
+            raise MediaFailure("source_changed")
+        try:
+            params = {"Bucket": self._bucket, "Key": key}
+            if self._permit.ownership == "fixture":
+                params["VersionId"] = self._permit.version_id
+            response = await _run_blocking(self._client.head_object, **params)
+            identity = _identity(response)
+            if self._permit.ownership == "fixture" and (
+                identity.version_id != self._permit.version_id
+                or identity.etag != self._permit.etag.strip().strip('"')
+                or identity.byte_size != self._permit.size_bytes
+            ):
+                raise MediaFailure("source_changed")
+            return identity
+        except MediaFailure:
+            raise
+        except Exception as exc:
+            raise _storage_error(exc, missing_is_object=True) from None
+
+    async def download_source(self, source: MediaSource, destination: Path) -> None:
+        _validate_key(source.file_path)
+        identity = source.object_identity
+        if source.file_path != self._permit.object_key or identity is None:
+            raise MediaFailure("source_changed")
+        if self._permit.ownership == "fixture" and (
+            identity.version_id != self._permit.version_id
+            or identity.etag != self._permit.etag.strip().strip('"')
+            or identity.byte_size != self._permit.size_bytes
+        ):
+            raise MediaFailure("source_changed")
+        await _run_blocking(
+            self._storage._download_source,
+            source,
+            destination,
+            self._client,
+            self._bucket,
+        )
 
 
 class S3MediaStorage:
@@ -63,10 +169,13 @@ class S3MediaStorage:
         connect_timeout: float = 10,
         read_timeout: float = 120,
         max_attempts: int = 2,
+        additional_original=None,
+        additional_original_client=None,
         client=None,
         signer=None,
     ) -> None:
         self.datasets_bucket = datasets_bucket
+        self._endpoint = endpoint.rstrip("/")
         self.cache_bucket = cache_bucket
         if client is None or signer is None:
             import boto3
@@ -91,49 +200,63 @@ class S3MediaStorage:
                 signer = boto3.client("s3", endpoint_url=public_endpoint, **credentials)
         self._client = client
         self._signer = signer
+        from .additional_original import AdditionalOriginalTarget
 
-    async def head_source(self, key: str) -> ObjectIdentity:
-        _validate_key(key)
-        try:
-            response = await asyncio.to_thread(
-                self._client.head_object,
-                Bucket=self.datasets_bucket,
-                Key=key,
+        if additional_original_client is not None and additional_original is None:
+            raise ValueError(
+                "Additional original client requires explicit target configuration"
             )
-            return _identity(response)
-        except MediaFailure:
-            raise
-        except Exception as exc:
-            raise _storage_error(exc, missing_is_object=True) from None
+        self._additional_original = (
+            AdditionalOriginalTarget(
+                additional_original,
+                region=region,
+                connect_timeout=connect_timeout,
+                read_timeout=read_timeout,
+                max_attempts=max_attempts,
+                client=additional_original_client,
+            )
+            if additional_original is not None
+            else None
+        )
 
-    async def download_source(self, source: MediaSource, destination: Path) -> None:
-        if source.object_identity is None:
-            raise MediaFailure("source_changed")
-        _validate_key(source.file_path)
-        await _run_blocking(self._download_source, source, destination)
+    def bind_original(self, permit: OriginalRead) -> BoundMediaOriginal:
+        return BoundMediaOriginal(self, permit)
 
-    def _download_source(self, source: MediaSource, destination: Path) -> None:
+    def close_additional_original(self) -> None:
+        if self._additional_original is not None:
+            self._additional_original.close()
+
+    def _download_source(
+        self, source: MediaSource, destination: Path, client, bucket: str
+    ) -> None:
         identity = source.object_identity
         assert identity is not None
         params: dict[str, object] = {
-            "Bucket": self.datasets_bucket,
+            "Bucket": bucket,
             "Key": source.file_path,
             "IfMatch": _if_match(identity.etag),
         }
         if identity.version_id is not None:
             params["VersionId"] = identity.version_id
+        created = False
         try:
-            response = self._client.get_object(**params)
-            observed = _identity(response)
-            if observed != identity:
-                raise MediaFailure("source_changed")
+            response = client.get_object(**params)
             body = response.get("Body")
-            if body is None or not hasattr(body, "read"):
-                raise MediaFailure("storage_unavailable")
+            if not callable(getattr(body, "read", None)) or not callable(
+                getattr(body, "close", None)
+            ):
+                error = MediaFailure("storage_unavailable")
+                error.storage_operation_unsettled = True
+                raise error
             written = 0
+            failure = None
             try:
+                observed = _identity(response)
+                if observed != identity:
+                    raise MediaFailure("source_changed")
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 with destination.open("xb") as output:
+                    created = True
                     while True:
                         chunk = body.read(_CHUNK_BYTES)
                         if not chunk:
@@ -141,20 +264,47 @@ class S3MediaStorage:
                         written += len(chunk)
                         if written > identity.byte_size:
                             raise MediaFailure("source_changed")
-                        output.write(chunk)
+                        if output.write(chunk) != len(chunk):
+                            raise OSError("short local media write")
+            except BaseException as exc:
+                failure = exc
+                raise
             finally:
-                close = getattr(body, "close", None)
-                if close is not None:
-                    close()
+                try:
+                    body.close()
+                except BaseException as close_error:
+                    if failure is None:
+                        close_error.storage_operation_unsettled = True
+                        raise
+                    combined = builtins.BaseExceptionGroup(
+                        "Media source read and physical close both failed",
+                        [failure, close_error],
+                    )
+                    combined.storage_operation_unsettled = True
+                    raise combined from None
             if written != identity.byte_size:
                 raise MediaFailure("source_changed")
             if source.file_size is not None and written != source.file_size:
                 raise MediaFailure("source_changed")
-        except MediaFailure:
-            destination.unlink(missing_ok=True)
-            raise
-        except Exception as exc:
-            destination.unlink(missing_ok=True)
+        except BaseException as exc:
+            if created:
+                try:
+                    destination.unlink(missing_ok=True)
+                except BaseException as cleanup_error:
+                    combined = builtins.BaseExceptionGroup(
+                        "Media source read and local cleanup both failed",
+                        [exc, cleanup_error],
+                    )
+                    if getattr(exc, "storage_operation_unsettled", False):
+                        combined.storage_operation_unsettled = True
+                    raise combined from None
+            if (
+                isinstance(exc, MediaFailure)
+                or isinstance(exc, builtins.BaseExceptionGroup)
+                or getattr(exc, "storage_operation_unsettled", False)
+                or not isinstance(exc, Exception)
+            ):
+                raise
             raise _storage_error(exc) from None
 
     async def head_cache(self, key: str) -> ObjectIdentity | None:
@@ -281,15 +431,6 @@ class S3MediaStorage:
             if not isinstance(continuation_token, str) or not continuation_token:
                 raise MediaFailure("storage_unavailable")
 
-    async def sign_source(self, key: str, expires_in: int = 3600) -> str:
-        _validate_key(key)
-        return await asyncio.to_thread(
-            self._signer.generate_presigned_url,
-            "get_object",
-            Params={"Bucket": self.datasets_bucket, "Key": key},
-            ExpiresIn=_valid_expiry(expires_in, maximum=604800),
-        )
-
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
         _validate_cache_read_key(key)
         return await asyncio.to_thread(
@@ -399,11 +540,26 @@ def _storage_error(exc: Exception, *, missing_is_object: bool = False) -> MediaF
 
 
 async def _run_blocking(function, /, *args, **kwargs):
-    """Keep a boto thread alive until it exits, even when its caller is canceled."""
+    """Keep blocking work alive until it exits, even when its caller is canceled."""
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
     try:
         return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        with suppress(BaseException):
-            await task
+    except asyncio.CancelledError as cancelled:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except BaseException:
+                break
+        try:
+            task.result()
+        except BaseException as late:
+            combined = builtins.BaseExceptionGroup(
+                "Blocking media work was cancelled and then failed",
+                [cancelled, late],
+            )
+            if getattr(late, "storage_operation_unsettled", False):
+                combined.storage_operation_unsettled = True
+            raise combined from None
         raise

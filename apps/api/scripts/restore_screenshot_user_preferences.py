@@ -12,6 +12,7 @@ import argparse
 import asyncio
 import json
 import os
+import sys
 from pathlib import Path
 from uuid import UUID
 
@@ -27,16 +28,14 @@ def parse_args() -> argparse.Namespace:
 
 
 async def restore(user_id: UUID, preferences_file: Path) -> None:
-    database_url = os.environ.get("SCREENSHOT_DATABASE_URL") or os.environ.get(
-        "DATABASE_URL"
-    )
-    if not database_url:
-        raise RuntimeError("SCREENSHOT_DATABASE_URL or DATABASE_URL is required")
-    database_name = database_url.split("/")[-1].split("?", 1)[0]
-    if not (database_name.endswith("_test") or database_name.endswith("_e2e")):
-        raise RuntimeError(
-            "preference restore requires an isolated *_test or *_e2e database"
-        )
+    raw_run_id = os.environ.get("SCREENSHOT_FIXTURE_RUN_ID")
+    if not raw_run_id:
+        raise RuntimeError("SCREENSHOT_FIXTURE_RUN_ID is required")
+    run_id = UUID(raw_run_id)
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+    from fixture_suite_coordinator import verified_fixture_owner_url
+
+    database_url = await verified_fixture_owner_url()
     preferences = json.loads(preferences_file.read_text(encoding="utf-8"))
     if not isinstance(preferences, dict):
         raise ValueError("preferences JSON must be an object")
@@ -44,6 +43,21 @@ async def restore(user_id: UUID, preferences_file: Path) -> None:
     engine = create_async_engine(database_url, pool_pre_ping=True)
     try:
         async with engine.begin() as connection:
+            owned = await connection.scalar(
+                text(
+                    "SELECT resource.resource_id FROM yoao_fixture_v1.fixture_run_resources AS resource "
+                    "JOIN yoao_fixture_v1.fixture_runs AS run ON run.id=resource.run_id "
+                    "WHERE resource.run_id=:run_id AND resource.kind='user' "
+                    "AND resource.resource_id=:user_id AND resource.state='published' "
+                    "AND run.family='screenshot' AND run.parent_run_id IS NULL AND run.state='open' "
+                    "FOR SHARE OF run"
+                ),
+                {"run_id": run_id, "user_id": user_id},
+            )
+            if owned != user_id:
+                raise RuntimeError(
+                    "preference target is not owned by this screenshot run"
+                )
             updated = await connection.scalar(
                 text(
                     "SELECT aap_identity_v1.replace_fixture_preferences("

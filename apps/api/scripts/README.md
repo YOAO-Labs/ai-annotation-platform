@@ -115,7 +115,7 @@ dataset 按 DS-NU-<name> 复用;同名 scene 已存在则跳过。详见脚本�
 - `seed_large_images.py`:校验 Web 侧现实大图清单，幂等创建 `P-LARGE-IMG` / `DS-LARGE-IMG`，并可入队、等待图片金字塔生成
 - `nuscenes_fixture.py`:从官方地址分段续传 nuScenes mini，在仓库外缓存并安全解压 key-frame samples
 - `seed_pointcloud.py`:nuScenes mini scene-0061 → 固定 dev 点云项目，并按 scene 建包（截图 profile 不建包）
-- `seed_scale.py`:大规模压测夹具种子
+- `seed_scale.py`:在隔离测试库中为明确的 `--run-id UUID` 创建大规模压测夹具；使用同一 UUID 的 `--purge` 清理精确清单，未收尾的运行会阻止清理。
 - `import_images.py`:批量导入本地图片到 dataset
 - `bootstrap_admin.py`:从 ENV 读取首次超管信息，提交由 CLI 持有；用户创建归 `IdentityCommandService`，`application/bootstrap_admin.py` 组合 `AuditService` 写入同事务审计。已存在邮箱不改资料、不追加审计。
 - `backfill_task_datasets.py`:`--dry-run` / `--verify` 使用 PostgreSQL 只读事务，`--apply` 按批提交；`application/task_dataset_backfill.py` 负责扫描/报告并委托 `project_task_dataset.ensure_membership` 写入，不改冻结版本内容。
@@ -144,20 +144,24 @@ PYTHONPATH=. uv run python scripts/seed_assets.py \
 RGB-D 扫描和 RapidOCR 示例图；派生素材会先完成许可门禁、摘要校验和确定性转换，再上传
 到对象存储。`demo` 模式不受该门禁影响。
 
-截图 profile 还必须绑定满足场景能力的 ML Backend。真实服务就绪时使用 live 模式；无 GPU
-时先启动 `docker-compose.ml.yml` 的 `screenshot-ml-stub`，再使用 stub 模式：
+截图 profile 必须在已准备独立原片存储的 `test` 或 `e2e` worktree 运行，并为每次运行提供
+唯一 UUID。`DATABASE_URL` 是受限产品账号，`PLAYWRIGHT_E2E_DATABASE_URL` 只供隔离夹具
+进程验证并连接同一个测试库的 owner；不得把 owner 账号交给 API、浏览器或其他测试。
+真实服务就绪时使用 live 模式；使用 stub 时先启动专用截图协议 stub：
 
 ```bash
+export SCREENSHOT_FIXTURE_RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --repair --ml-backend-mode live
+  --profile screenshots --run-id "$SCREENSHOT_FIXTURE_RUN_ID" --ml-backend-mode live
 
-PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --repair --ml-backend-mode stub
+# 或在隔离 stub 就绪时使用 --ml-backend-mode stub。
 ```
 
-stub 默认复用 `ML_BACKEND_STORAGE_HOST` 的主机部分并使用 `9100`，可用
-`--ml-backend-url` 覆盖。图片、视频和 OCR 项目都会创建唯一启用关联并设置主 backend；
-切回 live 模式时会移除 screenshot seed 自有的 stub registry。
+相同 run ID 的重跑只核对和对账该运行已登记的项目、数据集和原片，不接管共享夹具；
+中断后存在未确认写入时保留 admission 和存储收据，先查明实际工作是否结束，不得扫桶清理。
+stub URL 必须由当前运行独占，或已登记为该运行所有；live 模式只读取现有健康事实。
+真实异步预测、重试、导出或视频追踪作业若没有对应的执行与物理退役凭据，将阻止根清理。
+未完成并发隔离验收的夹具族仍应串行执行。
 
 ## 超大图开发夹具
 
@@ -178,12 +182,9 @@ PYTHONPATH=. uv run python scripts/seed_large_images.py \
 DatasetItem、Task 或 generation。固定项目和数据集被人工改名、改 owner 或接入其它资源时会拒绝覆盖；
 production 环境始终拒绝运行。
 
-截图 API 进程需要指向 `annotation_screenshots_test` 并显式设置
-`E2E_SEED_ENABLED=true`，才会提供只读
-`GET /api/v1/__test/seed/catalog`。路由会在当前数据库会话中复核 `_test` 后缀；
-production 始终不挂载。catalog 按固定逻辑键解析用户、项目、任务、批次和运行时
-UUID，并硬校验 ML Backend 主绑定、项目启用关联、connected 状态及场景级能力；
-数据不完整时返回 `409 screenshot_seed_not_ready`，不会退回“最新项目”。
+截图 catalog 由私有夹具进程使用相同 `SCREENSHOT_FIXTURE_RUN_ID` 读取；普通 API
+和浏览器不持有 owner 凭据。目录按该运行的精确资源清单解析用户、项目、任务、批次
+和运行时 UUID，并校验所需 Backend 能力；数据不完整时返回错误，不回退到共享项目。
 
 ## audit_project_roles（项目级员工角色 · 增量 A 准备，只读）
 

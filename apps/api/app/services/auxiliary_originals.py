@@ -12,7 +12,7 @@ import json
 import re
 import uuid
 
-from sqlalchemy import Text, case, cast, func, select, text
+from sqlalchemy import Text, case, cast, delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 
@@ -523,3 +523,49 @@ async def resolve_task_raw(db, task_id, *, lock=False):
 
 async def resolve_scene_map(db, task_id, *, lock=False):
     return await _resolve_task(db, task_id, "map", lock)
+
+
+async def retire_fixture_owners(db, *, run_id, dataset_id, owner_ids):
+    """Remove exact current owners only after their typed retirements and Dataset deletion."""
+    from app.db.models.dataset import Dataset
+    from app.db.models.fixture_run import FixtureAuxiliaryIntent
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+
+    if await db.get(Dataset, dataset_id) is not None:
+        reject("fixture_dataset_still_present")
+    expected = set(owner_ids)
+    if not expected:
+        return
+    qualified = set(
+        await db.scalars(
+            select(Original.id)
+            .join(
+                FixtureAuxiliaryIntent,
+                FixtureAuxiliaryIntent.creation_id == Original.id,
+            )
+            .join(
+                ManagedOriginalRetirement,
+                (ManagedOriginalRetirement.owner_type == "dataset_auxiliary")
+                & (ManagedOriginalRetirement.auxiliary_original_id == Original.id)
+                & (ManagedOriginalRetirement.creation_id == Original.creation_id)
+                & (ManagedOriginalRetirement.dataset_id == Original.dataset_id)
+                & (ManagedOriginalRetirement.bucket == Original.bucket)
+                & (ManagedOriginalRetirement.object_key == Original.object_key),
+            )
+            .where(
+                Original.id.in_(expected),
+                Original.dataset_id == dataset_id,
+                FixtureAuxiliaryIntent.run_id == run_id,
+            )
+            .with_for_update()
+        )
+    )
+    if qualified != expected:
+        reject("fixture_retirement_unqualified")
+    removed = set(
+        await db.scalars(
+            delete(Original).where(Original.id.in_(expected)).returning(Original.id)
+        )
+    )
+    if removed != expected:
+        reject("fixture_retirement_incomplete")

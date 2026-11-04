@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import builtins
 from contextlib import suppress
 import hashlib
 import json
@@ -28,6 +29,7 @@ from yoao_assets_images.policy import image_policy_from_environment
 from yoao_assets_images.contract import (
     AdvanceImageBackfillRequest,
     Artifact,
+    BackfillOriginalReadRequest,
     ClaimImageMediaRequest,
     ClaimedImageWork,
     DimensionsResult,
@@ -54,6 +56,7 @@ from yoao_assets_images.contract import (
     ReconcileImageMediaRequest,
     ThumbnailResult,
     ThumbnailWorkSpec,
+    WorkerOriginalReadRequest,
     json_bytes,
     require_result_scope,
 )
@@ -72,6 +75,7 @@ from yoao_assets_images_runtime.processing import (
 from .config import ImageWorkerConfig, load_config
 from .database import AsyncpgImageDatabase, ImageDatabase
 from .health import check_capabilities
+from .original_read import admitted_original
 from .storage import DownloadedSource, ImageStorage, S3ImageStorage
 
 _BACKFILL_CALL_LIMIT = 1_000_000
@@ -345,13 +349,27 @@ class ImageExecutor:
                 raise ImageFailure("invalid_response")
             return outcome
         except ImageFailure as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             code = "source_missing" if exc.code == "object_missing" else exc.code
             if code not in _TERMINAL_FAILURES:
                 raise
             heartbeat.check_lease()
             return await self._fail_claim(claim, code)
         finally:
-            await heartbeat.close()
+            failure = sys.exception()
+            try:
+                await heartbeat.close()
+            except BaseException as close_error:
+                if failure is not None:
+                    combined = builtins.BaseExceptionGroup(
+                        "Image work and heartbeat shutdown failed",
+                        [failure, close_error],
+                    )
+                    if getattr(failure, "storage_operation_unsettled", False):
+                        combined.storage_operation_unsettled = True
+                    raise combined from None
+                raise
 
     async def _finish_with_retries(
         self,
@@ -402,10 +420,30 @@ class ImageExecutor:
         if not source.upload_ready:
             raise ImageFailure("source_not_ready")
         heartbeat.check()
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_image_original_worker",
+            WorkerOriginalReadRequest(
+                job_id=claim.job_id,
+                generation=claim.generation,
+                lease_token=claim.lease_token,
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            "finish_image_original_worker",
+        ) as source_storage:
+            return await self._execute_admitted_source_claim(
+                claim, heartbeat, source, source_storage
+            )
+
+    async def _execute_admitted_source_claim(
+        self, claim, heartbeat, source, source_storage
+    ) -> ImageWorkResult:
 
         if isinstance(claim.spec, DimensionsWorkSpec):
             header = await _job_storage_call(
-                heartbeat, self.storage.read_source_header, source
+                heartbeat, source_storage.read_source_header, source
             )
             if header.identity != source.object_identity:
                 raise ImageFailure("source_changed")
@@ -413,7 +451,9 @@ class ImageExecutor:
             if dimensions is not None:
                 self._validate_known_dimensions(source, dimensions)
                 if (
-                    await _job_storage_call(heartbeat, self.storage.head_source, source)
+                    await _job_storage_call(
+                        heartbeat, source_storage.head_source, source
+                    )
                     != source.object_identity
                 ):
                     raise ImageFailure("source_changed")
@@ -427,7 +467,9 @@ class ImageExecutor:
                 workspace = Path(temporary)
                 workspace.chmod(0o700)
                 source_path = workspace / _source_filename(source.file_name)
-                download = await self._download_source(claim, source_path, heartbeat)
+                download = await self._download_source(
+                    claim, source_path, heartbeat, source_storage
+                )
                 output_dir = workspace / "output"
                 output_dir.mkdir(mode=0o700)
                 dimensions = await self._probe_full_dimensions(
@@ -436,7 +478,9 @@ class ImageExecutor:
                 self._validate_known_dimensions(source, dimensions)
                 heartbeat.check()
                 if (
-                    await _job_storage_call(heartbeat, self.storage.head_source, source)
+                    await _job_storage_call(
+                        heartbeat, source_storage.head_source, source
+                    )
                     != source.object_identity
                 ):
                     raise ImageFailure("source_changed")
@@ -468,7 +512,7 @@ class ImageExecutor:
         thumbnail_dimensions: tuple[int, int] | None = None
         if isinstance(claim.spec, ThumbnailWorkSpec):
             header = await _job_storage_call(
-                heartbeat, self.storage.read_source_header, source
+                heartbeat, source_storage.read_source_header, source
             )
             if header.identity != identity:
                 raise ImageFailure("source_changed")
@@ -483,7 +527,9 @@ class ImageExecutor:
             workspace = Path(temporary)
             workspace.chmod(0o700)
             source_path = workspace / _source_filename(source.file_name)
-            download = await self._download_source(claim, source_path, heartbeat)
+            download = await self._download_source(
+                claim, source_path, heartbeat, source_storage
+            )
             heartbeat.check()
             output_dir = workspace / "output"
             output_dir.mkdir(mode=0o700)
@@ -519,20 +565,24 @@ class ImageExecutor:
             await self._upload_result_artifacts(claim, result, output_dir, heartbeat)
             heartbeat.check()
             if (
-                await _job_storage_call(heartbeat, self.storage.head_source, source)
+                await _job_storage_call(heartbeat, source_storage.head_source, source)
                 != identity
             ):
                 raise ImageFailure("source_changed")
             return result
 
     async def _download_source(
-        self, claim: ImageClaim, destination: Path, heartbeat: _LeaseHeartbeat
+        self,
+        claim: ImageClaim,
+        destination: Path,
+        heartbeat: _LeaseHeartbeat,
+        source_storage,
     ) -> DownloadedSource:
         source = claim.source
         if source is None or source.object_identity is None:
             raise ImageFailure("invalid_response")
         downloaded = await _job_storage_call(
-            heartbeat, self.storage.download_source, source, destination
+            heartbeat, source_storage.download_source, source, destination
         )
         if (
             downloaded.identity != source.object_identity
@@ -1005,6 +1055,7 @@ class ImageExecutor:
                     previous_cursor=previous_cursor,
                 )
                 observations = await self._observe_backfill_candidates(
+                    claim,
                     progress.candidates,
                     progress.batch_token,
                     heartbeat,
@@ -1065,6 +1116,7 @@ class ImageExecutor:
 
     async def _observe_backfill_candidates(
         self,
+        claim: ImageClaim,
         candidates: list[ImageSource],
         batch_token: UUID,
         heartbeat: _LeaseHeartbeat,
@@ -1075,26 +1127,44 @@ class ImageExecutor:
         async def observe(source: ImageSource) -> ImageBackfillSourceObservation:
             heartbeat.check()
             async with semaphore:
-                try:
-                    identity = await _job_storage_call(
-                        heartbeat, self.storage.head_source, source
-                    )
-                except ImageFailure as exc:
-                    if exc.code == "object_missing":
-                        return ImageBackfillSourceObservation(
-                            owner=source.owner,
-                            source_snapshot=source.source_snapshot,
-                            object_identity=None,
-                            error_code="source_missing",
+                async with admitted_original(
+                    self.database,
+                    self.storage,
+                    "begin_image_original_backfill",
+                    BackfillOriginalReadRequest(
+                        job_id=claim.job_id,
+                        generation=claim.generation,
+                        lease_token=claim.lease_token,
+                        batch_token=batch_token,
+                        owner_kind=source.owner.kind,
+                        owner_id=source.owner.id,
+                        source_snapshot=source.source_snapshot,
+                        object_key=source.file_path,
+                    ),
+                    "finish_image_original_worker",
+                ) as source_storage:
+                    try:
+                        identity = await _job_storage_call(
+                            heartbeat, source_storage.head_source, source
                         )
-                    if exc.code == "source_changed":
-                        return ImageBackfillSourceObservation(
-                            owner=source.owner,
-                            source_snapshot=source.source_snapshot,
-                            object_identity=None,
-                            error_code="source_changed",
-                        )
-                    raise
+                    except ImageFailure as exc:
+                        if getattr(exc, "storage_operation_unsettled", False):
+                            raise
+                        if exc.code == "object_missing":
+                            return ImageBackfillSourceObservation(
+                                owner=source.owner,
+                                source_snapshot=source.source_snapshot,
+                                object_identity=None,
+                                error_code="source_missing",
+                            )
+                        if exc.code == "source_changed":
+                            return ImageBackfillSourceObservation(
+                                owner=source.owner,
+                                source_snapshot=source.source_snapshot,
+                                object_identity=None,
+                                error_code="source_changed",
+                            )
+                        raise
                 heartbeat.check()
             if not source.upload_ready:
                 raise ImageFailure("source_not_ready")

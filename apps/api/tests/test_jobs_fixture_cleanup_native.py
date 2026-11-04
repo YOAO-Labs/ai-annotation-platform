@@ -26,7 +26,7 @@ from tests.test_video_deletion_retirement_native import _seed_unretired
 ROOT = Path(__file__).resolve().parents[3]
 _ROLE = "identity_api_consumer"
 _CALL = "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
-_SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_cleanup.schema.json"
+_SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_guard.schema.json"
 _NODE = ROOT / "apps/jobs/conformance/node/fixture_cleanup_acceptance.mjs"
 
 pytestmark = [
@@ -195,7 +195,7 @@ async def _workspace_guard_definition(engine):
 
 async def _assert_contract(test_engine):
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    assert schema["$id"] == "aap-jobs-fixture-cleanup/v1"
+    assert schema["$id"] == "aap-jobs-fixture-guard/v1"
     contract = schema["x-postgresql-functions"][
         "aap_jobs_v1.delete_fixture_project_jobs"
     ]
@@ -339,21 +339,14 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
             assert node.returncode == 0, node.stdout + node.stderr
             assert "Jobs fixture-cleanup Node acceptance passed" in node.stdout
             rows = await _job_rows(test_engine, world["all_ids"])
-            assert {row[0] for row in rows} == {
-                str(world["unrelated_id"]),
-                str(world["retained_id"]),
-            }
-            assert next(row for row in rows if row[0] == str(world["retained_id"]))[
-                2
-            ] == str(world["project_id"])
+            assert rows == before
             record_property(
                 "jobs_fixture_cleanup",
                 json.dumps(
                     {
                         "actual_api_login": True,
-                        "scoped_delete_count": len(world["target_ids"]),
-                        "unrelated_and_retained_rows_preserved": True,
-                        "node_int8_and_transaction_abi": True,
+                        "unsettled_rows_preserved": True,
+                        "node_int8_and_savepoint_abi": True,
                         "private_delete_denied": True,
                         "project_nowait_and_invalid_scope": True,
                     }

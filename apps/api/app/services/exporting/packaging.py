@@ -104,7 +104,7 @@ from yoao_workspace_contract import (
 )
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
-from app.services.storage import storage_service
+from app.services.storage import require_unowned_legacy_original, storage_service
 from app.services.assets_media import media_gateway
 from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
@@ -793,6 +793,9 @@ async def build_export_zip(
                                 **image_media.entry(t.id),
                             )
                         else:
+                            await require_unowned_legacy_original(
+                                db, t.file_path, storage_service.datasets_bucket
+                            )
                             entry.update(
                                 rel_path=relative_path_from_file_path(
                                     t.file_path, _dataset_name_for_task(t, item), item
@@ -1335,6 +1338,9 @@ async def _build_lidar_export_zip(
                                 size_bytes=saved["size_bytes"],
                             )
                         else:
+                            await require_unowned_legacy_original(
+                                svc.db, item.file_path, storage_service.datasets_bucket
+                            )
                             manifest_item["presigned_url"] = (
                                 storage_service.generate_download_url(
                                     item.file_path,
@@ -1383,6 +1389,11 @@ async def _build_lidar_export_zip(
                             size_bytes=saved["size_bytes"],
                         )
                     else:
+                        await require_unowned_legacy_original(
+                            svc.db,
+                            primary_item.file_path,
+                            storage_service.datasets_bucket,
+                        )
                         manifest_item["presigned_url"] = (
                             storage_service.generate_download_url(
                                 primary_item.file_path,
@@ -2196,7 +2207,6 @@ async def _build_video_export_zip(
                     for ann in mask_track_annotations
                 ]
                 youtube_sparse_frames: list[int] = []
-                # frame_count：元数据优先，缺失回退最大标注帧 + 1。
                 max_kf = 0
                 for ann in track_anns:
                     for kf in (ann.geometry or {}).get("keyframes") or []:
@@ -2517,6 +2527,10 @@ async def _build_video_export_zip(
                     video_rel = relative_path_from_file_path(
                         video_source["source_key"], dataset_name
                     )
+                    if source_reference is None:
+                        await require_unowned_legacy_original(
+                            svc.db, video_source["source_key"], storage_service.bucket
+                        )
                     presigned = (
                         source_reference.original_url
                         if source_reference is not None
@@ -2526,6 +2540,8 @@ async def _build_video_export_zip(
                             bucket=storage_service.bucket,
                         )
                     )
+                    if presigned is None:
+                        raise ValueError("video_export_source_not_authorized")
                     receipt = {}
                 frame_output_dirs: list[str] = []
                 frame_outputs = []

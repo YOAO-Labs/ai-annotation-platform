@@ -82,9 +82,12 @@ async def test_large_image_seed_actor_rechecks_current_project_owner(monkeypatch
 
 @pytest.fixture(autouse=True)
 def _mock_seed_storage(monkeypatch):
+    async def digest(_db, item):
+        return hashlib.sha256(item.file_path.encode()).hexdigest()
+
     monkeypatch.setattr(
         "app.services.screenshot_seed_catalog._storage_object_digest",
-        lambda file_path: hashlib.sha256(file_path.encode()).hexdigest(),
+        digest,
     )
 
 
@@ -752,10 +755,10 @@ async def test_catalog_fails_closed_when_media_object_is_missing(
 ):
     await _ready_profile(db_session)
 
-    def digest_or_missing(file_path: str) -> str:
-        if file_path.endswith("screenshot_01.jpg"):
-            raise FileNotFoundError(file_path)
-        return hashlib.sha256(file_path.encode()).hexdigest()
+    async def digest_or_missing(_db, item) -> str:
+        if item.file_path.endswith("screenshot_01.jpg"):
+            raise FileNotFoundError(item.file_path)
+        return hashlib.sha256(item.file_path.encode()).hexdigest()
 
     monkeypatch.setattr(
         "app.services.screenshot_seed_catalog._storage_object_digest",

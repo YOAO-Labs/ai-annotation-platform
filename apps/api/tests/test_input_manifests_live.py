@@ -470,7 +470,7 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
 
             return detect()
 
-        def mutable_url(_task):
+        def mutable_url(_db, _task):
             legacy_urls.append(_task.id)
             pytest.fail("manifest execution must not resolve a current Task URL")
 

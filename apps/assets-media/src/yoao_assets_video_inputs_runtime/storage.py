@@ -36,6 +36,9 @@ class VideoSourceStorage:
     def __init__(self, binary_storage):
         self.binary = binary_storage
 
+    def bind_original(self, permit):
+        return VideoSourceStorage(self.binary.bind_original(permit))
+
     @staticmethod
     def _source(source: VideoCaptureSource) -> _SourceObject:
         return _SourceObject(

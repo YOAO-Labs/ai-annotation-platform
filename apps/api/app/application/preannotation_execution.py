@@ -2640,7 +2640,7 @@ async def _execute_preannotation(
         pred_svc = PredictionService(db)
         prediction_writer: ApplyPredictionResultPort = pred_svc
 
-        from app.services.storage import resolve_task_url as _resolve_task_url
+        from app.services.storage import resolve_task_url
 
         if execution_unit != "frame":
             stages = execution_stages()
@@ -2992,6 +2992,9 @@ async def _execute_preannotation(
                     input_facts["accepted_input"] = input_metadata
                 if manifest_facts is not None:
                     input_facts["accepted_input_manifest"] = manifest_facts
+                legacy_url = (
+                    await resolve_task_url(db, task) if retained is None else None
+                )
                 output = await _run_task_pipeline(
                     task,
                     stages,
@@ -3000,7 +3003,7 @@ async def _execute_preannotation(
                     resolve_url=(
                         (lambda _task: retained.reference.url)
                         if retained is not None
-                        else _resolve_task_url
+                        else (lambda _task: legacy_url)
                     ),
                     upload_crop=crop_uploader,
                     dispatch_boundary=release_inference_locks,
@@ -3477,6 +3480,18 @@ async def _execute_preannotation(
                         )
                         return qualified.results
 
+                legacy_url = None
+                if (
+                    video_inputs is None
+                    and reference_inputs is None
+                    and (
+                        prepared_manifest_member is None
+                        or prepared_manifest_member.reference is None
+                    )
+                    and accepted_input is None
+                ):
+                    legacy_url = await resolve_task_url(db, task)
+
                 pipeline_output = await _run_task_pipeline(
                     task,
                     stages,
@@ -3492,7 +3507,7 @@ async def _execute_preannotation(
                         and prepared_manifest_member.reference is not None
                         else (lambda _task: accepted_input.reference.url)
                         if accepted_input is not None
-                        else _resolve_task_url
+                        else (lambda _task: legacy_url)
                     ),
                     upload_crop=(
                         video_inputs.upload_crop

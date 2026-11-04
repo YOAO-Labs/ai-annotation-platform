@@ -35,6 +35,8 @@ async def image_source_references(
                     ImageSourceReferencesRequest(requests=list(batch))
                 )
             except ImageFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
                 leaf_failure = exc.code in {
                     "source_missing",
                     "source_changed",

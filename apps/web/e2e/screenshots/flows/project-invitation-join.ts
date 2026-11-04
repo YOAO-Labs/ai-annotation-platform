@@ -17,6 +17,8 @@
  * 已接受的邀请则移除本次新增的项目成员关系并停用本流程创建的账号。
  */
 import { expect, type Page } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { postFixture } from "../../helpers/seed-owner-transport.mjs";
 import type { ScreenshotSeedCatalog } from "../../fixtures/seed";
 
 // 本流程新建的隔离受邀账号使用专用口令；录制时密码输入框保持遮蔽。
@@ -77,9 +79,9 @@ function auth(accessToken: string) {
   return { Authorization: `Bearer ${accessToken}` };
 }
 
-async function seedAdminAccessToken(page: Page): Promise<string> {
+async function seedAdminAccessToken(page: Page, catalog: ScreenshotSeedCatalog): Promise<string> {
   const response = await page.request.post("/api/v1/__test/seed/login", {
-    data: { email: "admin" },
+    data: { email: catalog.users.admin.email },
   });
   if (!response.ok()) {
     throw new Error(`[project-invitation-join] seed/login 失败: HTTP ${response.status()}`);
@@ -94,37 +96,6 @@ async function seedAdminAccessToken(page: Page): Promise<string> {
     throw new Error("[project-invitation-join] seed/login 响应缺少 access_token");
   }
   return payload.access_token;
-}
-
-/** 只撤销本流程邮箱的待接受邀请，保留其它历史邀请不变。 */
-async function revokeOwnedPendingInvitations(
-  page: Page,
-  accessToken: string,
-  email: string,
-): Promise<string[]> {
-  const response = await page.request.get("/api/v1/invitations", {
-    headers: auth(accessToken),
-    params: { status: "pending", scope: "all" },
-  });
-  if (!response.ok()) {
-    throw new Error(
-      `[project-invitation-join] 读取邀请记录失败: HTTP ${response.status()} ${await response.text()}`,
-    );
-  }
-  const rows = (await response.json()) as InvitationRecord[];
-  const revoked: string[] = [];
-  for (const row of rows.filter((item) => item.email === email)) {
-    const deleted = await page.request.delete(`/api/v1/invitations/${row.id}`, {
-      headers: auth(accessToken),
-    });
-    if (!deleted.ok() && deleted.status() !== 404) {
-      throw new Error(
-        `[project-invitation-join] 撤销残留邀请失败: HTTP ${deleted.status()} ${await deleted.text()}`,
-      );
-    }
-    revoked.push(row.id);
-  }
-  return revoked;
 }
 
 async function readMembers(
@@ -245,12 +216,14 @@ export async function runProjectInvitationJoin(
   const project = catalog.projects.video_demo;
   // 种子用户的账号（qa/anno…）不是邮箱格式，无法通过邀请表单的 type=email 校验；
   // 邀请目标是尚未注册的新邮箱，接受走 /register?token 的一次性注册路径。
-  const invitedEmail = `invited-${Date.now()}@capture.local`;
+  const invitedEmail = `invited-${catalog.run_id.replaceAll("-", "")}-${randomUUID().replaceAll("-", "")}@capture.local`;
   const accessToken = await token(page);
   let invitation: InvitationCreated | null = null;
   let invitationId = "";
   let acceptedUserId = "";
   let adminToken = "";
+  let intentId = "";
+  let intentConfirmed = false;
   let accepted = false;
   let registrationAttempted = false;
   let baselineUserIds: Set<string> | undefined;
@@ -266,8 +239,28 @@ export async function runProjectInvitationJoin(
       throw new Error("[project-invitation-join] 邀请邮箱已存在，拒绝修改非本流程账号");
     }
     baselineUserIds = new Set(baselineUsers.map((user) => user.id));
-    // 窗口外准备：清掉上次中断留下的待接受邀请；新邮箱账号不复用，无需清成员。
-    const revokedResiduals = await revokeOwnedPendingInvitations(page, accessToken, invitedEmail);
+    intentId = randomUUID();
+    const intentResponse = await postFixture(
+      "http://fixture.local/api/v1/__test/seed/invitation-intent",
+      {
+        data: {
+          run_id: catalog.run_id,
+          intent_id: intentId,
+          project_id: project.id,
+          inviter_id: catalog.users.admin.id,
+          email: invitedEmail,
+        },
+      },
+    );
+    if (!intentResponse.ok()) {
+      throw new Error(
+        `Invitation intent failed: ${intentResponse.status()} ${await intentResponse.text()}`,
+      );
+    }
+    const intent = (await intentResponse.json()) as { intent_id: string };
+    if (intent.intent_id !== intentId) throw new Error("Invitation intent identity changed");
+    intentConfirmed = true;
+    const revokedResiduals: string[] = [];
     const removedResidualMembership = false;
 
     await page.goto("/users");
@@ -407,7 +400,7 @@ export async function runProjectInvitationJoin(
 
     // 窗口后（成片裁掉）：API 读回验证新增的项目成员关系。注册 adopting 了新会话，
     // 管理员旧 JWT 可能被服务端登录互斥失效：改用隔离 seed 重新签发管理员令牌。
-    adminToken = await seedAdminAccessToken(page);
+    adminToken = await seedAdminAccessToken(page, catalog);
     await page.getByRole("button", { name: "打开项目", exact: true }).click();
     await page.waitForURL(new RegExp(`/projects/${project.id}/`), { timeout: 20_000 });
     // 项目质检员首次进入项目落在项目页（工作台仅 /annotate 路由）：到达项目 URL 即
@@ -460,7 +453,7 @@ export async function runProjectInvitationJoin(
     }
     if (registrationAttempted && baselineUserIds) {
       try {
-        if (!adminToken) adminToken = await seedAdminAccessToken(page);
+        if (!adminToken) adminToken = await seedAdminAccessToken(page, catalog);
         await retireOwnedInvitedAccount(
           page,
           adminToken,
@@ -484,10 +477,28 @@ export async function runProjectInvitationJoin(
         cleanupErrors.push(String(error));
       }
     }
+    if (intentId) {
+      try {
+        const response = await postFixture(
+          "http://fixture.local/api/v1/__test/seed/invitation-finish",
+          {
+            data: { run_id: catalog.run_id, intent_id: intentId },
+          },
+        );
+        if (!response.ok() && (intentConfirmed || response.status() !== 404)) {
+          cleanupErrors.push(
+            `邀请清理范围未退役: HTTP ${response.status()} ${await response.text()}`,
+          );
+        }
+      } catch (error) {
+        cleanupErrors.push(String(error));
+      }
+    }
   }
   if (actionError && cleanupErrors.length > 0) {
-    throw new Error(
-      `[project-invitation-join] 录制失败: ${String(actionError)}; 清理失败: ${cleanupErrors.join("; ")}`,
+    throw new AggregateError(
+      [actionError, ...cleanupErrors.map((message) => new Error(message))],
+      "[project-invitation-join] 录制与清理均失败",
     );
   }
   if (actionError) throw actionError;

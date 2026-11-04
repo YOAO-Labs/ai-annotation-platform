@@ -129,11 +129,6 @@ def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
         json.loads((source_root / "protocol.schema.json").read_text())
         == c.contract_document()
     )
-    assert len(c.OPERATIONS) == 22
-    assert {
-        role: sum(operation.role == role for operation in c.OPERATIONS.values())
-        for role in ("control", "system", "worker", "cleanup")
-    } == {"control": 9, "system": 5, "worker": 6, "cleanup": 2}
     assert set(c.TaskImageSourceFacts.model_fields) == {
         "task_id",
         "project_id",

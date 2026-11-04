@@ -1,6 +1,10 @@
 import { defineConfig, devices } from "@playwright/test";
+import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+// One run identity survives worker restarts but never aliases another invocation.
+process.env.PLAYWRIGHT_FIXTURE_RUN_ID ??= randomUUID();
 
 const worktreeMode = process.env.AAP_WORKTREE_MODE;
 if (worktreeMode === "dev") {
@@ -77,8 +81,7 @@ export default defineConfig({
   // in tests/ run through playwright.extended.config.ts with their own CI reports.
   testMatch: ["**/tests/**/*.spec.ts"],
   grepInvert: new RegExp(excludedTags.join("|")),
-  // Global fixture teardown deletes shared E2E data. Keep one worker per
-  // database; CI shards use independent runners and services.
+  // Unproved fixture families remain serial even when their runs are isolated.
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: isCI ? 1 : 0,
@@ -90,6 +93,7 @@ export default defineConfig({
     ? [["line"], ["github"], ["html"], ["json", { outputFile: "e2e-results.json" }]]
     : "html",
 
+  globalSetup: "./e2e/global-setup.ts",
   globalTeardown: "./e2e/global-teardown.ts",
 
   use: {

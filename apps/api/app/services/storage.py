@@ -586,8 +586,27 @@ def require_legacy_task_path(task):
             raise ContentError("location_unavailable")
 
 
-def resolve_task_url(task: "Task") -> str:
-    """Sign the task key directly for the ML backend's storage endpoint."""
+async def require_unowned_legacy_original(db, key: str, bucket: str) -> None:
+    """Do not issue an untracked URL for a run-owned original."""
+    from sqlalchemy import text
+    from app.services.content_snapshot import ContentError
+    from app.services.managed_original_retirement import managed_storage_identity
+
+    endpoint = storage_service.client.meta.endpoint_url
+    identity = managed_storage_identity(endpoint, bucket)
+    owned = await db.scalar(
+        text(
+            "SELECT aap_assets_v1.is_fixture_original_source("
+            "CAST(:key AS text), CAST(:identity AS text))"
+        ),
+        {"key": key, "identity": identity},
+    )
+    if owned is not False:
+        raise ContentError("fixture_original_untracked_url_forbidden")
+
+
+async def resolve_task_url(db, task: "Task") -> str:
+    """Sign only a source that has no fixture-owned physical identity."""
     from app.services.reference_keys import is_reference
 
     if is_reference(task.file_path):
@@ -600,6 +619,7 @@ def resolve_task_url(task: "Task") -> str:
         if task.dataset_item_id
         else storage_service.bucket
     )
+    await require_unowned_legacy_original(db, task.file_path, bucket)
     return storage_service.generate_download_url(
         task.file_path, bucket=bucket, audience="ml"
     )

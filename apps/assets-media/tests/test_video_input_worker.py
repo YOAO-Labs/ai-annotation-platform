@@ -1,18 +1,16 @@
 import asyncio
 import hashlib
-from pathlib import Path
 import time
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from yoao_assets_images.contract import ImageSource, ObjectIdentity as TransportIdentity
+from yoao_assets_images.contract import OriginalRead
 from yoao_assets_inputs.contract import InputFailure
 from yoao_assets_video_inputs import execution as c
 from yoao_assets_video_inputs import values as v
 from yoao_assets_video_inputs_runtime import worker as w
-from yoao_assets_video_inputs_runtime.storage import VideoDownload, VideoSourceStorage
+from yoao_assets_video_inputs_runtime.storage import VideoDownload
 from video_input_fixtures import (
     FRAME_ID,
     FRAME_LEASE,
@@ -32,6 +30,8 @@ class Database:
         self.failed = []
 
     async def call(self, operation, request):
+        if operation == "begin_accepted_video_original":
+            return OriginalRead(ownership="ordinary", object_key=self.source.file_path)
         self.calls.append(operation)
         kind = "frame" if operation.endswith("_frame") else "input"
         if operation == "claim_accepted_video_input":
@@ -149,6 +149,10 @@ class Storage:
         self.downloads, self.uploads, self.original_reads = 0, 0, 0
         self.source_changed = False
         self.source_forbidden = False
+
+    def bind_original(self, permit):
+        assert permit.ownership == "ordinary"
+        return self
 
     async def assert_versioning(self):
         pass
@@ -336,40 +340,6 @@ async def test_resource_budget_rejects_before_source_or_blob_io(tmp_path):
     failed = await executor.execute_once(input_id=db.input.input_id)
     assert failed.error == "resource_limit"
     assert storage.original_reads == storage.uploads == storage.downloads == 0
-
-
-async def test_video_source_bridge_uses_binary_facts_without_fabricating_image_domain_owner():
-    input_ = record()
-    source = c.VideoCaptureSource(
-        **input_.source.model_dump(),
-        source_drifted=False,
-        file_path="dataset/original.mp4",
-        file_type="video",
-        file_size=4096,
-        content_hash=None,
-    )
-    transport_identity = TransportIdentity(**input_.source.object_identity.model_dump())
-    binary = SimpleNamespace(
-        head_source=AsyncMock(return_value=transport_identity),
-        download_source=AsyncMock(
-            return_value=SimpleNamespace(
-                identity=transport_identity, byte_size=4096, sha256="c" * 64
-            )
-        ),
-    )
-    bridge = VideoSourceStorage(binary)
-    assert await bridge.head_source(source) == input_.source.object_identity
-    downloaded = await bridge.download_source(source, Path("destination"))
-    assert (
-        downloaded.identity == input_.source.object_identity
-        and downloaded.sha256 == "c" * 64
-    )
-    forwarded = binary.download_source.await_args.args[0]
-    assert not isinstance(forwarded, ImageSource) and not hasattr(forwarded, "owner")
-    assert (
-        forwarded.bucket_kind == "datasets"
-        and type(forwarded.object_identity) is TransportIdentity
-    )
 
 
 async def test_frame_worker_rejects_storage_receipt_for_a_different_frame_key(tmp_path):

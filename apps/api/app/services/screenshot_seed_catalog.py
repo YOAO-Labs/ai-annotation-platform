@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
 import uuid
 from collections.abc import Mapping
+from dataclasses import replace
 from typing import Any
 
 from pydantic import ValidationError
@@ -24,6 +23,7 @@ from yoao_assets_images.transport import (
 
 from app.config import settings
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
+from app.db.models.fixture_run import FixtureRun, FixtureRunResource
 from app.db.models.project import Project
 from app.services.workspace_seed_data import seed_members, seed_projects
 from app.db.models.task import Task
@@ -50,10 +50,10 @@ from app.services.screenshot_seed_spec import (
     ProjectSpec,
     RecordingAnchorSpec,
     TaskSpec,
+    fixture_persona_email,
     resolve_project_spec,
     parse_backend_requirements,
 )
-from app.services.storage import storage_service
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.assets_images import image_gateway, image_policy
 from app.services.labeling_scene import read_spatial_item_facts
@@ -118,19 +118,60 @@ def _task_payload(task: Task, *, spec: TaskSpec | None = None) -> dict[str, Any]
     return payload
 
 
-def _storage_object_digest(file_path: str) -> str:
-    response = storage_service.client.get_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=file_path,
+async def _storage_object_digest(db, item) -> str:
+    """Read the exact created version through the existing original owner."""
+    from app.services import (
+        managed_original_creation,
+        managed_original_reader,
+        original_sources,
+        storage_access,
     )
-    body = response["Body"]
-    digest = hashlib.sha256()
-    try:
-        for chunk in iter(lambda: body.read(1024 * 1024), b""):
-            digest.update(chunk)
-    finally:
-        body.close()
-    return digest.hexdigest()
+    from app.services.content_snapshot import ContentError
+    from app.services.original_binary_response import COPY_SECONDS, close_stage
+
+    source = await original_sources.resolve_item(db, item.id)
+    replica = source.replica_facts
+    creation = await managed_original_creation.for_key(
+        db, dataset_id=item.dataset_id, object_key=item.file_path
+    )
+    if (
+        source.read_route is not None
+        or replica is None
+        or creation is None
+        or replica.creation_id != creation["id"]
+        or creation["status"] != "verified"
+        or not creation["version_id"]
+        or creation["version_id"] == "null"
+        or creation["sha256"] != source.sha256
+        or creation["size_bytes"] != source.size_bytes
+        or creation["location_id"] != source.location_id
+        or creation["bucket"] != source.bucket
+        or creation["object_key"] != source.object_key
+    ):
+        raise ContentError("screenshot_original_unqualified")
+    plan = original_sources.read_plan(source)
+    spec = replace(
+        plan.spec,
+        expected_version_id=creation["version_id"],
+        expected_etag=creation["etag"],
+    )
+    async with await storage_access.acquire(
+        db,
+        plan.location_id,
+        plan.purpose("screenshot_catalog_" + item.id.hex),
+        expected_revision=plan.maintenance_revision,
+    ):
+        options = await original_sources.read_options(db, source)
+        stage = await managed_original_reader.capture(
+            spec, max_bytes=source.size_bytes, timeout_seconds=COPY_SECONDS, **options
+        )
+        try:
+            digest = stage.sha256
+        finally:
+            await close_stage(stage)
+        if await original_sources.resolve_item(db, item.id) != source:
+            raise ContentError("screenshot_original_changed")
+        return digest
 
 
 async def _resolve_large_image_seed_actor(
@@ -352,6 +393,7 @@ async def _resolve_backend(
 
 async def _resolve_dataset_and_tasks(
     db: AsyncSession,
+    run_id: uuid.UUID,
     project: Project,
     logical_key: str,
     spec: ProjectSpec,
@@ -368,15 +410,18 @@ async def _resolve_dataset_and_tasks(
             )
         ).scalars()
     )
-    expected = [
-        dataset for dataset in datasets if dataset.display_id == spec.dataset_display_id
-    ]
-    if len(datasets) != 1 or len(expected) != 1:
-        issues.append(
-            f"{prefix}: expected exactly dataset {spec.dataset_display_id} and no other links"
+    expected_id = await db.scalar(
+        select(FixtureRunResource.resource_id).where(
+            FixtureRunResource.run_id == run_id,
+            FixtureRunResource.kind == "dataset",
+            FixtureRunResource.logical_key == logical_key,
+            FixtureRunResource.state == "published",
         )
+    )
+    if len(datasets) != 1 or expected_id is None or datasets[0].id != expected_id:
+        issues.append(f"{prefix}: expected exactly its owned screenshot dataset")
         return None, {}, {}
-    dataset = expected[0]
+    dataset = datasets[0]
     try:
         spec = resolve_project_spec(spec, dataset.id, dataset.metadata_)
     except ValueError as exc:
@@ -388,6 +433,7 @@ async def _resolve_dataset_and_tasks(
             marker.get("managed_by") != SEED_MANAGED_BY,
             marker.get("profile") != "screenshots",
             marker.get("logical_key") != logical_key,
+            marker.get("run_id") != str(run_id),
             marker.get("revision") != SEED_REVISION,
             not isinstance(marker.get("asset_sha256"), str),
             len(marker.get("asset_sha256", "")) != 64,
@@ -403,13 +449,29 @@ async def _resolve_dataset_and_tasks(
             )
         ).scalars()
     )
-    expected_media_paths = set(spec.media_paths) or {
-        task_spec.file_path for task_spec in spec.tasks
+    expected_media_paths = {
+        path.removeprefix(spec.storage_prefix)
+        for path in (
+            set(spec.media_paths) or {task_spec.file_path for task_spec in spec.tasks}
+        )
     }
-    actual_media_paths = {item.file_path for item in dataset_items}
+    actual_media_paths = {
+        (item.metadata_ or {}).get("storage_relative_path") for item in dataset_items
+    }
+    owned_item_ids = set(
+        await db.scalars(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "item",
+                FixtureRunResource.state == "published",
+                FixtureRunResource.resource_id.in_([item.id for item in dataset_items]),
+            )
+        )
+    )
     if (
         len(dataset_items) != len(actual_media_paths)
         or actual_media_paths != expected_media_paths
+        or owned_item_ids != {item.id for item in dataset_items}
     ):
         issues.append(
             f"{spec.dataset_display_id}: screenshot seed media set is not exact"
@@ -431,7 +493,9 @@ async def _resolve_dataset_and_tasks(
         item.id
         for item in dataset_items
         if spec.data_type == "lidar"
-        and item.file_path.startswith(f"{spec.storage_prefix}camera/")
+        and "/camera/" in f"/{(item.metadata_ or {}).get('storage_relative_path', '')}"
+        and "/calib/camera/"
+        not in f"/{(item.metadata_ or {}).get('storage_relative_path', '')}"
     ]
     spatial = AssetsSpatialGateway(db)
     try:
@@ -453,7 +517,8 @@ async def _resolve_dataset_and_tasks(
         record.dataset_item_id: record for record in calibration_records
     }
     for item in dataset_items:
-        if not item.file_path.startswith(spec.storage_prefix) or not item.content_hash:
+        relative_path = (item.metadata_ or {}).get("storage_relative_path")
+        if relative_path not in expected_media_paths or not item.content_hash:
             issues.append(
                 f"{spec.dataset_display_id}: media {item.file_path} has invalid metadata"
             )
@@ -462,9 +527,11 @@ async def _resolve_dataset_and_tasks(
             object_digest = (
                 await verified_video_seed_digest(db, item)
                 if item.file_type == "video"
-                else await asyncio.to_thread(_storage_object_digest, item.file_path)
+                else await _storage_object_digest(db, item)
             )
         except Exception as exc:  # noqa: BLE001 - report storage failure as an issue
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             issues.append(
                 f"{spec.dataset_display_id}: media {item.file_path} is unavailable in "
                 f"storage ({type(exc).__name__})"
@@ -474,9 +541,7 @@ async def _resolve_dataset_and_tasks(
             issues.append(
                 f"{spec.dataset_display_id}: media {item.file_path} digest is stale"
             )
-        if spec.data_type == "lidar" and item.file_path.startswith(
-            f"{spec.storage_prefix}camera/"
-        ):
+        if item.id in camera_item_ids:
             try:
                 record = calibrations_by_item[item.id]
                 if record.error is not None:
@@ -496,7 +561,8 @@ async def _resolve_dataset_and_tasks(
                 await db.execute(
                     select(DatasetItem).where(
                         DatasetItem.dataset_id == dataset.id,
-                        DatasetItem.file_path == task_spec.file_path,
+                        DatasetItem.metadata_["storage_relative_path"].astext
+                        == task_spec.file_path.removeprefix(spec.storage_prefix),
                     )
                 )
             ).scalars()
@@ -659,30 +725,34 @@ async def _resolve_batches(
 
 async def _resolve_project(
     db: AsyncSession,
+    run_id: uuid.UUID,
     logical_key: str,
     spec: ProjectSpec,
     users: dict[str, uuid.UUID],
     issues: list[str],
     backend_requirements: frozenset[str] | None = None,
 ) -> dict[str, Any] | None:
-    projects = list(
-        (
-            await db.execute(
-                select(seed_projects).where(seed_projects.display_id == spec.display_id)
-            )
-        ).scalars()
+    project_id = await db.scalar(
+        select(FixtureRunResource.resource_id).where(
+            FixtureRunResource.run_id == run_id,
+            FixtureRunResource.kind == "project",
+            FixtureRunResource.logical_key == logical_key,
+            FixtureRunResource.state == "published",
+        )
     )
-    if len(projects) != 1:
-        issues.append(f"{spec.display_id}: project is missing or duplicated")
+    project = await db.scalar(
+        select(seed_projects).where(seed_projects.id == project_id)
+    )
+    if project is None:
+        issues.append(f"{logical_key}: owned project is missing")
         return None
-    project = projects[0]
     if project.data_type != spec.data_type:
         issues.append(
             f"{spec.display_id}: data_type must be {spec.data_type}, got {project.data_type}"
         )
 
     dataset, tasks, task_payload = await _resolve_dataset_and_tasks(
-        db, project, logical_key, spec, users, issues
+        db, run_id, project, logical_key, spec, users, issues
     )
     batches = await _resolve_batches(db, project, spec, tasks, issues)
 
@@ -928,15 +998,32 @@ async def _resolve_optional_large_image_project(
 
 
 async def build_screenshot_seed_catalog(
-    db: AsyncSession, *, backend_requirements: str | None = None
+    db: AsyncSession, *, run_id: uuid.UUID, backend_requirements: str | None = None
 ) -> dict[str, Any]:
+    run = await db.get(FixtureRun, run_id, populate_existing=True)
+    if (
+        run is None
+        or run.parent_run_id is not None
+        or run.family != "screenshot"
+        or run.state != "open"
+    ):
+        raise ScreenshotSeedCatalogError(["an open screenshot root is required"])
     required = parse_backend_requirements(backend_requirements)
     issues: list[str] = []
     users: dict[str, uuid.UUID] = {}
     user_payload: dict[str, dict[str, str]] = {}
-    for logical_key, (email, role) in USER_SPECS.items():
+    for logical_key, (persona, role) in USER_SPECS.items():
+        email = fixture_persona_email(run_id, persona)
         rows = await IdentityCommandService(db).lookup_seed_account_facts(email)
-        if len(rows) != 1:
+        owned_id = await db.scalar(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "user",
+                FixtureRunResource.logical_key == logical_key,
+                FixtureRunResource.state == "published",
+            )
+        )
+        if len(rows) != 1 or owned_id != rows[0][0]:
             issues.append(f"user {logical_key} ({email}) is missing or duplicated")
             continue
         user_id, user_email, user_role, is_active = rows[0]
@@ -953,7 +1040,9 @@ async def build_screenshot_seed_catalog(
 
     project_payload: dict[str, Any] = {}
     for logical_key, spec in PROJECT_SPECS.items():
-        project = await _resolve_project(db, logical_key, spec, users, issues, required)
+        project = await _resolve_project(
+            db, run_id, logical_key, spec, users, issues, required
+        )
         if project is not None:
             project_payload[logical_key] = project
 
@@ -963,8 +1052,19 @@ async def build_screenshot_seed_catalog(
 
     if issues:
         raise ScreenshotSeedCatalogError(issues)
+    run = await db.scalar(
+        select(FixtureRun)
+        .where(FixtureRun.id == run_id)
+        .with_for_update(read=True)
+        .execution_options(populate_existing=True)
+    )
+    if run is None or run.state != "open" or run.family != "screenshot":
+        raise ScreenshotSeedCatalogError(
+            ["screenshot run closed during catalog resolution"]
+        )
     return {
         "schema_version": SCHEMA_VERSION,
+        "run_id": str(run_id),
         "seed_revision": SEED_REVISION,
         "backend_requirements": sorted(required),
         "users": user_payload,

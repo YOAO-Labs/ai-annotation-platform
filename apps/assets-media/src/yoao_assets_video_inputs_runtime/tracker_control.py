@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import get_args
 
 from yoao_assets_images.contract import ImageFailure
+from yoao_assets_images_runtime.original_read import admitted_original
 from yoao_assets_inputs.contract import InputFailure
 from yoao_assets_media.contract import MediaFailure
 from yoao_assets_video_inputs import execution as e
@@ -40,7 +41,10 @@ class TrackerVideoInputControl:
             return await operation(*args, **kwargs)
         except (ImageFailure, InputFailure, MediaFailure, e.VideoInputFailure) as exc:
             code = exc.code if exc.code in _ERRORS else "storage_unavailable"
-            raise t.TrackerFailure(code) from None
+            error = t.TrackerFailure(code)
+            if getattr(exc, "storage_operation_unsettled", False):
+                error.storage_operation_unsettled = True
+            raise error from exc
 
     @staticmethod
     def _read_request(request: t.TrackerVideoInputRequest):
@@ -74,13 +78,26 @@ class TrackerVideoInputControl:
         source = work.source_facts
         await self._storage_call(self.storage.assert_versioning)
         identity, terminal_error = None, None
-        try:
-            identity = await self._storage_call(self.storage.head_source, source)
-        except t.TrackerFailure as exc:
-            code = "source_missing" if exc.code == "object_missing" else exc.code
-            if code not in _TERMINAL_SOURCE:
-                raise
-            terminal_error = code
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_tracker_prepare_original",
+            t.TrackerPrepareOriginalRequest(
+                **request.model_dump(),
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            "finish_tracker_control_original",
+        ) as source_storage:
+            try:
+                identity = await self._storage_call(source_storage.head_source, source)
+            except t.TrackerFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
+                code = "source_missing" if exc.code == "object_missing" else exc.code
+                if code not in _TERMINAL_SOURCE:
+                    raise
+                terminal_error = code
         if identity is not None and not isinstance(identity, e.ObjectIdentity):
             raise t.TrackerFailure("invalid_response")
         if identity is not None and (
@@ -116,14 +133,27 @@ class TrackerVideoInputControl:
         if plan.plan_digest != request.plan_digest:
             raise t.TrackerFailure("input_scope_mismatch")
 
-        try:
-            observed = await self._storage_call(
-                self.storage.head_source, material.source_facts
-            )
-        except t.TrackerFailure as exc:
-            if exc.code == "object_missing":
-                raise t.TrackerFailure("source_missing") from None
-            raise
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_tracker_control_original",
+            t.TrackerControlOriginalRequest(
+                **request.model_dump(),
+                source_snapshot=material.source_facts.source_snapshot,
+                object_key=material.source_facts.file_path,
+            ),
+            "finish_tracker_control_original",
+        ) as source_storage:
+            try:
+                observed = await self._storage_call(
+                    source_storage.head_source, material.source_facts
+                )
+            except t.TrackerFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
+                if exc.code == "object_missing":
+                    raise t.TrackerFailure("source_missing") from None
+                raise
         if observed != plan.input.source.object_identity:
             raise t.TrackerFailure("source_changed")
         await self._storage_call(self.storage.verify_blob, plan.input.blob)

@@ -29,8 +29,8 @@ from .contract import (
 
 class SourceReference(Value):
     source: MediaSource
-    original_url: StrictStr
-    video_url: StrictStr
+    original_url: StrictStr | None
+    video_url: StrictStr | None
     poster_url: StrictStr | None
     expires_in: StrictInt = Field(ge=1, le=604800)
 
@@ -42,7 +42,7 @@ class SourceReference(Value):
 
 class MediaReferences(Value):
     state: MediaAssets
-    video_url: StrictStr
+    video_url: StrictStr | None
     expires_in: StrictInt = Field(ge=1, le=86400)
 
     @field_validator("video_url")

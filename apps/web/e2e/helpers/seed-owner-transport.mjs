@@ -98,7 +98,7 @@ export async function runMaskSliceLifecycle(data) {
   return JSON.parse(response.body);
 }
 
-export async function postFixture(url, options) {
+async function requestFixture(url, method, options) {
   const target = new URL(url);
   if (!target.pathname.startsWith("/api/v1/__test/seed/")) {
     throw new Error("Setup credentials may only prepare fixture endpoints");
@@ -106,6 +106,7 @@ export async function postFixture(url, options) {
   transport ??= startOwner();
   const response = await transport.post(
     {
+      method,
       path: target.pathname + target.search,
       data: options?.data,
       headers: options?.headers,
@@ -118,4 +119,15 @@ export async function postFixture(url, options) {
     text: async () => response.body,
     json: async () => JSON.parse(response.body),
   };
+}
+
+export function postFixture(url, options) {
+  return requestFixture(url, "POST", options);
+}
+
+export function getScreenshotCatalog(url, options) {
+  if (new URL(url).pathname !== "/api/v1/__test/seed/catalog") {
+    throw new Error("Fixture catalog transport only permits the screenshot catalog");
+  }
+  return requestFixture(url, "GET", options);
 }

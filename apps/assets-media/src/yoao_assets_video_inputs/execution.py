@@ -8,6 +8,7 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
+    BaseModel,
     AwareDatetime,
     Field,
     StrictBool,
@@ -17,6 +18,11 @@ from pydantic import (
 )
 
 from yoao_assets_media.contract import ErrorCode as MediaErrorCode
+from yoao_assets_images.contract import (
+    FinishOriginalReadRequest,
+    FinishedOriginalRead,
+    OriginalRead,
+)
 
 from .authority import ErrorCode as AuthorityErrorCode, VideoSelection, json_bytes
 from .values import (
@@ -398,6 +404,11 @@ class PrepareVideoMemberRequest(VideoManifestScope):
     task_id: UUID
 
 
+class MemberOriginalReadRequest(PrepareVideoMemberRequest):
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+
+
 class ObserveVideoMemberRequest(PrepareVideoMemberRequest):
     source_snapshot: Digest | None
     timetable_revision: Count | None
@@ -443,6 +454,11 @@ class ReadVideoInputRequest(Value):
 
 class LockVideoInputRequest(ReadVideoInputRequest):
     plan_digest: Digest
+
+
+class ControlOriginalReadRequest(LockVideoInputRequest):
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
 
 
 class VideoInputWork(Value):
@@ -683,8 +699,8 @@ class VideoGarbageAck(Value):
 
 @dataclass(frozen=True)
 class NativeOperation:
-    request: type[Value]
-    result: type[Value]
+    request: type[BaseModel]
+    result: type[BaseModel]
     arguments: tuple[str, ...]
     sql_types: tuple[str, ...]
     role: Literal["workflow", "control", "worker", "labeling", "system", "cleanup"]
@@ -701,6 +717,44 @@ _FRAME = ("actor_id", "job_id", "task_id", "input_id", "plan_digest", "ordinal")
 _FRAME_TYPES = ("uuid", "uuid", "uuid", "uuid", "text", "bigint")
 
 OPERATIONS = {
+    "begin_video_member_original": NativeOperation(
+        MemberOriginalReadRequest,
+        OriginalRead,
+        (
+            *_SCOPE,
+            "selection_digest",
+            "ordinal",
+            "task_id",
+            "source_snapshot",
+            "object_key",
+        ),
+        (*_SCOPE_TYPES, "text", "bigint", "uuid", "text", "text"),
+        "control",
+    ),
+    "begin_video_control_original": NativeOperation(
+        ControlOriginalReadRequest,
+        OriginalRead,
+        (*_INPUT, "plan_digest", "source_snapshot", "object_key"),
+        (*_INPUT_TYPES, "text", "text", "text"),
+        "control",
+    ),
+    "finish_video_control_original": NativeOperation(
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "control",
+    ),
+    "begin_accepted_video_original": NativeOperation(
+        VideoInputLeaseRequest, OriginalRead, _LEASE, _LEASE_TYPES, "worker"
+    ),
+    "finish_accepted_video_original": NativeOperation(
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "worker",
+    ),
     "capture_accepted_video_manifest": NativeOperation(
         CaptureVideoManifestRequest,
         VideoManifestHeader,
@@ -882,6 +936,18 @@ OPERATIONS = {
 
 
 def require_scope(operation: str, request: Value, result: Value) -> None:
+    if isinstance(request, (MemberOriginalReadRequest, ControlOriginalReadRequest)):
+        if (
+            not isinstance(result, OriginalRead)
+            or result.object_key != request.object_key
+        ):
+            raise ValueError("video input source read escaped its original")
+    if isinstance(request, FinishOriginalReadRequest) and (
+        not isinstance(result, FinishedOriginalRead)
+        or result.creation_id != request.creation_id
+        or result.operation_id != request.operation_id
+    ):
+        raise ValueError("original read finish escaped its operation")
     if isinstance(result, VideoGarbageBatch) and len(result.items) > request.page_size:
         raise ValueError("video garbage claim exceeded its requested page")
     if isinstance(result, VideoGarbageAck) and result.garbage_id != request.garbage_id:

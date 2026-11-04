@@ -15,19 +15,21 @@ E2E（Playwright）通过 `POST /api/v1/__test/seed/owned` 创建私有命名空
 from __future__ import annotations
 
 import asyncio
+import builtins
 import hashlib
 import os
 import re
 import secrets
 import struct
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_labeling.e2e_fixture_contract import TaskFixturePatch
@@ -88,6 +90,7 @@ class _OwnedFixtureScope:
     """Exact identifiers of one owned E2E fixture namespace."""
 
     namespace: str
+    run_id: UUID | None = None
 
     @property
     def admin_email(self) -> str:
@@ -480,6 +483,11 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
                         "message": "存在尚未退役的视频执行，请先取消并完成退役后重试",
                     },
                 ) from exc
+            if state == "23514" and "fixture_job_execution_unsettled" in str(original):
+                raise HTTPException(
+                    status_code=409,
+                    detail={"code": "fixture_job_execution_unsettled"},
+                ) from exc
             if state == "55P03":
                 raise HTTPException(
                     status_code=409, detail={"reason": "project_busy"}
@@ -491,11 +499,48 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
             raise HTTPException(
                 status_code=503, detail="项目测试清理服务暂不可用"
             ) from exc
-        log.warning("seed_cleanup skip · %s · %s", operation, exc)
+        raise
 
 
 async def _resolve_fixture_scope(db, owned):
     from app.api.v1._test_seed_attachments import FixtureScope
+
+    if owned is not None and owned.run_id is not None:
+
+        async def resources(table: str, kind: str) -> tuple:
+            return tuple(
+                await db.scalars(
+                    text(
+                        f"SELECT item.id FROM {table} AS item "
+                        "JOIN yoao_fixture_v1.fixture_run_resources AS resource "
+                        "ON resource.resource_id=item.id "
+                        "WHERE resource.run_id=:run AND resource.kind=:kind "
+                        "AND resource.state <> 'retired' ORDER BY item.id"
+                    ),
+                    {"run": owned.run_id, "kind": kind},
+                )
+            )
+
+        projects = await resources("public.projects", "project")
+        users = await resources("public.users", "user")
+        datasets = await resources("public.datasets", "dataset")
+        tasks = tuple(
+            await db.scalars(
+                text(
+                    "SELECT id FROM public.tasks WHERE project_id=ANY(:ids) ORDER BY id"
+                ),
+                {"ids": list(projects)},
+            )
+        )
+        annotations = tuple(
+            await db.scalars(
+                text(
+                    "SELECT id FROM public.annotations WHERE project_id=ANY(:ids) ORDER BY id"
+                ),
+                {"ids": list(projects)},
+            )
+        )
+        return FixtureScope(projects, users, annotations, tasks, datasets)
 
     if owned is None:
         project_selector = "name = 'E2E Demo Project' OR display_id LIKE 'P-E2E-%'"
@@ -1005,14 +1050,838 @@ async def _finalize_fixture_video_cleanup(db, plan, resolve_scope):
     await db.flush()
 
 
+async def _owned_resource_ids(db, run_id, kind):
+    from app.db.models.fixture_run import FixtureRunResource
+
+    return tuple(
+        await db.scalars(
+            select(FixtureRunResource.resource_id)
+            .where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == kind,
+            )
+            .order_by(FixtureRunResource.resource_id)
+        )
+    )
+
+
+async def _guard_fixture_export_anchors(db, project_ids):
+    """Keep independent export evidence until its real owner retires it."""
+    from app.db.models.export_artifact import ExportArtifact
+    from app.db.models.export_media_bundle import ExportMediaBundle
+    from app.db.models.export_output import ExportOutput
+
+    for owner in (ExportArtifact, ExportMediaBundle, ExportOutput):
+        if (
+            await db.scalar(
+                select(owner.id).where(owner.project_id.in_(project_ids)).limit(1)
+            )
+            is not None
+        ):
+            raise HTTPException(
+                409, detail={"code": "fixture_export_retirement_unsettled"}
+            )
+
+
+async def _delete_scale_project_data(db, scope, run_id):
+    """Retire a manifest-verified scale scope through its existing owners."""
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services.labeling_scale_seed_operations import LabelingScaleSeedOperations
+    from app.services.workspace_scale_seed_data import (
+        delete_scale_seed_projects,
+        guard_scale_seed_sources,
+        prepare_scale_seed_cleanup,
+    )
+
+    resources = tuple(
+        await db.scalars(
+            select(FixtureRunResource)
+            .where(FixtureRunResource.run_id == run_id)
+            .with_for_update()
+        )
+    )
+    if any(row.kind not in {"project", "dataset"} for row in resources):
+        raise HTTPException(409, detail={"code": "fixture_run_scope_changed"})
+    projects = {row.resource_id for row in resources if row.kind == "project"}
+    datasets = {row.resource_id for row in resources if row.kind == "dataset"}
+    marker = f"scale-seed-{run_id.hex}"
+    project_ids, dataset_ids = await prepare_scale_seed_cleanup(db, marker)
+    if (
+        set(project_ids) != projects
+        or set(dataset_ids) != datasets
+        or set(scope.project_ids) != projects
+        or set(scope.dataset_ids) != datasets
+    ):
+        raise HTTPException(409, detail={"code": "fixture_run_scope_changed"})
+    await db.execute(
+        text(
+            "SELECT aap_assets_v1.guard_scale_fixture_originals(CAST(:run AS uuid), CAST(:ids AS uuid[]))"
+        ),
+        {"run": run_id, "ids": dataset_ids},
+    )
+    await LabelingScaleSeedOperations(db).purge_labeling_rows(marker, project_ids)
+    await guard_scale_seed_sources(db, dataset_ids, after_task_cleanup=True)
+    await db.execute(
+        text("DELETE FROM dataset_items WHERE dataset_id=ANY(CAST(:ids AS uuid[]))"),
+        {"ids": dataset_ids},
+    )
+    deleted = set(
+        await db.scalars(
+            text(
+                "DELETE FROM datasets WHERE id=ANY(CAST(:ids AS uuid[])) AND name=:marker RETURNING id"
+            ),
+            {"ids": dataset_ids, "marker": marker},
+        )
+    )
+    if deleted != datasets:
+        raise HTTPException(409, detail={"code": "fixture_run_scope_changed"})
+    await delete_scale_seed_projects(db, marker=marker, project_ids=project_ids)
+
+
+async def _delete_owned_project_data(db, scope, run_id):
+    """Delete run projects and datasets while preserving the reclaim actor."""
+    from app.services.dataset import DatasetService
+    from app.services.auxiliary_originals import retire_fixture_owners
+    from app.services.managed_original_retirement import (
+        capture_fixture_auxiliary_retirements,
+        capture_managed_original_retirements,
+    )
+
+    project_ids, dataset_ids = list(scope.project_ids), list(scope.dataset_ids)
+    unexpected_item = await db.scalar(
+        text(
+            "SELECT item.id FROM public.dataset_items AS item "
+            "WHERE item.dataset_id = ANY(CAST(:datasets AS uuid[])) AND ("
+            "NOT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_run_resources AS resource "
+            "WHERE resource.run_id=:run AND resource.kind='item' AND resource.resource_id=item.id) "
+            "OR NOT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_run_resources AS resource "
+            "WHERE resource.run_id=:run AND resource.kind='creation' AND resource.item_id=item.id)) "
+            "LIMIT 1"
+        ),
+        {"datasets": dataset_ids, "run": run_id},
+    )
+    if unexpected_item is not None:
+        raise HTTPException(409, detail={"code": "fixture_dataset_unowned_item"})
+    foreign_link = await db.scalar(
+        text(
+            "SELECT 1 FROM public.project_datasets "
+            "WHERE dataset_id=ANY(CAST(:datasets AS uuid[])) "
+            "AND NOT (project_id=ANY(CAST(:projects AS uuid[]))) LIMIT 1"
+        ),
+        {"datasets": dataset_ids, "projects": project_ids},
+    )
+    if foreign_link is not None:
+        raise HTTPException(409, detail={"code": "fixture_dataset_foreign_project"})
+    if project_ids:
+        params = {"pids": project_ids, "tids": list(scope.task_ids)}
+        await _try_fixture_delete(
+            db,
+            "DELETE FROM bug_comments WHERE bug_report_id IN (SELECT id FROM bug_reports "
+            "WHERE project_id=ANY(:pids) OR task_id=ANY(:tids))",
+            params,
+        )
+        await _try_fixture_delete(
+            db,
+            "DELETE FROM bug_reports WHERE project_id=ANY(:pids) OR task_id=ANY(:tids)",
+            params,
+        )
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
+            {"pids": project_ids},
+        )
+        await _try_fixture_delete(
+            db,
+            "DELETE FROM project_task_views WHERE project_id=ANY(:pids)",
+            {"pids": project_ids},
+        )
+        await _try_fixture_delete(
+            db, _LABELING_FIXTURE_DELETE_SQL, {"pids": project_ids}
+        )
+        await _try_fixture_delete(
+            db,
+            "DELETE FROM project_ml_backend_pool WHERE project_id=ANY(:pids)",
+            {"pids": project_ids},
+        )
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
+            {"pids": project_ids},
+        )
+        if (
+            await db.scalar(
+                text(
+                    "SELECT 1 FROM aap_workspace_v1.project_facts "
+                    "WHERE id=ANY(CAST(:ids AS uuid[])) LIMIT 1"
+                ),
+                {"ids": project_ids},
+            )
+            is not None
+        ):
+            raise HTTPException(409, detail={"code": "fixture_projects_not_removed"})
+    for dataset_id in dataset_ids:
+        await capture_managed_original_retirements(
+            db, dataset_id=dataset_id, fixture_run_id=run_id
+        )
+        auxiliary_ids = await capture_fixture_auxiliary_retirements(
+            db, dataset_id=dataset_id, fixture_run_id=run_id
+        )
+        cleanup = await DatasetService(db).delete(dataset_id)
+        if cleanup is None or cleanup.directory_objects:
+            raise HTTPException(
+                409, detail={"code": "fixture_dataset_cleanup_unqualified"}
+            )
+        await retire_fixture_owners(
+            db, run_id=run_id, dataset_id=dataset_id, owner_ids=auxiliary_ids
+        )
+    await db.flush()
+    if (
+        await db.scalar(
+            text(
+                "SELECT 1 FROM public.datasets WHERE id=ANY(CAST(:ids AS uuid[])) LIMIT 1"
+            ),
+            {"ids": dataset_ids},
+        )
+        is not None
+    ):
+        raise HTTPException(409, detail={"code": "fixture_datasets_not_removed"})
+
+
+async def _delete_owned_accounts_and_auxiliary(db, owned, scope, *, family="owned"):
+    """Remove only inventoried identities and exact owner-managed auxiliaries."""
+    from app.api.v1 import _test_seed_attachments as attachments
+
+    run_id = owned.run_id
+    users = list(scope.user_ids)
+    projects = list(await _owned_resource_ids(db, run_id, "project"))
+    tasks = list(scope.task_ids)
+    await attachments.fence(db, scope)
+    await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
+    foreign = await db.scalar(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM public.bug_reports AS b "
+            "WHERE (b.reporter_id=ANY(CAST(:users AS uuid[])) "
+            "OR b.assigned_to_id=ANY(CAST(:users AS uuid[]))) "
+            "AND NOT (COALESCE(b.project_id=ANY(CAST(:projects AS uuid[])),false) "
+            "OR COALESCE(b.task_id=ANY(CAST(:tasks AS uuid[])),false))) "
+            "OR EXISTS (SELECT 1 FROM public.bug_comments AS c "
+            "JOIN public.bug_reports AS b ON b.id=c.bug_report_id "
+            "WHERE c.author_id=ANY(CAST(:users AS uuid[])) "
+            "AND NOT (COALESCE(b.project_id=ANY(CAST(:projects AS uuid[])),false) "
+            "OR COALESCE(b.task_id=ANY(CAST(:tasks AS uuid[])),false))) "
+            "OR EXISTS (SELECT 1 FROM public.task_locks AS l "
+            "WHERE l.user_id=ANY(CAST(:users AS uuid[])) AND NOT (l.task_id=ANY(CAST(:tasks AS uuid[])))) "
+            "OR EXISTS (SELECT 1 FROM public.annotation_drafts AS d "
+            "WHERE d.user_id=ANY(CAST(:users AS uuid[])) AND NOT (d.task_id=ANY(CAST(:tasks AS uuid[]))))"
+        ),
+        {"users": users, "projects": projects, "tasks": tasks},
+    )
+    if foreign:
+        raise HTTPException(409, detail={"code": "fixture_user_foreign_reference"})
+    invitation_ids = set(await _owned_resource_ids(db, run_id, "invitation"))
+    invitations = set(
+        await db.scalars(
+            text(
+                "SELECT id FROM public.user_invitations "
+                "WHERE invited_by=ANY(CAST(:users AS uuid[])) ORDER BY id FOR UPDATE"
+            ),
+            {"users": users},
+        )
+    )
+    owned_invitations = set(
+        await db.scalars(
+            text(
+                "SELECT id FROM public.user_invitations "
+                "WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
+            ),
+            {"ids": list(invitation_ids)},
+        )
+    )
+    if invitations != owned_invitations or not invitations.issubset(invitation_ids):
+        raise HTTPException(409, detail={"code": "fixture_invitation_not_owned"})
+    template_ids = list(await _owned_resource_ids(db, run_id, "template"))
+    template_rows = (
+        await db.execute(
+            text(
+                "SELECT id, display_id FROM public.project_templates "
+                "WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
+            ),
+            {"ids": template_ids},
+        )
+    ).all()
+    await _try_fixture_delete(
+        db,
+        "SELECT aap_workspace_fixture_v1.delete_templates(false, CAST(:ids AS text[]))",
+        {"ids": [row.display_id for row in template_rows]},
+    )
+    if (
+        await db.scalar(
+            text(
+                "SELECT 1 FROM public.project_templates WHERE id=ANY(CAST(:ids AS uuid[])) LIMIT 1"
+            ),
+            {"ids": template_ids},
+        )
+        is not None
+    ):
+        raise HTTPException(409, detail={"code": "fixture_templates_not_removed"})
+    audit_ids = set(await _owned_resource_ids(db, run_id, "audit"))
+    matching_audits = (
+        set(
+            await db.scalars(
+                text(
+                    "SELECT id FROM aap_audit_v1.audit_events "
+                    "WHERE detail_json ->> 'namespace'=:namespace "
+                    "AND path='/api/v1/__test/seed/filtering'"
+                ),
+                {"namespace": owned.namespace},
+            )
+        )
+        if family == "owned"
+        else set()
+    )
+    existing_audits = set(
+        await db.scalars(
+            text(
+                "SELECT id FROM aap_audit_v1.audit_events WHERE id=ANY(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": list(audit_ids)},
+        )
+    )
+    if matching_audits != existing_audits or not matching_audits.issubset(audit_ids):
+        raise HTTPException(409, detail={"code": "fixture_audit_not_owned"})
+    if matching_audits:
+        await _try_fixture_delete(
+            db, _AUDIT_FILTERING_FIXTURE_CLEANUP, {"namespace": owned.namespace}
+        )
+    registry_ids = list(await _owned_resource_ids(db, run_id, "registry"))
+    if registry_ids:
+        from app.application.ml_registry_deletion import delete_registry
+
+        existing = list(
+            await db.scalars(
+                text(
+                    "SELECT id FROM public.ml_backend_registry "
+                    "WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
+                ),
+                {"ids": registry_ids},
+            )
+        )
+        pools = list(
+            await db.scalars(
+                text(
+                    "SELECT id FROM public.ml_backend_service_pools "
+                    "WHERE legacy_instance_id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
+                ),
+                {"ids": registry_ids},
+            )
+        )
+        foreign_backend = await db.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM public.project_ml_backend_pool "
+                "WHERE pool_id=ANY(CAST(:pools AS uuid[]))) "
+                "OR EXISTS (SELECT 1 FROM public.projects WHERE ml_backend_pool_id=ANY(CAST(:pools AS uuid[]))) "
+                "OR EXISTS (SELECT 1 FROM public.predictions WHERE ml_backend_id=ANY(CAST(:ids AS uuid[])) "
+                "OR ml_backend_pool_id=ANY(CAST(:pools AS uuid[]))) "
+                "OR EXISTS (SELECT 1 FROM public.failed_predictions WHERE ml_backend_id=ANY(CAST(:ids AS uuid[])) "
+                "OR ml_backend_pool_id=ANY(CAST(:pools AS uuid[])))"
+            ),
+            {"ids": registry_ids, "pools": pools},
+        )
+        if foreign_backend:
+            raise HTTPException(
+                409, detail={"code": "fixture_backend_foreign_reference"}
+            )
+        for registry_id in existing:
+            if not await delete_registry(db, registry_id):
+                raise HTTPException(409, detail={"code": "fixture_backend_not_removed"})
+    if users:
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_identity_fixture_v1.delete_reset_tokens(:uids)",
+            {"uids": users},
+        )
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_identity_fixture_v1.delete_invitations(:uids)",
+            {"uids": users},
+        )
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_identity_fixture_v1.delete_organization_members(:uids)",
+            {"uids": users},
+        )
+        user_rows = (
+            await db.execute(
+                text(
+                    "SELECT id,email FROM public.users WHERE id=ANY(CAST(:ids AS uuid[])) "
+                    "ORDER BY id FOR UPDATE"
+                ),
+                {"ids": users},
+            )
+        ).all()
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_identity_fixture_v1.delete_accounts(CAST(:shared AS boolean),CAST(:emails AS text[]))",
+            {"shared": False, "emails": [row.email for row in user_rows]},
+        )
+        remaining = await db.scalar(
+            text(
+                "SELECT 1 FROM public.users WHERE id=ANY(CAST(:ids AS uuid[])) LIMIT 1"
+            ),
+            {"ids": users},
+        )
+        if remaining is not None:
+            raise HTTPException(409, detail={"code": "fixture_accounts_not_removed"})
+
+
+async def _reclaim_owned_originals(db, run_id, actor_id):
+    """Use the production retirement, claim and exact-version reclaim owners."""
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.db.models.managed_original_reclaim import (
+        ManagedOriginalReclaimAttempt,
+        ManagedOriginalReclaimClaim,
+    )
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from app.db.models.user import User
+    from app.schemas.managed_original_reclaim import (
+        ManagedOriginalReclaimApply,
+        ManagedOriginalReclaimReview,
+    )
+    from app.services import managed_original_reclaim
+    from app.workers.managed_original_reclaim import execute
+
+    creations = list(
+        await db.scalars(
+            select(ManagedOriginalCreation)
+            .join(
+                FixtureRunResource,
+                FixtureRunResource.resource_id == ManagedOriginalCreation.id,
+            )
+            .where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind.in_(("creation", "auxiliary")),
+            )
+            .order_by(ManagedOriginalCreation.id)
+        )
+    )
+    creation_ids = []
+    for creation in creations:
+        if (
+            creation.status in {"failed", "conflict"}
+            and creation.write_started_at is None
+        ):
+            continue
+        if creation.status != "verified" or creation.settled_at is None:
+            raise HTTPException(409, detail={"code": "fixture_original_unsettled"})
+        creation_ids.append(creation.id)
+    for creation_id in creation_ids:
+        creation = await db.get(
+            ManagedOriginalCreation, creation_id, populate_existing=True
+        )
+        retirement = list(
+            await db.scalars(
+                select(ManagedOriginalRetirement).where(
+                    ManagedOriginalRetirement.creation_id == creation_id
+                )
+            )
+        )
+        if len(retirement) != 1:
+            raise HTTPException(
+                409, detail={"code": "fixture_original_retirement_missing"}
+            )
+        retirement = retirement[0]
+        claim = await db.scalar(
+            select(ManagedOriginalReclaimClaim).where(
+                ManagedOriginalReclaimClaim.bucket == retirement.bucket,
+                ManagedOriginalReclaimClaim.object_key == retirement.object_key,
+            )
+        )
+        attempt = (
+            await db.get(ManagedOriginalReclaimAttempt, claim.current_attempt_id)
+            if claim
+            else None
+        )
+        if claim is not None and (
+            claim.creation_id != creation_id
+            or attempt is None
+            or claim.version_id != creation.version_id
+            or claim.storage_identity != creation.storage_identity
+            or attempt.version_id != creation.version_id
+            or attempt.requested_by != actor_id
+            or attempt.retirement_id != retirement.id
+        ):
+            raise HTTPException(409, detail={"code": "fixture_original_claim_changed"})
+        if (
+            claim is not None
+            and await db.get(FixtureRunResource, (run_id, "reclaim", attempt.id))
+            is None
+        ):
+            raise HTTPException(
+                409, detail={"code": "fixture_original_claim_not_owned"}
+            )
+        if claim is not None and claim.state == "deleted":
+            if (
+                attempt.status != "completed"
+                or not attempt.physical_settled
+                or attempt.absence_verified_at is None
+            ):
+                raise HTTPException(
+                    409, detail={"code": "fixture_original_reclaim_unsettled"}
+                )
+            continue
+        if claim is not None:
+            if (
+                claim.state != "claimed"
+                or attempt.status != "pending"
+                or attempt.async_job_id is None
+            ):
+                raise HTTPException(
+                    409, detail={"code": "fixture_original_reclaim_unsettled"}
+                )
+        else:
+            actor = await db.get(User, actor_id, populate_existing=True)
+            if actor is None:
+                raise HTTPException(
+                    409, detail={"code": "fixture_cleanup_actor_missing"}
+                )
+            review = ManagedOriginalReclaimReview(
+                reason="Retire an exact isolated fixture original"
+            )
+            preview = await managed_original_reclaim.preview(
+                db, retirement.id, review, actor
+            )
+            if not preview.eligible or preview.impact_token is None:
+                raise HTTPException(
+                    409,
+                    detail={
+                        "code": "fixture_original_reclaim_blocked",
+                        "blockers": preview.blockers,
+                    },
+                )
+            attempt, job, _ = await managed_original_reclaim.start(
+                db,
+                retirement.id,
+                ManagedOriginalReclaimApply(
+                    reason=review.reason,
+                    impact_token=preview.impact_token,
+                ),
+                actor,
+            )
+            db.add(
+                FixtureRunResource(
+                    run_id=run_id,
+                    kind="reclaim",
+                    resource_id=attempt.id,
+                    logical_key=f"reclaim-{creation_id.hex}",
+                    state="published",
+                )
+            )
+            await db.commit()
+        attempt_id, job_id, task_id = attempt.id, attempt.async_job_id, attempt.task_id
+        await execute(db, job_id, task_id)
+        observed = await db.get(
+            ManagedOriginalReclaimAttempt, attempt_id, populate_existing=True
+        )
+        if (
+            observed is None
+            or observed.status != "completed"
+            or not observed.physical_settled
+            or observed.absence_verified_at is None
+        ):
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "fixture_original_reclaim_unsettled",
+                    "attempt_id": str(attempt_id),
+                    "error_code": observed.error_code if observed is not None else None,
+                },
+            )
+
+
+async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=None):
+    """Seal and reclaim one exact run through the existing fixture cleanup owners."""
+    from app.api.v1 import _test_seed_attachments as attachments
+    from app.api.v1 import _test_seed_guide_assets as guides
+    from app.db.models.fixture_run import (
+        FixtureMaintenanceWindow,
+        FixtureRun,
+        FixtureRunResource,
+    )
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.db.models.managed_original_reclaim import (
+        ManagedOriginalReclaimAttempt,
+        ManagedOriginalReclaimClaim,
+    )
+    from app.db.models.user import User
+    from app.services import fixture_run_ownership as ownership, storage_access
+    from app.services.original_binary import AuthorizedOriginal, Resource
+    from app.services.original_playback import PlaybackContext
+
+    run_id = owned.run_id
+    if run_id is None:
+        raise HTTPException(422, detail={"code": "fixture_run_required"})
+
+    async def resolve(session):
+        return await _resolve_fixture_scope(session, owned)
+
+    async def cleanup():
+        blockers = await ownership.seal(db, run_id, family=family)
+        await db.commit()
+        if blockers:
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "fixture_run_unsettled",
+                    "admissions": [str(value) for value in blockers],
+                },
+            )
+        run = await db.get(FixtureRun, run_id, populate_existing=True)
+        active_window = await db.scalar(
+            select(FixtureMaintenanceWindow).where(
+                FixtureMaintenanceWindow.run_id == run_id,
+                FixtureMaintenanceWindow.state != "resumed",
+            )
+        )
+        if run.state == "retired":
+            if active_window is not None:
+                raise HTTPException(
+                    409, detail={"code": "fixture_maintenance_window_changed"}
+                )
+            return
+        scope = await resolve(db)
+        async with db.begin_nested() as preflight:
+            try:
+                await attachments.fence(db, scope)
+            except DBAPIError as exc:
+                attachments.translate(exc)
+            if await resolve(db) != scope:
+                attachments.reject()
+            await guard_fixture_project_cleanup(db, list(scope.project_ids))
+            await ownership.guard_project_jobs(db, list(scope.project_ids))
+            await ownership.guard_dataset_jobs(db, list(scope.dataset_ids))
+            await _guard_fixture_export_anchors(db, scope.project_ids)
+            await preflight.rollback()
+        await guides.preflight(db, scope)
+
+        verified = list(
+            await db.scalars(
+                select(ManagedOriginalCreation)
+                .join(
+                    FixtureRunResource,
+                    FixtureRunResource.resource_id == ManagedOriginalCreation.id,
+                )
+                .where(
+                    FixtureRunResource.run_id == run_id,
+                    FixtureRunResource.kind.in_(("creation", "auxiliary")),
+                    ManagedOriginalCreation.status == "verified",
+                )
+            )
+        )
+        need_window = active_window is not None
+        for creation in verified:
+            claim = await db.scalar(
+                select(ManagedOriginalReclaimClaim).where(
+                    ManagedOriginalReclaimClaim.creation_id == creation.id
+                )
+            )
+            if claim is None or claim.state != "deleted":
+                need_window = True
+        actor = None
+        actor_id = None
+        if verified or active_window is not None:
+            recorded_actor = await db.scalar(
+                select(ManagedOriginalReclaimAttempt.requested_by)
+                .join(
+                    FixtureRunResource,
+                    FixtureRunResource.resource_id == ManagedOriginalReclaimAttempt.id,
+                )
+                .where(
+                    FixtureRunResource.run_id == run_id,
+                    FixtureRunResource.kind == "reclaim",
+                )
+                .limit(1)
+            )
+            actor_id = (
+                active_window.actor_id if active_window is not None else recorded_actor
+            )
+            if actor_id is None:
+                actor_id = await db.scalar(
+                    select(User.id)
+                    .join(FixtureRunResource, FixtureRunResource.resource_id == User.id)
+                    .where(
+                        FixtureRunResource.run_id == run_id,
+                        FixtureRunResource.kind == "user",
+                        User.role == "super_admin",
+                        User.is_active.is_(True),
+                    )
+                    .order_by(User.id)
+                    .limit(1)
+                )
+            actor = await db.get(User, actor_id) if actor_id is not None else None
+            if actor is None or not actor.is_active or actor.role != "super_admin":
+                raise HTTPException(
+                    409, detail={"code": "fixture_cleanup_actor_missing"}
+                )
+        window = (
+            await ownership.begin_reclaim_window(db, run_id, actor)
+            if need_window
+            else None
+        )
+        window_id = window.id if window is not None else None
+        try:
+            plan = await attachments.prepare(db, scope)
+            if registry is not None:
+
+                def fixture_context(context):
+                    if not isinstance(context, PlaybackContext) or not isinstance(
+                        context.original, AuthorizedOriginal
+                    ):
+                        return False
+                    resource = context.original.resource
+                    if not isinstance(resource, Resource):
+                        return False
+                    return (
+                        resource.kind == "task" and resource.task_id in scope.task_ids
+                    ) or (
+                        resource.kind == "item"
+                        and resource.dataset_id in scope.dataset_ids
+                    )
+
+                await registry.revoke_contexts(fixture_context)
+            video_plan = await _prepare_fixture_video_cleanup(db, scope)
+            if registry is not None:
+                await registry.revoke_contexts(fixture_context)
+            await attachments.delete_objects(db, plan, resolve)
+            await _delete_fixture_video_objects(db, video_plan, resolve)
+            await db.commit()
+
+            async def retire_guides():
+                await guides.retire_references(db, scope)
+                await _finalize_fixture_video_cleanup(db, video_plan, resolve)
+
+            await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
+            await _guard_fixture_export_anchors(db, scope.project_ids)
+            if family == "scale":
+                await _delete_scale_project_data(db, scope, run_id)
+            else:
+                await ownership.recover_verified_originals(db, run_id)
+                await ownership.recover_verified_auxiliary_originals(db, run_id)
+                await _delete_owned_project_data(db, scope, run_id)
+            await attachments.assert_empty(db, plan)
+            await db.commit()
+            if verified:
+                await _reclaim_owned_originals(db, run_id, actor_id)
+            if window_id is not None:
+                saved_window = await db.get(
+                    FixtureMaintenanceWindow, window_id, populate_existing=True
+                )
+                saved_actor = await db.get(User, actor_id, populate_existing=True)
+                await ownership.end_reclaim_window(db, saved_window, saved_actor)
+                window_id = None
+            final_scope = await resolve(db)
+            await _delete_owned_accounts_and_auxiliary(
+                db, owned, final_scope, family=family
+            )
+            remaining = await resolve(db)
+            if remaining != attachments.FixtureScope():
+                attachments.reject("e2e_seed_cleanup_incomplete", 500)
+            run = await ownership._lock_run(db, run_id)
+            if run.state != "sealing":
+                raise HTTPException(409, detail={"code": "fixture_run_closed"})
+            resources = list(
+                await db.scalars(
+                    select(FixtureRunResource)
+                    .where(FixtureRunResource.run_id == run_id)
+                    .with_for_update()
+                )
+            )
+            for resource in resources:
+                resource.state = "retired"
+            run.state = "retired"
+            run.retired_at = datetime.now(timezone.utc)
+            await db.commit()
+        except BaseException as failure:
+            try:
+                await storage_access.finish(asyncio.create_task(db.rollback()))
+            except BaseException as rollback_failure:
+                raise builtins.BaseExceptionGroup(
+                    "Fixture cleanup and rollback failed", [failure, rollback_failure]
+                ) from None
+            # The durable stopped window is the recovery anchor for uncertain
+            # physical I/O. Only a successful reclaim may resume this location.
+            raise
+
+    async with storage_access.engine(db).connect() as connection:
+        key = f"fixture-cleanup:{run_id}"
+        acquired = await connection.scalar(
+            text(
+                "SELECT pg_catalog.pg_try_advisory_lock(pg_catalog.hashtextextended(:key, 0))"
+            ),
+            {"key": key},
+        )
+        await connection.commit()
+        if not acquired:
+            raise HTTPException(409, detail={"code": "fixture_cleanup_busy"})
+        failure = None
+        try:
+            await cleanup()
+        except BaseException as exc:
+            failure = exc
+            try:
+                await storage_access.finish(asyncio.create_task(db.rollback()))
+            except BaseException as rollback_failure:
+                failure = builtins.BaseExceptionGroup(
+                    "Fixture cleanup and rollback failed", [failure, rollback_failure]
+                )
+        try:
+            unlocked = await storage_access.finish(
+                asyncio.create_task(
+                    connection.execute(
+                        text(
+                            "SELECT pg_catalog.pg_advisory_unlock(pg_catalog.hashtextextended(:key, 0))"
+                        ),
+                        {"key": key},
+                    )
+                )
+            )
+            if unlocked.scalar_one() is not True:
+                raise RuntimeError("Fixture cleanup lock was not owned")
+        except BaseException as unlock_failure:
+            try:
+                await storage_access.finish(
+                    asyncio.create_task(connection.invalidate())
+                )
+            except BaseException as invalidation_failure:
+                unlock_failure = builtins.BaseExceptionGroup(
+                    "Fixture lock release and connection invalidation failed",
+                    [unlock_failure, invalidation_failure],
+                )
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Fixture cleanup and lock release failed", [failure, unlock_failure]
+                ) from None
+            raise unlock_failure from None
+        if failure is not None:
+            raise failure
+
+
 async def _cleanup_e2e_fixtures(
     db: AsyncSession, owned: _OwnedFixtureScope | None = None, *, registry=None
 ) -> None:
     """Destroy only terminal fixture owners, then fence and delete the fixture."""
+    if owned is not None and owned.run_id is not None:
+        await _require_e2e_seed_database(db)
+        await _cleanup_owned_e2e_fixtures(db, owned, registry=registry)
+        return
     from app.api.v1 import _test_seed_attachments as attachments
     from app.api.v1 import _test_seed_guide_assets as guides
     from app.services.original_binary import AuthorizedOriginal, Resource
     from app.services.original_playback import PlaybackContext
+    from app.services.fixture_run_ownership import (
+        guard_dataset_jobs,
+        guard_project_jobs,
+    )
     from app.services.storage_access import finish
 
     async def resolve(session):
@@ -1032,6 +1901,8 @@ async def _cleanup_e2e_fixtures(
             if await resolve(db) != scope:
                 attachments.reject()
             await guard_fixture_project_cleanup(db, list(scope.project_ids))
+            await guard_project_jobs(db, list(scope.project_ids))
+            await guard_dataset_jobs(db, list(scope.dataset_ids))
             await preflight.rollback()
         await guides.preflight(db, scope)
         plan = await attachments.prepare(db, scope)
@@ -1065,13 +1936,15 @@ async def _cleanup_e2e_fixtures(
         )
         try:
             await asyncio.shield(legacy_cleanup)
-        except asyncio.CancelledError:
-            # These deterministic keys may be reused by the next seed request.
-            # Keep the fixture anchor until this physical deletion has settled.
+        except asyncio.CancelledError as cancelled:
+            # Keep the fixture anchor until physical deletion has settled.
             try:
                 await finish(legacy_cleanup)
-            except BaseException:
-                pass
+            except BaseException as physical_failure:
+                raise builtins.BaseExceptionGroup(
+                    "Fixture cleanup was cancelled and physical deletion failed",
+                    [cancelled, physical_failure],
+                ) from None
             raise
 
         async def retire_guides():
@@ -1085,8 +1958,13 @@ async def _cleanup_e2e_fixtures(
         if await resolve(db) != attachments.FixtureScope():
             attachments.reject("e2e_seed_cleanup_incomplete", 500)
         await db.commit()
-    except BaseException:
-        await finish(asyncio.create_task(db.rollback()))
+    except BaseException as failure:
+        try:
+            await finish(asyncio.create_task(db.rollback()))
+        except BaseException as rollback_failure:
+            raise builtins.BaseExceptionGroup(
+                "Fixture cleanup and rollback failed", [failure, rollback_failure]
+            ) from None
         raise
 
 
@@ -1348,6 +2226,16 @@ class SeedCleanup(BaseModel):
     ok: bool = True
 
 
+class SeedSuiteCleanupRequest(BaseModel):
+    suite_id: UUID
+
+
+class SeedScreenshotCleanupRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    run_id: UUID
+
+
 @router.post(
     "/seed/cleanup",
     response_model=SeedCleanup,
@@ -1355,12 +2243,58 @@ class SeedCleanup(BaseModel):
     include_in_schema=False,
 )
 async def seed_cleanup(
-    request: Request, db: AsyncSession = Depends(get_db)
+    payload: SeedSuiteCleanupRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
 ) -> SeedCleanup:
-    """幂等清除固定 E2E fixture，同时保留所有非 E2E 数据。"""
-    await _cleanup_e2e_fixtures(
-        db, registry=getattr(request.app.state, "original_playback_registry", None)
-    )
+    """Seal and clean only the named suite's registered child runs."""
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import fixture_run_ownership as ownership
+
+    root = await db.get(FixtureRun, payload.suite_id, populate_existing=True)
+    if root is None or root.parent_run_id is not None or root.family != "owned":
+        raise HTTPException(404, detail={"code": "fixture_suite_not_found"})
+    blockers = await ownership.seal(db, payload.suite_id, family="owned")
+    await db.commit()
+    if blockers:
+        raise HTTPException(409, detail={"code": "fixture_run_unsettled"})
+    children = (
+        await db.execute(
+            select(FixtureRun.id, FixtureRun.scope_key)
+            .where(
+                FixtureRun.parent_run_id == payload.suite_id,
+                FixtureRun.state != "retired",
+            )
+            .order_by(FixtureRun.id)
+        )
+    ).all()
+    for run_id, namespace in children:
+        scope = _request_owned_scope(
+            SeedOwnedRequest(
+                namespace=namespace, suite_id=payload.suite_id, run_id=run_id
+            )
+        )
+        await _cleanup_e2e_fixtures(
+            db,
+            owned=scope,
+            registry=getattr(request.app.state, "original_playback_registry", None),
+        )
+    root = await ownership._lock_run(db, payload.suite_id)
+    if root.state != "retired":
+        if (
+            root.state != "sealing"
+            or await db.scalar(
+                select(FixtureRun.id)
+                .where(
+                    FixtureRun.parent_run_id == root.id, FixtureRun.state != "retired"
+                )
+                .limit(1)
+            )
+            is not None
+        ):
+            raise HTTPException(409, detail={"code": "fixture_suite_unsettled"})
+        root.state = "retired"
+        root.retired_at = datetime.now(timezone.utc)
     await db.commit()
     return SeedCleanup()
 
@@ -1417,6 +2351,8 @@ def _raster_image_bytes(index: int, *, width: int = 64, height: int = 48) -> byt
 class _ImageWorkbenchFixture:
     """Identifiers used by the standard image-workbench fixture builder."""
 
+    run_id: UUID
+    admission_id: UUID
     admin_email: str
     annotator_email: str
     reviewer_email: str
@@ -1425,7 +2361,6 @@ class _ImageWorkbenchFixture:
     dataset_display_id: str
     dataset_name: str
     task_display_prefix: str
-    image_key_prefix: str
     registry_name: str
     registry_url: str
 
@@ -1436,6 +2371,7 @@ async def _build_image_workbench_fixture(
     """Build the standard image workbench fixture for one owned namespace."""
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from app.db.models.task import Task
+    from app.services import fixture_run_ownership as ownership
 
     identity = IdentityE2EFixtures(db)
     admin = await identity.create_user("super_admin", ids.admin_email, "E2E Admin")
@@ -1445,7 +2381,18 @@ async def _build_image_workbench_fixture(
     reviewer = await identity.create_user(
         "employee", ids.reviewer_email, "E2E Reviewer"
     )
+    for logical_key, user in (
+        ("workbench-admin", admin),
+        ("workbench-annotator", annotator),
+        ("workbench-reviewer", reviewer),
+    ):
+        await ownership.reserve(
+            db, ids.run_id, "user", user.id, logical_key=logical_key, published=True
+        )
     project = await create_fixture_project(db, owner_id=admin.id, name=ids.project_name)
+    await ownership.reserve(
+        db, ids.run_id, "project", project.id, logical_key="workbench", published=True
+    )
     # Mask E2E 走兼容 polygon 提交；能力握手要求项目显式开启
     # region 工具。保留 bbox 绑定，避免改变其他工作台 E2E 的基础数据。
     register_seed_project_projection(db, project.id)
@@ -1485,48 +2432,61 @@ async def _build_image_workbench_fixture(
     await membership_writes.flush()
     batch = (await fixture_writes.insert_batches([batch]))[0]
 
-    # 原生图片 raster_mask 校验必须有真实 DatasetItem 及宽高。
-    # 用固定 MinIO key 覆写一组 64x48 真彩 PNG：qualified original reader
-    # 只接受可解码的栅格原件，Mask/SAM 回执需要原生像素。
+    # Publish the dataset manifest and its saved physical store before any
+    # original key or byte is made visible.
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-    from app.services.storage import storage_service
 
     image_dataset = Dataset(
+        id=uuid4(),
         display_id=ids.dataset_display_id,
         name=ids.dataset_name,
         data_type="image",
         file_count=5,
         created_by=admin.id,
     )
+    await ownership.reserve_original_dataset(
+        db, ids.run_id, image_dataset.id, logical_key="workbench"
+    )
     db.add(image_dataset)
     await db.flush()
     db.add(ProjectDataset(project_id=project.id, dataset_id=image_dataset.id))
+    await ownership.publish_resource(db, ids.run_id, "dataset", image_dataset.id)
+    await db.commit()
 
     from datetime import datetime, timedelta, timezone
 
     tasks = []
     task_created_at = datetime.now(timezone.utc)
     for index in range(5):
-        image_key = f"{ids.image_key_prefix}task-{index + 1}.png"
-        raster = _raster_image_bytes(index)
-        storage_service.client.put_object(
-            Bucket=storage_service.datasets_bucket,
-            Key=image_key,
-            Body=raster,
-            ContentType="image/png",
+        filename = f"task-{index + 1}.png"
+        item_id = uuid4()
+        await ownership.reserve(
+            db, ids.run_id, "item", item_id, logical_key=f"workbench-{index + 1}"
         )
+        await db.commit()
+        raster = _raster_image_bytes(index)
         item = DatasetItem(
+            id=item_id,
             dataset_id=image_dataset.id,
-            file_name=f"task-{index + 1}.png",
-            file_path=image_key,
+            file_name=filename,
+            file_path="",
             file_type="image",
             file_size=len(raster),
             width=64,
             height=48,
         )
-        db.add(item)
-        await db.flush()
-        await _register_fixture_original(db, item, raster)
+        allocation, original = await ownership.create_original(
+            db,
+            run_id=ids.run_id,
+            admission_id=ids.admission_id,
+            item=item,
+            logical_path=filename,
+            payload=raster,
+            content_type="image/png",
+            requested_by=admin.id,
+        )
+        await ownership.attach_original(db, item, allocation, original)
+        await ownership.publish_resource(db, ids.run_id, "item", item_id)
         t = Task(
             project_id=project.id,
             display_id=f"{ids.task_display_prefix}{index + 1:06d}",
@@ -1541,6 +2501,15 @@ async def _build_image_workbench_fixture(
         )
         tasks.append(t)
     tasks = await fixture_writes.insert_tasks(tasks)
+    for index, task in enumerate(tasks):
+        await ownership.reserve(
+            db,
+            ids.run_id,
+            "task",
+            task.id,
+            logical_key=f"workbench-{index + 1}",
+            published=True,
+        )
     await fixture_writes.patch_batch(batch, total_tasks=len(tasks))
 
     from app.services.inference_topology_data import InferenceTopologyData
@@ -1554,6 +2523,14 @@ async def _build_image_workbench_fixture(
         is_interactive=True,
         auth_method="none",
         extra_params={"e2e_mock": True},
+    )
+    await ownership.reserve(
+        db,
+        ids.run_id,
+        "registry",
+        mock_backend.id,
+        logical_key="workbench",
+        published=True,
     )
     await inference_data.seed_workbench_health(mock_backend.id)
     await backend_service.set_enabled(project.id, mock_backend.id, True)
@@ -1577,6 +2554,51 @@ async def _build_image_workbench_fixture(
 
 class SeedOwnedRequest(BaseModel):
     namespace: str
+    suite_id: UUID
+    run_id: UUID
+
+
+def _request_owned_scope(payload: SeedOwnedRequest) -> _OwnedFixtureScope:
+    namespace = _parse_owned_namespace(payload.namespace).namespace
+    token = hashlib.sha256(payload.run_id.bytes + namespace.encode()).hexdigest()[:12]
+    return _OwnedFixtureScope(namespace=token, run_id=payload.run_id)
+
+
+async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build):
+    from app.services import fixture_run_ownership as ownership
+    from app.services.storage_access import failure_unsettled, finish
+
+    scope = _request_owned_scope(payload)
+    await ownership.start_owned_scope(
+        db,
+        suite_id=payload.suite_id,
+        run_id=payload.run_id,
+        namespace=payload.namespace,
+    )
+    admission_id = await ownership.admit(db, payload.run_id, kind)
+    await db.commit()
+    try:
+        result = await build(scope, admission_id)
+    except BaseException as failure:
+        unsettled = failure_unsettled(failure)
+
+        async def settle_failed() -> None:
+            await db.rollback()
+            if not unsettled:
+                await ownership.settle(db, payload.run_id, admission_id)
+                await db.commit()
+
+        try:
+            await finish(asyncio.create_task(settle_failed()))
+        except BaseException as settlement_failure:
+            raise builtins.BaseExceptionGroup(
+                "Owned fixture creation and admission settlement failed",
+                [failure, settlement_failure],
+            ) from None
+        raise
+    await ownership.settle(db, payload.run_id, admission_id)
+    await db.commit()
+    return result
 
 
 @router.post(
@@ -1588,38 +2610,28 @@ class SeedOwnedRequest(BaseModel):
 async def seed_owned(
     payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedOwned:
-    """Build this namespace's own image-workbench fixture without touching others.
+    """Create one independently identified workbench fixture."""
 
-    Deterministic, retry-safe and non-destructive: identifiers derive from the
-    validated namespace, creation deletes nothing outside the namespace, and a
-    repeat call for the same namespace first removes only that namespace's
-    leftover fixture before rebuilding. Cleanup counterpart:
-    `POST /api/v1/__test/seed/owned-cleanup`.
-    """
-    scope = _parse_owned_namespace(payload.namespace)
-    # Retry on the same namespace must converge: drop only this namespace's
-    # leftovers, then rebuild it. Neighbouring namespaces are untouched.
-    await _cleanup_e2e_fixtures(
-        db,
-        owned=scope,
-        registry=getattr(request.app.state, "original_playback_registry", None),
-    )
-    return await _build_image_workbench_fixture(
-        db,
-        _ImageWorkbenchFixture(
-            admin_email=scope.admin_email,
-            annotator_email=scope.annotator_email,
-            reviewer_email=scope.reviewer_email,
-            project_name=scope.project_name,
-            batch_display_id=scope.batch_display_id,
-            dataset_display_id=scope.dataset_display_id,
-            dataset_name=f"E2E Owned {scope.namespace} Image Dataset",
-            task_display_prefix=scope.task_display_prefix,
-            image_key_prefix=scope.image_key_prefix,
-            registry_name=scope.registry_name,
-            registry_url=scope.registry_url,
-        ),
-    )
+    async def build(scope, admission_id):
+        return await _build_image_workbench_fixture(
+            db,
+            _ImageWorkbenchFixture(
+                run_id=payload.run_id,
+                admission_id=admission_id,
+                admin_email=scope.admin_email,
+                annotator_email=scope.annotator_email,
+                reviewer_email=scope.reviewer_email,
+                project_name=scope.project_name,
+                batch_display_id=scope.batch_display_id,
+                dataset_display_id=scope.dataset_display_id,
+                dataset_name=f"E2E Owned {scope.namespace} Image Dataset",
+                task_display_prefix=scope.task_display_prefix,
+                registry_name=scope.registry_name,
+                registry_url=scope.registry_url,
+            ),
+        )
+
+    return await _run_owned_seed(db, payload, "owned_seed", build)
 
 
 @router.post(
@@ -1638,13 +2650,190 @@ async def seed_owned_cleanup(
     namespaces and ordinary data are never matched, and residuals fail the
     request instead of being swallowed.
     """
-    scope = _parse_owned_namespace(payload.namespace)
+    from app.db.models.fixture_run import FixtureRun
+
+    scope = _request_owned_scope(payload)
+    run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
+    if (
+        run is None
+        or run.family != "owned"
+        or run.parent_run_id != payload.suite_id
+        or run.scope_key != payload.namespace
+    ):
+        raise HTTPException(404, detail={"code": "fixture_run_not_found"})
     await _cleanup_e2e_fixtures(
         db,
         owned=scope,
         registry=getattr(request.app.state, "original_playback_registry", None),
     )
     await db.commit()
+    return SeedCleanup()
+
+
+class FixtureInvitationIntentRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    run_id: UUID
+    intent_id: UUID
+    project_id: UUID
+    inviter_id: UUID
+    email: str
+
+
+class FixtureInvitationFinishRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
+    run_id: UUID
+    intent_id: UUID
+
+
+@router.post("/seed/invitation-intent", include_in_schema=False)
+async def prepare_fixture_invitation(
+    payload: FixtureInvitationIntentRequest, db: AsyncSession = Depends(get_db)
+) -> dict[str, str]:
+    """Declare one browser invitation before Identity creates either real owner."""
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
+
+    run, root = await ownership.lock_original_scope(db, payload.run_id)
+    if run.id == root.id and root.family == "screenshot":
+        valid_email = (
+            re.fullmatch(
+                rf"invited-{payload.run_id.hex}-[0-9a-f]{{32}}@capture[.]local",
+                payload.email,
+            )
+            is not None
+        )
+        project_key, inviter_key = "video_demo", "admin"
+    elif run.parent_run_id == root.id and root.family == run.family == "owned":
+        scope = _request_owned_scope(
+            SeedOwnedRequest(namespace=run.scope_key, suite_id=root.id, run_id=run.id)
+        )
+        valid_email = payload.email == scope.takeover_email
+        project_key, inviter_key = "workbench", "workbench-admin"
+    else:
+        raise HTTPException(404, detail={"code": "fixture_run_not_found"})
+    if not valid_email:
+        raise HTTPException(422, detail={"code": "fixture_invitation_email_invalid"})
+    project = await db.get(FixtureRunResource, (run.id, "project", payload.project_id))
+    inviter = await db.get(FixtureRunResource, (run.id, "user", payload.inviter_id))
+    if (
+        project is None
+        or project.state != "published"
+        or project.logical_key != project_key
+        or inviter is None
+        or inviter.state != "published"
+        or inviter.logical_key != inviter_key
+    ):
+        raise HTTPException(409, detail={"code": "fixture_invitation_scope_changed"})
+    occupied = await db.scalar(
+        text(
+            "SELECT EXISTS(SELECT 1 FROM public.users WHERE email=:email) "
+            "OR EXISTS(SELECT 1 FROM public.user_invitations WHERE email=:email)"
+        ),
+        {"email": payload.email},
+    )
+    if occupied:
+        raise HTTPException(409, detail={"code": "fixture_invitation_email_in_use"})
+    admission_id = await ownership.admit(db, run.id, "fixture_invitation")
+    await db.execute(
+        text(
+            "INSERT INTO yoao_fixture_v1.fixture_invitation_intents "
+            "(id,run_id,admission_id,project_id,inviter_id,email) "
+            "VALUES (:id,:run,:admission,:project,:inviter,:email)"
+        ),
+        {
+            "id": payload.intent_id,
+            "run": run.id,
+            "admission": admission_id,
+            "project": payload.project_id,
+            "inviter": payload.inviter_id,
+            "email": payload.email,
+        },
+    )
+    await db.commit()
+    return {"intent_id": str(payload.intent_id)}
+
+
+@router.post("/seed/invitation-finish", include_in_schema=False)
+async def finish_fixture_invitation(
+    payload: FixtureInvitationFinishRequest, db: AsyncSession = Depends(get_db)
+) -> SeedCleanup:
+    """Fence the actual invitation transaction before settling its admission."""
+    from app.services import fixture_run_ownership as ownership
+
+    initial = (
+        await db.execute(
+            text(
+                "SELECT invitation_id FROM yoao_fixture_v1.fixture_invitation_intents "
+                "WHERE id=:id AND run_id=:run"
+            ),
+            {"id": payload.intent_id, "run": payload.run_id},
+        )
+    ).one_or_none()
+    if initial is None:
+        raise HTTPException(404, detail={"code": "fixture_invitation_intent_missing"})
+    if initial.invitation_id is not None:
+        await db.execute(
+            text("SELECT id FROM public.user_invitations WHERE id=:id FOR UPDATE"),
+            {"id": initial.invitation_id},
+        )
+    run = await ownership._lock_run(db, payload.run_id)
+    if not (
+        (run.family == "screenshot" and run.parent_run_id is None)
+        or (run.family == "owned" and run.parent_run_id is not None)
+    ):
+        raise HTTPException(404, detail={"code": "fixture_run_not_found"})
+    intent = (
+        await db.execute(
+            text(
+                "SELECT admission_id,invitation_id,state FROM yoao_fixture_v1.fixture_invitation_intents "
+                "WHERE id=:id AND run_id=:run FOR UPDATE"
+            ),
+            {"id": payload.intent_id, "run": payload.run_id},
+        )
+    ).one()
+    if intent.invitation_id != initial.invitation_id:
+        raise HTTPException(409, detail={"code": "fixture_invitation_scope_busy"})
+    if intent.state == "settled":
+        return SeedCleanup()
+    await ownership.settle(db, payload.run_id, intent.admission_id)
+    await db.execute(
+        text(
+            "UPDATE yoao_fixture_v1.fixture_invitation_intents SET state='settled' "
+            "WHERE id=:id AND run_id=:run"
+        ),
+        {"id": payload.intent_id, "run": payload.run_id},
+    )
+    await db.commit()
+    return SeedCleanup()
+
+
+@router.post(
+    "/seed/screenshot-cleanup",
+    response_model=SeedCleanup,
+    status_code=200,
+    include_in_schema=False,
+)
+async def seed_screenshot_cleanup(
+    payload: SeedScreenshotCleanupRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+) -> SeedCleanup:
+    """Reclaim exactly one screenshot root through the shared cleanup engine."""
+    from app.db.models.fixture_run import FixtureRun
+
+    await _require_e2e_seed_database(db)
+    run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
+    if run is None or run.family != "screenshot" or run.parent_run_id is not None:
+        raise HTTPException(404, detail={"code": "fixture_run_not_found"})
+    scope = _OwnedFixtureScope(namespace=run.id.hex[:12], run_id=run.id)
+    await _cleanup_owned_e2e_fixtures(
+        db,
+        scope,
+        family="screenshot",
+        registry=getattr(request.app.state, "original_playback_registry", None),
+    )
     return SeedCleanup()
 
 
@@ -1664,12 +2853,13 @@ def _project_role_svg_bytes(index: int) -> bytes:
 async def _build_project_roles_image_project(
     db: AsyncSession,
     *,
+    run_id: UUID,
+    admission_id: UUID,
     key: str,
     owner: Any,
     project_display_id: str,
     dataset_display_id: str,
     project_name: str,
-    image_key_prefix: str,
     task_display_prefix: str,
     task_count: int,
 ) -> tuple[Any, list[Any]]:
@@ -1684,7 +2874,7 @@ async def _build_project_roles_image_project(
     from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
     from app.db.models.task import Task
     from yoao_workspace.configuration_policy import coalesce_legacy_into_tool_bindings
-    from app.services.storage import storage_service
+    from app.services import fixture_run_ownership as ownership
 
     kw: dict = {"classes": ["car", "person"]}
     coalesce_legacy_into_tool_bindings(kw, None, "image-det")
@@ -1697,40 +2887,58 @@ async def _build_project_roles_image_project(
         owner_id=owner.id,
         tool_bindings=kw["tool_bindings"],
     )
+    await ownership.reserve(
+        db, run_id, "project", project.id, logical_key=f"roles-{key}", published=True
+    )
 
     dataset = Dataset(
+        id=uuid4(),
         display_id=dataset_display_id,
         name=f"E2E Roles {key.upper()} Dataset",
         data_type="image",
         file_count=task_count,
         created_by=owner.id,
     )
+    await ownership.reserve_original_dataset(
+        db, run_id, dataset.id, logical_key=f"roles-{key}"
+    )
     db.add(dataset)
     await db.flush()
     db.add(ProjectDataset(project_id=project.id, dataset_id=dataset.id))
+    await ownership.publish_resource(db, run_id, "dataset", dataset.id)
+    await db.commit()
 
     tasks: list[Task] = []
     for index in range(task_count):
-        image_key = f"{image_key_prefix}task-{index + 1}.svg"
-        svg = _project_role_svg_bytes(index)
-        storage_service.client.put_object(
-            Bucket=storage_service.datasets_bucket,
-            Key=image_key,
-            Body=svg,
-            ContentType="image/svg+xml",
+        filename = f"{key.lower()}-task-{index + 1}.svg"
+        item_id = uuid4()
+        await ownership.reserve(
+            db, run_id, "item", item_id, logical_key=f"roles-{key}-{index + 1}"
         )
+        await db.commit()
+        svg = _project_role_svg_bytes(index)
         item = DatasetItem(
+            id=item_id,
             dataset_id=dataset.id,
-            file_name=f"{key.lower()}-task-{index + 1}.svg",
-            file_path=image_key,
+            file_name=filename,
+            file_path="",
             file_type="image",
             file_size=len(svg),
             width=64,
             height=48,
         )
-        db.add(item)
-        await db.flush()
-        await _register_fixture_original(db, item, svg)
+        allocation, original = await ownership.create_original(
+            db,
+            run_id=run_id,
+            admission_id=admission_id,
+            item=item,
+            logical_path=filename,
+            payload=svg,
+            content_type="image/svg+xml",
+            requested_by=owner.id,
+        )
+        await ownership.attach_original(db, item, allocation, original)
+        await ownership.publish_resource(db, run_id, "item", item_id)
         task = Task(
             display_id=f"{task_display_prefix}{index + 1:03d}",
             project_id=project.id,
@@ -1743,6 +2951,15 @@ async def _build_project_roles_image_project(
         )
         tasks.append(task)
     tasks = await LabelingE2EFixtureWrites(db).insert_tasks(tasks)
+    for index, task in enumerate(tasks):
+        await ownership.reserve(
+            db,
+            run_id,
+            "task",
+            task.id,
+            logical_key=f"roles-{key}-{index + 1}",
+            published=True,
+        )
     return project, tasks
 
 
@@ -1788,16 +3005,8 @@ class ProjectRolesSeed(BaseModel):
     open_pool_task_id: str
 
 
-@router.post(
-    "/seed/project-roles",
-    response_model=ProjectRolesSeed,
-    status_code=200,
-    include_in_schema=False,
-)
-async def seed_project_roles(
-    request: Request,
-    payload: SeedOwnedRequest,
-    db: AsyncSession = Depends(get_db),
+async def _build_project_roles(
+    db: AsyncSession, scope: _OwnedFixtureScope, admission_id: UUID
 ) -> ProjectRolesSeed:
     """Build the deterministic multi-project employee-role acceptance fixture.
 
@@ -1808,13 +3017,7 @@ async def seed_project_roles(
     """
     from app.db.models.task_batch import TaskBatch
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-
-    scope = _parse_owned_namespace(payload.namespace)
-    await _cleanup_e2e_fixtures(
-        db,
-        owned=scope,
-        registry=getattr(request.app.state, "original_playback_registry", None),
-    )
+    from app.services import fixture_run_ownership as ownership
 
     def user_email(local: str) -> str:
         return f"{local}-{scope.namespace}@e2e.test"
@@ -1833,9 +3036,6 @@ async def seed_project_roles(
 
     def task_display_prefix(key: str) -> str:
         return scope.pr_task_display_prefix[key.lower()]
-
-    def image_key_prefix(key: str) -> str:
-        return f"{scope.pr_storage_prefix}{key.lower()}/"
 
     identity = IdentityE2EFixtures(db)
     owner_a = await identity.create_user(
@@ -1859,48 +3059,75 @@ async def seed_project_roles(
     # Platform employee with no project membership: exercises the no-project
     # employee empty state without a new production endpoint.
     solo = await identity.create_user("employee", user_email("solo"), "E2E Solo")
+    cleanup_admin = await identity.create_user(
+        "super_admin", user_email("cleanup-admin"), "E2E Cleanup Administrator"
+    )
+    for key, user in (
+        ("owner-a", owner_a),
+        ("owner-b", owner_b),
+        ("owner-c", owner_c),
+        ("employee", employee),
+        ("peer", peer),
+        ("spare", spare),
+        ("viewer", viewer),
+        ("viewer-unassigned", viewer_unassigned),
+        ("solo", solo),
+        ("cleanup-admin", cleanup_admin),
+    ):
+        await ownership.reserve(
+            db,
+            scope.run_id,
+            "user",
+            user.id,
+            logical_key=f"roles-{key}",
+            published=True,
+        )
 
     project_a, tasks_a = await _build_project_roles_image_project(
         db,
+        run_id=scope.run_id,
+        admission_id=admission_id,
         key="a",
         owner=owner_a,
         project_display_id=project_display("a"),
         dataset_display_id=dataset_display("a"),
         project_name=project_name("a"),
-        image_key_prefix=image_key_prefix("a"),
         task_display_prefix=task_display_prefix("a"),
         task_count=1,
     )
     project_b, tasks_b = await _build_project_roles_image_project(
         db,
+        run_id=scope.run_id,
+        admission_id=admission_id,
         key="b",
         owner=owner_b,
         project_display_id=project_display("b"),
         dataset_display_id=dataset_display("b"),
         project_name=project_name("b"),
-        image_key_prefix=image_key_prefix("b"),
         task_display_prefix=task_display_prefix("b"),
         task_count=1,
     )
     project_c, tasks_c = await _build_project_roles_image_project(
         db,
+        run_id=scope.run_id,
+        admission_id=admission_id,
         key="c",
         owner=owner_c,
         project_display_id=project_display("c"),
         dataset_display_id=dataset_display("c"),
         project_name=project_name("c"),
-        image_key_prefix=image_key_prefix("c"),
         task_display_prefix=task_display_prefix("c"),
         task_count=1,
     )
     project_d, tasks_d = await _build_project_roles_image_project(
         db,
+        run_id=scope.run_id,
+        admission_id=admission_id,
         key="d",
         owner=owner_a,
         project_display_id=project_display("d"),
         dataset_display_id=dataset_display("d"),
         project_name=project_name("d"),
-        image_key_prefix=image_key_prefix("d"),
         task_display_prefix=task_display_prefix("d"),
         task_count=1,
     )
@@ -2090,6 +3317,21 @@ async def seed_project_roles(
     )
 
 
+@router.post(
+    "/seed/project-roles",
+    response_model=ProjectRolesSeed,
+    status_code=200,
+    include_in_schema=False,
+)
+async def seed_project_roles(
+    request: Request, payload: SeedOwnedRequest, db: AsyncSession = Depends(get_db)
+) -> ProjectRolesSeed:
+    async def build(scope, admission_id):
+        return await _build_project_roles(db, scope, admission_id)
+
+    return await _run_owned_seed(db, payload, "project_roles_seed", build)
+
+
 class SeedFilteringRequest(SeedOwnedRequest):
     video_ready: bool = False
 
@@ -2106,15 +3348,17 @@ async def seed_filtering(
     db: AsyncSession = Depends(get_db),
 ) -> FilteringSeedManifest:
     """Build the filtering acceptance fixture inside one owned namespace."""
-    scope = _parse_owned_namespace(payload.namespace)
-    await _cleanup_e2e_fixtures(
-        db,
-        owned=scope,
-        registry=getattr(request.app.state, "original_playback_registry", None),
-    )
-    return await build_filtering_seed(
-        db, payload.namespace, video_ready=payload.video_ready
-    )
+
+    async def build(scope, admission_id):
+        return await build_filtering_seed(
+            db,
+            scope.namespace,
+            run_id=payload.run_id,
+            admission_id=admission_id,
+            video_ready=payload.video_ready,
+        )
+
+    return await _run_owned_seed(db, payload, "filtering_seed", build)
 
 
 class SeedLidar(BaseModel):
@@ -2221,8 +3465,8 @@ def _make_test_pcd_frames() -> tuple[
     return [payload, payload], "nuscenes_profile", count
 
 
-class SeedLidarRequest(BaseModel):
-    namespace: str
+class SeedLidarRequest(SeedOwnedRequest):
+    pass
 
 
 @router.post(
@@ -2233,95 +3477,50 @@ class SeedLidarRequest(BaseModel):
 async def seed_lidar(
     payload: SeedLidarRequest, db: AsyncSession = Depends(get_db)
 ) -> SeedLidar:
-    """造点云 E2E fixture(幂等)。命名空间私有:仅触碰本命名空间的用户/项目/对象。
+    """Build point-cloud and camera fixtures within one explicit run."""
 
-    复用 `seed/owned` 造的 admin/annotator 用户(缺则补建),删除旧 lidar
-    fixture 也只按本命名空间的精确名称/对象前缀匹配,不触碰相邻命名空间与
-    共享固定 fixture。
-    """
-    scope = _parse_owned_namespace(payload.namespace)
+    async def build(scope, admission_id):
+        return await _build_owned_lidar(db, scope, admission_id)
+
+    return await _run_owned_seed(db, payload, "lidar_seed", build)
+
+
+async def _build_owned_lidar(db, scope, admission_id):
     from app.db.models.annotation import Annotation
     from app.db.models.dataset import Dataset, DatasetItem, Scene
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
-    from app.services.storage import storage_service
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
     from app.services.task_dataset_link import link_items
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
-    await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
+    assert scope.run_id is not None
 
-    async def _try_delete(sql: str, params: dict | None = None) -> None:
-        await _try_fixture_delete(db, sql, params)
-
-    # 复用本命名空间 owned fixture 的 admin/annotator 用户;缺则补建。
     identity = IdentityE2EFixtures(db)
 
-    async def _user(role: str, email: str, name: str):
+    async def _user(role: str, email: str, name: str, logical_key: str):
         existing = await identity.find(email)
-        return existing or await identity.create_user(role, email, name)
-
-    admin = await _user("super_admin", scope.admin_email, "E2E Admin")
-    annotator = await _user("employee", scope.annotator_email, "E2E Annotator")
-
-    # 幂等:删旧 lidar fixture(仅按本命名空间精确名称匹配)。
-    old_pids = [
-        r[0]
-        for r in (
-            await db.execute(
-                text(
-                    "SELECT id FROM aap_workspace_v1.project_facts WHERE name = :lidar_project_name"
-                ),
-                {"lidar_project_name": scope.lidar_project_name},
-            )
-        ).fetchall()
-    ]
-    await guard_fixture_project_cleanup(db, old_pids)
-    if old_pids:
-        await _try_fixture_delete(db, _LABELING_FIXTURE_DELETE_SQL, {"pids": old_pids})
-        # 删 project 级联带走 task_batches / project_members。
-        await _try_delete(
-            "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
-            {"pids": old_pids},
+        if existing:
+            if (
+                await db.get(FixtureRunResource, (scope.run_id, "user", existing.id))
+                is None
+            ):
+                raise HTTPException(status_code=409, detail="fixture_user_not_owned")
+            return existing
+        user = await identity.create_user(role, email, name)
+        await ownership.reserve(
+            db, scope.run_id, "user", user.id, logical_key=logical_key, published=True
         )
-    # Dataset 不归属于 Project，不能依赖删项目级联；清掉上次 seed 遗留的 items/scene。
-    await _try_delete(
-        "DELETE FROM datasets WHERE display_id = :lidar_dataset_display_id",
-        {"lidar_dataset_display_id": scope.lidar_dataset_display_id},
-    )
-    if old_pids and await db.scalar(
-        text(
-            "SELECT count(*) FROM aap_workspace_v1.project_facts WHERE id=ANY(CAST(:ids AS uuid[]))"
-        ),
-        {"ids": old_pids},
-    ):
-        raise HTTPException(
-            status_code=500,
-            detail={
-                "code": "e2e_seed_cleanup_incomplete",
-                "residuals": {"projects": len(old_pids)},
-            },
-        )
-    await db.flush()
-    # 本命名空间旧点云/相机对象按前缀清空(对象存储不随 DB 级联)。
-    _delete_seed_object_prefix(
-        storage_service,
-        bucket=storage_service.datasets_bucket,
-        prefix=scope.lidar_storage_prefix,
-        label=f"owned-lidar-{scope.namespace}",
+        return user
+
+    admin = await _user("super_admin", scope.admin_email, "E2E Admin", "lidar-admin")
+    annotator = await _user(
+        "employee", scope.annotator_email, "E2E Annotator", "lidar-annotator"
     )
 
-    # 上传两个独立帧到 datasets_bucket(presign GET 才能 200,前端 loadPcd 才成功)。
     suffix = secrets.token_hex(3)
     pcd_frames, pcd_source, pcd_point_count = _make_test_pcd_frames()
-    pcd_keys = []
-    for idx, pcd_bytes in enumerate(pcd_frames):
-        pcd_key = f"{scope.lidar_storage_prefix}{suffix}-{idx}.pcd"
-        storage_service.client.put_object(
-            Bucket=storage_service.datasets_bucket,
-            Key=pcd_key,
-            Body=pcd_bytes,
-        )
-        pcd_keys.append(pcd_key)
     camera_svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480" '
         'viewBox="0 0 640 480">'
@@ -2329,23 +3528,6 @@ async def seed_lidar(
         '<path d="M0 240h640M320 0v480" stroke="#51616d" stroke-width="2"/>'
         "</svg>"
     ).encode()
-    # Delivery keys by camera channel and frame, mirroring the per-frame
-    # basenames KITTI archives fetch as `images/<channel>/<basename>`.
-    camera_keys = [
-        (
-            f"{scope.lidar_storage_prefix}e2e-lidar-{suffix}-{idx}-front.svg",
-            f"{scope.lidar_storage_prefix}e2e-lidar-{suffix}-{idx}-side.svg",
-        )
-        for idx in range(2)
-    ]
-    for front_key, side_key in camera_keys:
-        for key in (front_key, side_key):
-            storage_service.client.put_object(
-                Bucket=storage_service.datasets_bucket,
-                Key=key,
-                Body=camera_svg,
-                ContentType="image/svg+xml",
-            )
 
     # 建 lidar 项目(data_type 默认 image,必须显式 lidar;manifest 据此放行点云端点)。
     # tool_bindings 必须把类别落在 lidar_box_3d unit(前端 LIDAR_TOOL_UNIT 据此取 boxClasses /
@@ -2377,6 +3559,9 @@ async def seed_lidar(
         owner_id=admin.id,
         tool_bindings=tool_bindings,
     )
+    await ownership.reserve(
+        db, scope.run_id, "project", project.id, logical_key="lidar", published=True
+    )
 
     membership_writes = SeedMembershipWrites(db)
     membership_writes.add(
@@ -2399,6 +3584,7 @@ async def seed_lidar(
     batch = (await fixture_writes.insert_batches([batch]))[0]
 
     dataset = Dataset(
+        id=uuid4(),
         display_id=scope.lidar_dataset_display_id,
         name=f"E2E Lidar Dataset {scope.namespace}",
         data_type="point_cloud",
@@ -2406,8 +3592,12 @@ async def seed_lidar(
         created_by=admin.id,
         metadata_={"axis_convention": "iso_8855"},
     )
+    await ownership.reserve_original_dataset(
+        db, scope.run_id, dataset.id, logical_key="lidar"
+    )
     db.add(dataset)
     await db.flush()
+    await ownership.publish_resource(db, scope.run_id, "dataset", dataset.id)
 
     scene = Scene(
         display_id=f"SCN-E2E-{suffix}",
@@ -2419,6 +3609,7 @@ async def seed_lidar(
     )
     db.add(scene)
     await db.flush()
+    await db.commit()
 
     calibration = {
         "extrinsic": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
@@ -2426,41 +3617,58 @@ async def seed_lidar(
     }
     tasks = []
     for idx in range(2):
-        lidar_item = DatasetItem(
-            dataset_id=dataset.id,
-            file_name=f"e2e-lidar-{suffix}-{idx}.pcd",
-            file_path=pcd_keys[idx],
-            file_type="point_cloud",
-            scene_id=scene.id,
-            frame_index=idx,
+        items = []
+        sources = (
+            (
+                f"e2e-lidar-{suffix}-{idx}.pcd",
+                pcd_frames[idx],
+                "point_cloud",
+                "application/octet-stream",
+            ),
+            (
+                f"e2e-lidar-{suffix}-{idx}-front.svg",
+                camera_svg,
+                "image",
+                "image/svg+xml",
+            ),
+            (
+                f"e2e-lidar-{suffix}-{idx}-side.svg",
+                camera_svg,
+                "image",
+                "image/svg+xml",
+            ),
         )
-        camera_item = DatasetItem(
-            dataset_id=dataset.id,
-            file_name=f"e2e-lidar-{suffix}-{idx}-front.svg",
-            file_path=camera_keys[idx][0],
-            file_type="image",
-            width=640,
-            height=480,
-            metadata_={"calibration": calibration},
-            scene_id=scene.id,
-            frame_index=idx,
-        )
-        camera_side_item = DatasetItem(
-            dataset_id=dataset.id,
-            file_name=f"e2e-lidar-{suffix}-{idx}-side.svg",
-            file_path=camera_keys[idx][1],
-            file_type="image",
-            width=640,
-            height=480,
-            metadata_={"calibration": calibration},
-            scene_id=scene.id,
-            frame_index=idx,
-        )
-        db.add_all([lidar_item, camera_item, camera_side_item])
-        await db.flush()
-        await _register_fixture_original(db, lidar_item, pcd_frames[idx])
-        await _register_fixture_original(db, camera_item, camera_svg)
-        await _register_fixture_original(db, camera_side_item, camera_svg)
+        for name, content, file_type, content_type in sources:
+            item_id = uuid4()
+            await ownership.reserve(db, scope.run_id, "item", item_id, logical_key=name)
+            await db.commit()
+            item = DatasetItem(
+                id=item_id,
+                dataset_id=dataset.id,
+                file_name=name,
+                file_path="",
+                file_type=file_type,
+                file_size=len(content),
+                scene_id=scene.id,
+                frame_index=idx,
+                width=640 if file_type == "image" else None,
+                height=480 if file_type == "image" else None,
+                metadata_={"calibration": calibration} if file_type == "image" else {},
+            )
+            allocation, original = await ownership.create_original(
+                db,
+                run_id=scope.run_id,
+                admission_id=admission_id,
+                item=item,
+                logical_path=name,
+                payload=content,
+                content_type=content_type,
+                requested_by=admin.id,
+            )
+            await ownership.attach_original(db, item, allocation, original)
+            await ownership.publish_resource(db, scope.run_id, "item", item_id)
+            items.append(item)
+        lidar_item, camera_item, camera_side_item = items
 
         t = Task(
             display_id=f"T-E2E-LIDAR-{suffix}-{idx}",
@@ -2469,11 +3677,14 @@ async def seed_lidar(
             sequence_order=idx,
             status="pending",
             file_name=f"e2e-lidar-{suffix}-{idx}.pcd",
-            file_path=pcd_keys[idx],
+            file_path=lidar_item.file_path,
             file_type="point_cloud",
             batch_id=batch.id,
         )
         t = (await fixture_writes.insert_tasks([t]))[0]
+        await ownership.reserve(
+            db, scope.run_id, "task", t.id, logical_key=f"lidar-{idx}", published=True
+        )
         tasks.append(t)
         await link_items(
             db,
@@ -2584,6 +3795,7 @@ class SeedPeekResponse(BaseModel):
     include_in_schema=False,
 )
 async def seed_catalog(
+    run_id: UUID,
     profile: Literal["screenshots"] = "screenshots",
     backend_requirements: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -2596,7 +3808,7 @@ async def seed_catalog(
 
     try:
         return await build_screenshot_seed_catalog(
-            db, backend_requirements=backend_requirements
+            db, run_id=run_id, backend_requirements=backend_requirements
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -2746,14 +3958,52 @@ async def seed_configure_raster_mask(
 
 
 async def _require_fixture_video_item(db, item):
-    scope = await _resolve_fixture_scope(db, None)
+    from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.services.fixture_run_ownership import lock_original_scope
+
     if (
         item is None
         or item.file_type != "video"
-        or item.dataset_id not in scope.dataset_ids
-        or not item.file_path.startswith("e2e/video/")
         or not isinstance((item.metadata_ or {}).get("_e2e_video_fixture"), str)
     ):
+        raise HTTPException(422, detail="expected E2E-owned video fixture")
+    run_id = await db.scalar(
+        select(FixtureRunResource.run_id).where(
+            FixtureRunResource.kind == "item",
+            FixtureRunResource.resource_id == item.id,
+            FixtureRunResource.state == "published",
+        )
+    )
+    if run_id is None:
+        raise HTTPException(422, detail="expected E2E-owned video fixture")
+    await lock_original_scope(db, run_id)
+    creation_id = await db.scalar(
+        select(ManagedOriginalCreation.id)
+        .join(
+            FixtureRunResource,
+            FixtureRunResource.creation_id == ManagedOriginalCreation.id,
+        )
+        .join(
+            DatasetAssetLocation,
+            DatasetAssetLocation.creation_id == ManagedOriginalCreation.id,
+        )
+        .join(DatasetAsset, DatasetAsset.id == DatasetAssetLocation.asset_id)
+        .where(
+            FixtureRunResource.run_id == run_id,
+            FixtureRunResource.item_id == item.id,
+            FixtureRunResource.kind == "creation",
+            DatasetAsset.dataset_item_id == item.id,
+            ManagedOriginalCreation.status == "verified",
+            ManagedOriginalCreation.dataset_id == item.dataset_id,
+            ManagedOriginalCreation.object_key == item.file_path,
+            DatasetAssetLocation.object_key == item.file_path,
+            DatasetAssetLocation.role == "managed_original",
+            DatasetAssetLocation.reference_state == "present",
+        )
+    )
+    if creation_id is None:
         raise HTTPException(422, detail="expected E2E-owned video fixture")
 
 
@@ -2883,7 +4133,7 @@ async def _stage_fixture_video_outputs(db, item, kind, specs=None, *, pending=Fa
     return identifiers
 
 
-class SeedVideoTaskRequest(BaseModel):
+class SeedVideoTaskRequest(SeedOwnedRequest):
     project_id: str
 
 
@@ -2901,14 +4151,22 @@ async def seed_video_task(
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoTaskResponse:
     """Add one deterministic video task to an owned workbench fixture."""
+
+    async def build(scope, admission_id):
+        return await _build_video_task(db, payload, scope, admission_id)
+
+    return await _run_owned_seed(db, payload, "video_task_seed", build)
+
+
+async def _build_video_task(db, payload, scope, admission_id):
     from pathlib import Path
     from uuid import UUID
 
     from sqlalchemy import select
 
-    from app.db.models.dataset import DatasetItem
+    from app.db.models.dataset import Dataset, DatasetItem
     from app.db.models.task import Task
-    from app.services.storage import storage_service
+    from app.services import fixture_run_ownership as ownership
 
     project_id = UUID(payload.project_id)
     image_task = (
@@ -2941,10 +4199,10 @@ async def seed_video_task(
     image_item = await db.get(DatasetItem, image_task.dataset_item_id)
     if image_item is None:
         raise HTTPException(status_code=404, detail="dataset fixture not found")
-    scope = await _resolve_fixture_scope(db, None)
+    resolved = await _resolve_fixture_scope(db, scope)
     if (
-        project_id not in scope.project_ids
-        or image_item.dataset_id not in scope.dataset_ids
+        project_id not in resolved.project_ids
+        or image_item.dataset_id not in resolved.dataset_ids
     ):
         raise HTTPException(422, detail="expected E2E-owned project and dataset")
 
@@ -2953,24 +4211,35 @@ async def seed_video_task(
         / "docs-site/public/home/sam-tools/smart-point.webm"
     )
     video = source_path.read_bytes()
-    video_key = "e2e/video/native-mask.webm"
-    storage_service.client.put_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=video_key,
-        Body=video,
-        ContentType="video/webm",
+    dataset = await db.get(Dataset, image_item.dataset_id)
+    if dataset is None or dataset.created_by is None:
+        raise HTTPException(409, detail="fixture_dataset_changed")
+    item_id = uuid4()
+    await ownership.reserve(
+        db, payload.run_id, "item", item_id, logical_key=f"video-{item_id.hex}"
     )
+    await db.commit()
     item = DatasetItem(
+        id=item_id,
         dataset_id=image_item.dataset_id,
         file_name="native-mask.webm",
-        file_path=video_key,
+        file_path="",
         file_type="video",
         file_size=len(video),
         metadata_={"_e2e_video_fixture": "native-mask"},
     )
-    db.add(item)
-    await db.flush()
-    await _register_fixture_original(db, item, video)
+    allocation, original = await ownership.create_original(
+        db,
+        run_id=payload.run_id,
+        admission_id=admission_id,
+        item=item,
+        logical_path=item.file_name,
+        payload=video,
+        content_type="video/webm",
+        requested_by=dataset.created_by,
+    )
+    await ownership.attach_original(db, item, allocation, original)
+    await ownership.publish_resource(db, payload.run_id, "item", item.id)
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -2983,6 +4252,14 @@ async def seed_video_task(
     )
     fixture_writes = LabelingE2EFixtureWrites(db)
     task = (await fixture_writes.insert_tasks([task]))[0]
+    await ownership.reserve(
+        db,
+        payload.run_id,
+        "task",
+        task.id,
+        logical_key=f"video-{task.id.hex}",
+        published=True,
+    )
     await fixture_writes.patch_batch(batch, total_tasks=int(batch.total_tasks or 0) + 1)
     task_id = str(task.id)
     await db.commit()
@@ -2990,7 +4267,7 @@ async def seed_video_task(
     return SeedVideoTaskResponse(task_id=task_id)
 
 
-class SeedVideoWebCodecsRequest(BaseModel):
+class SeedVideoWebCodecsRequest(SeedOwnedRequest):
     project_id: str
     batch_id: UUID | None = None
     fixture: str = "h264-baseline-gop12"
@@ -3022,6 +4299,14 @@ async def seed_video_webcodecs(
     malformed-response scenarios describe browser injection without corrupting
     a valid immutable result.
     """
+
+    async def build(scope, admission_id):
+        return await _build_video_webcodecs(db, payload, scope, admission_id)
+
+    return await _run_owned_seed(db, payload, "video_webcodecs_seed", build)
+
+
+async def _build_video_webcodecs(db, payload, scope, admission_id):
     from tempfile import mkdtemp
     from uuid import UUID
     import shutil
@@ -3035,10 +4320,10 @@ async def seed_video_webcodecs(
         generate_fixture,
         generate_qualification_fixture,
     )
-    from app.db.models.dataset import DatasetItem
+    from app.db.models.dataset import Dataset, DatasetItem
     from app.services import video_derivative_originals as originals, video_derivatives
     from app.db.models.task import Task
-    from app.services.storage import storage_service
+    from app.services import fixture_run_ownership as ownership
 
     valid_fixtures = (
         set(FIXTURE_SPECS)
@@ -3075,10 +4360,10 @@ async def seed_video_webcodecs(
     if ref_item is None:
         raise HTTPException(status_code=404, detail="dataset fixture not found")
 
-    scope = await _resolve_fixture_scope(db, None)
+    resolved = await _resolve_fixture_scope(db, scope)
     if (
-        project_id not in scope.project_ids
-        or ref_item.dataset_id not in scope.dataset_ids
+        project_id not in resolved.project_ids
+        or ref_item.dataset_id not in resolved.dataset_ids
     ):
         raise HTTPException(422, detail="expected E2E-owned project and dataset")
 
@@ -3086,42 +4371,66 @@ async def seed_video_webcodecs(
     tmp = mkdtemp(prefix="webcodecs-seed-")
     try:
         qualification = fixture in QUALIFICATION_FIXTURE_SPECS
-        meta = (
-            await asyncio.to_thread(
-                generate_qualification_fixture, fixture, tmp, include_chunks=False
+        if qualification:
+            from app.services.storage_access import finish
+
+            generation = asyncio.create_task(
+                asyncio.to_thread(
+                    generate_qualification_fixture, fixture, tmp, include_chunks=False
+                )
             )
-            if qualification
-            else generate_fixture(
+            try:
+                meta = await asyncio.shield(generation)
+            except BaseException as failure:
+                try:
+                    await finish(generation)
+                except BaseException as late:
+                    if late is failure:
+                        raise
+                    raise builtins.BaseExceptionGroup(
+                        "Video fixture generation and its drain failed", [failure, late]
+                    ) from None
+                raise
+        else:
+            meta = generate_fixture(
                 fixture,
                 tmp,
                 chunk_size_frames=settings.video_chunk_size_frames,
                 include_chunks=False,
             )
-        )
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     mp4_bytes = meta["mp4_bytes"]
-    # Repeated seeds may replace this project's fixture, never a neighbour's bytes.
-    source_key = f"e2e/video/webcodecs/{project_id}/{fixture}/source.mp4"
-    await asyncio.to_thread(
-        storage_service.client.put_object,
-        Bucket=storage_service.datasets_bucket,
-        Key=source_key,
-        Body=mp4_bytes,
-        ContentType="video/mp4",
+    dataset = await db.get(Dataset, ref_item.dataset_id)
+    if dataset is None or dataset.created_by is None:
+        raise HTTPException(409, detail="fixture_dataset_changed")
+    item_id = uuid4()
+    await ownership.reserve(
+        db, payload.run_id, "item", item_id, logical_key=f"video-{item_id.hex}"
     )
+    await db.commit()
 
     item = DatasetItem(
+        id=item_id,
         dataset_id=ref_item.dataset_id,
         file_name=f"{fixture}.mp4",
-        file_path=source_key,
+        file_path="",
         file_type="video",
         file_size=len(mp4_bytes),
         metadata_={"_e2e_video_fixture": fixture},
     )
-    db.add(item)
-    await db.flush()
-    await _register_fixture_original(db, item, mp4_bytes)
+    allocation, original = await ownership.create_original(
+        db,
+        run_id=payload.run_id,
+        admission_id=admission_id,
+        item=item,
+        logical_path=item.file_name,
+        payload=mp4_bytes,
+        content_type="video/mp4",
+        requested_by=dataset.created_by,
+    )
+    await ownership.attach_original(db, item, allocation, original)
+    await ownership.publish_resource(db, payload.run_id, "item", item.id)
     task = Task(
         project_id=project_id,
         batch_id=batch.id,
@@ -3134,6 +4443,14 @@ async def seed_video_webcodecs(
     )
     db.add(task)
     await db.flush()
+    await ownership.reserve(
+        db,
+        payload.run_id,
+        "task",
+        task.id,
+        logical_key=f"video-{task.id.hex}",
+        published=True,
+    )
     batch.total_tasks = int(batch.total_tasks or 0) + 1
     await db.flush()
     task_id, item_id = str(task.id), item.id

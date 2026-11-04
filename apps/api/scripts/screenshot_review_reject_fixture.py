@@ -25,6 +25,7 @@ if str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))
 
 from app.config import settings  # noqa: E402
+from app.db.models.fixture_run import FixtureRunResource  # noqa: E402
 from app.db.models.notification import Notification  # noqa: E402
 from app.services.identity_commands import IdentityCommandService  # noqa: E402
 from app.services.annotation_evidence import (  # noqa: E402
@@ -32,7 +33,11 @@ from app.services.annotation_evidence import (  # noqa: E402
     known_annotation_contributor_ids,
 )
 from app.services.batch import BatchService  # noqa: E402
-from scripts.cleanup_screenshot_ocr_flow import assert_screenshot_scope  # noqa: E402
+from scripts.screenshot_fixture_owner import (  # noqa: E402
+    assert_screenshot_scope,
+    close_screenshot_owner,
+    screenshot_owner,
+)
 from yoao_labeling.screenshot_operations_contract import (  # noqa: E402
     RestoreReviewReject,
     SCREENSHOT_OPERATIONS_PROTOCOL,
@@ -58,16 +63,19 @@ def parse_args() -> argparse.Namespace:
 
 
 async def restore(args: argparse.Namespace) -> dict[str, int | str]:
-    engine = create_async_engine(settings.database_url, echo=False)
+    run_id, owner_url = await screenshot_owner()
+    engine = create_async_engine(owner_url, echo=False, hide_parameters=True)
     session_factory = async_sessionmaker(
         engine,
         class_=AsyncSession,
         expire_on_commit=False,
     )
+    failure = None
     try:
         async with session_factory() as db:
             expected_status = await assert_screenshot_scope(
                 db,
+                run_id=run_id,
                 project_key="image_demo",
                 project_id=args.project_id,
                 task_id=args.task_id,
@@ -87,6 +95,15 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 raise RuntimeError(
                     "review-reject task is not assigned to the recording reviewer"
                 )
+            reviewer_owner = await db.get(
+                FixtureRunResource, (run_id, "user", reviewer_id)
+            )
+            if (
+                reviewer_owner is None
+                or reviewer_owner.logical_key != "reviewer"
+                or reviewer_owner.state != "published"
+            ):
+                raise RuntimeError("reviewer is outside the screenshot run")
             contributors = known_annotation_contributor_ids(task)
             if (
                 contributors is None
@@ -113,6 +130,7 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 RestoreReviewReject(
                     schema=SCREENSHOT_OPERATIONS_PROTOCOL,
                     operation="restore_review_reject",
+                    run_id=run_id,
                     project_id=args.project_id,
                     task_id=task.id,
                     reviewer_id=reviewer_id,
@@ -153,8 +171,11 @@ async def restore(args: argparse.Namespace) -> dict[str, int | str]:
                 "feedbacks": result.counts["feedbacks"],
                 "notifications": notification_result.rowcount or 0,
             }
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        await engine.dispose()
+        await close_screenshot_owner(engine, failure)
 
 
 def main() -> int:

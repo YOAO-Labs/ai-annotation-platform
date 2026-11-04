@@ -29,6 +29,7 @@ from yoao_assets_media.contract import (
     MediaSource,
     MediaUsage,
     MetadataSpec,
+    OriginalRead,
     ObjectIdentity,
     StageResult,
     TimetableSpec,
@@ -61,6 +62,11 @@ class _Storage:
         self.heads = 0
         self.uploads: list[Artifact] = []
         self.deleted: list[tuple[str, object]] = []
+        self.original_sha256 = None
+
+    def bind_original(self, permit):
+        assert permit.ownership == "ordinary"
+        return self
 
     async def head_source(self, key: str) -> ObjectIdentity:
         self.heads += 1
@@ -221,6 +227,8 @@ class _Database:
         ]
 
     async def call(self, name: str, request):
+        if name == "begin_media_original_worker":
+            return OriginalRead(ownership="ordinary", object_key=request.object_key)
         self.calls.append((name, request))
         if name == "claim_video_media":
             return ClaimedWork(claim=self.claims.pop(0) if self.claims else None)

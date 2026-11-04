@@ -20,6 +20,11 @@ USER_SPECS = {
 }
 
 
+def fixture_persona_email(run_id: UUID, persona: str) -> str:
+    """Give each screenshot run its own account identity."""
+    return f"screenshot-{run_id.hex}-{persona}"
+
+
 @dataclass(frozen=True)
 class RecordingAnchorSpec:
     """Reviewed, normalized media coordinates consumed by deterministic recordings."""

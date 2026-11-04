@@ -331,20 +331,15 @@ test.beforeAll(({ browserName: _browserName }, testInfo) => {
 });
 
 function screenshotDatabaseEnv(): NodeJS.ProcessEnv {
-  const databaseUrl = process.env.SCREENSHOT_DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("[flows] 缺少 SCREENSHOT_DATABASE_URL，拒绝在未确认的数据库上录制或清理");
+  if (
+    !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+    !process.env.DATABASE_URL ||
+    !process.env.PLAYWRIGHT_E2E_DATABASE_URL ||
+    !process.env.SCREENSHOT_FIXTURE_RUN_ID
+  ) {
+    throw new Error("[flows] 需要受监管的截图工作树和明确的运行标识");
   }
-  const databaseName = databaseUrl.replace(/\?.*$/, "").split("/").at(-1) ?? "";
-  if (!databaseName.endsWith("_test") && !databaseName.endsWith("_e2e")) {
-    throw new Error("[flows] SCREENSHOT_DATABASE_URL 必须指向名称以 _test 或 _e2e 结尾的隔离库");
-  }
-  return {
-    ...process.env,
-    DATABASE_URL: databaseUrl,
-    MIGRATION_DATABASE_URL: databaseUrl,
-    PYTHONPATH: ".",
-  };
+  return { ...process.env, PYTHONPATH: "." };
 }
 
 function screenshotBackendMode(catalog: ScreenshotSeedCatalog): "stub" | "live" {
@@ -364,9 +359,13 @@ function repairScreenshotProfile(mode: "stub" | "live", silent = false): void {
       "--profile",
       "screenshots",
       "--offline",
-      "--repair",
+      "--run-id",
+      process.env.SCREENSHOT_FIXTURE_RUN_ID!,
       "--ml-backend-mode",
       mode,
+      ...(process.env.SCREENSHOT_ML_BACKEND_URL
+        ? ["--ml-backend-url", process.env.SCREENSHOT_ML_BACKEND_URL]
+        : []),
       ...(process.env.SCREENSHOT_BACKEND_REQUIREMENTS === undefined
         ? []
         : ["--backend-requirements", process.env.SCREENSHOT_BACKEND_REQUIREMENTS]),
@@ -2341,6 +2340,8 @@ test.describe("flow recordings", () => {
     const t0 = Date.now();
     backgroundExportCleanupRecords.push(record);
 
+    let recordingFailed = false;
+    let recordingFailure: unknown;
     try {
       manageBackgroundExportFixture("cleanup", record);
       await installScreenshotEnvironment(page);
@@ -2355,9 +2356,22 @@ test.describe("flow recordings", () => {
         },
       );
       await finalize(page, "background-export-download", undefined, drawTrim(win, t0));
-    } finally {
-      manageBackgroundExportFixture("cleanup", record);
+    } catch (error) {
+      recordingFailed = true;
+      recordingFailure = error;
     }
+    try {
+      manageBackgroundExportFixture("cleanup", record);
+    } catch (cleanupFailure) {
+      recordingFailure = recordingFailed
+        ? new AggregateError(
+            [recordingFailure, cleanupFailure],
+            "Export recording and cleanup failed",
+          )
+        : cleanupFailure;
+      recordingFailed = true;
+    }
+    if (recordingFailed) throw recordingFailure;
   });
 
   test("project-onboarding — 登录、创建项目并进入工作台", async ({ page, seed }) => {

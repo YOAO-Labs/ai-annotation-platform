@@ -1,17 +1,22 @@
-"""Freeze raw SQL scale-seed defaults, staging and cleanup before migration."""
+"""Exercise scale-seed ownership and retained-source cleanup guards."""
 
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-import io
 import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+import uuid
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import delete, event, text
+from sqlalchemy.exc import DBAPIError
+
+from app.db.models.fixture_run import (
+    FixtureRun,
+    FixtureRunAdmission,
+    FixtureRunResource,
+)
 
 from scripts import seed_scale
 from tests.test_identity_seed_selection_native import (
@@ -21,8 +26,6 @@ from tests.test_identity_seed_selection_native import (
 from tests.test_workspace_consumer_profile_native import _assert_closed, _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
-CAPTURE = os.getenv("AAP_WORKSPACE_SCALE_CAPTURE") == "1"
-ORACLE = ROOT / "apps/api/tests/fixtures/workspace_scale_seed_legacy.json"
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -34,10 +37,8 @@ pytestmark = [
 
 @pytest.fixture
 async def scale_world(test_engine):
-    async with _world(test_engine, apply=not CAPTURE) as (owner, consumer, role, _):
-        profiles = ["identity-scale-seed-grants.sql"]
-        if not CAPTURE:
-            profiles += ["workspace-scale-seed-grants.sql"]
+    async with _world(test_engine) as (owner, consumer, role, _):
+        profiles = ["identity-scale-seed-grants.sql", "workspace-scale-seed-grants.sql"]
         for profile in profiles:
             result = await _grants(
                 test_engine,
@@ -47,10 +48,27 @@ async def scale_world(test_engine):
                 labeling_owner="labeling_code",
             )
             assert result.returncode == 0, result.stderr
-        if not CAPTURE:
-            async with consumer() as db:
-                await _assert_closed(db)
+        async with consumer() as db:
+            await _assert_closed(db)
         yield owner, consumer
+
+
+async def test_runtime_role_cannot_access_fixture_ownership(scale_world):
+    _, consumer = scale_world
+    async with consumer() as db:
+        assert not await db.scalar(
+            text(
+                "SELECT has_schema_privilege(current_user, 'yoao_fixture_v1', 'USAGE')"
+            )
+        )
+        with pytest.raises(DBAPIError) as error:
+            await db.execute(text("SELECT id FROM yoao_fixture_v1.fixture_runs"))
+        assert error.value.orig.sqlstate == "42501"
+
+
+async def _prepare_scale_run(owner, run_id):
+    async with owner.begin() as db:
+        db.add(FixtureRun(id=run_id, family="scale"))
 
 
 async def _state(owner, marker, ids):
@@ -156,26 +174,18 @@ async def _state(owner, marker, ids):
 @pytest.mark.parametrize(
     "case", ["normal", "zero", "tasks_fail", "annotations_fail", "no_admin"]
 )
-async def test_scale_seed_original_raw_defaults_and_commit_stages(
-    scale_world, case, monkeypatch, record_property
-):
-    owner, consumer = scale_world
-    marker = "workspace-scale-" + case
+async def test_scale_seed_stages_preserve_owned_scope(scale_world, case, monkeypatch):
+    owner, _consumer = scale_world
+    run_id = uuid.uuid4()
+    marker = seed_scale._marker(run_id)
+    actor_name = "workspace-scale-" + case + "-" + run_id.hex[:8]
     ids = await _scale_actors(
-        owner, marker, "no_admin" if case == "no_admin" else "normal"
+        owner, actor_name, "no_admin" if case == "no_admin" else "normal"
     )
-    commits = []
-    dispose = AsyncMock()
-
-    @asynccontextmanager
-    async def session():
-        async with consumer() as db:
-
-            def committed(_):
-                commits.append(True)
-
-            event.listen(db.sync_session, "after_commit", committed)
-            yield db
+    monkeypatch.setattr(seed_scale.settings, "environment", "development")
+    monkeypatch.setattr(seed_scale.settings, "e2e_seed_enabled", True)
+    monkeypatch.setattr(seed_scale, "Session", owner)
+    await _prepare_scale_run(owner, run_id)
 
     def fail_stage(connection, cursor, statement, parameters, context, executemany):
         if (
@@ -187,66 +197,68 @@ async def test_scale_seed_original_raw_defaults_and_commit_stages(
         ):
             raise RuntimeError("controlled scale stage failure")
 
-    target = consumer.kw["bind"].sync_engine
+    target = owner.kw["bind"].sync_engine
     event.listen(target, "before_cursor_execute", fail_stage)
-    monkeypatch.setattr(seed_scale, "MARKER", marker)
-    monkeypatch.setattr(seed_scale, "Session", session)
-    monkeypatch.setattr(seed_scale, "engine", SimpleNamespace(dispose=dispose))
     try:
-        from contextlib import redirect_stdout
-
-        output = io.StringIO()
-        outcome = "completed"
-        try:
-            with redirect_stdout(output):
-                await seed_scale.seed(0 if case == "zero" else 4, 2, 1)
-        except SystemExit as error:
-            assert case == "no_admin"
-            outcome = {"exit": error.code}
-        except RuntimeError as error:
-            assert (
-                case in {"tasks_fail", "annotations_fail"}
-                and str(error) == "controlled scale stage failure"
-            )
-            outcome = str(error)
-        state = await _state(owner, marker, ids)
-        state.update(
-            commits=len(commits),
-            disposed=dispose.await_count,
-            outcome=outcome,
-            printed_done="[seed_scale] done:" in output.getvalue(),
-        )
-        if CAPTURE:
-            folder = ROOT / ".worktree/workspace-scale-baseline-cases"
-            folder.mkdir(exist_ok=True)
-            (folder / (case + ".json")).write_text(
-                json.dumps(state, ensure_ascii=False, indent=2) + "\n"
-            )
+        if case == "no_admin":
+            with pytest.raises(SystemExit) as error:
+                await seed_scale.seed(4, 2, 1, run_id=run_id)
+            assert error.value.code == 1
+        elif case in {"tasks_fail", "annotations_fail"}:
+            with pytest.raises(RuntimeError, match="controlled scale stage failure"):
+                await seed_scale.seed(4, 2, 1, run_id=run_id)
         else:
-            assert state == json.loads(ORACLE.read_text())["snapshots"][case]
-        record_property("workspace_scale_original", case)
+            await seed_scale.seed(0 if case == "zero" else 4, 2, 1, run_id=run_id)
+        state = await _state(owner, marker, ids)
+        if case == "no_admin":
+            assert state["project"] is None
+        else:
+            assert state["datasets"] == 1
+            assert state["items"] == (0 if case == "zero" else 4)
+            assert state["counts"] == {
+                "tasks": 0 if case in {"zero", "tasks_fail"} else 4,
+                "task_batches": 2,
+                "annotations": 1 if case == "normal" else 0,
+            }
     finally:
         event.remove(target, "before_cursor_execute", fail_stage)
-        async with owner() as db:
-            await seed_scale._purge(db)
-        await _remove_scale_actors(owner, marker, ids)
+        await _remove_scale_run(owner, run_id)
+        await _remove_scale_actors(owner, actor_name, ids)
+
+
+async def _remove_scale_run(owner, run_id):
+    async with owner() as db:
+        if await db.get(FixtureRun, run_id) is None:
+            return
+        await seed_scale._purge(db, run_id)
+        await db.execute(
+            delete(FixtureRunResource).where(FixtureRunResource.run_id == run_id)
+        )
+        await db.execute(
+            delete(FixtureRunAdmission).where(FixtureRunAdmission.run_id == run_id)
+        )
+        await db.execute(delete(FixtureRun).where(FixtureRun.id == run_id))
+        await db.commit()
 
 
 @asynccontextmanager
 async def seeded_scale(scale_world, monkeypatch, marker):
     owner, consumer = scale_world
     ids = await _scale_actors(owner, marker, "normal")
-    monkeypatch.setattr(seed_scale, "MARKER", marker)
-    monkeypatch.setattr(seed_scale, "Session", consumer)
-    monkeypatch.setattr(seed_scale, "engine", SimpleNamespace(dispose=AsyncMock()))
+    run_id = uuid.uuid4()
+    run_marker = seed_scale._marker(run_id)
+    monkeypatch.setattr(seed_scale.settings, "environment", "development")
+    monkeypatch.setattr(seed_scale.settings, "e2e_seed_enabled", True)
+    monkeypatch.setattr(seed_scale, "Session", owner)
+    await _prepare_scale_run(owner, run_id)
     try:
-        await seed_scale.seed(4, 2, 1)
+        await seed_scale.seed(4, 2, 1, run_id=run_id)
         async with owner() as db:
             project_id = await db.scalar(
-                text("SELECT id FROM projects WHERE name=:m"), {"m": marker}
+                text("SELECT id FROM projects WHERE name=:m"), {"m": run_marker}
             )
             dataset_id = await db.scalar(
-                text("SELECT id FROM datasets WHERE name=:m"), {"m": marker}
+                text("SELECT id FROM datasets WHERE name=:m"), {"m": run_marker}
             )
             task_id, item_id = (
                 await db.execute(
@@ -256,10 +268,19 @@ async def seeded_scale(scale_world, monkeypatch, marker):
                     {"id": project_id},
                 )
             ).one()
-        yield owner, consumer, ids, project_id, dataset_id, task_id, item_id
+        yield (
+            owner,
+            consumer,
+            ids,
+            project_id,
+            dataset_id,
+            task_id,
+            item_id,
+            run_id,
+            run_marker,
+        )
     finally:
-        async with owner() as db:
-            await seed_scale._purge(db)
+        await _remove_scale_run(owner, run_id)
         await _remove_scale_actors(owner, marker, ids)
 
 
@@ -285,6 +306,8 @@ async def test_purge_retains_execution_learning_and_auxiliary_evidence(
         dataset_id,
         task_id,
         item_id,
+        run_id,
+        run_marker,
     ):
         reference = uuid.uuid4()
         foreign_task = uuid.uuid4()
@@ -356,14 +379,14 @@ async def test_purge_retains_execution_learning_and_auxiliary_evidence(
             "camera_link": "task_dataset_item_links",
             "chapter": "video_chapters",
         }[kind]
-        before = await _state(owner, marker, ids)
+        before = await _state(owner, run_marker, ids)
         try:
-            async with consumer() as db:
+            async with owner() as db:
                 with pytest.raises(HTTPException) as error:
-                    await seed_scale._purge(db)
+                    await seed_scale._purge(db, run_id)
                 assert error.value.status_code == 409
                 await db.rollback()
-            assert await _state(owner, marker, ids) == before
+            assert await _state(owner, run_marker, ids) == before
             async with owner() as db:
                 assert (
                     await db.scalar(
@@ -408,8 +431,10 @@ async def test_purge_busy_scope_stops_before_committed_deletion(
         dataset_id,
         task_id,
         item_id,
+        run_id,
+        run_marker,
     ):
-        before = await _state(owner, marker, ids)
+        before = await _state(owner, run_marker, ids)
         async with owner() as locked:
             table, identifier = (
                 ("projects", project_id)
@@ -420,16 +445,16 @@ async def test_purge_busy_scope_stops_before_committed_deletion(
                 text(f"SELECT id FROM {table} WHERE id=:id FOR UPDATE"),
                 {"id": identifier},
             )
-            async with consumer() as db:
+            async with owner() as db:
                 with pytest.raises(HTTPException) as error:
-                    await seed_scale._purge(db)
+                    await seed_scale._purge(db, run_id)
                 assert error.value.status_code == 409
                 assert error.value.detail["reason"] == (
                     "project_busy" if scope == "project" else "source_busy"
                 )
                 await db.rollback()
             await locked.rollback()
-        assert await _state(owner, marker, ids) == before
+        assert await _state(owner, run_marker, ids) == before
 
 
 async def test_node_scale_capabilities_sequence_conflict_and_rollback(

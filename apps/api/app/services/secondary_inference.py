@@ -320,6 +320,15 @@ async def run_secondary_inference(
         raise HTTPException(
             status_code=409, detail={"code": "prediction_input_required"}
         )
+    from app.services.storage import require_unowned_legacy_original, storage_service
+
+    await require_unowned_legacy_original(
+        db,
+        task.file_path,
+        storage_service.datasets_bucket
+        if task.dataset_item_id
+        else storage_service.bucket,
+    )
     async with prediction_inputs(
         input_session_factory,
         owner_id=uuid.uuid4(),

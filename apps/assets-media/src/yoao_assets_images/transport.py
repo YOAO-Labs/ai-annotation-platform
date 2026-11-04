@@ -38,7 +38,7 @@ from .contract import (
 class ImageSourceReference(Value):
     actor_id: UUID | None = None
     source: ImageSource
-    original_url: StrictStr
+    original_url: StrictStr | None
     thumbnail_url: StrictStr | None
     expires_in: StrictInt = Field(ge=1, le=604800)
 

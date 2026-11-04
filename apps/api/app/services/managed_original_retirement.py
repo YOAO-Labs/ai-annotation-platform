@@ -7,8 +7,9 @@ physical deletion. Configuration agreement is not exclusive ownership proof.
 import hashlib
 import json
 import uuid
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 
 from app.config import settings
@@ -149,13 +150,19 @@ async def _saved_assertion(db, row):
     return _assertion(row, evidence)
 
 
-async def capture_managed_original_retirements(db, *, dataset_id, item_id=None):
+async def capture_managed_original_retirements(
+    db, *, dataset_id, item_id=None, fixture_run_id=None
+):
     """Append idempotent assertions before cascades, without committing or I/O.
 
     The DatasetService caller owns its dataset/item write locks. Unknown
     historical identity remains an assertion, never a reason to deny deletion.
     A real database failure propagates so the business transaction also fails.
     """
+    if fixture_run_id is not None:
+        from app.services.test_seed_access import assert_isolated_test_seed_database
+
+        await assert_isolated_test_seed_database(db)
     statement = (
         select(
             Dataset.id.label("dataset_id"),
@@ -210,10 +217,205 @@ async def capture_managed_original_retirements(db, *, dataset_id, item_id=None):
                 {(row["bucket"], row["object_key"]) for row in rows}
             ):
                 await shared(db, bucket, key)
+            assertions = [await _saved_assertion(db, row) for row in rows]
+            if fixture_run_id is not None:
+                from app.db.models.fixture_run import FixtureRunResource
+                from app.services.content_snapshot import ContentError
+
+                for assertion in assertions:
+                    creation_id = assertion["creation_id"]
+                    owner = (
+                        (
+                            await db.execute(
+                                select(
+                                    FixtureRunResource.run_id,
+                                    FixtureRunResource.item_id,
+                                ).where(
+                                    FixtureRunResource.kind == "creation",
+                                    FixtureRunResource.creation_id == creation_id,
+                                )
+                            )
+                        ).one_or_none()
+                        if creation_id is not None
+                        else None
+                    )
+                    classification = (
+                        await db.scalar(
+                            text(
+                                "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+                                "CAST(:creation AS uuid), CAST(:identity AS text))"
+                            ),
+                            {
+                                "creation": creation_id,
+                                "identity": assertion["storage_identity"],
+                            },
+                        )
+                        if creation_id is not None
+                        else None
+                    )
+                    if (
+                        owner is None
+                        or tuple(owner)
+                        != (fixture_run_id, assertion["dataset_item_id"])
+                        or classification != "qualified"
+                    ):
+                        raise ContentError("fixture_original_retirement_unqualified")
+                    # This is the initial policy for a fresh fixture Creation,
+                    # never a change to an existing historical assertion.
+                    assertion["retain_until"] = datetime.now(timezone.utc)
             await db.execute(
                 insert(ManagedOriginalRetirement)
-                .values([await _saved_assertion(db, row) for row in rows])
+                .values(assertions)
                 .on_conflict_do_nothing(index_elements=["assertion_digest"])
             )
     finally:
         await result.close()
+
+
+async def capture_fixture_auxiliary_retirements(db, *, dataset_id, fixture_run_id):
+    """Record exact verified auxiliary owners before the fixture Dataset is removed."""
+    from app.db.models.dataset_auxiliary_original import DatasetAuxiliaryOriginal
+    from app.db.models.fixture_run import FixtureAuxiliaryIntent
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.services import dataset_storage
+    from app.services.content_snapshot import ContentError
+    from app.services.fixture_run_ownership import _require_settled_original_receipt
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services.managed_original_reclaim_fence import shared
+
+    dataset = await db.get(Dataset, dataset_id, with_for_update=True)
+    if dataset is None:
+        raise ContentError("fixture_auxiliary_dataset_missing")
+    unowned = await db.scalar(
+        select(DatasetAuxiliaryOriginal.id)
+        .where(
+            DatasetAuxiliaryOriginal.dataset_id == dataset_id,
+            ~select(FixtureAuxiliaryIntent.creation_id)
+            .where(
+                FixtureAuxiliaryIntent.creation_id == DatasetAuxiliaryOriginal.id,
+                FixtureAuxiliaryIntent.run_id == fixture_run_id,
+                FixtureAuxiliaryIntent.dataset_id == dataset_id,
+            )
+            .exists(),
+        )
+        .limit(1)
+    )
+    if unowned is not None:
+        raise ContentError("fixture_auxiliary_owner_untracked")
+    rows = (
+        await db.execute(
+            select(
+                DatasetAuxiliaryOriginal,
+                FixtureAuxiliaryIntent,
+                ManagedOriginalCreation,
+            )
+            .join(
+                FixtureAuxiliaryIntent,
+                FixtureAuxiliaryIntent.creation_id == DatasetAuxiliaryOriginal.id,
+            )
+            .join(
+                ManagedOriginalCreation,
+                ManagedOriginalCreation.id == DatasetAuxiliaryOriginal.creation_id,
+            )
+            .where(
+                DatasetAuxiliaryOriginal.dataset_id == dataset_id,
+                FixtureAuxiliaryIntent.run_id == fixture_run_id,
+            )
+            .order_by(DatasetAuxiliaryOriginal.id)
+            .with_for_update()
+        )
+    ).all()
+    for owner, intent, creation in rows:
+        operation = (
+            await db.get(StorageOperation, creation.operation_id)
+            if creation.operation_id is not None
+            else None
+        )
+        _require_settled_original_receipt(creation, operation)
+        if (
+            owner.id != creation.id
+            or owner.creation_id != creation.id
+            or owner.dataset_id != intent.dataset_id
+            or creation.dataset_id != dataset_id
+            or owner.kind != intent.kind
+            or owner.source_contract != intent.source_contract
+            or owner.sha256 != intent.sha256
+            or owner.sha256 != creation.sha256
+            or owner.size_bytes != intent.size_bytes
+            or owner.size_bytes != creation.size_bytes
+            or owner.location_id != creation.location_id
+            or owner.storage_identity != creation.storage_identity
+            or owner.bucket != creation.bucket
+            or owner.object_key != creation.object_key
+            or owner.etag != creation.etag
+            or owner.version_id != creation.version_id
+            or owner.storage_ref != (creation.configuration or {}).get("original_ref")
+        ):
+            raise ContentError("fixture_auxiliary_owner_changed")
+        await shared(db, owner.bucket, owner.object_key)
+        classification = await db.scalar(
+            text(
+                "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+                "CAST(:creation AS uuid), CAST(:identity AS text))"
+            ),
+            {"creation": creation.id, "identity": owner.storage_identity},
+        )
+        if classification != "qualified":
+            raise ContentError("fixture_auxiliary_retirement_unqualified")
+        try:
+            saved = dataset_storage.resolve_ref(owner.storage_ref)
+            if (
+                saved.location_id != owner.location_id
+                or saved.bucket != owner.bucket
+                or saved.object_key != owner.object_key
+                or saved.storage_identity != owner.storage_identity
+            ):
+                raise ValueError
+            await dataset_storage.target_for_ref(
+                db, owner.storage_ref, require_enabled=False
+            )
+        except ValueError as exc:
+            raise ContentError("fixture_auxiliary_location_changed") from exc
+        provenance = [
+            "dataset_auxiliary",
+            1,
+            str(owner.id),
+            str(owner.location_id),
+            owner.bucket,
+            owner.object_key,
+            saved.config_revision,
+            saved.binding_generation,
+        ]
+        await db.execute(
+            insert(ManagedOriginalRetirement)
+            .values(
+                id=uuid.uuid4(),
+                assertion_digest=hashlib.sha256(
+                    json.dumps(provenance, separators=(",", ":")).encode()
+                ).hexdigest(),
+                owner_type="dataset_auxiliary",
+                auxiliary_original_id=owner.id,
+                dataset_id=dataset_id,
+                dataset_item_id=None,
+                asset_id=None,
+                creation_id=creation.id,
+                location_id=owner.location_id,
+                bucket=owner.bucket,
+                object_key=owner.object_key,
+                role="managed_original",
+                location_config_revision=saved.config_revision,
+                binding_generation=saved.binding_generation,
+                storage_identity=owner.storage_identity,
+                identity_state="verified_binding",
+                asset_verification_state="verified",
+                sha256=owner.sha256,
+                size_bytes=owner.size_bytes,
+                reference_state="present",
+                etag=owner.etag,
+                verified_at=creation.readback_at,
+                dataset_lifecycle_revision=dataset.lifecycle_revision,
+                retain_until=datetime.now(timezone.utc),
+            )
+            .on_conflict_do_nothing(index_elements=["assertion_digest"])
+        )
+    return tuple(owner.id for owner, _, _ in rows)

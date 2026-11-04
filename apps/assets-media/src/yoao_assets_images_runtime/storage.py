@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from builtins import BaseExceptionGroup
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
@@ -22,7 +22,6 @@ from yoao_assets_images.contract import (
     ImageSource,
     ObjectIdentity,
 )
-from yoao_assets_images_runtime.processing import IMAGE_HEADER_BYTES
 
 from .config import ImageStorageConfig
 
@@ -134,21 +133,13 @@ class _FileBody(httpx.AsyncByteStream):
 
 
 class ImageStorage(Protocol):
-    async def head_source(self, source: ImageSource) -> ObjectIdentity: ...
-
-    async def read_source_header(self, source: ImageSource) -> SourceHeader: ...
-
-    async def download_source(
-        self, source: ImageSource, destination: Path
-    ) -> DownloadedSource: ...
+    def bind_original(self, permit): ...
 
     async def head_cache(self, key: str) -> ObjectIdentity | None: ...
 
     async def read_cache(self, key: str, limit: int) -> bytes: ...
 
     async def upload_cache(self, path: Path, key: str) -> Artifact: ...
-
-    async def sign_source(self, source: ImageSource, expires_in: int = 3600) -> str: ...
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str: ...
 
@@ -165,6 +156,7 @@ class S3ImageStorage:
         client=None,
         signer=None,
         http_client=None,
+        additional_original_client=None,
     ) -> None:
         self.config = config
         self._http_client = http_client
@@ -194,6 +186,38 @@ class S3ImageStorage:
                 )
         self._client = client
         self._signer = signer
+        from yoao_assets_media_runtime.additional_original import (
+            AdditionalOriginalTarget,
+        )
+
+        if (
+            additional_original_client is not None
+            and config.additional_original is None
+        ):
+            raise ValueError(
+                "Additional original client requires explicit target configuration"
+            )
+        self._additional_original = (
+            AdditionalOriginalTarget(
+                config.additional_original,
+                region=config.region,
+                connect_timeout=config.connect_timeout,
+                read_timeout=config.read_timeout,
+                max_attempts=config.max_attempts,
+                client=additional_original_client,
+            )
+            if config.additional_original is not None
+            else None
+        )
+
+    def bind_original(self, permit):
+        if permit.ownership == "ordinary":
+            from .ordinary_original import OrdinaryImageOriginal
+
+            return OrdinaryImageOriginal(self, permit)
+        from .original_storage import BoundImageOriginal
+
+        return BoundImageOriginal(self, permit)
 
     def _get_http_client(self):
         if self._http_client is None:
@@ -209,10 +233,24 @@ class S3ImageStorage:
         return self._http_client
 
     async def close(self) -> None:
-        if self._owns_http_client and self._http_client is not None:
-            client = self._http_client
-            self._http_client = None
-            await client.aclose()
+        failure = None
+        try:
+            if self._owns_http_client and self._http_client is not None:
+                client, self._http_client = self._http_client, None
+                await client.aclose()
+        except BaseException as exc:
+            failure = exc
+        try:
+            if self._additional_original is not None:
+                self._additional_original.close()
+        except BaseException as exc:
+            if failure is not None:
+                raise BaseExceptionGroup(
+                    "Image storage close failed", [failure, exc]
+                ) from None
+            raise
+        if failure is not None:
+            raise failure
 
     def _presigned_http_url(self, operation: str, params: dict[str, object]) -> str:
         try:
@@ -237,156 +275,6 @@ class S3ImageStorage:
         if not 200 <= response.status_code < 300:
             _raise_http_failure(response, missing_is_object=True)
         return _http_identity(response.headers), response.headers
-
-    async def head_source(self, source: ImageSource) -> ObjectIdentity:
-        bucket = _source_bucket(source, self.config)
-        _validate_source_key(source.file_path)
-        try:
-            identity, _headers = await self._head_object(
-                self._get_http_client(), bucket, source.file_path
-            )
-            return identity
-        except ImageFailure:
-            raise
-        except Exception as exc:
-            raise _storage_error(exc, missing_is_object=True) from None
-
-    async def read_source_header(self, source: ImageSource) -> SourceHeader:
-        expected = source.object_identity
-        if expected is None:
-            raise ImageFailure("source_changed")
-        if expected.byte_size <= 0:
-            raise ImageFailure("source_missing")
-        if source.file_size is not None and expected.byte_size != source.file_size:
-            raise ImageFailure("source_changed")
-        bucket = _source_bucket(source, self.config)
-        params: dict[str, object] = {
-            "Bucket": bucket,
-            "Key": source.file_path,
-            "Range": f"bytes=0-{IMAGE_HEADER_BYTES - 1}",
-            "IfMatch": _if_match(expected.etag),
-        }
-        if expected.version_id is not None:
-            params["VersionId"] = expected.version_id
-        client = self._get_http_client()
-        try:
-            if (await self._head_object(client, bucket, source.file_path))[
-                0
-            ] != expected:
-                raise ImageFailure("source_changed")
-            url = self._presigned_http_url("get_object", params)
-            request_headers = {
-                "Range": params["Range"],
-                "If-Match": params["IfMatch"],
-            }
-            async with client.stream("GET", url, headers=request_headers) as response:
-                if response.status_code != 206:
-                    if 200 <= response.status_code < 300:
-                        raise ImageFailure("source_changed")
-                    _raise_http_failure(response, missing_is_object=True)
-                identity = _range_identity_headers(response.headers, expected)
-                expected_length = min(expected.byte_size, IMAGE_HEADER_BYTES)
-                data = bytearray()
-                async for chunk in response.aiter_raw():
-                    if len(data) + len(chunk) > expected_length:
-                        raise ImageFailure("source_changed")
-                    data.extend(chunk)
-                if len(data) != expected_length:
-                    raise ImageFailure("source_changed")
-                header = SourceHeader(identity=identity, data=bytes(data))
-            if (await self._head_object(client, bucket, source.file_path))[
-                0
-            ] != expected:
-                raise ImageFailure("source_changed")
-            return header
-        except ImageFailure:
-            raise
-        except Exception:
-            raise ImageFailure("storage_unavailable") from None
-
-    async def download_source(
-        self, source: ImageSource, destination: Path
-    ) -> DownloadedSource:
-        expected = source.object_identity
-        if expected is None:
-            raise ImageFailure("source_changed")
-        _validate_source_key(source.file_path)
-        bucket = _source_bucket(source, self.config)
-        params: dict[str, object] = {
-            "Bucket": bucket,
-            "Key": source.file_path,
-            "IfMatch": _if_match(expected.etag),
-        }
-        if expected.version_id is not None:
-            params["VersionId"] = expected.version_id
-        client = self._get_http_client()
-        written = 0
-        created_destination = False
-        try:
-            if (await self._head_object(client, bucket, source.file_path))[
-                0
-            ] != expected:
-                raise ImageFailure("source_changed")
-            url = self._presigned_http_url("get_object", params)
-            request_headers = {"If-Match": params["IfMatch"]}
-            async with client.stream("GET", url, headers=request_headers) as response:
-                if response.status_code != 200:
-                    _raise_http_failure(response, missing_is_object=True)
-                if _http_identity(response.headers) != expected:
-                    raise ImageFailure("source_changed")
-                destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-                digest = hashlib.sha256()
-                md5 = (
-                    hashlib.md5(usedforsecurity=False)
-                    if _declares_md5(source.content_hash)
-                    else None
-                )
-                with destination.open("xb") as output:
-                    created_destination = True
-                    async for chunk in response.aiter_raw():
-                        written += len(chunk)
-                        if written > expected.byte_size:
-                            raise ImageFailure("source_changed")
-                        digest.update(chunk)
-                        if md5 is not None:
-                            md5.update(chunk)
-                        output.write(chunk)
-                if written != expected.byte_size or (
-                    source.file_size is not None and written != source.file_size
-                ):
-                    raise ImageFailure("source_changed")
-                sha256_hex = digest.hexdigest()
-                if not _matches_declared_content_hash(
-                    source.content_hash,
-                    sha256_hex,
-                    md5.hexdigest() if md5 is not None else None,
-                ):
-                    raise ImageFailure("source_changed")
-                destination.chmod(0o400)
-            if (await self._head_object(client, bucket, source.file_path))[
-                0
-            ] != expected:
-                raise ImageFailure("source_changed")
-            return DownloadedSource(
-                identity=expected,
-                byte_size=written,
-                sha256=sha256_hex,
-            )
-        except asyncio.CancelledError:
-            if created_destination:
-                with suppress(OSError):
-                    destination.unlink(missing_ok=True)
-            raise
-        except ImageFailure:
-            if created_destination:
-                with suppress(OSError):
-                    destination.unlink(missing_ok=True)
-            raise
-        except Exception:
-            if created_destination:
-                with suppress(OSError):
-                    destination.unlink(missing_ok=True)
-            raise ImageFailure("storage_unavailable") from None
 
     async def head_cache(self, key: str) -> ObjectIdentity | None:
         _validate_cache_key(key)
@@ -489,27 +377,6 @@ class S3ImageStorage:
             raise ImageFailure("storage_unavailable") from None
         finally:
             await body.aclose()
-
-    async def sign_source(self, source: ImageSource, expires_in: int = 3600) -> str:
-        bucket = _source_bucket(source, self.config)
-        _validate_source_key(source.file_path)
-        params: dict[str, object] = {"Bucket": bucket, "Key": source.file_path}
-        if (
-            source.object_identity is not None
-            and source.object_identity.version_id is not None
-        ):
-            params["VersionId"] = source.object_identity.version_id
-        try:
-            return await asyncio.to_thread(
-                self._signer.generate_presigned_url,
-                "get_object",
-                Params=params,
-                ExpiresIn=_expiry(expires_in),
-            )
-        except ImageFailure:
-            raise
-        except Exception as exc:
-            raise _storage_error(exc) from None
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
         _validate_cache_key(key)
@@ -651,41 +518,6 @@ def _http_identity(headers) -> ObjectIdentity:
         raise ImageFailure("storage_unavailable")
     return ObjectIdentity(
         etag=etag.strip().strip('"'), byte_size=size, version_id=version_id
-    )
-
-
-def _range_identity_headers(headers, expected: ObjectIdentity) -> ObjectIdentity:
-    etag = headers.get("etag")
-    version_id = headers.get("x-amz-version-id")
-    content_range = headers.get("content-range")
-    content_length = headers.get("content-length")
-    match = (
-        re.fullmatch(r"bytes 0-(\d+)/(\d+)", content_range)
-        if isinstance(content_range, str)
-        else None
-    )
-    if match is None:
-        raise ImageFailure("source_changed")
-    end = int(match.group(1))
-    total = int(match.group(2))
-    wanted_end = min(expected.byte_size, IMAGE_HEADER_BYTES) - 1
-    try:
-        range_length = int(content_length)
-    except (TypeError, ValueError):
-        raise ImageFailure("source_changed") from None
-    if (
-        total != expected.byte_size
-        or end != wanted_end
-        or range_length != end + 1
-        or not isinstance(etag, str)
-        or etag.strip().strip('"') != expected.etag
-        or version_id != expected.version_id
-    ):
-        raise ImageFailure("source_changed")
-    return ObjectIdentity(
-        etag=expected.etag,
-        byte_size=total,
-        version_id=expected.version_id,
     )
 
 

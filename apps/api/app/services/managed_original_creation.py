@@ -12,7 +12,7 @@ import uuid
 
 import boto3
 from botocore.config import Config
-from sqlalchemy import insert, select, update
+from sqlalchemy import insert, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
@@ -38,6 +38,8 @@ from app.services.dataset_assets import (
     validate_legacy_bindings,
 )
 from app.services.dataset_storage_keys import (
+    MANAGED_OBJECTS_DIR,
+    managed_dataset_prefix,
     managed_dataset_key,
     normalize_dataset_relative_path,
 )
@@ -220,6 +222,80 @@ async def _change(db, creation_id, expected, *, record_mutation=False, **values)
         return dict(row)
 
 
+async def abandon_unstarted_fixture(db, *, run_id, admission_id, creation_id):
+    """CAS an exact fixture allocation to failed only before any write can start."""
+    from app.db.models.fixture_run import FixtureRunResource
+
+    owner = (
+        select(FixtureRunResource.resource_id)
+        .where(
+            FixtureRunResource.run_id == run_id,
+            FixtureRunResource.admission_id == admission_id,
+            FixtureRunResource.kind == "creation",
+            FixtureRunResource.creation_id == creation_id,
+        )
+        .exists()
+    )
+    async with storage_access.engine(db).begin() as connection:
+        result = await connection.execute(
+            update(Creation)
+            .where(
+                Creation.id == creation_id,
+                Creation.status == "allocated",
+                Creation.operation_id.is_(None),
+                Creation.prepared.is_(None),
+                Creation.write_started_at.is_(None),
+                Creation.receipt.is_(None),
+                owner,
+            )
+            .values(
+                status="failed",
+                error_code="fixture_item_not_prepared",
+                completed_at=now(),
+            )
+            .returning(Creation.id)
+        )
+        if result.scalar_one_or_none() is None:
+            reject("fixture_creation_not_unstarted")
+
+
+async def abandon_unstarted_fixture_auxiliary(db, *, run_id, admission_id, creation_id):
+    """Abandon one exact auxiliary intent only while no physical write can exist."""
+    from app.db.models.fixture_run import FixtureAuxiliaryIntent
+
+    owner = (
+        select(FixtureAuxiliaryIntent.creation_id)
+        .where(
+            FixtureAuxiliaryIntent.run_id == run_id,
+            FixtureAuxiliaryIntent.admission_id == admission_id,
+            FixtureAuxiliaryIntent.creation_id == creation_id,
+        )
+        .exists()
+    )
+    async with storage_access.engine(db).begin() as connection:
+        result = await connection.execute(
+            update(Creation)
+            .where(
+                Creation.id == creation_id,
+                Creation.owner_kind == "dataset_auxiliary",
+                Creation.status == "allocated",
+                Creation.operation_id.is_(None),
+                Creation.prepared.is_(None),
+                Creation.write_started_at.is_(None),
+                Creation.receipt.is_(None),
+                owner,
+            )
+            .values(
+                status="failed",
+                error_code="fixture_auxiliary_not_started",
+                completed_at=now(),
+            )
+            .returning(Creation.id)
+        )
+        if result.scalar_one_or_none() is None:
+            reject("fixture_creation_not_unstarted")
+
+
 def _original_configuration(configuration):
     """Project old and current snapshots onto this writer's actual dependencies."""
     return {
@@ -275,6 +351,50 @@ async def _validate(db, row, *, lock=False):
             for name in ("location_id", "bucket", "object_key", "storage_identity")
         ):
             reject("managed_original_configuration_changed")
+        private_target = saved.get("fixture_original_target")
+        if private_target is not None:
+            from app.db.models.fixture_run import (
+                FixtureOriginalTarget,
+                FixtureRun,
+                FixtureRunResource,
+            )
+
+            try:
+                target_id = uuid.UUID(private_target["id"])
+                generation = private_target["generation"]
+                receipt = private_target["store_receipt_sha256"]
+            except (KeyError, TypeError, ValueError):
+                reject("fixture_original_storage_changed")
+            target = await db.get(FixtureOriginalTarget, target_id)
+            owner_resource = await db.scalar(
+                select(FixtureRunResource).where(
+                    FixtureRunResource.resource_id == row["id"],
+                    FixtureRunResource.kind.in_(("creation", "auxiliary")),
+                )
+            )
+            run = (
+                await db.get(FixtureRun, owner_resource.run_id)
+                if owner_resource
+                else None
+            )
+            root = (
+                await db.get(FixtureRun, run.parent_run_id or run.id) if run else None
+            )
+            if (
+                target is None
+                or root is None
+                or root.original_target_id != target.id
+                or target.id != target_id
+                or target.generation != generation
+                or target.store_receipt_sha256 != receipt
+                or root.original_store_receipt_sha256 != receipt
+                or target.location_id != owner.location_id
+                or target.bucket != owner.bucket
+                or target.storage_identity != owner.storage_identity
+                or root.original_storage_identity != target.storage_identity
+                or owner.binding_generation != generation
+            ):
+                reject("fixture_original_storage_changed")
         try:
             from app.services.original_sources import _reads
 
@@ -500,6 +620,139 @@ async def allocate(
     )
 
 
+async def allocate_fixture(
+    db,
+    *,
+    run_id,
+    admission_id,
+    dataset_id,
+    item_id,
+    item_fingerprint,
+    logical_path,
+    max_bytes,
+    requested_by=None,
+    content_type="application/octet-stream",
+):
+    """Allocate on the real binding and atomically record fixture ownership."""
+    if (
+        not all(
+            isinstance(value, uuid.UUID)
+            for value in (run_id, admission_id, dataset_id, item_id)
+        )
+        or not isinstance(item_fingerprint, str)
+        or re.fullmatch(r"[0-9a-f]{64}", item_fingerprint) is None
+    ):
+        reject("managed_original_invalid_allocation", 422)
+    return await _allocate(
+        db,
+        owner_kind="dataset",
+        dataset_id=dataset_id,
+        project_id=None,
+        task_id=None,
+        logical_path=logical_path,
+        origin="connector",
+        max_bytes=max_bytes,
+        requested_by=requested_by,
+        authority=None,
+        staging=False,
+        content_type=content_type,
+        fixture=(run_id, admission_id, item_id, item_fingerprint),
+    )
+
+
+async def allocate_fixture_operator_item(
+    db,
+    *,
+    run_id,
+    admission_id,
+    dataset_id,
+    item_id,
+    publication_id,
+    logical_path,
+    file_type,
+    payload_sha256,
+    max_bytes,
+    requested_by,
+    content_type,
+    entry_for_key,
+):
+    """Reserve the operator's real item and Creation together on the private target."""
+    if (
+        not all(
+            isinstance(value, uuid.UUID)
+            for value in (run_id, admission_id, dataset_id, item_id, publication_id)
+        )
+        or file_type not in {"point_cloud", "image", "other"}
+        or not isinstance(payload_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", payload_sha256) is None
+        or not callable(entry_for_key)
+    ):
+        reject("managed_original_invalid_allocation", 422)
+    return await _allocate(
+        db,
+        owner_kind="dataset",
+        dataset_id=dataset_id,
+        project_id=None,
+        task_id=None,
+        logical_path=logical_path,
+        origin="connector",
+        max_bytes=max_bytes,
+        requested_by=requested_by,
+        authority={
+            "kind": "operator_item",
+            "operation_id": None,
+            "item_id": str(item_id),
+            "publication_id": str(publication_id),
+        },
+        staging=False,
+        content_type=content_type,
+        fixture=(run_id, admission_id, item_id, None),
+        fixture_operator_entry=(file_type, payload_sha256, entry_for_key),
+    )
+
+
+async def allocate_fixture_auxiliary(
+    db,
+    *,
+    run_id,
+    admission_id,
+    dataset_id,
+    kind,
+    source_contract,
+    payload_sha256,
+    max_bytes,
+    requested_by,
+    content_type,
+):
+    """Reserve a real map/raw-lidar owner intent on the private target."""
+    from app.services.auxiliary_originals import contract
+
+    if (
+        not all(
+            isinstance(value, uuid.UUID) for value in (run_id, admission_id, dataset_id)
+        )
+        or not isinstance(payload_sha256, str)
+        or re.fullmatch(r"[0-9a-f]{64}", payload_sha256) is None
+    ):
+        reject("managed_original_invalid_allocation", 422)
+    frozen = contract(kind, source_contract)
+    return await _allocate(
+        db,
+        owner_kind="dataset_auxiliary",
+        dataset_id=dataset_id,
+        project_id=None,
+        task_id=None,
+        logical_path=f"{AUXILIARY_ORIGINAL_PREFIX}/{kind}",
+        origin="connector",
+        max_bytes=max_bytes,
+        requested_by=requested_by,
+        authority={"auxiliary": {"kind": kind, "source_contract": frozen}},
+        staging=False,
+        content_type=content_type,
+        fixture_auxiliary=(run_id, admission_id, kind, frozen, payload_sha256),
+    )
+
+
 async def allocate_auxiliary(
     db,
     *,
@@ -581,6 +834,9 @@ async def _allocate(
     authority,
     staging,
     content_type,
+    fixture=None,
+    fixture_operator_entry=None,
+    fixture_auxiliary=None,
 ):
     if (
         origin not in ORIGINS
@@ -600,7 +856,9 @@ async def _allocate(
         logical_path = normalize_dataset_relative_path(logical_path)
     except (AttributeError, TypeError, ValueError):
         reject("managed_original_invalid_allocation", 422)
-    await bootstrap(db)
+    fixture_scoped = fixture is not None or fixture_auxiliary is not None
+    if not fixture_scoped:
+        await bootstrap(db)
     creation_id = uuid.uuid4()
     staging_ref, staging_owner_value = None, None
     if staging:
@@ -617,50 +875,93 @@ async def _allocate(
         else (
             f"{AUXILIARY_ORIGINAL_PREFIX}/{dataset_id}/{creation_id}/payload"
             if owner_kind == "dataset_auxiliary"
-            else managed_dataset_key(dataset_id, logical_path)
+            else (
+                f"{managed_dataset_prefix(dataset_id)}{MANAGED_OBJECTS_DIR}/{creation_id}/{logical_path}"
+                if fixture_operator_entry is not None
+                else managed_dataset_key(dataset_id, logical_path)
+            )
         )
     )
     factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
     async with factory() as current, current.begin():
-        purpose = "annotations" if owner_kind == "task" else "datasets"
-        initial = await current.get(StorageBinding, purpose, populate_existing=True)
-        if initial is None:
-            reject("managed_original_configuration_changed")
-        facts = initial.location_id, initial.bucket, initial.generation
-        initial_location = await current.get(
-            StorageLocation, facts[0], populate_existing=True
-        )
-        if initial_location is None:
-            reject("managed_original_configuration_changed")
-        from app.db.models.storage_connection import StorageConnection
-
-        connection_id = initial_location.connection_id
-        if connection_id is not None:
-            await current.execute(
-                select(StorageConnection.id)
-                .where(StorageConnection.id == connection_id)
-                .with_for_update(read=True)
+        if fixture_scoped:
+            from app.db.models.fixture_run import (
+                FixtureRunAdmission,
+                FixtureRunResource,
             )
-        location = await current.scalar(
-            select(StorageLocation)
-            .where(StorageLocation.id == facts[0])
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
-        binding = await current.scalar(
-            select(StorageBinding)
-            .where(StorageBinding.purpose == purpose)
-            .with_for_update(read=True)
-            .execution_options(populate_existing=True)
-        )
-        if (
-            location is None
-            or location.connection_id != connection_id
-            or binding is None
-            or (binding.location_id, binding.bucket, binding.generation) != facts
-        ):
-            reject("managed_original_configuration_changed")
-        configuration = await _configuration(current)
+            from app.services import fixture_run_ownership as ownership
+
+            if fixture is not None and fixture_auxiliary is not None:
+                reject("fixture_original_admission_changed")
+            if fixture is not None:
+                run_id, admission_id, item_id, item_fingerprint = fixture
+            else:
+                run_id, admission_id, _kind, _contract, _sha256 = fixture_auxiliary
+            _, root = await ownership.lock_original_scope(current, run_id)
+            admitted = await current.scalar(
+                select(FixtureRunAdmission.id).where(
+                    FixtureRunAdmission.id == admission_id,
+                    FixtureRunAdmission.run_id == run_id,
+                    FixtureRunAdmission.state == "active",
+                )
+            )
+            owned_dataset = await current.scalar(
+                select(FixtureRunResource).where(
+                    FixtureRunResource.run_id == run_id,
+                    FixtureRunResource.kind == "dataset",
+                    FixtureRunResource.resource_id == dataset_id,
+                    FixtureRunResource.state == "published",
+                )
+            )
+            if admitted is None or owned_dataset is None:
+                reject("fixture_original_admission_changed")
+            if fixture is not None:
+                owned_item = await current.get(
+                    FixtureRunResource, (run_id, "item", item_id)
+                )
+                if owned_item is None or owned_item.state != "reserved":
+                    reject("fixture_original_admission_changed")
+            binding, location = await ownership.original_target(current, root)
+        else:
+            purpose = "annotations" if owner_kind == "task" else "datasets"
+            initial = await current.get(StorageBinding, purpose, populate_existing=True)
+            if initial is None:
+                reject("managed_original_configuration_changed")
+            facts = initial.location_id, initial.bucket, initial.generation
+            initial_location = await current.get(
+                StorageLocation, facts[0], populate_existing=True
+            )
+            if initial_location is None:
+                reject("managed_original_configuration_changed")
+            from app.db.models.storage_connection import StorageConnection
+
+            connection_id = initial_location.connection_id
+            if connection_id is not None:
+                await current.execute(
+                    select(StorageConnection.id)
+                    .where(StorageConnection.id == connection_id)
+                    .with_for_update(read=True)
+                )
+            location = await current.scalar(
+                select(StorageLocation)
+                .where(StorageLocation.id == facts[0])
+                .with_for_update(read=True)
+                .execution_options(populate_existing=True)
+            )
+            binding = await current.scalar(
+                select(StorageBinding)
+                .where(StorageBinding.purpose == purpose)
+                .with_for_update(read=True)
+                .execution_options(populate_existing=True)
+            )
+            if (
+                location is None
+                or location.connection_id != connection_id
+                or binding is None
+                or (binding.location_id, binding.bucket, binding.generation) != facts
+            ):
+                reject("managed_original_configuration_changed")
+        configuration = {} if fixture_scoped else await _configuration(current)
         from app.services.dataset_storage_target import target_for as dataset_target
 
         storage = annotations_storage if owner_kind == "task" else dataset_storage
@@ -673,7 +974,11 @@ async def _allocate(
                 binding.bucket != target.bucket
                 or type(binding.generation) is not int
                 or binding.generation < 1
-                or (binding.generation == 1 and location.id != LEGACY_LOCATION_ID)
+                or (
+                    not fixture_scoped
+                    and binding.generation == 1
+                    and location.id != LEGACY_LOCATION_ID
+                )
             ):
                 reject("managed_original_configuration_changed")
             object_key = target.key_prefix + object_key
@@ -691,6 +996,19 @@ async def _allocate(
             "endpoint": target.endpoint_url,
             "original_ref": reference,
         }
+        if fixture_scoped:
+            configuration["location"] = _json(
+                {
+                    column.key: getattr(location, column.key)
+                    for column in StorageLocation.__table__.columns
+                }
+            )
+            configuration["connection_revision"] = target.connection_revision
+            configuration["fixture_original_target"] = {
+                "id": str(binding.id),
+                "generation": binding.generation,
+                "store_receipt_sha256": binding.store_receipt_sha256,
+            }
         if (
             not dataset_storage.valid_key(object_key)
             or len(binding.bucket.encode()) > 255
@@ -700,6 +1018,39 @@ async def _allocate(
             )
         ):
             reject("managed_original_invalid_allocation", 422)
+        if fixture_scoped:
+            target_identity = managed_storage_identity(
+                configuration["endpoint"], binding.bucket
+            )
+            if (
+                owned_dataset.storage_identity != target_identity
+                or root.original_storage_identity != target_identity
+            ):
+                reject("fixture_original_storage_changed")
+            # Operator append receipts outlive their items. Serialize their
+            # admission with this exact key before publishing fixture ownership.
+            await current.execute(
+                text(
+                    "SELECT pg_catalog.pg_advisory_xact_lock("
+                    "pg_catalog.hashtextextended('fixture-source:' || :key, 0))"
+                ),
+                {"key": object_key},
+            )
+            previous_operator_source = await current.scalar(
+                text(
+                    "SELECT EXISTS ("
+                    "SELECT 1 FROM public.dataset_operator_operations AS receipt "
+                    "CROSS JOIN LATERAL pg_catalog.jsonb_array_elements("
+                    "CASE WHEN receipt.action = 'append_items' "
+                    "THEN receipt.intent -> 'entries' ELSE '[]'::jsonb END"
+                    ") AS entry(value) "
+                    "WHERE receipt.action = 'append_items' "
+                    "AND entry.value ->> 'file_path' = :key)"
+                ),
+                {"key": object_key},
+            )
+            if previous_operator_source:
+                reject("fixture_original_prior_operator_source")
         revision = await storage_access.check(current, location.id, lock=True)
         values = {
             "id": creation_id,
@@ -739,6 +1090,84 @@ async def _allocate(
             .mappings()
             .one()
         )
+        if fixture is not None:
+            if fixture_operator_entry is not None:
+                from app.db.models.dataset import DatasetItem
+                from app.services.assets_operator import AssetsOperatorGateway
+
+                file_type, payload_sha256, entry_for_key = fixture_operator_entry
+                entry = entry_for_key(object_key)
+                if (
+                    entry.id != item_id
+                    or entry.file_path != object_key
+                    or entry.file_type != file_type
+                    or entry.file_size != max_bytes
+                    or entry.content_hash is not None
+                ):
+                    reject("fixture_original_item_changed")
+                await AssetsOperatorGateway(current).append_all_items(
+                    dataset_id, [entry]
+                )
+                item = await current.get(DatasetItem, item_id)
+                if item is None or item.dataset_id != dataset_id:
+                    reject("fixture_original_item_missing")
+                item_fingerprint = ownership._pending_item_fingerprint(
+                    item, payload_sha256
+                )
+                owned_item.state = "published"
+            current.add(
+                FixtureRunResource(
+                    run_id=run_id,
+                    kind="creation",
+                    resource_id=creation_id,
+                    logical_key=creation_id.hex,
+                    creation_id=creation_id,
+                    admission_id=admission_id,
+                    item_id=item_id,
+                    item_fingerprint=item_fingerprint,
+                    state="published",
+                )
+            )
+            await current.flush()
+        elif fixture_auxiliary is not None:
+            from app.db.models.fixture_run import FixtureAuxiliaryIntent
+
+            current.add(
+                FixtureRunResource(
+                    run_id=run_id,
+                    kind="auxiliary",
+                    resource_id=creation_id,
+                    logical_key=creation_id.hex,
+                    state="published",
+                )
+            )
+            await current.flush()
+            current.add(
+                FixtureAuxiliaryIntent(
+                    creation_id=creation_id,
+                    run_id=run_id,
+                    admission_id=admission_id,
+                    dataset_id=dataset_id,
+                    kind=_kind,
+                    source_contract=_contract,
+                    sha256=_sha256,
+                    size_bytes=max_bytes,
+                )
+            )
+            await current.flush()
+        if fixture_operator_entry is not None or fixture_auxiliary is not None:
+            material = await current.scalar(
+                text(
+                    "SELECT aap_assets_v1._managed_original_facts(creation) "
+                    "FROM public.managed_original_creations AS creation WHERE creation.id=:id"
+                ),
+                {"id": creation_id},
+            )
+            if not isinstance(material, dict) or material.get("creation_id") != str(
+                creation_id
+            ):
+                reject("fixture_original_material_unavailable")
+            return material
         return dict(row)
 
 
@@ -1039,11 +1468,11 @@ async def _physical(db, row, stream, *, source_target=None):
                 },
                 readback_at=now(),
             )
-        except BaseException:
+        except BaseException as exc:
             raise storage_access.mark_unsettled(
                 ContentError("managed_original_readback_persistence_unknown", 503)
-            ) from None
-        return verified.head_bytes
+            ) from exc
+        result = verified.head_bytes
     except BaseException as exc:
         failure = exc
         if (
@@ -1063,54 +1492,84 @@ async def _physical(db, row, stream, *, source_target=None):
                     row["object_key"],
                     prepared,
                 )
-            except BaseException:
-                raise storage_access.mark_unsettled(
-                    ContentError("managed_original_abort_unknown", 503)
-                ) from None
-        raise
-    finally:
-        try:
-            closing_failure = None
-            for resource, context in (
-                (source_client, source_context),
-                (client, target_context),
-            ):
-                if resource is None:
-                    continue
-                try:
-                    if context is not None:
-                        await physical.run(context.__exit__, None, None, None)
-                    else:
-                        await physical.run(storage_access.close_registered, resource)
-                except BaseException:
-                    closing_failure = storage_access.mark_unsettled(
-                        ContentError("managed_original_close_unknown", 503)
-                    )
-            if closing_failure is not None:
-                raise closing_failure from None
-            settled = True
-        finally:
-            if mutation is not None:
-                # A separate best-effort transaction preserves physical facts
-                # even when Creation or its caller's business publication fails.
-                # Keep the existing permit until native close/drain has finished.
-                publication = asyncio.create_task(
-                    accounting.publish(
-                        async_sessionmaker(
-                            storage_access.engine(db), expire_on_commit=False
-                        ),
-                        mutation,
-                        evidence,
-                        settled=settled,
+            except BaseException as abort_failure:
+                failure = storage_access.mark_unsettled(
+                    BaseExceptionGroup(
+                        "Original creation and prepared-upload abort failed",
+                        [
+                            exc,
+                            ContentError("managed_original_abort_unknown", 503),
+                            abort_failure,
+                        ],
                     )
                 )
+    finally:
+        failures = []
+        initial_interruption = physical.interrupted
+        if initial_interruption is not None:
+            failures.append(initial_interruption)
+        if failure is not None and failure is not initial_interruption:
+            failures.append(failure)
+        close_errors = []
+        for resource, context in (
+            (source_client, source_context),
+            (client, target_context),
+        ):
+            if resource is None:
+                continue
+            try:
+                if context is not None:
+                    await physical.run(context.__exit__, None, None, None)
+                else:
+                    await physical.run(storage_access.close_registered, resource)
+            except BaseException as close_failure:
+                close_errors.append(close_failure)
+        if close_errors:
+            failures.append(ContentError("managed_original_close_unknown", 503))
+            failures.extend(close_errors)
+        else:
+            settled = True
+        if physical.interrupted is not None and initial_interruption is None:
+            failures.append(physical.interrupted)
+        accounting_failed = False
+        if mutation is not None:
+            # Keep the permit until physical close and accounting both settle.
+            publication = asyncio.create_task(
+                accounting.publish(
+                    async_sessionmaker(
+                        storage_access.engine(db), expire_on_commit=False
+                    ),
+                    mutation,
+                    evidence,
+                    settled=settled,
+                )
+            )
+            try:
+                await asyncio.shield(publication)
+            except BaseException as publication_failure:
+                failures.append(publication_failure)
                 try:
-                    await asyncio.shield(publication)
-                except BaseException:
                     await _drain(publication)
-                    raise
-        if physical.interrupted is not None and failure is None:
-            raise physical.interrupted
+                except BaseException as late_failure:
+                    accounting_failed = True
+                    if late_failure is not publication_failure:
+                        failures.append(late_failure)
+        if failures:
+            if len(failures) == 1:
+                if close_errors or accounting_failed:
+                    storage_access.mark_unsettled(failures[0])
+                raise failures[0]
+            combined = BaseExceptionGroup(
+                "Original creation did not settle cleanly", failures
+            )
+            if (
+                close_errors
+                or accounting_failed
+                or getattr(failure, "storage_operation_unsettled", False)
+            ):
+                storage_access.mark_unsettled(combined)
+            raise combined
+    return result
 
 
 async def _execute(db, allocation, stream):
@@ -1205,27 +1664,43 @@ async def _execute(db, allocation, stream):
                     else getattr(exc, "status", 409)
                 )
             )
-        except BaseException:
+        except BaseException as persistence_failure:
             raise storage_access.mark_unsettled(
-                ContentError("managed_original_persistence_unknown", 503)
+                BaseExceptionGroup(
+                    "Original creation and receipt persistence failed",
+                    [
+                        exc,
+                        ContentError("managed_original_persistence_unknown", 503),
+                        persistence_failure,
+                    ],
+                )
             ) from None
+        if isinstance(exc, BaseExceptionGroup):
+            raise
         error = ContentError(_error(exc), status)
         if operation or getattr(exc, "storage_operation_unsettled", False):
             storage_access.mark_unsettled(error)
-        raise error from None
+        raise error from exc
 
 
 async def _shielded(db, allocation, stream):
     task = asyncio.create_task(_execute(db, allocation, stream))
     try:
         return await asyncio.shield(task)
-    except BaseException:
-        # Do not let request cancellation abandon its source or skip write-ack
-        # persistence, readback, client close, or permit settlement.
+    except BaseException as first_failure:
+        # Do not let request cancellation abandon physical work or hide a
+        # later write, close, or receipt-persistence failure.
         try:
             await _drain(task)
-        except BaseException:
-            pass
+        except BaseException as late_failure:
+            if late_failure is not first_failure:
+                combined = BaseExceptionGroup(
+                    "Original creation was interrupted and later failed",
+                    [first_failure, late_failure],
+                )
+                if getattr(late_failure, "storage_operation_unsettled", False):
+                    storage_access.mark_unsettled(combined)
+                raise combined from None
         raise
 
 
@@ -1260,6 +1735,12 @@ async def image_dimensions(db, allocation, created):
         "dataset_original_dimensions",
         expected_revision=allocation["maintenance_revision"],
     ):
+        # The durable permit precedes the exact-key reclaim fence. A claim
+        # installed first rejects this read; otherwise the permit blocks GC.
+        from app.services.managed_original_reclaim_fence import shared
+
+        async with async_sessionmaker(storage_access.engine(db))() as fence:
+            await shared(fence, owner.bucket, owner.object_key)
         stage = await reader.capture(
             reader.ObjectSpec(
                 owner.endpoint_url,

@@ -412,6 +412,7 @@ async def import_nuscenes(
     project_display_id: str | None = None,
     project_name: str | None = None,
     tool_bindings: dict | None = None,
+    fixture_scope: tuple[uuid.UUID, uuid.UUID] | None = None,
 ) -> dict:
     """把 nuScenes 的若干 scene 转换并入库到一个共用 dataset。
 
@@ -467,6 +468,15 @@ async def import_nuscenes(
 
     # 1. ensure/复用 dataset(派生固定 display_id → 幂等)
     display_id = dataset_display_id or _derived_display_id("DS-NU-", dataset_name)
+    if fixture_scope is not None:
+        from sqlalchemy import select, text
+        from app.db.models.dataset import Dataset
+        from app.services import fixture_run_ownership as ownership
+
+        await ownership.lock_original_scope(db, fixture_scope[0])
+        await db.execute(text("LOCK TABLE public.datasets IN SHARE ROW EXCLUSIVE MODE"))
+        if await db.scalar(select(Dataset.id).where(Dataset.display_id == display_id)):
+            raise ValueError("fixture nuScenes dataset display ID is already in use")
     assets = AssetsOperatorGateway(db)
     dataset_mutation = await assets.ensure_operator_nuscenes_dataset(
         EnsureOperatorNuScenesDatasetRequest(
@@ -489,6 +499,15 @@ async def import_nuscenes(
     if storage_root is None or needs_pcd_upgrade is None:
         raise ValueError("operator returned an incomplete nuScenes Dataset result")
     _safe_source_path(storage_root)
+    if fixture_scope is not None:
+        from app.services import fixture_run_ownership as ownership
+
+        run_id, _ = fixture_scope
+        await ownership.reserve_original_dataset(
+            db, run_id, ds.id, logical_key="pointcloud_demo"
+        )
+        await ownership.publish_resource(db, run_id, "dataset", ds.id)
+        await db.commit()
 
     spatial = AssetsSpatialGateway(db)
     await spatial.set_dataset_axis(
@@ -518,18 +537,36 @@ async def import_nuscenes(
         file_type,
         data,
         content_type="application/octet-stream",
+        *,
+        entry_for_key=None,
     ):
-        material, created = await assets.create_item_original(
-            dataset_id=ds.id,
-            item_id=item_id,
-            publication_id=uuid.uuid4(),
-            operation_id=import_operation_id,
-            logical_path=logical_path,
-            file_type=file_type,
-            content_type=content_type,
-            data=data,
-            requested_by=owner_id,
-        )
+        if fixture_scope is not None:
+            if entry_for_key is None:
+                raise ValueError("fixture nuScenes item requires its real source entry")
+            material, created = await assets.create_fixture_item_original(
+                run_id=fixture_scope[0],
+                admission_id=fixture_scope[1],
+                dataset_id=ds.id,
+                item_id=item_id,
+                logical_path=logical_path,
+                file_type=file_type,
+                content_type=content_type,
+                data=data,
+                requested_by=owner_id,
+                entry_for_key=entry_for_key,
+            )
+        else:
+            material, created = await assets.create_item_original(
+                dataset_id=ds.id,
+                item_id=item_id,
+                publication_id=uuid.uuid4(),
+                operation_id=import_operation_id,
+                logical_path=logical_path,
+                file_type=file_type,
+                content_type=content_type,
+                data=data,
+                requested_by=owner_id,
+            )
         return material.object_key, created, material.creation_id
 
     async def ensure_auxiliary(
@@ -554,6 +591,7 @@ async def import_nuscenes(
             content_type=content_type,
             requested_by=owner_id,
             existing_id=existing_id,
+            fixture_scope=fixture_scope,
         )
 
     report_scenes: list[dict] = []
@@ -1011,6 +1049,7 @@ async def import_nuscenes(
         last_ts = samples[-1]["timestamp"]
 
         append_entries: list[OperatorSourceEntry] = []
+        source_creations: dict[uuid.UUID, uuid.UUID] = {}
         lidar_item_ids: list[uuid.UUID] = []  # 主帧,按帧序
         cam_frame_index: dict[uuid.UUID, int] = {}  # cam item.id -> frame_index
         calib_item_ids: list[uuid.UUID] = []  # scene-level(frame_index=NULL)
@@ -1078,20 +1117,15 @@ async def import_nuscenes(
                 "application/octet-stream",
             )
             new_raw_binds.append((lidar_item_id, raw_owner))
-            lidar_key, lidar_created, _lidar_creation = await create_media_original(
-                lidar_item_id,
-                f"{scene_name}/lidar/{frame_stem}.pcd",
-                "point_cloud",
-                pcd_bytes,
-            )
-            append_entries.append(
-                OperatorSourceEntry(
+
+            def lidar_entry(key, content_hash):
+                return OperatorSourceEntry(
                     id=lidar_item_id,
                     file_name=f"{frame_stem}.pcd",
-                    file_path=lidar_key,
+                    file_path=key,
                     file_type="point_cloud",
-                    file_size=lidar_created.size_bytes,
-                    content_hash=lidar_created.sha256,
+                    file_size=len(pcd_bytes),
+                    content_hash=content_hash,
                     metadata={
                         "storage_relative_path": f"{scene_name}/lidar/{frame_stem}.pcd",
                         "nuscenes_export": _source_context(
@@ -1105,7 +1139,16 @@ async def import_nuscenes(
                         ),
                     },
                 )
+
+            lidar_key, lidar_created, _lidar_creation = await create_media_original(
+                lidar_item_id,
+                f"{scene_name}/lidar/{frame_stem}.pcd",
+                "point_cloud",
+                pcd_bytes,
+                entry_for_key=lambda key: lidar_entry(key, None),
             )
+            source_creations[lidar_item_id] = lidar_created.creation_id
+            append_entries.append(lidar_entry(lidar_key, lidar_created.sha256))
             lidar_item_ids.append(lidar_item_id)
 
             # ---- 各 CAM(modality==camera)----
@@ -1119,21 +1162,15 @@ async def import_nuscenes(
                 ).read_bytes()
                 camera_width, camera_height = _camera_dimensions(sd)
                 cam_item_id = uuid.uuid4()
-                cam_key, cam_created, _cam_creation = await create_media_original(
-                    cam_item_id,
-                    f"{scene_name}/camera/{channel}/{frame_stem}.jpg",
-                    "image",
-                    jpg_bytes,
-                    "image/jpeg",
-                )
-                append_entries.append(
-                    OperatorSourceEntry(
+
+                def camera_entry(key, content_hash):
+                    return OperatorSourceEntry(
                         id=cam_item_id,
                         file_name=f"{frame_stem}.jpg",
-                        file_path=cam_key,
+                        file_path=key,
                         file_type="image",
-                        file_size=cam_created.size_bytes,
-                        content_hash=cam_created.sha256,
+                        file_size=len(jpg_bytes),
+                        content_hash=content_hash,
                         width=camera_width,
                         height=camera_height,
                         metadata={
@@ -1144,12 +1181,22 @@ async def import_nuscenes(
                                 calibrated_sensor=cs,
                                 sensor=sensor_by_token[cs["sensor_token"]],
                                 ego_pose=ego_by_token[sd["ego_pose_token"]],
-                                storage_key=cam_key,
+                                storage_key=key,
                                 source_bytes=jpg_bytes,
                             ),
                         },
                     )
+
+                cam_key, cam_created, _cam_creation = await create_media_original(
+                    cam_item_id,
+                    f"{scene_name}/camera/{channel}/{frame_stem}.jpg",
+                    "image",
+                    jpg_bytes,
+                    "image/jpeg",
+                    entry_for_key=lambda key: camera_entry(key, None),
                 )
+                source_creations[cam_item_id] = cam_created.creation_id
+                append_entries.append(camera_entry(cam_key, cam_created.sha256))
                 cam_frame_index[cam_item_id] = frame_idx
 
                 # 首帧:算该相机外参 + 内参,写 calib/camera/<channel>.json
@@ -1176,6 +1223,20 @@ async def import_nuscenes(
                     calib_payload = {"extrinsic": extrinsic, "intrinsic": intrinsic}
                     calib_bytes = json.dumps(calib_payload).encode("utf-8")
                     calib_item_id = uuid.uuid4()
+
+                    def calibration_entry(key, content_hash):
+                        return OperatorSourceEntry(
+                            id=calib_item_id,
+                            file_name=f"{channel}.json",
+                            file_path=key,
+                            file_type="other",
+                            file_size=len(calib_bytes),
+                            content_hash=content_hash,
+                            metadata={
+                                "storage_relative_path": f"{scene_name}/calib/camera/{channel}.json"
+                            },
+                        )
+
                     (
                         calib_key,
                         calib_created,
@@ -1186,25 +1247,27 @@ async def import_nuscenes(
                         "other",
                         calib_bytes,
                         "application/json",
+                        entry_for_key=lambda key: calibration_entry(key, None),
                     )
+                    source_creations[calib_item_id] = calib_created.creation_id
                     append_entries.append(
-                        OperatorSourceEntry(
-                            id=calib_item_id,
-                            file_name=f"{channel}.json",
-                            file_path=calib_key,
-                            file_type="other",
-                            file_size=calib_created.size_bytes,
-                            content_hash=calib_created.sha256,
-                            metadata={
-                                "storage_relative_path": f"{scene_name}/calib/camera/{channel}.json"
-                            },
-                        )
+                        calibration_entry(calib_key, calib_created.sha256)
                     )
                     calib_item_ids.append(calib_item_id)
 
             calib_written = True
 
-        await assets.append_all_items(ds.id, append_entries)
+        if fixture_scope is None:
+            await assets.append_all_items(ds.id, append_entries)
+            for entry in append_entries:
+                await assets.publish_item_original(
+                    dataset_id=ds.id,
+                    item_id=entry.id,
+                    creation_id=source_creations[entry.id],
+                    expected_file_path=entry.file_path,
+                    expected_file_size=entry.file_size,
+                    expected_content_hash=entry.content_hash,
+                )
         total_items += len(append_entries)
 
         # 显式建 scene + 赋 frame_index(不依赖目录启发式 inference)
@@ -1280,6 +1343,8 @@ async def import_nuscenes(
         project_name=project_name or f"nuScenes {dataset_name}",
         owner_id=owner_id,
         tool_bindings=tool_bindings,
+        require_new=fixture_scope is not None,
+        fixture_run_id=fixture_scope[0] if fixture_scope is not None else None,
     )
 
     return {

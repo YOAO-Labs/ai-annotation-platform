@@ -17,3 +17,8 @@ export function postFixture(
   url: string,
   options?: Parameters<APIRequestContext["post"]>[1],
 ): Promise<SeedResponse>;
+
+export function getScreenshotCatalog(
+  url: string,
+  options?: { timeout?: number },
+): Promise<SeedResponse>;

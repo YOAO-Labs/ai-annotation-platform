@@ -14,6 +14,12 @@ from app.db.models.project_guide_asset import ProjectGuideAsset
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
+from app.db.models.fixture_run import (
+    FixturePresentationJob,
+    FixtureRun,
+    FixtureRunAdmission,
+    FixtureRunResource,
+)
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.db.models.storage_usage import (
     StorageUsageInventory,
@@ -432,6 +438,12 @@ __all__ += ["ManagedOriginalVerification", "StorageMigrationInventory"]
 __all__ += ["StorageMigrationWindow"]
 
 __all__ += ["ManagedOriginalCreation"]
+__all__ += [
+    "FixturePresentationJob",
+    "FixtureRun",
+    "FixtureRunAdmission",
+    "FixtureRunResource",
+]
 
 __all__ += ["AvatarUpload"]
 

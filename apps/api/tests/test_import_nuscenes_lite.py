@@ -490,7 +490,6 @@ async def test_import_nuscenes_two_scenes(
         ).scalars()
     )
     assert len(items) == 14
-    assert all(item.content_hash and len(item.content_hash) == 32 for item in items)
     assets = list(
         await db_session.scalars(
             select(DatasetAsset).where(
@@ -503,6 +502,19 @@ async def test_import_nuscenes_two_scenes(
         asset.verification_state == "verified" and len(asset.checksum_value) == 64
         for asset in assets
     )
+    by_item = {asset.dataset_item_id: asset for asset in assets}
+    for item in items:
+        asset = by_item[item.id]
+        assert item.content_hash == asset.checksum_value
+        location = await db_session.scalar(
+            select(DatasetAssetLocation).where(
+                DatasetAssetLocation.asset_id == asset.id,
+                DatasetAssetLocation.role == "managed_original",
+            )
+        )
+        assert location.creation_id is not None
+        assert location.object_key == item.file_path
+        assert location.storage_ref["object_key"] == item.file_path
     camera_items = [item for item in items if item.file_type == "image"]
     assert camera_items
     assert all((item.width, item.height) == (1, 1) for item in camera_items)

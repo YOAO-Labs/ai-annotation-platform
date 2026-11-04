@@ -110,6 +110,17 @@ async function preflight() {
         throw new Error("[marketing] GPU Screen Recorder 当前不支持 X11 窗口采集");
     }
   }
+  // Worktree Playwright starts its isolated API after this host-only preflight;
+  // its mandatory global setup checks the exact workers before seeding.
+  if (process.env.SCREENSHOT_DEFER_HEALTH === "1") {
+    if (
+      !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+      !process.env.SCREENSHOT_FIXTURE_RUN_ID
+    ) {
+      throw new Error("[marketing] 延迟健康检查仅允许受监管的截图工作树运行。");
+    }
+    return;
+  }
 
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
   let health;

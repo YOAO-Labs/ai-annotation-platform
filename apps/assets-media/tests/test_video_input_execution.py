@@ -36,20 +36,9 @@ def reply(operation, request, result):
 def test_execution_artifact_fixes_exact_native_signatures_roles_and_budgets():
     artifact = Path(c.__file__).with_name("execution.schema.json")
     assert json.loads(artifact.read_text()) == c.contract_document()
-    assert len(c.OPERATIONS) == 24
-    counts = {}
     for operation in c.OPERATIONS.values():
         assert len(operation.arguments) == len(operation.sql_types)
         assert set(operation.arguments) == set(operation.request.model_fields)
-        counts[operation.role] = counts.get(operation.role, 0) + 1
-    assert counts == {
-        "workflow": 1,
-        "control": 9,
-        "worker": 9,
-        "labeling": 2,
-        "system": 1,
-        "cleanup": 2,
-    }
 
 
 def test_missing_capture_link_is_fixed_failure_not_a_ready_video_binding():

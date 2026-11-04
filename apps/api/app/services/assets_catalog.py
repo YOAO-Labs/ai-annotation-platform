@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Callable, Literal, TypeVar
 from urllib.parse import urlsplit
@@ -37,11 +38,11 @@ from yoao_assets_catalog.associations_contract import (
 )
 from yoao_assets_images.contract import ReadImageSourceRequest
 from yoao_assets_images.transport import ImageSourceReference
-from yoao_assets_media.contract import ReadSourceRequest
+from yoao_assets_media.contract import MediaFailure, ReadSourceRequest
 from yoao_assets_media.transport import SourceReference
 
 from app.config import settings
-from app.services.assets_media import browser_media_url
+from app.services.assets_media import browser_media_url, media_gateway
 from app.services.image_source_references import image_source_references
 from app.services.storage import storage_service
 from app.services.video_poster_references import video_source_references
@@ -267,6 +268,53 @@ class AssetsCatalogGateway:
                 item.id: reference
                 for item, reference in zip(video_items, source_references, strict=True)
             }
+        other_items = [
+            item for item in reply.items if item.file_type not in {"image", "video"}
+        ]
+        other_references_by_id = {}
+        if other_items:
+            try:
+                async with media_gateway(self.db) as gateway:
+                    for start in range(0, len(other_items), 4):
+                        batch = other_items[start : start + 4]
+                        references = await asyncio.gather(
+                            *(
+                                gateway.raw_source_reference(
+                                    ReadSourceRequest(
+                                        actor_id=request.actor_id,
+                                        dataset_item_id=item.id,
+                                    )
+                                )
+                                for item in batch
+                            ),
+                            return_exceptions=True,
+                        )
+                        failures = [
+                            value
+                            for value in references
+                            if isinstance(value, BaseException)
+                        ]
+                        if any(
+                            getattr(value, "storage_operation_unsettled", False)
+                            for value in failures
+                        ):
+                            if len(failures) == 1:
+                                raise failures[0]
+                            combined = BaseExceptionGroup(
+                                "Catalog source references failed", failures
+                            )
+                            combined.storage_operation_unsettled = True
+                            raise combined
+                        for item, reference in zip(batch, references, strict=True):
+                            if isinstance(reference, BaseException):
+                                if not isinstance(reference, Exception):
+                                    raise reference
+                                continue
+                            other_references_by_id[item.id] = reference
+            except MediaFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
+                pass
         reply = reply.model_copy(
             update={
                 "items": [
@@ -274,9 +322,9 @@ class AssetsCatalogGateway:
                     if item.file_type == "image"
                     else self._video_item(item, video_references_by_id.get(item.id))
                     if item.file_type == "video"
-                    else self._sign_item(item)
-                    if not remote
-                    else item
+                    else self._other_item(
+                        item, other_references_by_id.get(item.id), remote=remote
+                    )
                     for item in reply.items
                 ]
             }
@@ -475,12 +523,6 @@ class AssetsCatalogGateway:
     def _sign_item(item: CatalogItem) -> CatalogItem:
         updates: dict[str, str | None] = {"file_url": None, "thumbnail_url": None}
         if item.file_type not in {"video", "image"}:
-            try:
-                updates["file_url"] = storage_service.generate_download_url(
-                    item.file_path, bucket=storage_service.datasets_bucket
-                )
-            except Exception:
-                pass
             if item.thumbnail_path:
                 try:
                     bucket = storage_service.bucket_for_cache_key(
@@ -492,6 +534,27 @@ class AssetsCatalogGateway:
                 except Exception:
                     pass
         return item.model_copy(update=updates)
+
+    @classmethod
+    def _other_item(
+        cls, item: CatalogItem, reference: SourceReference | None, *, remote: bool
+    ) -> CatalogItem:
+        result = item if remote else cls._sign_item(item)
+        source = reference.source if reference is not None else None
+        url = None
+        if (
+            source is not None
+            and source.dataset_item_id == item.id
+            and source.dataset_id == item.dataset_id
+            and source.file_path == item.file_path
+            and source.file_type == item.file_type
+            and source.file_size == item.file_size
+            and source.content_hash == item.content_hash
+            and not source.source_drifted
+            and reference.original_url is not None
+        ):
+            url = browser_media_url(reference.original_url)
+        return result.model_copy(update={"file_url": url})
 
     @staticmethod
     def _image_item(
@@ -517,7 +580,12 @@ class AssetsCatalogGateway:
             if matches_item:
                 updates.update(
                     {
-                        "file_url": browser_media_url(reference.original_url),
+                        "file_url": (
+                            browser_media_url(reference.original_url)
+                            if not source.source_drifted
+                            and reference.original_url is not None
+                            else None
+                        ),
                         "thumbnail_url": browser_media_url(reference.thumbnail_url),
                         "thumbnail_path": (
                             source.thumbnail_path if source.thumbnail_current else None
@@ -537,7 +605,13 @@ class AssetsCatalogGateway:
     ) -> CatalogItem:
         return item.model_copy(
             update={
-                "file_url": reference.original_url if reference is not None else None,
+                "file_url": (
+                    browser_media_url(reference.original_url)
+                    if reference is not None
+                    and not reference.source.source_drifted
+                    and reference.original_url is not None
+                    else None
+                ),
                 "thumbnail_url": (
                     reference.poster_url if reference is not None else None
                 ),

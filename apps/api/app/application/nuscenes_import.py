@@ -25,8 +25,16 @@ class NuScenesImportWorkflow:
         project_name: str,
         owner_id: uuid.UUID,
         tool_bindings: dict | None,
+        require_new: bool = False,
+        fixture_run_id: uuid.UUID | None = None,
     ) -> uuid.UUID:
-        project_id = await find_import_project(self.db, project_display_id)
+        if fixture_run_id is not None and not require_new:
+            raise ValueError("fixture project must not reuse an existing workspace")
+        project_id = (
+            None
+            if require_new
+            else await find_import_project(self.db, project_display_id)
+        )
         if project_id is None:
             project_id = await create_import_project(
                 self.db,
@@ -35,6 +43,18 @@ class NuScenesImportWorkflow:
                 owner_id=owner_id,
                 tool_bindings=tool_bindings,
             )
+        if fixture_run_id is not None:
+            from app.services import fixture_run_ownership as ownership
+
+            await ownership.reserve(
+                self.db,
+                fixture_run_id,
+                "project",
+                project_id,
+                logical_key="pointcloud_demo",
+                published=True,
+            )
+            await self.db.commit()
 
         assets = DatasetService(self.db)
         await assets.associate_project(dataset_id, project_id, actor_id=owner_id)
@@ -42,8 +62,8 @@ class NuScenesImportWorkflow:
             dataset_id=dataset_id,
             project_id=project_id,
             actor_id=owner_id,
-            commit_calibration=False,
-            commit_task_chunks=False,
+            commit_calibration=fixture_run_id is not None,
+            commit_task_chunks=fixture_run_id is not None,
         )
         await assets.record_nuscenes_calibration_digests(dataset_id)
         await AssetsOperatorGateway(self.db).recount_operator_items(

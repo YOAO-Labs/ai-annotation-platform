@@ -301,14 +301,7 @@ async def _infer(execution, attempt, prepared, session_factory):
             if image_proof is not None and video_proof is not None:
                 raise ValueError("retry authority is ambiguous")
             input_url = (
-                prepared.reference.url
-                if prepared.reference is not None
-                else resolve_task_url(
-                    SimpleNamespace(
-                        file_path=attempt.write_scope.source_file_path,
-                        dataset_item_id=attempt.write_scope.source_dataset_item_id,
-                    )
-                )
+                prepared.reference.url if prepared.reference is not None else None
             )
             retained_inputs = None
             pipeline_kwargs = {}
@@ -323,6 +316,7 @@ async def _infer(execution, attempt, prepared, session_factory):
                 owner = _video_retry_owner(db, attempt, video_proof, task)
                 await owner.authorize(db)
                 retained_inputs = await owner.open_inputs(task, session_factory)
+                input_url = owner.resolve_url(task)
                 before_dispatch, validate_results = await _video_pipeline_hooks(
                     owner, task, db
                 )
@@ -331,6 +325,14 @@ async def _infer(execution, attempt, prepared, session_factory):
                     "validate_results": validate_results,
                     "max_response_bytes": 64 * 1024**2,
                 }
+            elif input_url is None:
+                input_url = await resolve_task_url(
+                    db,
+                    SimpleNamespace(
+                        file_path=attempt.write_scope.source_file_path,
+                        dataset_item_id=attempt.write_scope.source_dataset_item_id,
+                    ),
+                )
             snapshot_id = getattr(_job, "execution_snapshot_id", None)
             if snapshot_id is None:
                 proof = image_proof or video_proof

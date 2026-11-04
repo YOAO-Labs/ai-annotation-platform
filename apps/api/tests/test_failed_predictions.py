@@ -450,10 +450,10 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     await db_session.commit()
     session_factory = _passthrough_session_factory(db_session)
 
-    monkeypatch.setattr(
-        "app.services.storage.resolve_task_url",
-        lambda received_task: f"http://minio.test/{received_task.file_path}",
-    )
+    async def resolve_url(_db, received_task):
+        return f"http://minio.test/{received_task.file_path}"
+
+    monkeypatch.setattr("app.services.storage.resolve_task_url", resolve_url)
 
     async def fake_execute(task_id, _stages, _ports, _contexts, **_kwargs):
         return pipeline_output(
@@ -632,7 +632,9 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     monkeypatch.setattr(PredictionService, "apply_prediction_result_bundle", fake_apply)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
-        lambda _task: pytest.fail("frozen retry must not resolve the current Task URL"),
+        lambda _db, _task: pytest.fail(
+            "frozen retry must not resolve the current Task URL"
+        ),
     )
 
     result = await retry_worker._do_retry_with_factory(
@@ -738,7 +740,7 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
-        lambda _task: pytest.fail(
+        lambda _db, _task: pytest.fail(
             "an expired frozen input must not resolve the current URL"
         ),
     )

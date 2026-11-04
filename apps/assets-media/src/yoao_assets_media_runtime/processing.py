@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import base64
 from dataclasses import dataclass
 import hashlib
@@ -36,7 +35,7 @@ from yoao_media_probe.probe import (
     probe_video_frame_timetable,
 )
 
-from .storage import MediaStorage
+from .storage import MediaOriginalStorage, _run_blocking
 
 FFMPEG_POSTER_TIMEOUT_SECONDS = 60
 FFMPEG_TRANSCODE_TIMEOUT_SECONDS = 600
@@ -766,7 +765,7 @@ def _process_chunk(
 
 async def probe_source_timetable(
     source: MediaSource,
-    storage: MediaStorage,
+    storage: MediaOriginalStorage,
     *,
     sparse_stride: int = 1,
     probe_client: MediaProbe | None = None,
@@ -789,7 +788,9 @@ async def probe_source_timetable(
         path = Path(temp) / f"source{suffix}"
         await storage.download_source(captured, path)
         size, digest = _file_digest(path)
-        if source.file_size is not None and size != source.file_size:
+        if (
+            storage.original_sha256 is not None and digest != storage.original_sha256
+        ) or (source.file_size is not None and size != source.file_size):
             raise MediaFailure("source_changed")
         if source.content_hash is not None and not _matches_source_hash(
             source.content_hash, path, digest
@@ -800,7 +801,7 @@ async def probe_source_timetable(
             if probe_client is not None
             else probe_video_frame_timetable
         )
-        rows = await asyncio.to_thread(probe_frames, path)
+        rows = await _run_blocking(probe_frames, path)
         if await storage.head_source(source.file_path) != identity:
             raise MediaFailure("source_changed")
         return [

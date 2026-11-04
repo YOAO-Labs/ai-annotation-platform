@@ -5,8 +5,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -48,6 +53,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_key",
         "project_id",
@@ -62,8 +68,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -100,6 +111,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_id",
         "task_id",
@@ -113,8 +125,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -146,7 +163,15 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_key", "project_id", "task_id", "prediction_ids"],
+      "required": [
+        "schema",
+        "run_id",
+        "operation",
+        "project_key",
+        "project_id",
+        "task_id",
+        "prediction_ids"
+      ],
       "title": "DeleteOCRPredictions",
       "type": "object"
     },
@@ -154,8 +179,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -186,6 +216,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_key",
         "project_id",
@@ -199,8 +230,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -221,7 +257,7 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "tasks"],
+      "required": ["schema", "run_id", "operation", "project_id", "tasks"],
       "title": "LinkSeedTasksToBatches",
       "type": "object"
     },
@@ -229,8 +265,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -246,7 +287,7 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "tasks"],
+      "required": ["schema", "run_id", "operation", "tasks"],
       "title": "PinSeedTaskTimestamps",
       "type": "object"
     },
@@ -254,8 +295,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -295,6 +341,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_id",
         "annotations",
@@ -309,8 +356,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -348,6 +400,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_id",
         "dataset_id",
@@ -362,8 +415,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -414,6 +472,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_id",
         "task_ids",
@@ -430,8 +489,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -445,7 +509,7 @@
           "type": "string"
         },
         "project_display_id": {
-          "enum": ["P-COCO8", "P-VIDEO-DEV", "P-PC-DEV", "P-PC-MULTI", "P-OCR"],
+          "pattern": "^P-[1-9][0-9]*$",
           "title": "Project Display Id",
           "type": "string"
         },
@@ -457,7 +521,7 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "project_display_id", "tasks"],
+      "required": ["schema", "run_id", "operation", "project_id", "project_display_id", "tasks"],
       "title": "ResetSeedTasks",
       "type": "object"
     },
@@ -465,8 +529,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -535,6 +604,7 @@
       },
       "required": [
         "schema",
+        "run_id",
         "operation",
         "project_id",
         "task_id",
@@ -919,7 +989,7 @@
           "type": "string"
         },
         "project_display_id": {
-          "enum": ["P-COCO8", "P-VIDEO-DEV", "P-PC-DEV", "P-PC-MULTI", "P-OCR"],
+          "pattern": "^P-[1-9][0-9]*$",
           "title": "Project Display Id",
           "type": "string"
         },
@@ -947,8 +1017,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -969,7 +1044,7 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "tasks"],
+      "required": ["schema", "run_id", "operation", "project_id", "tasks"],
       "title": "SetImageSeedTaskState",
       "type": "object"
     },
@@ -977,8 +1052,13 @@
       "additionalProperties": false,
       "properties": {
         "schema": {
-          "const": "aap-labeling-screenshot-operations/v1",
+          "const": "aap-labeling-screenshot-operations/v2",
           "title": "Schema",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
           "type": "string"
         },
         "operation": {
@@ -1007,7 +1087,7 @@
           "type": "array"
         }
       },
-      "required": ["schema", "operation", "project_id", "task_ids", "batches"],
+      "required": ["schema", "run_id", "operation", "project_id", "task_ids", "batches"],
       "title": "SyncSeedBatchCounters",
       "type": "object"
     }
@@ -1071,7 +1151,7 @@
       "$ref": "#/$defs/RestoreReviewReject"
     }
   ],
-  "$id": "aap-labeling-screenshot-operations/v1",
+  "$id": "aap-labeling-screenshot-operations/v2",
   "x-postgresql-functions": {
     "aap_labeling_v1.screenshot_operations_command(jsonb)": {
       "arguments": "jsonb",
@@ -1080,12 +1160,12 @@
       "parallel": "unsafe"
     }
   },
-  "x-scope": "Fixed screenshot project display IDs, exact declared Task file paths and task display IDs, the five declared image batches, three fixed annotation identities, and exact supplied cleanup IDs.",
+  "x-scope": "One open screenshot run, its exact published project, dataset, item and annotation manifests, declared logical task paths and run-local task display IDs.",
   "x-security": {
     "owner": "Labeling NOLOGIN definer; ordinary runtime receives EXECUTE only",
     "search_path": "pg_catalog,pg_temp",
     "timezone": "UTC",
-    "project_fence": "aap_workspace_v1.read_project_row(uuid)"
+    "project_fence": "open screenshot run manifest and aap_workspace_v1.read_project_row(uuid)"
   },
   "x-owner-columns": {
     "public.tasks": {

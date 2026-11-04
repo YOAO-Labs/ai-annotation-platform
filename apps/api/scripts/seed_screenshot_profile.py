@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import copy
 import asyncio
-import logging
 import time
 import uuid
 from dataclasses import dataclass
@@ -18,6 +17,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm.util import identity_key
 
 from app.db.models.annotation import Annotation
+from app.db.models.fixture_run import FixtureRunResource
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
@@ -32,14 +32,12 @@ from app.services.workspace_seed_data import (
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.services.identity_commands import IdentityCommandService
-from app.application.project_deletion import (
-    delete_project as delete_project_transaction,
-)
 from app.services.screenshot_seed_spec import (
     PROJECT_SPECS,
     SEED_MANAGED_BY,
     SEED_REVISION,
     USER_SPECS,
+    fixture_persona_email,
     resolve_project_spec,
 )
 from yoao_assets_catalog.spatial_contract import SetDatasetAxisRequest
@@ -84,7 +82,6 @@ except ModuleNotFoundError:  # package import from tests
     from scripts.seed_video import VIDEO_TOOL_BINDINGS
 
 
-logger = logging.getLogger(__name__)
 FIXED_TIME = datetime(2026, 7, 1, 9, 0, tzinfo=UTC)
 SCREENSHOT_MEDIA_WAIT_SECONDS = 600
 ANNOTATION_NAMESPACE = uuid.UUID("6ebc9dd9-8b9d-4f5a-8658-843b3f0ac82d")
@@ -127,9 +124,8 @@ class _ScreenshotMediaDataset:
 
 @dataclass(frozen=True)
 class ScreenshotSeedPreparation:
-    adopt_keys: frozenset[str]
-    purged_projects: int = 0
-    purged_datasets: int = 0
+    run_id: uuid.UUID
+    existing_keys: frozenset[str]
 
 
 PROJECT_STATE = {
@@ -225,219 +221,80 @@ DATASET_STATE = {
     },
 }
 
-LEGACY_PROJECT_NAMES = {
-    "image_demo": {
-        "COCO8 图片检测 (dev)",
-        "合成道路场景（截图）",
-        PROJECT_STATE["image_demo"]["name"],
-    },
-    "video_demo": {
-        "行车视频跟踪 (dev)",
-        "合成道路视频追踪（截图）",
-        PROJECT_STATE["video_demo"]["name"],
-    },
-    "pointcloud_demo": {
-        "点云联合标注 (dev)",
-        "合成点云联合标注（截图）",
-        "真实室内点云（截图）",
-        "nuScenes mini 自动驾驶场景（dev）",
-        PROJECT_STATE["pointcloud_demo"]["name"],
-    },
-    "pointcloud_multicam_demo": {PROJECT_STATE["pointcloud_multicam_demo"]["name"]},
-    "ocr_demo": {"OCR 文本识别 (dev)", PROJECT_STATE["ocr_demo"]["name"]},
-}
-LEGACY_DATASET_NAMES = {
-    "image_demo": {
-        "coco8-dev",
-        "screenshots-synthetic-images",
-        DATASET_STATE["image_demo"]["name"],
-    },
-    "video_demo": {
-        "tracking-car-dev",
-        "screenshots-synthetic-video",
-        DATASET_STATE["video_demo"]["name"],
-    },
-    "pointcloud_demo": {
-        "pc-scene-dev",
-        "screenshots-synthetic-pointcloud",
-        "screenshots-real-pointcloud",
-        DATASET_STATE["pointcloud_demo"]["name"],
-    },
-    "pointcloud_multicam_demo": {
-        "pc-multicam-dev",
-        DATASET_STATE["pointcloud_multicam_demo"]["name"],
-    },
-    "ocr_demo": {"ocr-dev", DATASET_STATE["ocr_demo"]["name"]},
-}
-LEGACY_STORAGE_PREFIXES = {
-    "pointcloud_demo": {"pc-scene-dev/", "nuscenes-mini/"},
-}
-
 
 def _seed_marker(dataset: Dataset) -> dict:
     marker = (dataset.metadata_ or {}).get("seed")
     return marker if isinstance(marker, dict) else {}
 
 
-async def _seed_users(db: AsyncSession) -> dict[str, uuid.UUID]:
+async def _seed_users(db: AsyncSession, run_id: uuid.UUID) -> dict[str, uuid.UUID]:
     users: dict[str, uuid.UUID] = {}
-    for key, (email, role) in USER_SPECS.items():
+    for key, (persona, role) in USER_SPECS.items():
+        email = fixture_persona_email(run_id, persona)
         rows = await IdentityCommandService(db).lookup_seed_account_facts(email)
-        if len(rows) != 1 or rows[0][2] != role:
+        resource = await db.scalar(
+            select(FixtureRunResource).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "user",
+                FixtureRunResource.logical_key == key,
+                FixtureRunResource.state == "published",
+            )
+        )
+        if (
+            resource is None
+            or len(rows) != 1
+            or rows[0][0] != resource.resource_id
+            or rows[0][2] != role
+            or not rows[0][3]
+        ):
             raise ScreenshotSeedReconcileError(
-                f"seed user {email} with role {role} is required"
+                f"{key}: exact active screenshot account with role {role} is required"
             )
         users[key] = rows[0][0]
     return users
 
 
-async def _assert_rebuild_ownership(
-    db: AsyncSession,
-    logical_key: str,
-    project: Project | None,
-    dataset: Dataset | None,
-    users: dict[str, uuid.UUID],
-) -> None:
-    spec = PROJECT_SPECS[logical_key]
-    marker = _seed_marker(dataset) if dataset is not None else {}
-    if (
-        marker.get("managed_by") == SEED_MANAGED_BY
-        and marker.get("logical_key") == logical_key
-    ):
-        return
-
-    if project is not None:
-        state = PROJECT_STATE[logical_key]
-        owner = users[state["owner"]]
-        if (
-            project.name not in LEGACY_PROJECT_NAMES[logical_key]
-            or project.owner_id != owner
-        ):
-            raise ScreenshotSeedReconcileError(
-                f"{spec.display_id}: fixed id is not an owned screenshot/demo seed project"
-            )
-        project_links = list(
-            (
-                await db.execute(
-                    select(ProjectDataset).where(
-                        ProjectDataset.project_id == project.id
-                    )
-                )
-            ).scalars()
-        )
-        expected_dataset_ids = {dataset.id} if dataset is not None else set()
-        if {link.dataset_id for link in project_links} != expected_dataset_ids:
-            raise ScreenshotSeedReconcileError(
-                f"{spec.display_id}: legacy seed has unexpected dataset links"
-            )
-
-    if dataset is not None:
-        state = DATASET_STATE[logical_key]
-        allowed_creators = {users["project_admin"], users["admin"]}
-        if (
-            dataset.name not in LEGACY_DATASET_NAMES[logical_key]
-            or dataset.created_by not in allowed_creators
-        ):
-            raise ScreenshotSeedReconcileError(
-                f"{spec.dataset_display_id}: fixed id is not an owned screenshot/demo seed dataset"
-            )
-        dataset_links = list(
-            (
-                await db.execute(
-                    select(ProjectDataset).where(
-                        ProjectDataset.dataset_id == dataset.id
-                    )
-                )
-            ).scalars()
-        )
-        expected_project_ids = {project.id} if project is not None else set()
-        if {link.project_id for link in dataset_links} != expected_project_ids:
-            raise ScreenshotSeedReconcileError(
-                f"{spec.dataset_display_id}: legacy seed is linked to unexpected projects"
-            )
-        items = list(
-            (
-                await db.execute(
-                    select(DatasetItem).where(DatasetItem.dataset_id == dataset.id)
-                )
-            ).scalars()
-        )
-        resolved_spec = resolve_project_spec(spec, dataset.id, dataset.metadata_)
-        allowed_prefixes = LEGACY_STORAGE_PREFIXES.get(
-            logical_key, {spec.storage_prefix}
-        ) | {resolved_spec.storage_prefix}
-        if any(
-            not any(item.file_path.startswith(prefix) for prefix in allowed_prefixes)
-            for item in items
-        ):
-            raise ScreenshotSeedReconcileError(
-                f"{spec.dataset_display_id}: legacy seed has unexpected storage paths"
-            )
-
-
 async def prepare_screenshot_seed(
-    db: AsyncSession, *, repair: bool
+    db: AsyncSession, *, run_id: uuid.UUID
 ) -> ScreenshotSeedPreparation:
-    users = await _seed_users(db)
-    existing: dict[str, tuple[Project | None, Dataset | None]] = {}
-    adopt_keys: set[str] = set()
-    for logical_key, spec in PROJECT_SPECS.items():
-        project = await db.scalar(
-            select(seed_projects).where(seed_projects.display_id == spec.display_id)
+    """Reconcile only resources already recorded by this independent run."""
+    from app.services import fixture_run_ownership as ownership
+
+    run, root = await ownership.lock_original_scope(db, run_id)
+    if run.id != root.id or root.family != "screenshot":
+        raise ScreenshotSeedReconcileError("an open screenshot root is required")
+    await _seed_users(db, run_id)
+    resources = list(
+        await db.scalars(
+            select(FixtureRunResource).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind.in_(("project", "dataset")),
+            )
         )
-        dataset = await db.scalar(
-            select(Dataset).where(Dataset.display_id == spec.dataset_display_id)
-        )
-        existing[logical_key] = (project, dataset)
-        if project is None and dataset is None:
-            adopt_keys.add(logical_key)
-        elif (project is None) != (dataset is None) and not repair:
+    )
+    by_key = {(resource.kind, resource.logical_key): resource for resource in resources}
+    existing_keys: set[str] = set()
+    for logical_key in PROJECT_SPECS:
+        project = by_key.get(("project", logical_key))
+        dataset = by_key.get(("dataset", logical_key))
+        if (project is None) != (dataset is None):
             raise ScreenshotSeedReconcileError(
-                f"{logical_key}: partial screenshot seed exists; rerun with --repair"
+                f"{logical_key}: interrupted screenshot run requires exact cleanup"
             )
-
-    if not repair:
-        return ScreenshotSeedPreparation(adopt_keys=frozenset(adopt_keys))
-
-    storage_keys: set[str] = set()
-    purged_projects = 0
-    purged_datasets = 0
-    for logical_key, (project, dataset) in existing.items():
-        if project is None and dataset is None:
-            continue
-        await _assert_rebuild_ownership(db, logical_key, project, dataset, users)
-        if dataset is not None:
-            item_rows = await db.execute(
-                select(DatasetItem.file_path).where(
-                    DatasetItem.dataset_id == dataset.id
+        if project is not None and dataset is not None:
+            if project.state != "published" or dataset.state != "published":
+                raise ScreenshotSeedReconcileError(
+                    f"{logical_key}: screenshot resource publication is incomplete"
                 )
-            )
-            for (file_path,) in item_rows.all():
-                if file_path:
-                    storage_keys.add(file_path)
-        if project is not None:
-            await delete_project_transaction(
-                db, project.id, actor_id=users[PROJECT_STATE[logical_key]["owner"]]
-            )
-            purged_projects += 1
-        if dataset is not None:
-            await db.delete(dataset)
-            await db.flush()
-            purged_datasets += 1
-        adopt_keys.add(logical_key)
-    await db.commit()
-
-    for key in storage_keys:
-        try:
-            storage_service.delete_object(key, bucket=storage_service.datasets_bucket)
-        except Exception as exc:  # noqa: BLE001 - stale dev objects must not abort DB repair
-            logger.warning(
-                "cannot delete stale screenshot seed object %s: %s", key, exc
-            )
+            existing_keys.add(logical_key)
+    if set(by_key) - {
+        (kind, key) for key in PROJECT_SPECS for kind in ("project", "dataset")
+    }:
+        raise ScreenshotSeedReconcileError(
+            "screenshot run contains unknown resource identities"
+        )
     return ScreenshotSeedPreparation(
-        adopt_keys=frozenset(adopt_keys),
-        purged_projects=purged_projects,
-        purged_datasets=purged_datasets,
+        run_id=run_id, existing_keys=frozenset(existing_keys)
     )
 
 
@@ -445,29 +302,33 @@ async def _resolve_owned_resources(
     db: AsyncSession,
     logical_key: str,
     *,
-    adopt_keys: frozenset[str],
+    run_id: uuid.UUID,
     asset_sha256: str,
 ) -> tuple[Project, Dataset, dict[str, Task]]:
     spec = PROJECT_SPECS[logical_key]
-    projects = list(
-        (
-            await db.execute(
-                select(seed_projects).where(seed_projects.display_id == spec.display_id)
+    resource_rows = list(
+        await db.scalars(
+            select(FixtureRunResource).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind.in_(("project", "dataset")),
+                FixtureRunResource.logical_key == logical_key,
+                FixtureRunResource.state == "published",
             )
-        ).scalars()
-    )
-    datasets = list(
-        (
-            await db.execute(
-                select(Dataset).where(Dataset.display_id == spec.dataset_display_id)
-            )
-        ).scalars()
-    )
-    if len(projects) != 1 or len(datasets) != 1:
-        raise ScreenshotSeedReconcileError(
-            f"{logical_key}: project/dataset is missing or duplicated"
         )
-    project, dataset = projects[0], datasets[0]
+    )
+    resource_ids = {resource.kind: resource.resource_id for resource in resource_rows}
+    if set(resource_ids) != {"project", "dataset"}:
+        raise ScreenshotSeedReconcileError(
+            f"{logical_key}: exact manifest is incomplete"
+        )
+    project = await db.scalar(
+        select(seed_projects).where(seed_projects.id == resource_ids["project"])
+    )
+    dataset = await db.get(Dataset, resource_ids["dataset"])
+    if project is None or dataset is None:
+        raise ScreenshotSeedReconcileError(
+            f"{logical_key}: owned project/dataset is missing"
+        )
     spec = resolve_project_spec(spec, dataset.id, dataset.metadata_)
     project_links = list(
         (
@@ -494,14 +355,11 @@ async def _resolve_owned_resources(
         )
 
     marker = _seed_marker(dataset)
-    if not marker and logical_key not in adopt_keys:
-        raise ScreenshotSeedReconcileError(
-            f"{spec.dataset_display_id}: unmarked fixed id collision; rerun with --repair"
-        )
     if marker and (
         marker.get("managed_by") != SEED_MANAGED_BY
         or marker.get("profile") != "screenshots"
         or marker.get("logical_key") != logical_key
+        or marker.get("run_id") != str(run_id)
     ):
         raise ScreenshotSeedReconcileError(
             f"{spec.dataset_display_id}: seed ownership marker does not match"
@@ -511,8 +369,8 @@ async def _resolve_owned_resources(
         or marker.get("asset_sha256") != asset_sha256
     ):
         raise ScreenshotSeedReconcileError(
-            f"{spec.dataset_display_id}: screenshot seed revision or asset digest is stale; "
-            "rerun with --repair"
+            f"{logical_key}: screenshot seed revision or asset digest changed; "
+            "clean up this exact run and start another"
         )
     dataset.metadata_ = {
         **(dataset.metadata_ or {}),
@@ -520,6 +378,7 @@ async def _resolve_owned_resources(
             "managed_by": SEED_MANAGED_BY,
             "profile": "screenshots",
             "logical_key": logical_key,
+            "run_id": str(run_id),
             "revision": SEED_REVISION,
             "asset_sha256": asset_sha256,
         },
@@ -531,9 +390,18 @@ async def _resolve_owned_resources(
         items = list(
             (
                 await db.execute(
-                    select(DatasetItem).where(
+                    select(DatasetItem)
+                    .join(
+                        FixtureRunResource,
+                        FixtureRunResource.resource_id == DatasetItem.id,
+                    )
+                    .where(
                         DatasetItem.dataset_id == dataset.id,
-                        DatasetItem.file_path == task_spec.file_path,
+                        DatasetItem.metadata_["storage_relative_path"].astext
+                        == task_spec.file_path.removeprefix(spec.storage_prefix),
+                        FixtureRunResource.run_id == run_id,
+                        FixtureRunResource.kind == "item",
+                        FixtureRunResource.state == "published",
                     )
                 )
             ).scalars()
@@ -612,6 +480,7 @@ async def _reconcile_members(
 
 async def _reconcile_batches(
     db: AsyncSession,
+    run_id: uuid.UUID,
     project: Project,
     dataset: Dataset,
     tasks: dict[str, Task],
@@ -631,7 +500,7 @@ async def _reconcile_batches(
     unexpected = sorted(existing_display_ids - expected_display_ids)
     if unexpected:
         raise ScreenshotSeedReconcileError(
-            f"{project.display_id}: unexpected batches {unexpected}; rerun with --repair"
+            f"{project.display_id}: unexpected batches {unexpected}; inspect this run's exact scope"
         )
     batches: dict[str, TaskBatch] = {}
     batch_requests = []
@@ -684,6 +553,7 @@ async def _reconcile_batches(
         db,
         ReconcileSeedBatches(
             schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            run_id=run_id,
             operation="reconcile_seed_batches",
             project_id=project.id,
             dataset_id=dataset.id,
@@ -730,6 +600,7 @@ async def _reconcile_batches(
         db,
         LinkSeedTasksToBatches(
             schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            run_id=run_id,
             operation="link_seed_tasks_to_batches",
             project_id=project.id,
             tasks=tuple(task_links),
@@ -742,7 +613,7 @@ async def _reconcile_batches(
 
 
 async def _reconcile_predictions(
-    db: AsyncSession, project: Project, tasks: dict[str, Task]
+    db: AsyncSession, run_id: uuid.UUID, project: Project, tasks: dict[str, Task]
 ) -> None:
     model_version = f"screenshot-seed:{SEED_REVISION}"
     managed_rows = (
@@ -804,12 +675,13 @@ async def _reconcile_predictions(
     )
     if unmanaged_count:
         raise ScreenshotSeedReconcileError(
-            "image_demo contains non-seed predictions; rerun with --repair"
+            "image_demo contains non-seed predictions; inspect this run's exact scope"
         )
     await screenshot_operations_command(
         db,
         ReconcileSeedPredictions(
             schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            run_id=run_id,
             operation="reconcile_seed_predictions",
             project_id=project.id,
             task_ids=tuple(task_ids),
@@ -859,6 +731,7 @@ async def _reconcile_predictions(
 
 async def _reconcile_annotations(
     db: AsyncSession,
+    run_id: uuid.UUID,
     project: Project,
     tasks: dict[str, Task],
     users: dict[str, uuid.UUID],
@@ -867,6 +740,23 @@ async def _reconcile_annotations(
         key: uuid.uuid5(ANNOTATION_NAMESPACE, f"{project.display_id}:{key}")
         for key in ("submitted", "review", "completed")
     }
+    from app.services import fixture_run_ownership as ownership
+
+    new_resource_ids = []
+    for key, annotation_id in managed_ids.items():
+        resource = await db.get(
+            FixtureRunResource, (run_id, "annotation", annotation_id)
+        )
+        logical_key = f"image_demo/{key}"
+        if resource is None:
+            await ownership.reserve(
+                db, run_id, "annotation", annotation_id, logical_key=logical_key
+            )
+            new_resource_ids.append(annotation_id)
+        elif resource.logical_key != logical_key or resource.state != "published":
+            raise ScreenshotSeedReconcileError(
+                f"{logical_key}: annotation ownership changed"
+            )
     task_ids = [task.id for task in tasks.values()]
     existing = list(
         (
@@ -882,7 +772,7 @@ async def _reconcile_annotations(
     ]
     if unmanaged:
         raise ScreenshotSeedReconcileError(
-            "image_demo contains non-seed annotations; rerun with --repair"
+            "image_demo contains non-seed annotations; inspect this run's exact scope"
         )
     by_id = {annotation.id: annotation for annotation in existing}
     annotation_requests = []
@@ -933,6 +823,7 @@ async def _reconcile_annotations(
         db,
         ReconcileSeedAnnotations(
             schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            run_id=run_id,
             operation="reconcile_seed_annotations",
             project_id=project.id,
             annotations=tuple(annotation_requests),
@@ -941,6 +832,8 @@ async def _reconcile_annotations(
             fixed_time=FIXED_TIME,
         ),
     )
+    for annotation_id in new_resource_ids:
+        await ownership.publish_resource(db, run_id, "annotation", annotation_id)
     for annotation_request in annotation_requests:
         annotation = by_id.get(annotation_request.id)
         if annotation is None:
@@ -985,6 +878,7 @@ async def _reconcile_annotations(
 
 async def _set_task_state(
     db: AsyncSession,
+    run_id: uuid.UUID,
     project: Project,
     tasks: dict[str, Task],
     users: dict[str, uuid.UUID],
@@ -1020,6 +914,7 @@ async def _set_task_state(
         db,
         SetImageSeedTaskState(
             schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            run_id=run_id,
             operation="set_image_seed_task_state",
             project_id=project.id,
             tasks=tuple(states),
@@ -1049,6 +944,7 @@ async def _set_task_state(
 
 async def _sync_counters(
     db: AsyncSession,
+    run_id: uuid.UUID,
     project: Project,
     batches: dict[str, TaskBatch],
     tasks: dict[str, Task],
@@ -1085,6 +981,7 @@ async def _sync_counters(
         db,
         SyncSeedBatchCounters(
             schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+            run_id=run_id,
             operation="sync_seed_batch_counters",
             project_id=project.id,
             task_ids=tuple(task.id for task in tasks.values()),
@@ -1108,13 +1005,14 @@ async def _sync_counters(
         set_committed_value(batch, "updated_at", updated_by_id[batch.id])
 
 
-def _task_display_id(logical_key: str, index: int) -> str:
-    project_key = PROJECT_SPECS[logical_key].display_id.removeprefix("P-")
+def _task_display_id(project: Project, index: int) -> str:
+    project_key = project.display_id.removeprefix("P-")
     return f"T-SS-{project_key}-{index + 1:03d}"
 
 
 async def _pin_screenshot_timestamps(
     db: AsyncSession,
+    run_id: uuid.UUID,
     resources: dict[str, tuple[Project, Dataset, dict[str, Task]]],
     membership_writes: SeedMembershipWrites | None = None,
 ) -> None:
@@ -1143,7 +1041,7 @@ async def _pin_screenshot_timestamps(
             task_timestamps.append(
                 SeedTaskTimestamp(
                     project_id=project.id,
-                    project_display_id=PROJECT_SPECS[logical_key].display_id,
+                    project_display_id=project.display_id,
                     task_id=task.id,
                     created_at=created_at,
                     updated_at=updated_at,
@@ -1153,6 +1051,7 @@ async def _pin_screenshot_timestamps(
             db,
             PinSeedTaskTimestamps(
                 schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                run_id=run_id,
                 operation="pin_seed_task_timestamps",
                 tasks=tuple(task_timestamps),
             ),
@@ -1166,7 +1065,7 @@ async def _pin_screenshot_timestamps(
 
 
 async def finalize_screenshot_seed_timestamps(
-    db: AsyncSession, *, asset_sha256: dict[str, str]
+    db: AsyncSession, *, run_id: uuid.UUID, asset_sha256: dict[str, str]
 ) -> None:
     """Pin visible timestamps after all seed stages, including backend binding."""
     resources = {}
@@ -1174,21 +1073,27 @@ async def finalize_screenshot_seed_timestamps(
         resources[logical_key] = await _resolve_owned_resources(
             db,
             logical_key,
-            adopt_keys=frozenset(),
+            run_id=run_id,
             asset_sha256=asset_sha256[logical_key],
         )
-    await _pin_screenshot_timestamps(db, resources)
+    await _pin_screenshot_timestamps(db, run_id, resources)
     await db.commit()
 
 
 async def prepare_screenshot_seed_media(
-    db: AsyncSession, *, asset_sha256: dict[str, str]
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    admission_id: uuid.UUID,
+    asset_sha256: dict[str, str],
 ) -> dict[str, int]:
     """Accept owner work, wait for current outputs, and verify screenshot media."""
     from yoao_assets_images.contract import (
+        ReadInternalImageWorkRequest,
         ImageBackfillSelection,
     )
     from app.services.assets_images import image_gateway, image_policy
+    from app.db.models.fixture_run import FixtureImageWorkIntent
     from scripts.image_media_backfill import accept_image_backfill
 
     datasets = []
@@ -1198,7 +1103,7 @@ async def prepare_screenshot_seed_media(
         project, dataset, _ = await _resolve_owned_resources(
             db,
             logical_key,
-            adopt_keys=frozenset(),
+            run_id=run_id,
             asset_sha256=asset_sha256[logical_key],
         )
         datasets.append(
@@ -1235,10 +1140,20 @@ async def prepare_screenshot_seed_media(
 
     # Release the read transaction before owner admission, polling and object HEADs.
     await db.commit()
+    image_work_intents: list[FixtureImageWorkIntent] = []
 
     for dataset in media_rows:
         if dataset.data_type == "image":
-            await accept_image_backfill(
+            intent = FixtureImageWorkIntent(
+                operation_id=uuid.uuid4(),
+                run_id=run_id,
+                admission_id=admission_id,
+                dataset_id=dataset.dataset_id,
+                state="prepared",
+            )
+            db.add(intent)
+            await db.commit()
+            accepted = await accept_image_backfill(
                 ImageBackfillSelection(
                     owner_kind="dataset_item",
                     dataset_id=dataset.dataset_id,
@@ -1246,13 +1161,42 @@ async def prepare_screenshot_seed_media(
                     only_missing=True,
                     accepted_before=datetime.now(UTC),
                 ),
-                operation_id=uuid.uuid4(),
+                operation_id=intent.operation_id,
                 policy=image_policy(),
             )
+            intent.job_id = accepted.work.job_id
+            intent.generation = accepted.work.generation
+            intent.state = "admitted"
+            await db.commit()
+            image_work_intents.append(intent)
         elif dataset.data_type == "video":
-            from app.workers.media import _schedule_video_backfill
+            from app.db.models.video_derivative import VideoDerivativeOutput
+            from app.services import video_derivative_originals as originals
+            from app.services import video_derivatives as derivatives
+            from app.workers import media_derivatives as worker
 
-            await _schedule_video_backfill(str(dataset.dataset_id), uuid.uuid4())
+            for item in dataset.items:
+                source = await originals.pin(db, "dataset_item", item.item_id)
+                authority = await originals.delegated(
+                    db,
+                    originals.system_authorization(
+                        "dataset_item", item.item_id, source
+                    ),
+                )
+                output, _ = await derivatives.prepare(
+                    db, item.item_id, authority, "metadata"
+                )
+                output_id = output.id
+                await db.commit()
+                await worker.run_outputs([str(output_id)], propagate_failure=True)
+                result = await db.get(
+                    VideoDerivativeOutput, output_id, populate_existing=True
+                )
+                if result is None or result.state != "ready":
+                    code = result.error_code if result is not None else "missing"
+                    raise ScreenshotSeedReconcileError(
+                        f"{dataset.display_id}: video metadata owner did not finish: {code}"
+                    )
 
     deadline = time.monotonic() + SCREENSHOT_MEDIA_WAIT_SECONDS
     image_sources: dict[uuid.UUID, Any] = {}
@@ -1262,6 +1206,22 @@ async def prepare_screenshot_seed_media(
         image_sources.clear()
         video_sources.clear()
         pending_image = pending_video = False
+        for intent in image_work_intents:
+            async with image_gateway() as owner:
+                status = await owner.call(
+                    "read_internal_image_work",
+                    ReadInternalImageWorkRequest(job_id=intent.job_id),
+                )
+            if status.work.generation != intent.generation:
+                raise ScreenshotSeedReconcileError(
+                    f"image backfill {intent.job_id}: owner generation changed"
+                )
+            if status.work.status in {"failed", "canceled"}:
+                raise ScreenshotSeedReconcileError(
+                    f"image backfill {intent.job_id}: {status.work.status}: {status.error_code}"
+                )
+            if status.work.status != "ready":
+                pending_image = True
         for dataset in media_rows:
             image_items = [item for item in dataset.items if item.file_type == "image"]
             video_items = [item for item in dataset.items if item.file_type == "video"]
@@ -1353,7 +1313,7 @@ async def prepare_screenshot_seed_media(
                 )
             raise ScreenshotSeedReconcileError(
                 "screenshot thumbnail/poster is not ready; check media generation "
-                "errors or rerun with --repair"
+                "errors and this run's recorded owner work"
             )
         await asyncio.sleep(2)
 
@@ -1377,9 +1337,12 @@ async def prepare_screenshot_seed_media(
             if not head or head.get("ContentLength", 0) <= 0:
                 raise ScreenshotSeedReconcileError(
                     f"{prefix}: screenshot thumbnail/poster is not ready; "
-                    "check media generation errors or rerun with --repair"
+                    "check media generation errors and this run's recorded owner work"
                 )
             item_count += 1
+    for intent in image_work_intents:
+        intent.state = "settled"
+    await db.commit()
     return {"datasets": len(media_rows), "items": item_count}
 
 
@@ -1389,19 +1352,20 @@ async def reconcile_screenshot_seed(
     preparation: ScreenshotSeedPreparation,
     asset_sha256: dict[str, str],
 ) -> dict[str, int]:
-    users = await _seed_users(db)
+    run_id = preparation.run_id
+    users = await _seed_users(db, run_id)
     resources: dict[str, tuple[Project, Dataset, dict[str, Task]]] = {}
     for logical_key in PROJECT_SPECS:
         resources[logical_key] = await _resolve_owned_resources(
             db,
             logical_key,
-            adopt_keys=preparation.adopt_keys,
+            run_id=run_id,
             asset_sha256=asset_sha256[logical_key],
         )
 
     expected_task_ids = {
-        _task_display_id(logical_key, index): tasks[task_spec.key].id
-        for logical_key, (_, _, tasks) in resources.items()
+        _task_display_id(project, index): tasks[task_spec.key].id
+        for logical_key, (project, _, tasks) in resources.items()
         for index, task_spec in enumerate(PROJECT_SPECS[logical_key].tasks)
     }
     collisions = await execute_core_read(
@@ -1461,7 +1425,7 @@ async def reconcile_screenshot_seed(
                     # The owner fences a reset on the resolved task scope; UUID
                     # storage adoption rewrites file_path away from the spec.
                     file_path=task.file_path,
-                    display_id=_task_display_id(logical_key, index),
+                    display_id=_task_display_id(project, index),
                     sequence_order=index,
                     status=task_spec.status,
                 )
@@ -1470,9 +1434,10 @@ async def reconcile_screenshot_seed(
             db,
             ResetSeedTasks(
                 schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                run_id=run_id,
                 operation="reset_seed_tasks",
                 project_id=project.id,
-                project_display_id=PROJECT_SPECS[logical_key].display_id,
+                project_display_id=project.display_id,
                 tasks=tuple(reset_tasks),
             ),
         )
@@ -1510,13 +1475,13 @@ async def reconcile_screenshot_seed(
     membership_writes = await _reconcile_members(db, image_project, users)
     await membership_writes.flush_before_read()
     image_batches = await _reconcile_batches(
-        db, image_project, image_dataset, image_tasks, users, membership_writes
+        db, run_id, image_project, image_dataset, image_tasks, users, membership_writes
     )
-    await _set_task_state(db, image_project, image_tasks, users)
-    await _reconcile_predictions(db, image_project, image_tasks)
-    await _reconcile_annotations(db, image_project, image_tasks, users)
-    await _sync_counters(db, image_project, image_batches, image_tasks)
-    await _pin_screenshot_timestamps(db, resources, membership_writes)
+    await _set_task_state(db, run_id, image_project, image_tasks, users)
+    await _reconcile_predictions(db, run_id, image_project, image_tasks)
+    await _reconcile_annotations(db, run_id, image_project, image_tasks, users)
+    await _sync_counters(db, run_id, image_project, image_batches, image_tasks)
+    await _pin_screenshot_timestamps(db, run_id, resources, membership_writes)
     await db.flush()
     spatial = AssetsSpatialGateway(db)
     for dataset_id, axis_convention in axis_updates:

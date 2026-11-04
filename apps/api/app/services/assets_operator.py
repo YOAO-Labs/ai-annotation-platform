@@ -1021,6 +1021,82 @@ class AssetsOperatorGateway:
             creation_id=creation_id,
         ), created
 
+    async def create_fixture_item_original(
+        self,
+        *,
+        run_id: UUID,
+        admission_id: UUID,
+        dataset_id: UUID,
+        item_id: UUID,
+        logical_path: str,
+        file_type: str,
+        content_type: str,
+        data: bytes,
+        requested_by: UUID,
+        entry_for_key,
+    ):
+        """Commit an actual operator item and its Creation before source I/O."""
+        import hashlib
+        from types import SimpleNamespace
+
+        from app.services import fixture_run_ownership as ownership
+        from app.services.managed_original_creation import (
+            abandon_unstarted_fixture,
+            allocate_fixture_operator_item,
+        )
+
+        await self._ensure_owner_catalog()
+        await ownership.reserve(
+            self.db, run_id, "item", item_id, logical_key=f"operator-item-{item_id.hex}"
+        )
+        await self.db.commit()
+        material = await allocate_fixture_operator_item(
+            self.db,
+            run_id=run_id,
+            admission_id=admission_id,
+            dataset_id=dataset_id,
+            item_id=item_id,
+            publication_id=uuid4(),
+            logical_path=logical_path,
+            file_type=file_type,
+            payload_sha256=hashlib.sha256(data).hexdigest(),
+            max_bytes=len(data),
+            requested_by=requested_by,
+            content_type=content_type,
+            entry_for_key=entry_for_key,
+        )
+        creation_id = UUID(material["creation_id"])
+        try:
+            operation = await self._open_operation(creation_id)
+        except BaseException as failure:
+            try:
+                await abandon_unstarted_fixture(
+                    self.db,
+                    run_id=run_id,
+                    admission_id=admission_id,
+                    creation_id=creation_id,
+                )
+            except BaseException as abandonment:
+                raise BaseExceptionGroup(
+                    "Fixture item admission and no-write abandonment failed",
+                    [failure, abandonment],
+                ) from None
+            raise
+        if operation.mode != "write":
+            raise ValueError("new fixture operator creation is not writable")
+        created = await self._write_material(material, operation, data, content_type)
+        await self.publish_item_original(
+            dataset_id=dataset_id,
+            item_id=item_id,
+            creation_id=creation_id,
+            expected_file_path=material["object_key"],
+            expected_file_size=len(data),
+            expected_content_hash=None,
+        )
+        return SimpleNamespace(
+            object_key=material["object_key"], creation_id=creation_id
+        ), created
+
     async def publish_item_original(
         self,
         *,
@@ -1061,6 +1137,7 @@ class AssetsOperatorGateway:
         content_type: str,
         requested_by: UUID | None = None,
         existing_id: UUID | None = None,
+        fixture_scope: tuple[UUID, UUID] | None = None,
     ):
         """Allocate or reuse a verified raw-lidar/map auxiliary original."""
         import hashlib
@@ -1087,6 +1164,25 @@ class AssetsOperatorGateway:
             },
         )
         if requested.get("found") is True:
+            if fixture_scope is not None:
+                from app.db.models.fixture_run import FixtureAuxiliaryIntent
+
+                intent = await self.db.get(
+                    FixtureAuxiliaryIntent, UUID(requested["id"])
+                )
+                if (
+                    intent is None
+                    or intent.run_id != fixture_scope[0]
+                    or intent.admission_id != fixture_scope[1]
+                    or intent.dataset_id != dataset_id
+                    or intent.kind != kind
+                    or intent.source_contract != source_contract
+                    or intent.sha256 != sha256
+                    or intent.size_bytes != size
+                ):
+                    raise ValueError(
+                        "existing auxiliary original is not owned by this run"
+                    )
             if (
                 requested.get("kind") != kind
                 or requested.get("sha256") != sha256
@@ -1116,22 +1212,59 @@ class AssetsOperatorGateway:
             self._remember_receipt(creation_id, sha256, size)
             return SimpleNamespace(**requested)
 
-        material = await self._native_data(
-            "aap_assets_v1.begin_operator_auxiliary",
-            {
-                "request": {
-                    "dataset_id": str(dataset_id),
-                    "kind": kind,
-                    "source_contract": source_contract,
-                    "max_bytes": size,
-                    "content_type": content_type,
-                    "requested_by": str(requested_by) if requested_by else None,
-                }
-            },
-            {"request": "jsonb"},
-        )
+        request = {
+            "dataset_id": str(dataset_id),
+            "kind": kind,
+            "source_contract": source_contract,
+            "max_bytes": size,
+            "content_type": content_type,
+            "requested_by": str(requested_by) if requested_by else None,
+        }
+        if fixture_scope is None:
+            material = await self._native_data(
+                "aap_assets_v1.begin_operator_auxiliary",
+                {"request": request},
+                {"request": "jsonb"},
+            )
+        else:
+            from app.services.managed_original_creation import (
+                allocate_fixture_auxiliary,
+            )
+
+            material = await allocate_fixture_auxiliary(
+                self.db,
+                run_id=fixture_scope[0],
+                admission_id=fixture_scope[1],
+                dataset_id=dataset_id,
+                kind=kind,
+                source_contract=source_contract,
+                payload_sha256=sha256,
+                max_bytes=size,
+                requested_by=requested_by,
+                content_type=content_type,
+            )
         creation_id = UUID(material["creation_id"])
-        operation = await self._open_operation(creation_id)
+        try:
+            operation = await self._open_operation(creation_id)
+        except BaseException as failure:
+            if fixture_scope is not None:
+                from app.services.managed_original_creation import (
+                    abandon_unstarted_fixture_auxiliary,
+                )
+
+                try:
+                    await abandon_unstarted_fixture_auxiliary(
+                        self.db,
+                        run_id=fixture_scope[0],
+                        admission_id=fixture_scope[1],
+                        creation_id=creation_id,
+                    )
+                except BaseException as abandonment:
+                    raise BaseExceptionGroup(
+                        "Fixture auxiliary admission and no-write abandonment failed",
+                        [failure, abandonment],
+                    ) from None
+            raise
         if operation.mode == "read":
             if material.get("sha256") != sha256 or material.get("size_bytes") != size:
                 await self._abandon_read_operation(creation_id, operation)

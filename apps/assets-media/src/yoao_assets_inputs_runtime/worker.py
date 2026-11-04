@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from contextlib import suppress
 from pathlib import Path
 import random
 import shutil
+import sys
 import tempfile
 import time
 from uuid import uuid4
 
 from yoao_assets_images import contract as image
 from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images_runtime.original_read import admitted_original
 from yoao_assets_inputs import contract as c
 
 _HEARTBEAT_RETRY = frozenset({"input_busy"})
@@ -148,6 +151,22 @@ class InputExecutor:
         ):
             raise c.InputFailure("resource_limit")
         await lease.call(self.storage.assert_versioning)
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_accepted_image_original",
+            c.InputLeaseRequest(
+                input_id=claim.input.input_id,
+                generation=claim.generation,
+                lease_token=claim.lease_token,
+            ),
+            "finish_accepted_image_original",
+        ) as source_storage:
+            return await self._materialize_admitted(claim, lease, source_storage)
+
+    async def _materialize_admitted(self, claim, lease, source_storage):
+        source = claim.source
+        expected = source.object_identity
         if self.temp_root is not None:
             self.temp_root.mkdir(parents=True, exist_ok=True, mode=0o700)
         with tempfile.TemporaryDirectory(
@@ -160,7 +179,7 @@ class InputExecutor:
                 raise c.InputFailure("resource_limit")
             destination = Path(workspace) / "source"
             measured = await lease.call(
-                self.storage.download_source, source, destination
+                source_storage.download_source, source, destination
             )
             if (
                 measured.identity != expected
@@ -179,7 +198,7 @@ class InputExecutor:
             # The worker owns only its four input capabilities. Recheck current
             # object bytes here; finish performs the canonical owner/source fence
             # in SQL without granting the worker control/system operations.
-            if await lease.call(self.storage.head_source, source) != expected:
+            if await lease.call(source_storage.head_source, source) != expected:
                 raise c.InputFailure("source_changed")
             return blob
 
@@ -201,7 +220,10 @@ class InputExecutor:
             try:
                 blob = await self._materialize(claim, lease)
             except image.ImageFailure as exc:
-                raise c.InputFailure(exc.code) from None
+                error = c.InputFailure(exc.code)
+                if getattr(exc, "storage_operation_unsettled", False):
+                    error.storage_operation_unsettled = True
+                raise error from exc
             finish = c.FinishInputRequest(
                 input_id=claim.input.input_id,
                 generation=claim.generation,
@@ -235,11 +257,29 @@ class InputExecutor:
         except asyncio.CancelledError:
             raise
         except c.InputFailure as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             return await self._fail(claim, exc.code)
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc, builtins.BaseExceptionGroup) or getattr(
+                exc, "storage_operation_unsettled", False
+            ):
+                raise
             return await self._fail(claim, "storage_unavailable")
         finally:
-            await lease.close()
+            failure = sys.exception()
+            try:
+                await lease.close()
+            except BaseException as close_error:
+                if failure is not None:
+                    combined = builtins.BaseExceptionGroup(
+                        "Image input work and heartbeat shutdown failed",
+                        [failure, close_error],
+                    )
+                    if getattr(failure, "storage_operation_unsettled", False):
+                        combined.storage_operation_unsettled = True
+                    raise combined from None
+                raise
 
     async def _fail(self, claim, code):
         if code == "lease_lost":

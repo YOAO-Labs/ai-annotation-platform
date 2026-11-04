@@ -7,6 +7,7 @@ import uuid
 import pytest
 from yoao_assets_source.operator_contract import (
     CreateOperatorImageDatasetRequest,
+    OperatorFailure,
     OperatorSourceEntry,
 )
 from sqlalchemy import func, select
@@ -69,6 +70,52 @@ async def test_deferred_image_import_items_keep_dataset_count(db_session, super_
         select(Dataset.file_count).where(Dataset.id == dataset.id)
     )
     assert file_count == stored_items == 2
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_publish_an_unowned_fixture_source_alias(
+    db_session, super_admin, monkeypatch
+):
+    from app.config import settings
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import fixture_run_ownership
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    owner, _ = super_admin
+    created = await _create_operator_image_dataset(
+        db_session,
+        name="ordinary operator dataset",
+        description="test",
+        owner_id=owner.id,
+    )
+    run_id, fixture_dataset_id = uuid.uuid4(), uuid.uuid4()
+    db_session.add(FixtureRun(id=run_id, family="owned"))
+    await db_session.flush()
+    await fixture_run_ownership.reserve(
+        db_session, run_id, "dataset", fixture_dataset_id, logical_key="images"
+    )
+    alias_id = uuid.uuid4()
+    alias = OperatorSourceEntry(
+        id=alias_id,
+        file_name="alias.png",
+        file_path=f"__aap_managed_datasets__/{fixture_dataset_id}/_objects/{uuid.uuid4()}/alias.png",
+        file_type="image",
+        metadata={},
+    )
+    with pytest.raises(OperatorFailure, match="source_changed"):
+        async with db_session.begin_nested():
+            await AssetsOperatorGateway(db_session).append_all_items(
+                created.dataset.id, [alias]
+            )
+    assert await db_session.get(DatasetItem, alias_id) is None
+    ordinary = alias.model_copy(
+        update={"id": uuid.uuid4(), "file_path": "ordinary/alias.png"}
+    )
+    saved = await AssetsOperatorGateway(db_session).append_all_items(
+        created.dataset.id, [ordinary]
+    )
+    assert saved[0].file_path == ordinary.file_path
 
 
 @pytest.mark.asyncio

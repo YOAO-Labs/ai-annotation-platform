@@ -60,7 +60,9 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 本地 E2E 由 `dev:worktree` 创建并核对当前资源根的独立数据库、Redis、存储和
 受限 API 账号，自动选择不冲突的 Web/API 端口。不能用一个带 `_test`／`_e2e`
 后缀的数据库或手工覆盖 `PLAYWRIGHT_E2E_DATABASE_URL` 代替资源归属核验。
-需要并行运行时使用不同工作树；单个 owned fixture 不代表整套测试可共享数据库或桶。
+需要并行运行时使用不同工作树及独立运行 UUID；未完成并发资格的夹具族仍须串行，
+单个 owned fixture 不代表整套测试可共享数据库或桶。CI 分片使用独立存储服务，
+同样需要核验 owner 与 runtime 身份及真实资源归属。
 
 ## 数据准备
 
@@ -76,12 +78,13 @@ Mask 设置统一通过 `fixtures/mask-toolbar.ts` 打开：等待胶囊展开�
 - 夹具进程使用启动器注入的资源根，且其 identity、资源清单、数据库 owner 标记和受限 runtime LOGIN 均通过核验；
 - `production` 环境永不挂载路由。
 
-截图采集也必须使用已核验的自有资源及受限产品进程；单独指定
-`SCREENSHOT_DATABASE_URL` 不足以证明资源归属。真实创建／保存请求始终通过受限
-产品 API；夹具不能在保存失败后伪造结果。
+截图入口使用已核验工作树的受限 `DATABASE_URL` 和仅供私有夹具进程使用的
+`PLAYWRIGHT_E2E_DATABASE_URL`，并固定 `SCREENSHOT_FIXTURE_RUN_ID`。仍须核对实际
+API／worker 目标，不能以测试库后缀或单独指定的连接代替资源归属和服务身份核验。
+真实创建／保存请求始终通过受限产品 API；夹具不能在保存失败后伪造结果。
 
-**默认使用私有命名空间 fixture**：`await seed.owned()` 按 spec 文件 + 测试标题
-确定性派生命名空间（`^[a-z0-9]{4,12}$`，重试稳定、跨测试唯一），由 `/seed/owned`
+**默认使用私有命名空间 fixture**：`await seed.owned()` 按运行 UUID、spec 文件及测试标题
+确定性派生命名空间（`^[a-z0-9]{4,12}$`，同次运行的重试稳定），由 `/seed/owned`
 只创建该命名空间的标准工作台 fixture，测试结束后 seed fixture teardown 调用
 `/seed/owned-cleanup` 精确清理（含存储对象与 mock backend 注册项）；清理失败会让
 测试失败。`/seed/lidar`、`/seed/project-roles`、`/seed/filtering` 的命名空间参数
@@ -98,10 +101,10 @@ filtering 的无源 tracker 候选仅用于列表和预览验证；该夹具未�
 需要跨命名空间存活/清理证据时，可用 `fixtures/storage-object-probe.py` 经真实存储
 客户端读取对象字节。
 
-正常结束时 `globalTeardown` 会调用全局 `/api/v1/__test/seed/cleanup`，可能清除
-其他 owned 命名空间及其存储对象，因此仍须按独立数据库和桶串行运行全局清理。
-强制中断或进程被终止时 teardown 可能来不及执行；数据库隔离才是不污染开发库的
-根本保障。
+正常结束时 `globalTeardown` 只请求清理本次 suite 清单，截图入口也只清理自己的 run。
+未结束的操作、未知物理 I/O 或未证明退役的真实 Jobs 会阻止清理并保留其归属证据；
+不要按前缀扫桶或删除 Jobs 强行通过。强制中断可能使 teardown 无法执行，应保留
+原错误并核对该 run 的实际 owner 状态，而不是重建共享环境冒充精确清理成功。
 
 ## 当前题 AI 的真实异步作业 E2E
 

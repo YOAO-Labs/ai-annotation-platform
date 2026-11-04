@@ -1,6 +1,8 @@
 import asyncio
+import builtins
 import io
 from datetime import datetime
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -365,13 +367,23 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
                 video_delegations=video_delegations,
             )
         except BaseException as exc:
-            async with SessionLocal() as db:
-                await async_job_svc.mark_failed(
-                    db,
-                    job_id,
-                    error=(str(exc) or type(exc).__name__)[:4000],
-                )
-                await db.commit()
+            if isinstance(exc, asyncio.CancelledError) or getattr(
+                exc, "storage_operation_unsettled", False
+            ):
+                raise
+            try:
+                async with SessionLocal() as db:
+                    await async_job_svc.mark_failed(
+                        db,
+                        job_id,
+                        error=(str(exc) or type(exc).__name__)[:4000],
+                    )
+                    await db.commit()
+            except BaseException as settlement_error:
+                raise builtins.BaseExceptionGroup(
+                    "Media backfill and job settlement both failed",
+                    [exc, settlement_error],
+                ) from None
             raise
         async with SessionLocal() as db:
             await async_job_svc.mark_complete(
@@ -381,7 +393,19 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
             )
             await db.commit()
     finally:
-        await engine.dispose()
+        failure = sys.exception()
+        try:
+            await engine.dispose()
+        except BaseException as dispose_error:
+            if failure is not None:
+                combined = builtins.BaseExceptionGroup(
+                    "Media backfill and database shutdown both failed",
+                    [failure, dispose_error],
+                )
+                if getattr(failure, "storage_operation_unsettled", False):
+                    combined.storage_operation_unsettled = True
+                raise combined from None
+            raise
 
 
 async def _generate_task_thumbnail(task_id: str, *, allow_pyramid: bool = True) -> None:
@@ -571,17 +595,6 @@ def generate_video_metadata(self, item_id: str, delegation=None) -> None:
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_task_thumbnail(self, task_id: str) -> None:
     asyncio.run(_generate_task_thumbnail(task_id))
-
-
-@celery_app.task(bind=True, max_retries=1, queue="media")
-def backfill_media(
-    self, dataset_id: str, purpose: str = "thumbnail", video_delegations=None
-) -> None:
-    asyncio.run(
-        _backfill_media(
-            dataset_id, purpose=purpose, video_delegations=video_delegations
-        )
-    )
 
 
 @celery_app.task(

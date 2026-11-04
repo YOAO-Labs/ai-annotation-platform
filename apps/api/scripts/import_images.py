@@ -22,7 +22,7 @@ import argparse
 import asyncio
 import mimetypes
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import boto3
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -122,6 +122,22 @@ async def import_to_dataset(
 
         imported = 0
         pending_entries: list[OperatorSourceEntry] = []
+        pending_creations: dict[UUID, UUID] = {}
+
+        async def publish_batch() -> None:
+            await assets.append_all_items(ds.id, pending_entries)
+            for entry in pending_entries:
+                await assets.publish_item_original(
+                    dataset_id=ds.id,
+                    item_id=entry.id,
+                    creation_id=pending_creations[entry.id],
+                    expected_file_path=entry.file_path,
+                    expected_file_size=entry.file_size,
+                    expected_content_hash=entry.content_hash,
+                )
+            pending_entries.clear()
+            pending_creations.clear()
+
         operation_id = uuid4()
         for img_path in images:
             # 保留 image_dir 下的相对目录结构 (posix `/` 分隔, Windows 兼容),
@@ -155,16 +171,16 @@ async def import_to_dataset(
                     metadata={"storage_relative_path": rel},
                 )
             )
+            pending_creations[item_id] = written.creation_id
             imported += 1
             if len(pending_entries) == OPERATOR_BATCH_SIZE:
-                await assets.append_all_items(ds.id, pending_entries)
-                pending_entries.clear()
+                await publish_batch()
             print(
                 f"  [{imported:>3}/{len(images)}] {img_path.name} → {bucket}/{material.object_key}"
             )
 
         if pending_entries:
-            await assets.append_all_items(ds.id, pending_entries)
+            await publish_batch()
         await db.commit()
 
     await engine.dispose()

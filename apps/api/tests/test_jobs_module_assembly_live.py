@@ -445,15 +445,22 @@ async def _run():
             ))
             if private_delete:
                 raise RuntimeError("private_delete_allowed")
-            deleted = await db.scalar(text(
-                "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
-            ), {"ids": [row.project_id]})
+            try:
+                async with db.begin_nested():
+                    await db.scalar(text(
+                        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+                    ), {"ids": [row.project_id]})
+            except Exception as error:
+                if _sqlstate(error) != "23514" or "fixture_job_execution_unsettled" not in str(error):
+                    raise
+            else:
+                raise RuntimeError("fixture_delete_allowed_unsettled")
             pending_after_delete = await db.scalar(text(
                 "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
                 "WHERE id=CAST(:id AS uuid)"
             ), {"id": created_id})
-            if type(deleted) is not int or deleted < 2 or pending_after_delete != 0:
-                raise RuntimeError("fixture_delete_scope")
+            if pending_after_delete != 1:
+                raise RuntimeError("fixture_delete_lost_pending")
             await db.rollback()
             rolled_back = await db.scalar(text(
                 "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
@@ -469,8 +476,8 @@ async def _run():
                 raise RuntimeError("fixture_delete_rollback")
             fixture_delete_acl = {
                 "private_table_delete": private_delete,
-                "owner_delete": True,
-                "pending_row_removed": True,
+                "unsettled_delete_blocked": True,
+                "pending_row_preserved": True,
                 "completed_row_restored": True,
                 "caller_rollback": True,
             }
@@ -652,8 +659,8 @@ def _assert_api_row_access_probe(
     }
     assert evidence["fixture_delete_acl"] == {
         "private_table_delete": False,
-        "owner_delete": True,
-        "pending_row_removed": True,
+        "unsettled_delete_blocked": True,
+        "pending_row_preserved": True,
         "completed_row_restored": True,
         "caller_rollback": True,
     }

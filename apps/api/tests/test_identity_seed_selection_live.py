@@ -3,20 +3,23 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from datetime import UTC, datetime
 import json
 import os
 from pathlib import Path
 import re
 import shutil
+import sys
 import uuid
 from urllib.parse import urlsplit
 import zlib
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import delete, select, text
 from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
@@ -50,7 +53,6 @@ _IMAGE_IMPORT_FUNCTIONS = {
     "aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
     "aap_assets_v1.append_operator_items(uuid,uuid,jsonb)",
 }
-_SCALE_MARKER = "scale-seed"
 _IMPORT_IMAGE_NAMES = ("first.png", "second.png")
 
 
@@ -336,13 +338,14 @@ async def _user_snapshot(test_engine) -> tuple[tuple[object, ...], ...]:
     return tuple(tuple(row) for row in rows)
 
 
-async def _scale_state(test_engine) -> dict:
+async def _scale_state(test_engine, run_id: uuid.UUID) -> dict:
+    marker = f"scale-seed-{run_id.hex}"
     async with test_engine.connect() as db:
         project = (
             (
                 await db.execute(
                     text("SELECT id,owner_id FROM public.projects WHERE name=:marker"),
-                    {"marker": _SCALE_MARKER},
+                    {"marker": marker},
                 )
             )
             .mappings()
@@ -354,7 +357,7 @@ async def _scale_state(test_engine) -> dict:
                     text(
                         "SELECT id,created_by FROM public.datasets WHERE name=:marker"
                     ),
-                    {"marker": _SCALE_MARKER},
+                    {"marker": marker},
                 )
             )
             .mappings()
@@ -413,7 +416,7 @@ async def _scale_state(test_engine) -> dict:
     }
 
 
-async def _scale_activity(test_engine, application_name: str) -> dict | None:
+async def _scale_activity(test_engine, application_name: str, role: str) -> dict | None:
     async with test_engine.connect() as db:
         row = (
             (
@@ -423,9 +426,9 @@ async def _scale_activity(test_engine, application_name: str) -> dict | None:
                         "state,wait_event_type,wait_event,"
                         "position('read_scale_seed_annotator' in query)>0 AS selector_call "
                         "FROM pg_catalog.pg_stat_activity WHERE datname=current_database() "
-                        "AND usename='legacy_runtime' AND application_name=:tag"
+                        "AND usename=:role AND application_name=:tag"
                     ),
-                    {"tag": application_name},
+                    {"tag": application_name, "role": role},
                 )
             )
             .mappings()
@@ -449,7 +452,9 @@ async def _wait_for_selector_gate(
         pytest.fail(f"scale CLI exited before its selector gate: {run_task.result()}")
 
     while asyncio.get_running_loop().time() < deadline:
-        activity = await _scale_activity(test_engine, application_name)
+        activity = await _scale_activity(
+            test_engine, application_name, cli.database_url.username
+        )
         if (
             activity is not None
             and activity["state"] == "active"
@@ -571,11 +576,45 @@ async def _run_probe(cli: WorkspaceImportCli, operation: str):
     )
 
 
-async def _run_scale(cli: WorkspaceImportCli):
+async def _run_scale(cli: WorkspaceImportCli, run_id: uuid.UUID, *, purge=False):
+    args = ("--purge",) if purge else ("4", "2", "1")
     return await asyncio.to_thread(
         cli.run_command,
-        ("python", "-m", "scripts.seed_scale", "4", "2", "1"),
+        ("python", "-m", "scripts.seed_scale", "--run-id", str(run_id), *args),
     )
+
+
+async def _cleanup_scale_runs(cli: WorkspaceImportCli, test_engine, run_ids):
+    from app.db.models.fixture_run import (
+        FixtureRun,
+        FixtureRunAdmission,
+        FixtureRunResource,
+    )
+
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    for run_id in run_ids:
+        async with sessions() as db:
+            run = await db.get(FixtureRun, run_id)
+            state = None if run is None else run.state
+        if state is not None and state != "retired":
+            result = await _run_scale(cli, run_id, purge=True)
+            if result.timed_out or result.exit_code != 0:
+                raise RuntimeError(f"Exact scale cleanup blocked: {result.evidence}")
+    async with sessions.begin() as db:
+        runs = list(
+            await db.scalars(
+                select(FixtureRun).where(FixtureRun.id.in_(run_ids)).with_for_update()
+            )
+        )
+        if any(run.state != "retired" for run in runs):
+            raise RuntimeError("A scale fixture run is not retired")
+        await db.execute(
+            delete(FixtureRunResource).where(FixtureRunResource.run_id.in_(run_ids))
+        )
+        await db.execute(
+            delete(FixtureRunAdmission).where(FixtureRunAdmission.run_id.in_(run_ids))
+        )
+        await db.execute(delete(FixtureRun).where(FixtureRun.id.in_(run_ids)))
 
 
 def _scale_result_ids(stdout: str) -> tuple[uuid.UUID, uuid.UUID]:
@@ -695,7 +734,7 @@ def _png_pixel(red: int, green: int, blue: int) -> bytes:
 
 
 async def test_installed_identity_seed_selection_consumers(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, monkeypatch
 ):
     from app.config import settings
 
@@ -730,6 +769,19 @@ async def test_installed_identity_seed_selection_consumers(
     assert scope["access_key"] != settings.minio_access_key
     assert scope["secret_key"] != settings.minio_secret_key
     cli = None
+    owner_cli = None
+    run_ids = {
+        key: uuid.uuid4()
+        for key in (
+            "first",
+            "second",
+            "denied",
+            "late",
+            "recovered",
+            "interrupted",
+            "recovery",
+        )
+    }
     pending_gate = None
     gate_original = None
     failure_trigger = None
@@ -845,16 +897,30 @@ async def test_installed_identity_seed_selection_consumers(
             {"bucket_versioning": versioning, "versions": versions},
         )
 
+        owner_cli = WorkspaceImportCli(
+            test_engine,
+            tmp_path,
+            source_root=source_root,
+            buckets=resources["buckets"],
+            minio_authority=f"{authority_host}:{endpoint.port or 9000}",
+            minio_use_ssl=endpoint.scheme == "https",
+            s3_access_key=scope["access_key"],
+            s3_secret_key=scope["secret_key"],
+            fixture_run_ids=frozenset(
+                value for key, value in run_ids.items() if key != "denied"
+            ),
+        )
+        await asyncio.to_thread(owner_cli.start)
         expected_admin = accounts["admin_inactive_oldest"]
         expected_annotator = accounts["annotator_active_viewer"]
-        first_scale = await _run_scale(cli)
+        first_scale = await _run_scale(owner_cli, run_ids["first"])
         record_property("identity_seed_scale_first", first_scale.evidence)
         assert not first_scale.timed_out and first_scale.exit_code == 0, (
             first_scale.evidence
         )
         first_project, first_annotator = _scale_result_ids(first_scale.stdout)
         assert first_annotator == expected_annotator
-        first_scale_state = await _scale_state(test_engine)
+        first_scale_state = await _scale_state(test_engine, run_ids["first"])
         assert first_project == first_scale_state["project"]["id"]
         assert first_scale_state["project"]["owner_id"] == expected_admin
         assert first_scale_state["dataset"]["created_by"] == expected_admin
@@ -865,13 +931,13 @@ async def test_installed_identity_seed_selection_consumers(
         } == {"items": 4, "batches": 2, "tasks": 4, "annotations": 1}
         assert await _user_snapshot(test_engine) == users_before_scale
 
-        repeated_scale = await _run_scale(cli)
+        repeated_scale = await _run_scale(owner_cli, run_ids["second"])
         record_property("identity_seed_scale_repeat", repeated_scale.evidence)
         assert not repeated_scale.timed_out and repeated_scale.exit_code == 0, (
             repeated_scale.evidence
         )
         second_project, second_annotator = _scale_result_ids(repeated_scale.stdout)
-        second_scale_state = await _scale_state(test_engine)
+        second_scale_state = await _scale_state(test_engine, run_ids["second"])
         assert (
             second_project == second_scale_state["project"]["id"]
             and second_annotator == expected_annotator
@@ -885,6 +951,7 @@ async def test_installed_identity_seed_selection_consumers(
             for key in ("items", "batches", "tasks", "annotations")
         } == {"items": 4, "batches": 2, "tasks": 4, "annotations": 1}
         assert await _user_snapshot(test_engine) == users_before_scale
+        assert await _scale_state(test_engine, run_ids["first"]) == first_scale_state
 
         async with test_engine.begin() as db:
             await db.execute(
@@ -893,13 +960,24 @@ async def test_installed_identity_seed_selection_consumers(
                 )
             )
         try:
-            denied = await _run_scale(cli)
-            record_property("identity_seed_scale_selector_denied", denied.evidence)
+            runtime_url = make_url(os.environ["AAP_MODULE_DATA_LEGACY_RUNTIME_URL"])
+            runtime = create_async_engine(runtime_url, hide_parameters=True)
+            try:
+                async with runtime.connect() as db:
+                    with pytest.raises(DBAPIError) as forbidden:
+                        await db.scalar(
+                            text(
+                                "SELECT aap_identity_v1.read_scale_seed_annotator(ARRAY[]::uuid[])"
+                            )
+                        )
+                    assert forbidden.value.orig.sqlstate == "42501"
+            finally:
+                await runtime.dispose()
+            denied = await _run_scale(cli, run_ids["denied"])
+            record_property("identity_seed_scale_owner_denied", denied.evidence)
             assert not denied.timed_out and denied.exit_code != 0, denied.evidence
-            assert "permission denied for function read_scale_seed_annotator" in (
-                denied.stderr.lower()
-            ), denied.stderr
-            assert await _scale_state(test_engine) == {
+            assert "E2E seed routes are disabled" in denied.stderr, denied.stderr
+            assert await _scale_state(test_engine, run_ids["denied"]) == {
                 "project": None,
                 "dataset": None,
                 "items": 0,
@@ -923,13 +1001,13 @@ async def test_installed_identity_seed_selection_consumers(
         )
         failure_trigger = late_trigger
         try:
-            late = await _run_scale(cli)
+            late = await _run_scale(owner_cli, run_ids["late"])
             record_property(
                 "identity_seed_scale_late_annotation_failure", late.evidence
             )
             assert not late.timed_out and late.exit_code != 0, late.evidence
             assert "controlled scale-seed annotation failure" in late.stderr
-            partial = await _scale_state(test_engine)
+            partial = await _scale_state(test_engine, run_ids["late"])
             assert partial["project"] is not None and partial["dataset"] is not None
             assert {
                 key: partial[key]
@@ -939,12 +1017,19 @@ async def test_installed_identity_seed_selection_consumers(
         finally:
             await _drop_annotation_failure(test_engine, *late_trigger)
             failure_trigger = None
+        late_cleanup = await _run_scale(owner_cli, run_ids["late"], purge=True)
+        assert not late_cleanup.timed_out and late_cleanup.exit_code == 0, (
+            late_cleanup.evidence
+        )
+        assert (await _scale_state(test_engine, run_ids["late"]))["project"] is None
+        assert await _scale_state(test_engine, run_ids["first"]) == first_scale_state
+        assert await _scale_state(test_engine, run_ids["second"]) == second_scale_state
 
-        recovered = await _run_scale(cli)
+        recovered = await _run_scale(owner_cli, run_ids["recovered"])
         record_property("identity_seed_scale_late_failure_recovery", recovered.evidence)
         assert not recovered.timed_out and recovered.exit_code == 0, recovered.evidence
         recovered_project, recovered_annotator = _scale_result_ids(recovered.stdout)
-        recovered_state = await _scale_state(test_engine)
+        recovered_state = await _scale_state(test_engine, run_ids["recovered"])
         assert (
             recovered_project == recovered_state["project"]["id"]
             and recovered_annotator == expected_annotator
@@ -959,17 +1044,14 @@ async def test_installed_identity_seed_selection_consumers(
         application_name = f"aap-scale-seed-{uuid.uuid4().hex[:32]}"
         gate_original = await _install_selector_gate(test_engine, application_name)
         pending_gate = asyncio.create_task(
-            asyncio.to_thread(
-                cli.run_command,
-                ("python", "-m", "scripts.seed_scale", "4", "2", "1"),
-            )
+            _run_scale(owner_cli, run_ids["interrupted"])
         )
         try:
             client_address, activity = await _wait_for_selector_gate(
-                test_engine, cli, pending_gate, application_name
+                test_engine, owner_cli, pending_gate, application_name
             )
             backend_pid = activity["pid"]
-            assert activity["usename"] == "legacy_runtime"
+            assert activity["usename"] == test_engine.url.username
             assert activity["application_name"] == application_name
             assert activity["client_host"] == client_address
             assert activity["selector_call"] is True
@@ -985,7 +1067,7 @@ async def test_installed_identity_seed_selection_consumers(
                     "selector_call": activity["selector_call"],
                 },
             )
-            assert await asyncio.to_thread(cli.stop_current_container) is True
+            assert await asyncio.to_thread(owner_cli.stop_current_container) is True
             stopped = await asyncio.wait_for(asyncio.shield(pending_gate), timeout=35)
             record_property(
                 "identity_seed_scale_physical_cancellation", stopped.evidence
@@ -994,7 +1076,7 @@ async def test_installed_identity_seed_selection_consumers(
             assert stopped.externally_stopped is True
             assert stopped.timed_out is False
             await _wait_for_backend_exit(test_engine, backend_pid)
-            assert await _scale_state(test_engine) == {
+            assert await _scale_state(test_engine, run_ids["interrupted"]) == {
                 "project": None,
                 "dataset": None,
                 "items": 0,
@@ -1003,6 +1085,38 @@ async def test_installed_identity_seed_selection_consumers(
                 "annotations": 0,
                 "selected_members": [],
             }
+            blocked_cleanup = await _run_scale(
+                owner_cli, run_ids["interrupted"], purge=True
+            )
+            assert not blocked_cleanup.timed_out and blocked_cleanup.exit_code != 0, (
+                blocked_cleanup.evidence
+            )
+            assert "fixture_run_unsettled" in blocked_cleanup.stderr
+            from app.db.models.fixture_run import FixtureRunAdmission
+            from app.services import fixture_run_ownership
+
+            monkeypatch.setattr(settings, "environment", "development")
+            monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+            async with async_sessionmaker(
+                test_engine, expire_on_commit=False
+            ).begin() as db:
+                admission = await db.scalar(
+                    select(FixtureRunAdmission).where(
+                        FixtureRunAdmission.run_id == run_ids["interrupted"]
+                    )
+                )
+                assert admission is not None and admission.state == "active"
+                await fixture_run_ownership.settle(
+                    db, run_ids["interrupted"], admission.id
+                )
+            cleared = await _run_scale(owner_cli, run_ids["interrupted"], purge=True)
+            assert not cleared.timed_out and cleared.exit_code == 0, cleared.evidence
+            assert (
+                await _scale_state(test_engine, run_ids["first"]) == first_scale_state
+            )
+            assert (
+                await _scale_state(test_engine, run_ids["second"]) == second_scale_state
+            )
             assert await _user_snapshot(test_engine) == users_before_scale
         finally:
             await _finish_cli_task(pending_gate)
@@ -1010,11 +1124,11 @@ async def test_installed_identity_seed_selection_consumers(
                 await _remove_selector_gate(test_engine, gate_original)
                 gate_original = None
 
-        recovery = await _run_scale(cli)
+        recovery = await _run_scale(owner_cli, run_ids["recovery"])
         record_property("identity_seed_scale_cancellation_recovery", recovery.evidence)
         assert not recovery.timed_out and recovery.exit_code == 0, recovery.evidence
         recovery_project, recovery_annotator = _scale_result_ids(recovery.stdout)
-        recovery_state = await _scale_state(test_engine)
+        recovery_state = await _scale_state(test_engine, run_ids["recovery"])
         assert (
             recovery_project == recovery_state["project"]["id"]
             and recovery_annotator == expected_annotator
@@ -1034,20 +1148,42 @@ async def test_installed_identity_seed_selection_consumers(
             "workflows remain outside this case.",
         )
     finally:
-        try:
-            if pending_gate is not None:
-                await _finish_cli_task(pending_gate)
-        finally:
+        original = sys.exception()
+        cleanup_failures = []
+
+        async def cleanup(action):
             try:
-                if gate_original is not None:
-                    await _remove_selector_gate(test_engine, gate_original)
-            finally:
-                try:
-                    if failure_trigger is not None:
-                        await _drop_annotation_failure(test_engine, *failure_trigger)
-                finally:
-                    try:
-                        if cli is not None:
-                            await asyncio.to_thread(cli.close)
-                    finally:
-                        destroy_scope(scope)
+                await action()
+            except BaseException as error:
+                cleanup_failures.append(error)
+
+        if pending_gate is not None:
+            await cleanup(lambda: _finish_cli_task(pending_gate))
+        if gate_original is not None:
+            await cleanup(lambda: _remove_selector_gate(test_engine, gate_original))
+        if failure_trigger is not None:
+            await cleanup(
+                lambda: _drop_annotation_failure(test_engine, *failure_trigger)
+            )
+        if owner_cli is not None:
+            if owner_cli.container_id is not None:
+                cleanup_failures.append(
+                    RuntimeError(
+                        "Scale owner process still running; exact run anchors retained"
+                    )
+                )
+            elif owner_cli.network_id is not None:
+                owned_ids = [value for key, value in run_ids.items() if key != "denied"]
+                await cleanup(
+                    lambda: _cleanup_scale_runs(owner_cli, test_engine, owned_ids)
+                )
+            await cleanup(lambda: asyncio.to_thread(owner_cli.close))
+        if cli is not None:
+            await cleanup(lambda: asyncio.to_thread(cli.close))
+        await cleanup(lambda: asyncio.to_thread(destroy_scope, scope))
+        if cleanup_failures:
+            if original is not None:
+                cleanup_failures.insert(0, original)
+            raise builtins.BaseExceptionGroup(
+                "Identity seed verifier or its exact cleanup failed", cleanup_failures
+            ) from None

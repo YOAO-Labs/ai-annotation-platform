@@ -13,7 +13,7 @@ export function recordingPlan(
   grep: string;
 };
 
-export function screenshotCatalogPath(scope?: string): string;
+export function screenshotCatalogPath(runId: string, scope?: string): string;
 
 export function assertRecordingMode(profile: "docs" | "marketing", validateOnly?: boolean): void;
 

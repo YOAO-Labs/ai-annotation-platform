@@ -85,6 +85,9 @@ class _IndependentMediaDatabase:
 
 def media_storage(*, control: bool = False):
     from yoao_assets_media_runtime.storage import S3MediaStorage
+    from yoao_assets_media_runtime.additional_original import (
+        load_additional_original_config,
+    )
 
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = f"{scheme}://{settings.minio_endpoint}"
@@ -101,6 +104,7 @@ def media_storage(*, control: bool = False):
         secret_key=settings.minio_secret_key,
         datasets_bucket=settings.minio_datasets_bucket,
         cache_bucket=settings.minio_media_cache_bucket,
+        additional_original=load_additional_original_config(),
         connect_timeout=2 if control else 10,
         read_timeout=10 if control else 120,
     )
@@ -129,7 +133,7 @@ _WAKEUPS: OrderedDict[tuple[UUID | None, int], float] = OrderedDict()
 
 
 async def _wake(job_id: UUID | None, generation: int):
-    from app.workers.media import execute_video_media
+    from app.workers.assets_media import run_video_media
 
     key = (job_id, generation)
     now = time.monotonic()
@@ -141,7 +145,7 @@ async def _wake(job_id: UUID | None, generation: int):
         _WAKEUPS.popitem(last=False)
     try:
         await asyncio.to_thread(
-            execute_video_media.delay, str(job_id) if job_id is not None else None
+            run_video_media.delay, str(job_id) if job_id is not None else None
         )
     except Exception:
         _WAKEUPS.pop(key, None)
@@ -194,9 +198,29 @@ class MediaGateway:
         await self.close()
 
     async def close(self):
+        failures = []
         if self._executor is not None:
             executor, self._executor = self._executor, None
-            await executor.close()
+            try:
+                await executor.close()
+                close_original = getattr(
+                    executor.storage, "close_additional_original", None
+                )
+                if callable(close_original):
+                    close_original()
+            except BaseException as exc:
+                failures.append(exc)
+        storage = getattr(self.provider, "storage", None)
+        close_original = getattr(storage, "close_additional_original", None)
+        if callable(close_original):
+            try:
+                close_original()
+            except BaseException as exc:
+                failures.append(exc)
+        if len(failures) == 1:
+            raise failures[0]
+        if failures:
+            raise BaseExceptionGroup("Media storage shutdown failed", failures)
 
     async def _execute(self, job_id):
         if not self.local_execution:
@@ -368,6 +392,9 @@ async def media_execution_session(*, session_factory=None):
         yield executor
     finally:
         await executor.close()
+        close_original = getattr(executor.storage, "close_additional_original", None)
+        if callable(close_original):
+            close_original()
 
 
 async def run_media_job(job_id: UUID | None = None, *, session_factory=None) -> bool:
@@ -387,21 +414,32 @@ async def maintain_video_media(*, session_factory=None):
 
 async def probe_video_timetable(source: c.MediaSource, *, sparse_stride: int = 1):
     """Trusted CLI dry-run uses the portable decoder, without publication."""
+    from yoao_assets_media_runtime.original_read import admitted_original
     from yoao_assets_media_runtime.processing import probe_source_timetable
     from app.services.media_probe import configured_probe_client
 
-    if settings.assets_media_url:
-        from yoao_assets_media_runtime.http_source import HttpMediaSourceStorage
-
-        storage = HttpMediaSourceStorage(media_gateway().provider, source)
-    else:
-        storage = media_storage()
-    return await probe_source_timetable(
-        source,
-        storage,
-        sparse_stride=sparse_stride,
-        probe_client=configured_probe_client(),
-    )
+    async with media_gateway() as gateway:
+        source_storage = media_storage()
+        try:
+            async with admitted_original(
+                gateway.provider,
+                source_storage,
+                "begin_media_original_system",
+                c.SystemOriginalReadRequest(
+                    dataset_item_id=source.dataset_item_id,
+                    source_snapshot=source.source_snapshot,
+                    object_key=source.file_path,
+                ),
+                "finish_media_original_system",
+            ) as storage:
+                return await probe_source_timetable(
+                    source,
+                    storage,
+                    sparse_stride=sparse_stride,
+                    probe_client=configured_probe_client(),
+                )
+        finally:
+            source_storage.close_additional_original()
 
 
 def media_http_error(exc: c.MediaFailure) -> HTTPException:

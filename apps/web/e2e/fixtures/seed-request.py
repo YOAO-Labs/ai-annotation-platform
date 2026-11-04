@@ -75,6 +75,11 @@ def prepare(payload):
             or ".." in path.path.split("/")
         ):
             raise SeedSetupRefused("Only fixture endpoints may use setup credentials")
+        method = payload.get("method", "POST")
+        if method != "POST" and not (
+            method == "GET" and path.path == "/api/v1/__test/seed/catalog"
+        ):
+            raise SeedSetupRefused("Fixture owner method is not permitted")
     os.environ["FIXTURE_RUNTIME_DATABASE_URL"] = _RUNTIME_DATABASE_URL
     os.environ["DATABASE_URL"] = owner.render_as_string(hide_password=False)
     os.environ["MIGRATION_DATABASE_URL"] = ""
@@ -85,17 +90,19 @@ def prepare(payload):
 
 async def main():
     os.environ["DEBUG"] = "false"
-    payload = prepare(json.loads(await asyncio.to_thread(sys.stdin.readline)))
+    payload = json.loads(await asyncio.to_thread(sys.stdin.readline))
     protocol_output = sys.stdout
     with redirect_stdout(sys.stderr):
-        sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "apps/api"))
-        sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+        root = Path(__file__).resolve().parents[4]
+        sys.path.insert(0, str(root / "scripts"))
+        sys.path.insert(0, str(root / "apps/api"))
         from fixture_suite_coordinator import (
             prepare_fixture_suite,
             verified_fixture_owner_url,
         )
 
         await verified_fixture_owner_url()
+        payload = prepare(payload)
         import httpx
         from fastapi import FastAPI
         from app.api.v1._test_seed import router
@@ -122,7 +129,8 @@ async def main():
                         result = await module.run(**payload["data"])
                         status, body = 200, json.dumps(result)
                     else:
-                        response = await client.post(
+                        response = await client.request(
+                            payload.get("method", "POST"),
                             payload["path"],
                             json=payload.get("data"),
                             headers=payload.get("headers"),

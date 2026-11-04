@@ -302,8 +302,10 @@ async def test_client_close_unknown_cannot_publish_verified(creation_db, client)
     db = creation_db
     row = await allocation(db)
     client.close_failure = True
-    with pytest.raises(ContentError):
+    with pytest.raises(ExceptionGroup) as error:
         await create(db, row)
+    assert error.value.storage_operation_unsettled
+    assert any(isinstance(item, OSError) for item in error.value.exceptions)
     current = await service._read(db, row["id"])
     assert (
         current["status"] == "unknown"
@@ -311,6 +313,29 @@ async def test_client_close_unknown_cannot_publish_verified(creation_db, client)
         and current["verification"]
     )
     assert current["operation_id"] in await operations(db)
+
+
+async def test_creation_and_close_failures_keep_first_error_and_anchor(
+    creation_db, client, monkeypatch
+):
+    row = await allocation(creation_db)
+    change = service._change
+    first = OSError("freeze failed")
+
+    async def failed(db, identifier, expected, **values):
+        if values.get("status") == "prepared":
+            raise first
+        return await change(db, identifier, expected, **values)
+
+    monkeypatch.setattr(service, "_change", failed)
+    client.close_failure = True
+    with pytest.raises(ExceptionGroup) as error:
+        await create(creation_db, row)
+    assert error.value.exceptions[0] is first
+    assert error.value.storage_operation_unsettled
+    current = await service._read(creation_db, row["id"])
+    assert current["status"] == "unknown"
+    assert current["operation_id"] in await operations(creation_db)
 
 
 async def test_freeze_failure_aborts_exact_mpu_before_any_final_attempt(
@@ -363,6 +388,35 @@ async def test_repeated_cancellation_and_duplicate_delivery_cannot_abandon_or_re
     assert (await service._read(db, row["id"]))["status"] == "verified"
     assert len([call for call in client.calls if call[0] == "complete"]) == 1
     assert not await operations(db)
+
+
+async def test_cancelled_creation_reports_late_physical_failure(creation_db, client):
+    row = await allocation(creation_db)
+    entered, release = threading.Event(), threading.Event()
+
+    def hook(operation, params):
+        if operation == "part":
+            entered.set()
+            assert release.wait(5)
+            raise OSError("write failed after cancellation")
+
+    client.hook = hook
+    task = asyncio.create_task(create(creation_db, row))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+    finally:
+        release.set()
+    with pytest.raises(BaseExceptionGroup) as error:
+        await task
+    assert isinstance(error.value.exceptions[0], asyncio.CancelledError)
+    assert isinstance(error.value.exceptions[1], ContentError)
+    assert error.value.exceptions[1].__cause__ is not None
+    assert (row["bucket"], row["object_key"]) not in client.objects
 
 
 @pytest.mark.parametrize(

@@ -123,6 +123,9 @@ class _IndependentImageDatabase:
 
 def image_storage(*, control: bool = False):
     from yoao_assets_images_runtime.config import ImageStorageConfig
+    from yoao_assets_media_runtime.additional_original import (
+        load_additional_original_config,
+    )
     from yoao_assets_images_runtime.storage import S3ImageStorage
 
     scheme = "https" if settings.minio_use_ssl else "http"
@@ -137,6 +140,7 @@ def image_storage(*, control: bool = False):
             region="us-east-1",
             access_key=settings.minio_access_key,
             secret_key=settings.minio_secret_key,
+            additional_original=load_additional_original_config(),
             datasets_bucket=settings.minio_datasets_bucket,
             legacy_bucket=settings.minio_bucket,
             cache_bucket=settings.minio_media_cache_bucket,

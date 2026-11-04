@@ -17,7 +17,6 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import attributes
 from yoao_labeling.e2e_fixture_contract import TaskBatchFixturePatch, TaskFixturePatch
 
 from app.services.workspace_e2e_fixtures import (
@@ -78,14 +77,12 @@ class _FilterIds:
     """Resolve display ids, emails and storage inside one owned namespace."""
 
     namespace: str
+    run_id: UUID
+    admission_id: UUID
 
     def display(self, base: str, *args: int) -> str:
         template = _FILTER_OWNED_PARAMETRIC.get(base) or _FILTER_OWNED_IDS[base]
         return template.format(*args, ns=self.namespace)
-
-    @property
-    def storage_prefix(self) -> str:
-        return f"e2e/owned/{self.namespace}/filtering/"
 
     def user_email(self, local: str) -> str:
         return f"{local}-{self.namespace}@e2e.test"
@@ -188,46 +185,6 @@ def _now(offset: int = 0) -> datetime:
     return datetime.now(timezone.utc) + timedelta(microseconds=offset)
 
 
-async def _set_filter_fixture_job_outcomes(
-    db: AsyncSession, completed_job: Any, failed_job: Any
-) -> None:
-    count = await db.scalar(
-        text(
-            "SELECT aap_jobs_v1.set_filter_fixture_job_outcomes("
-            "CAST(:p_completed_job_id AS pg_catalog.uuid), "
-            "CAST(:p_failed_job_id AS pg_catalog.uuid))"
-        ),
-        {
-            "p_completed_job_id": completed_job.id,
-            "p_failed_job_id": failed_job.id,
-        },
-    )
-    if type(count) is not int or count != 2:
-        raise RuntimeError("Jobs filter fixture outcome count mismatch")
-
-    for job, values in (
-        (
-            completed_job,
-            {
-                "status": "completed",
-                "progress_pct": 100,
-                "result": {"success_count": 2},
-            },
-        ),
-        (
-            failed_job,
-            {
-                "status": "failed",
-                "progress_pct": 40,
-                "error_message": "fixture failure",
-            },
-        ),
-    ):
-        for name, value in values.items():
-            attributes.set_committed_value(job, name, value)
-        db.expire(job, ["updated_at"])
-
-
 def _image_binding(*, include_obsolete: bool = True) -> dict[str, Any]:
     fields: list[dict[str, Any]] = [
         {
@@ -291,6 +248,8 @@ def _video_binding() -> dict[str, Any]:
 async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
     """Resolve or create the namespace's admin/annotator/reviewer accounts."""
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
 
     emails = [ids.user_email("admin"), ids.user_email("anno"), ids.user_email("rev")]
     rows = await IdentityE2EFixtures(db).find_many(emails)
@@ -298,6 +257,9 @@ async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
         row.email.split("@", 1)[0].removesuffix(f"-{ids.namespace}"): row
         for row in rows
     }
+    for key, user in users.items():
+        if await db.get(FixtureRunResource, (ids.run_id, "user", user.id)) is None:
+            raise ValueError(f"filter fixture user {key} is not owned by this run")
     if set(users) != {"admin", "anno", "rev"}:
         roles = {"admin": "super_admin", "anno": "employee", "rev": "employee"}
         identity = IdentityE2EFixtures(db)
@@ -305,12 +267,21 @@ async def _get_users(db: AsyncSession, ids: _FilterIds) -> dict[str, Any]:
             users[key] = await identity.create_user(
                 roles[key], ids.user_email(key), f"E2E {key}"
             )
+            await ownership.reserve(
+                db,
+                ids.run_id,
+                "user",
+                users[key].id,
+                logical_key=f"filter-{key}",
+                published=True,
+            )
     return users
 
 
 async def _create_dataset(
     db: AsyncSession,
     *,
+    ids: _FilterIds,
     project_id: UUID,
     created_by: UUID,
     display_id: str,
@@ -321,14 +292,30 @@ async def _create_dataset(
     membership_writes: SeedMembershipWrites | None = None,
 ):
     from app.db.models.dataset import Dataset, ProjectDataset
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
+
+    if await db.get(FixtureRunResource, (ids.run_id, "project", project_id)) is None:
+        await ownership.reserve(
+            db,
+            ids.run_id,
+            "project",
+            project_id,
+            logical_key=f"filter-project-{display_id}",
+            published=True,
+        )
 
     dataset = Dataset(
+        id=uuid.uuid4(),
         display_id=display_id,
         name=name,
         data_type=data_type,
         file_count=file_count,
         is_temporal=is_temporal,
         created_by=created_by,
+    )
+    await ownership.reserve_original_dataset(
+        db, ids.run_id, dataset.id, logical_key=f"filter-dataset-{display_id}"
     )
     db.add(dataset)
     if membership_writes is None:
@@ -337,6 +324,8 @@ async def _create_dataset(
         await membership_writes.flush()
     db.add(ProjectDataset(project_id=project_id, dataset_id=dataset.id))
     await db.flush()
+    await ownership.publish_resource(db, ids.run_id, "dataset", dataset.id)
+    await db.commit()
     return dataset
 
 
@@ -371,43 +360,67 @@ async def _create_batch(
 async def _create_item(
     db: AsyncSession,
     *,
+    ids: _FilterIds,
+    requested_by: UUID,
     dataset_id: UUID,
     file_name: str,
-    file_path: str,
     file_type: str,
     width: int | None = 64,
     height: int | None = 48,
     scene_id: UUID | None = None,
     frame_index: int | None = None,
     metadata: dict[str, Any] | None = None,
-    original_payload: bytes | None = None,
+    original_payload: bytes,
 ):
     from app.db.models.dataset import DatasetItem
+    from app.services import fixture_run_ownership as ownership
+
+    item_id = uuid.uuid4()
+    await ownership.reserve(
+        db,
+        ids.run_id,
+        "item",
+        item_id,
+        logical_key=f"filter-item-{item_id.hex}",
+    )
+    await db.commit()
 
     item = DatasetItem(
+        id=item_id,
         dataset_id=dataset_id,
         file_name=file_name,
-        file_path=file_path,
+        file_path="",
         file_type=file_type,
-        file_size=0,
+        file_size=len(original_payload),
         width=width,
         height=height,
         scene_id=scene_id,
         frame_index=frame_index,
         metadata_=metadata or {},
     )
-    db.add(item)
-    await db.flush()
-    if original_payload is not None:
-        from app.api.v1._test_seed import _register_fixture_original
-
-        await _register_fixture_original(db, item, original_payload)
+    allocation, original = await ownership.create_original(
+        db,
+        run_id=ids.run_id,
+        admission_id=ids.admission_id,
+        item=item,
+        logical_path=file_name,
+        payload=original_payload,
+        requested_by=requested_by,
+        content_type={
+            "image": "image/svg+xml",
+            "video": "video/webm",
+            "point_cloud": "application/octet-stream",
+        }[file_type],
+    )
+    await ownership.attach_original(db, item, allocation, original)
+    await ownership.publish_resource(db, ids.run_id, "item", item.id)
     return item
 
 
 async def _create_task(
     db: AsyncSession,
     *,
+    ids: _FilterIds,
     project_id: UUID,
     batch_id: UUID,
     item_id: UUID,
@@ -432,7 +445,18 @@ async def _create_task(
         created_at=_now(sequence_order),
         updated_at=_now(sequence_order),
     )
-    return (await LabelingE2EFixtureWrites(db).insert_tasks([task]))[0]
+    task = (await LabelingE2EFixtureWrites(db).insert_tasks([task]))[0]
+    from app.services import fixture_run_ownership as ownership
+
+    await ownership.reserve(
+        db,
+        ids.run_id,
+        "task",
+        task.id,
+        logical_key=f"filter-task-{task.id.hex}",
+        published=True,
+    )
+    return task
 
 
 def _bbox_annotation(
@@ -494,7 +518,6 @@ async def _seed_image_semantics(
     db: AsyncSession,
     ids: _FilterIds,
     users: dict[str, Any],
-    image_key: str,
     image_payload: bytes,
 ) -> FilteringImageManifest:
     from app.db.models.project_task_view import ProjectTaskView
@@ -525,6 +548,7 @@ async def _seed_image_semantics(
     )
     dataset = await _create_dataset(
         db,
+        ids=ids,
         membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
@@ -604,14 +628,16 @@ async def _seed_image_semantics(
     for index, (key, (display_id, batch, specs)) in enumerate(task_specs.items()):
         item = await _create_item(
             db,
+            ids=ids,
+            requested_by=admin.id,
             dataset_id=dataset.id,
             file_name=f"{key}.svg",
-            file_path=image_key,
             file_type="image",
             original_payload=image_payload,
         )
         task = await _create_task(
             db,
+            ids=ids,
             project_id=project.id,
             batch_id=batch.id,
             item_id=item.id,
@@ -860,7 +886,7 @@ async def _materialize_filtering_video(db: AsyncSession, item_ids: list[UUID]) -
         metadata, _ = await derivatives.prepare(db, item_id, authority, "metadata")
         metadata_id = metadata.id
         await db.commit()
-        await worker.run_outputs([str(metadata_id)])
+        await worker.run_outputs([str(metadata_id)], propagate_failure=True)
         await require_ready(metadata_id)
         item = await db.get(DatasetItem, item_id, populate_existing=True)
         source = await originals.pin(db, "dataset_item", item_id)
@@ -878,7 +904,9 @@ async def _materialize_filtering_video(db: AsyncSession, item_ids: list[UUID]) -
             )
             chunk_ids.append(output.id)
             await db.commit()
-        await worker.run_outputs([str(identifier) for identifier in chunk_ids])
+        await worker.run_outputs(
+            [str(identifier) for identifier in chunk_ids], propagate_failure=True
+        )
         for identifier in chunk_ids:
             await require_ready(identifier)
 
@@ -887,7 +915,6 @@ async def _seed_video_review(
     db: AsyncSession,
     ids: _FilterIds,
     users: dict[str, Any],
-    video_key: str,
     video_payload: bytes,
     *,
     video_ready: bool = False,
@@ -921,6 +948,7 @@ async def _seed_video_review(
     )
     dataset = await _create_dataset(
         db,
+        ids=ids,
         membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
@@ -945,9 +973,10 @@ async def _seed_video_review(
     for index, name in enumerate(names):
         item = await _create_item(
             db,
+            ids=ids,
+            requested_by=admin.id,
             dataset_id=dataset.id,
             file_name=f"{name}.webm",
-            file_path=video_key,
             file_type="video",
             width=1280,
             height=720,
@@ -964,6 +993,7 @@ async def _seed_video_review(
         )
         tasks[name] = await _create_task(
             db,
+            ids=ids,
             project_id=project.id,
             batch_id=batch.id,
             item_id=item.id,
@@ -1102,7 +1132,6 @@ async def _seed_paging(
     db: AsyncSession,
     ids: _FilterIds,
     users: dict[str, Any],
-    image_key: str,
     image_payload: bytes,
 ) -> FilteringPagingManifest:
 
@@ -1132,6 +1161,7 @@ async def _seed_paging(
     )
     dataset = await _create_dataset(
         db,
+        ids=ids,
         membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
@@ -1152,14 +1182,16 @@ async def _seed_paging(
     )
     item = await _create_item(
         db,
+        ids=ids,
+        requested_by=admin.id,
         dataset_id=dataset.id,
         file_name="paging.svg",
-        file_path=image_key,
         file_type="image",
         original_payload=image_payload,
     )
     task = await _create_task(
         db,
+        ids=ids,
         project_id=project.id,
         batch_id=batch.id,
         item_id=item.id,
@@ -1198,7 +1230,7 @@ async def _seed_paging(
 
 
 async def _seed_lidar(
-    db: AsyncSession, ids: _FilterIds, users: dict[str, Any], prefix: str
+    db: AsyncSession, ids: _FilterIds, users: dict[str, Any]
 ) -> FilteringLidarManifest:
     from app.api.v1._test_seed import _make_test_pcd_frames
     from yoao_assets_catalog.spatial_contract import (
@@ -1212,7 +1244,6 @@ async def _seed_lidar(
     from app.services.task_dataset_link import link_items
     from app.db.models.project_task_view import ProjectTaskView
     from app.services.scene_track_domain import ensure_scene_track
-    from app.services.storage import storage_service
 
     admin, annotator = users["admin"], users["anno"]
     project = await _create_project(
@@ -1241,6 +1272,7 @@ async def _seed_lidar(
     )
     dataset = await _create_dataset(
         db,
+        ids=ids,
         membership_writes=membership_writes,
         project_id=project.id,
         created_by=admin.id,
@@ -1269,23 +1301,6 @@ async def _seed_lidar(
         "extrinsic": [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
         "intrinsic": [100, 0, 320, 0, 100, 240, 0, 0, 1],
     }
-    pcd_keys = []
-    for index, payload in enumerate(frames):
-        key = f"{prefix}lidar-{index}.pcd"
-        storage_service.client.put_object(
-            Bucket=storage_service.datasets_bucket,
-            Key=key,
-            Body=payload,
-            ContentType="application/octet-stream",
-        )
-        pcd_keys.append(key)
-    camera_key = f"{prefix}camera.svg"
-    storage_service.client.put_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=camera_key,
-        Body=camera,
-        ContentType="image/svg+xml",
-    )
     visible_batch = await _create_batch(
         db,
         project_id=project.id,
@@ -1312,9 +1327,10 @@ async def _seed_lidar(
     for frame_index in range(3):
         item = await _create_item(
             db,
+            ids=ids,
+            requested_by=admin.id,
             dataset_id=dataset.id,
             file_name=f"frame-{frame_index}.pcd",
-            file_path=pcd_keys[frame_index if frame_index < 2 else 1],
             file_type="point_cloud",
             width=None,
             height=None,
@@ -1324,9 +1340,10 @@ async def _seed_lidar(
         )
         camera_item = await _create_item(
             db,
+            ids=ids,
+            requested_by=admin.id,
             dataset_id=dataset.id,
             file_name=f"frame-{frame_index}-camera.svg",
-            file_path=camera_key,
             file_type="image",
             width=640,
             height=480,
@@ -1336,6 +1353,7 @@ async def _seed_lidar(
         batch = visible_batch if frame_index < 2 else hidden_batch
         task = await _create_task(
             db,
+            ids=ids,
             project_id=project.id,
             batch_id=batch.id,
             item_id=item.id,
@@ -1489,11 +1507,11 @@ async def _seed_operations(
 ) -> FilteringOperationsManifest:
     from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from yoao_identity.e2e_fixture_contract import FixtureInvitation
-    from app.db.models.async_job import AsyncJob
     from app.db.models.bug_report import BugReport
     from app.middleware.request_id import request_id_var
     from app.services.audit import AuditService
     from app.services.audit_origin_contract import AuditOriginContext
+    from app.services import fixture_run_ownership as ownership
 
     admin, annotator = users["admin"], users["anno"]
     identity = IdentityE2EFixtures(db)
@@ -1507,6 +1525,10 @@ async def _seed_operations(
         ids.user_email("filter-inactive"),
         ids.display_name("Filter Inactive"),
     )
+    for key, user in (("filter-active", active), ("filter-inactive", inactive)):
+        await ownership.reserve(
+            db, ids.run_id, "user", user.id, logical_key=key, published=True
+        )
     await identity.mark_manual_inactive(
         inactive,
         disabled_at=_now(),
@@ -1538,9 +1560,14 @@ async def _seed_operations(
         data_type="video",
         tool_bindings=_video_binding(),
     )
+    for key, project in (("ops-a", project_a), ("ops-b", project_b)):
+        await ownership.reserve(
+            db, ids.run_id, "project", project.id, logical_key=key, published=True
+        )
     datasets = [
         await _create_dataset(
             db,
+            ids=ids,
             project_id=project_a.id,
             created_by=admin.id,
             display_id=ids.display("DS-E2E-FILTER-OA"),
@@ -1549,6 +1576,7 @@ async def _seed_operations(
         ),
         await _create_dataset(
             db,
+            ids=ids,
             project_id=project_b.id,
             created_by=admin.id,
             display_id=ids.display("DS-E2E-FILTER-OB"),
@@ -1587,6 +1615,15 @@ async def _seed_operations(
             ),
         ],
     )
+    for template in templates:
+        await ownership.reserve(
+            db,
+            ids.run_id,
+            "template",
+            template.id,
+            logical_key=f"filter-template-{template.id.hex}",
+            published=True,
+        )
     now = _now()
     invitations = [
         FixtureInvitation(
@@ -1634,33 +1671,7 @@ async def _seed_operations(
             revoked_at=now - timedelta(hours=1),
         ),
     ]
-    jobs = [
-        AsyncJob(
-            kind="batch_predict",
-            project_id=project_a.id,
-            user_id=admin.id,
-            status="pending",
-            progress_pct=0,
-            payload={
-                "model_key": "filter-detector",
-                "prompt": ids.job_prompt("alpha complete"),
-            },
-            result={},
-        ),
-        AsyncJob(
-            kind="export",
-            project_id=project_b.id,
-            user_id=admin.id,
-            status="pending",
-            progress_pct=0,
-            payload={
-                "model_key": "filter-export",
-                "prompt": ids.job_prompt("beta failed"),
-            },
-            result={},
-        ),
-    ]
-    db.add_all(jobs)
+    jobs = [uuid.uuid4(), uuid.uuid4()]
     bugs = [
         BugReport(
             display_id=ids.display("BUG-E2E-FILTER-A"),
@@ -1687,9 +1698,56 @@ async def _seed_operations(
             assigned_to_id=admin.id,
         ),
     ]
+    intent_ids = []
+    for invitation in invitations:
+        intent_id = uuid.uuid4()
+        intent_ids.append(intent_id)
+        await db.execute(
+            text(
+                "INSERT INTO yoao_fixture_v1.fixture_invitation_intents "
+                "(id,run_id,admission_id,project_id,inviter_id,email) "
+                "VALUES (:id,:run,:admission,:project,:inviter,:email)"
+            ),
+            {
+                "id": intent_id,
+                "run": ids.run_id,
+                "admission": ids.admission_id,
+                "project": invitation.project_id,
+                "inviter": invitation.invited_by,
+                "email": invitation.email,
+            },
+        )
     db.add_all(bugs)
     await identity.create_invitations(invitations)
-    await _set_filter_fixture_job_outcomes(db, jobs[0], jobs[1])
+    settled = await db.execute(
+        text(
+            "UPDATE yoao_fixture_v1.fixture_invitation_intents SET state='settled' "
+            "WHERE id=ANY(CAST(:ids AS uuid[])) AND run_id=:run AND state='invited'"
+        ),
+        {"ids": intent_ids, "run": ids.run_id},
+    )
+    if settled.rowcount != len(intent_ids):
+        raise RuntimeError("filtering invitation ownership changed")
+    count = await db.scalar(
+        text(
+            "SELECT aap_jobs_v1.create_filter_fixture_jobs("
+            "CAST(:run AS uuid), CAST(:completed AS uuid), CAST(:failed AS uuid), "
+            "CAST(:completed_project AS uuid), CAST(:failed_project AS uuid), "
+            "CAST(:actor AS uuid), CAST(:completed_prompt AS text), CAST(:failed_prompt AS text))"
+        ),
+        {
+            "run": ids.run_id,
+            "completed": jobs[0],
+            "failed": jobs[1],
+            "completed_project": project_a.id,
+            "failed_project": project_b.id,
+            "actor": admin.id,
+            "completed_prompt": ids.job_prompt("alpha complete"),
+            "failed_prompt": ids.job_prompt("beta failed"),
+        },
+    )
+    if type(count) is not int or count != 2:
+        raise RuntimeError("Jobs filter fixture outcome count mismatch")
     await db.flush()
     audit_rows = []
     request_id_token = request_id_var.set(None)
@@ -1715,7 +1773,7 @@ async def _seed_operations(
                 actor=admin,
                 action="filter.fixture.failed",
                 target_type="job",
-                target_id=jobs[1].id,
+                target_id=jobs[1],
                 origin=origin,
                 status_code=500,
                 detail=_filter_audit_detail(ids, "beta"),
@@ -1723,6 +1781,15 @@ async def _seed_operations(
         )
     finally:
         request_id_var.reset(request_id_token)
+    for audit in audit_rows:
+        await ownership.reserve(
+            db,
+            ids.run_id,
+            "audit",
+            audit.id,
+            logical_key=f"filter-audit-{audit.id.hex}",
+            published=True,
+        )
     return FilteringOperationsManifest(
         project_ids=[str(project_a.id), str(project_b.id)],
         dataset_ids=[str(dataset.id) for dataset in datasets],
@@ -1757,7 +1824,7 @@ async def _seed_operations(
             "beta": ids.audit_scope("beta"),
         },
         invitation_ids=[str(invitation.id) for invitation in invitations],
-        job_ids=[str(job.id) for job in jobs],
+        job_ids=[str(job_id) for job_id in jobs],
         bug_ids=[str(bug.id) for bug in bugs],
         audit_ids=[str(row.id) for row in audit_rows],
     )
@@ -1767,41 +1834,27 @@ async def build_filtering_seed(
     db: AsyncSession,
     namespace: str,
     *,
+    run_id: UUID,
+    admission_id: UUID,
     video_ready: bool = False,
 ) -> FilteringSeedManifest:
     """Build all filtering scenarios for one owned namespace."""
-    from app.services.storage import storage_service
-
-    ids = _FilterIds(namespace)
+    ids = _FilterIds(namespace, run_id, admission_id)
     users = await _get_users(db, ids)
     image_svg = b'<svg xmlns="http://www.w3.org/2000/svg" width="64" height="48"><rect width="64" height="48" fill="#f1f5f9"/></svg>'
-    image_key = f"{ids.storage_prefix}image.svg"
-    storage_service.client.put_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=image_key,
-        Body=image_svg,
-        ContentType="image/svg+xml",
-    )
     api_root = Path(__file__).resolve().parents[3]
     video_source = api_root / "fixture-media/smart-point.webm"
     if not video_source.is_file():
         video_source = (
             api_root.parent.parent / "docs-site/public/home/sam-tools/smart-point.webm"
         )
-    video_key = f"{ids.storage_prefix}video.webm"
     video_payload = video_source.read_bytes()
-    storage_service.client.put_object(
-        Bucket=storage_service.datasets_bucket,
-        Key=video_key,
-        Body=video_payload,
-        ContentType="video/webm",
-    )
-    image = await _seed_image_semantics(db, ids, users, image_key, image_svg)
+    image = await _seed_image_semantics(db, ids, users, image_svg)
     video = await _seed_video_review(
-        db, ids, users, video_key, video_payload, video_ready=video_ready
+        db, ids, users, video_payload, video_ready=video_ready
     )
-    paging = await _seed_paging(db, ids, users, image_key, image_svg)
-    lidar = await _seed_lidar(db, ids, users, ids.storage_prefix)
+    paging = await _seed_paging(db, ids, users, image_svg)
+    lidar = await _seed_lidar(db, ids, users)
     operations = await _seed_operations(db, ids, users)
     await db.commit()
     return FilteringSeedManifest(

@@ -27,6 +27,7 @@ from yoao_assets_images.contract import (
     ImageReconcileResult,
     ImageSource,
     ImageWorkOutcome,
+    OriginalRead,
     ObjectIdentity,
     PyramidWorkSpec,
     ThumbnailWorkSpec,
@@ -143,6 +144,8 @@ class _FakeDatabase:
         self.calls = []
 
     async def call(self, name, request):
+        if name in {"begin_image_original_worker", "begin_image_original_backfill"}:
+            return OriginalRead(ownership="ordinary", object_key=request.object_key)
         self.calls.append((name, request))
         if self.events is not None:
             self.events.append(f"database:{name}")
@@ -206,6 +209,10 @@ class _FakeStorage:
         self.uploads = []
         self.sources = []
         self.orphans = []
+
+    def bind_original(self, permit):
+        assert permit.ownership == "ordinary"
+        return self
 
     async def head_source(self, source):
         if self.events is not None:

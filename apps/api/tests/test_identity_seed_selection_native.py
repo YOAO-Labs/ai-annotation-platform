@@ -20,7 +20,7 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.services.identity_commands import IdentityCommandService
-from scripts import import_images, seed_scale
+from scripts import import_images
 from tests.test_workspace_consumer_profile_native import _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -182,15 +182,26 @@ async def _scale_actors(owner, name, scenario):
 
 async def _remove_scale_actors(owner, name, ids):
     async with owner() as cleanup:
-        await cleanup.execute(
-            text(
-                "DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE name LIKE :prefix)"
-            ),
-            {"prefix": "support-" + name + "-%"},
+        project_ids = list(
+            await cleanup.scalars(
+                text(
+                    "SELECT id FROM projects WHERE owner_id=:owner AND name=ANY(CAST(:names AS text[]))"
+                ),
+                {
+                    "owner": ids["later_admin"],
+                    "names": [f"support-{name}-0", f"support-{name}-1"],
+                },
+            )
         )
         await cleanup.execute(
-            text("DELETE FROM projects WHERE name LIKE :prefix"),
-            {"prefix": "support-" + name + "-%"},
+            text(
+                "DELETE FROM project_members WHERE project_id=ANY(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": project_ids},
+        )
+        await cleanup.execute(
+            text("DELETE FROM projects WHERE id=ANY(CAST(:ids AS uuid[]))"),
+            {"ids": project_ids},
         )
         await cleanup.execute(
             text("DELETE FROM public.users WHERE id=ANY(CAST(:ids AS uuid[]))"),
@@ -438,115 +449,25 @@ async def test_image_import_identity_behavior(
     ],
 )
 async def test_scale_seed_selection_behavior(
-    selection_world, scenario, monkeypatch, record_property
+    selection_world, scenario, record_property
 ):
     owner, consumer = selection_world
-    name = "selection-" + scenario
+    name = "selection-" + scenario + "-" + uuid.uuid4().hex[:8]
     ids = await _scale_actors(owner, name, scenario)
     try:
-        monkeypatch.setattr(seed_scale, "MARKER", name)
-        dispose = AsyncMock()
-        monkeypatch.setattr(seed_scale, "engine", SimpleNamespace(dispose=dispose))
-        observed = {"actors": [], "commits": 0}
-
-        @contextlib.asynccontextmanager
-        async def session():
-            async with consumer() as db:
-                real_scalar = db.scalar
-
-                async def scalar(statement, *args, **kwargs):
-                    raw = await real_scalar(statement, *args, **kwargs)
-                    if "read_scale_seed_" in str(statement):
-                        reply = raw if isinstance(raw, dict) else json.loads(raw)
-                        value = reply["account_id"]
-                        actor = uuid.UUID(value) if value is not None else None
-                        key = next(
-                            (key for key, value in ids.items() if value == actor), None
-                        )
-                        if scenario == "ties" and key in {"admin", "later_admin"}:
-                            key = "admin_tie"
-                        if scenario == "ties" and key in {
-                            "annotator",
-                            "later_annotator",
-                        }:
-                            key = "annotator_tie"
-                        observed["actors"].append(key)
-                    return raw
-
-                db.scalar = scalar
-
-                def committed(_db):
-                    observed["commits"] += 1
-
-                event.listen(db.sync_session, "after_commit", committed)
-                yield db
-
-        monkeypatch.setattr(seed_scale, "Session", session)
-        stdout = io.StringIO()
-        try:
-            with contextlib.redirect_stdout(stdout):
-                await seed_scale.seed(4, 2, 1)
-            observed["outcome"] = "completed"
-        except SystemExit as exc:
-            observed["outcome"] = {"exit": exc.code}
-        observed["disposed"] = dispose.await_count
-        observed["printed_done"] = (
-            "done: 4 tasks / 2 batches / 1 annotated" in stdout.getvalue()
-        )
-        observed["printed_missing_actors"] = (
-            "need at least 1 super_admin" in stdout.getvalue()
-        )
-        async with owner() as db:
-            project = (
-                (
-                    await db.execute(
-                        text(
-                            "SELECT id,owner_id,total_tasks FROM projects WHERE name=:name"
-                        ),
-                        {"name": name},
-                    )
-                )
-                .mappings()
-                .one_or_none()
+        async with consumer() as db:
+            selected = await IdentityCommandService(db).resolve_scale_seed_actors()
+        labels = []
+        for value in selected:
+            label = next(
+                (key for key, identifier in ids.items() if identifier == value), None
             )
-            if project:
-                owner_key = next(
-                    key for key, value in ids.items() if value == project["owner_id"]
-                )
-                observed["project_owner"] = (
-                    "admin_tie" if scenario == "ties" else owner_key
-                )
-                observed["total_tasks"] = project["total_tasks"]
-                observed["tasks"] = await db.scalar(
-                    text("SELECT count(*) FROM tasks WHERE project_id=:id"),
-                    {"id": project["id"]},
-                )
-                observed["batches"] = await db.scalar(
-                    text("SELECT count(*) FROM task_batches WHERE project_id=:id"),
-                    {"id": project["id"]},
-                )
-                observed["annotations"] = await db.scalar(
-                    text("SELECT count(*) FROM annotations WHERE project_id=:id"),
-                    {"id": project["id"]},
-                )
-            else:
-                observed["project_owner"] = None
-        _replay(name, observed, record_property)
+            if scenario == "ties" and label in {"admin", "later_admin"}:
+                label = "admin_tie"
+            if scenario == "ties" and label in {"annotator", "later_annotator"}:
+                label = "annotator_tie"
+            labels.append(label)
+        assert labels == GOLDEN["selection-" + scenario]["actors"]
+        record_property("identity_scale_actor_selection", scenario)
     finally:
-        async with owner() as cleanup:
-            await seed_scale._purge(cleanup)
-            await cleanup.execute(
-                text(
-                    "DELETE FROM project_members WHERE project_id IN (SELECT id FROM projects WHERE name LIKE :prefix)"
-                ),
-                {"prefix": "support-" + name + "-%"},
-            )
-            await cleanup.execute(
-                text("DELETE FROM projects WHERE name LIKE :prefix"),
-                {"prefix": "support-" + name + "-%"},
-            )
-            await cleanup.execute(
-                text("DELETE FROM public.users WHERE id=ANY(CAST(:ids AS uuid[]))"),
-                {"ids": list(ids.values())},
-            )
-            await cleanup.commit()
+        await _remove_scale_actors(owner, name, ids)

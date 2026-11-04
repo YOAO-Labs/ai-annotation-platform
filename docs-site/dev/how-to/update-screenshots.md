@@ -68,16 +68,16 @@ Mac 需要 **macOS 14 或更新系统**、Xcode Command Line Tools（`xcrun swif
 caffeinate -dimsu pnpm --filter web screenshots:record -- --flow bbox-draw --profile marketing
 ```
 
-入口必须设置 `SCREENSHOT_DATABASE_URL`，以及完全相同、显式选择非零 Redis DB 的
-`REDIS_URL` 和 `CELERY_BROKER_URL`。同时核对 API、Worker 的实际目标；入口只固定自己子进程的
-`DATABASE_URL` / `MIGRATION_DATABASE_URL`，不会改已运行服务。真实推理检查隔离 broker 上只存在
-`screenshots@` worker。每次运行及场景间会修复自己管理的截图夹具并重读目录，不能与其他录制共享该库并发运行。
+入口必须在已验证的 `e2e` worktree 中运行，使用受限产品 `DATABASE_URL`、仅供私有夹具
+进程使用的 `PLAYWRIGHT_E2E_DATABASE_URL`，以及该 worktree 专用且相同的 `REDIS_URL` 和
+`CELERY_BROKER_URL`。API、worker、存储与独立只读原片凭据均须指向当前隔离环境。
+每次录制使用独立 run UUID，场景间只对账该运行的清单；尚未完成并发验收的夹具族仍须串行。
 
 手工场景使用 `--backend-requirements none`，不探测或启动模型；OCR 只要求 `ocr`，SAM 工具使用
 `image_interactive` 能力组（包含 exemplar），多个 `--flow` 合并依赖。入口只使用真实后端，缺失时失败，不自动回退 stub。
 `candidate-keyboard-review` 同样要求 `image_interactive`，并额外核验 `sam3-segmentation`。它通过正式预标注 API 和隔离 worker 生成车辆轮廓，保留模型原始置信度、候选索引及源清单中的 `inference_evidence`，不注入固定候选。录制会检查逐项采纳／拒绝请求和标注保存结果；模型未返回足够候选时直接失败。
 
-视频范围刷选、跨帧多正点、正负点、框种子和文本发现录制使用 `video_tracker` 能力组，分别对应 `video-tracker-range`、`video-tracker-cross-frame-points`、`video-tracker-positive-negative`、`video-tracker-box-seed`、`video-tracker-text-discovery`。这些流程运行真实追踪作业，并保存请求、候选、采纳及重载验证证据；文本发现按返回几何匹配目标，不依赖固定实例编号。失败时也会按已登记 ID 清理作业和新建标注。
+视频范围刷选、跨帧多正点、正负点、框种子和文本发现录制使用 `video_tracker` 能力组，分别对应 `video-tracker-range`、`video-tracker-cross-frame-points`、`video-tracker-positive-negative`、`video-tracker-box-seed`、`video-tracker-text-discovery`。这些流程运行真实追踪作业，并保存请求、候选、采纳及重载验证证据；文本发现按返回几何匹配目标，不依赖固定实例编号。真实执行未证明退役时保留作业和归属锚点，清理会失败，不得按 ID 强删。
 
 Mac 可用 `--profile docs --validate-only` 预演已注册的远程 Linux 模型服务；正式 ML 母版目前使用 Linux 采集：API / Worker 必须能访问模型，模型也必须能访问截图存储的签名媒体 URL。
 `--ml-backend-url` 是 stub 配置，不是远程 live 后端地址。仅改 API URL 不会把本地 seed / 清理脚本搬到远端。
@@ -116,7 +116,7 @@ COCO8 仅用于此处的私有开发演示，不自动发布到公共文档站�
 
 审核退回录制使用正式的两步原因／补充说明对话框与真实退回 API。截图 seed 会为完整受管标注记录作者、
 提交者和当前审核轮次的贡献者证据；清理退回结果时恢复该夹具的审核快照，不绕过「未知贡献者」或自审校验。
-旧 seed 缺少证据时先运行 `--repair`，不要把角色分派当作标注历史。
+缺少证据时使用该 run ID 重新对账截图 seed；不要把角色分派当作标注历史。
 
 S3 连接器演示从现有 `MINIO_ENDPOINT`、`MINIO_DATASETS_BUCKET` 读取隔离存储目标，使用受管
 `coco8-dev/train/` 的 4 个样本和演示凭据。API 进程必须设置 `CONNECTOR_ENCRYPTION_KEY`；
@@ -129,38 +129,25 @@ S3 连接器演示从现有 `MINIO_ENDPOINT`、`MINIO_DATASETS_BUCKET` 读取隔
 
 ## 快速运行
 
-截图自动化使用专用 `annotation_screenshots_test` 数据库和 `3001/8010`
-端口，不复用日常开发的 `annotation` 数据库或 `3000/8000` 进程。
+截图自动化使用工作树专属 `e2e` 数据库、存储和服务端口，不复用日常开发数据库或服务。
 
 ### 1. 准备、迁移并填充专用库
 
-下例为全量截图 seed。仅更新非 ML 静态截图时，在准备截图库时显式指定
-`--backend-requirements none`；这会跳过 backend 发现与绑定，但仍创建并校验 screenshots profile
-中的用户、项目、数据集、任务、批次和真实媒体夹具。完整截图仍使用不带该参数的全量 seed。
-两种模式都使用隔离数据库、Redis DB 和迁移配置：
+先按[多工作树环境](./worktree-environments)准备并验证隔离 `e2e` mode，包括独立的原片
+存储和受限读取凭据。下面通过 worktree 入口注入专属连接；不要把 owner DSN 覆盖给产品 API。
+仅更新非 ML 静态截图时可显式设置 `--backend-requirements none`，但仍需全部声明的真实媒体：
 
 ```bash
-docker compose up -d postgres redis minio
-
-cd apps/api
-export SCREENSHOT_DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test
-export MIGRATION_DATABASE_URL="$SCREENSHOT_DATABASE_URL"
-export REDIS_URL=redis://localhost:6379/15
-export CELERY_BROKER_URL="$REDIS_URL"
-DATABASE_URL="$SCREENSHOT_DATABASE_URL" uv run python scripts/prepare_e2e_db.py
-DATABASE_URL="$SCREENSHOT_DATABASE_URL" uv run alembic upgrade head
-
-# 非 ML 静态矩阵：无需 ML Backend 或 ML worker
-DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --repair --ml-backend-mode live --backend-requirements none
-
-# 若要运行完整静态矩阵（含 ML 场景），使用全量 backend seed 并准备相应服务：
-# DATABASE_URL="$SCREENSHOT_DATABASE_URL" PYTHONPATH=. uv run python scripts/seed.py \
-#   --profile screenshots --repair --ml-backend-mode live
+export SCREENSHOT_FIXTURE_RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
+pnpm dev:worktree -- exec --mode e2e --with-worker -- sh -c \
+  'cd apps/api && PYTHONPATH=. .venv/bin/python scripts/seed.py \
+   --profile screenshots --run-id "$SCREENSHOT_FIXTURE_RUN_ID" \
+   --ml-backend-mode live --backend-requirements none'
 ```
 
-`prepare_e2e_db.py` 可重复执行，且会拒绝库名不以 `_e2e` 或 `_test` 结尾的目标。显式
-`none` 不连接 ML backend；不带 `--backend-requirements` 仍按全量 profile 检查所有 backend。
+完整 ML 场景去掉 `--backend-requirements none` 并准备所需真实服务。
+相同 run ID 可对账已经登记的完整资源；有未确认物理操作时保留 admission、原错误和收据，
+不得扫桶或删除真实作业来伪造清理通过。
 
 截图 seed 在夹具提交后同步初始化真实 DuckDB 分析视图，不依赖定时任务或 `cleanup` 队列。
 连接 PostgreSQL `_test` / `_e2e` 库且未显式配置 `DUCKDB_PATH` 时，seed 与 API 按当前 checkout、
@@ -653,9 +640,9 @@ git commit -m "chore(screenshots): 更新视觉回归基线 — <变更原因>"
 ## 常见问题
 
 **Q: seed/catalog 报项目、任务或 backend 缺失**
-确认已启动 live backend 或截图协议 stub，然后重跑 `scripts/seed.py --profile screenshots
---repair --ml-backend-mode <live|stub>`。catalog 会在导航前报出具体逻辑键和缺失能力，
-不会退化为任意项目。
+确认已启动 live backend 或截图协议 stub，然后使用同一个 `SCREENSHOT_FIXTURE_RUN_ID`
+重跑 `scripts/seed.py --profile screenshots --run-id "$SCREENSHOT_FIXTURE_RUN_ID"
+--ml-backend-mode <live|stub>`。catalog 会指出具体逻辑键和缺失能力，不会退化为任意项目。
 
 **Q: locator 截图失败（元素找不到）**
 检查 `data-testid` 是否正确，或在 `prepare` 里等待具体业务 ready selector。

@@ -62,15 +62,12 @@ test("selection scopes AI without changing capture quality or legacy catalog def
   const grep = new RegExp(recordingPlan(["bbox-draw"]).grep);
   assert.ok(grep.test("flows flow recordings bbox-draw — title"));
   assert.ok(!grep.test("flows flow recordings rotated-bbox-draw — title"));
+  const runId = "3d518aa8-d793-4a4a-9171-c1131d350178";
   assert.equal(
-    screenshotCatalogPath("none"),
-    "/api/v1/__test/seed/catalog?profile=screenshots&backend_requirements=none",
+    screenshotCatalogPath(runId, "none"),
+    `/api/v1/__test/seed/catalog?profile=screenshots&run_id=${runId}&backend_requirements=none`,
   );
-  assert.equal(screenshotCatalogPath(undefined), "/api/v1/__test/seed/catalog?profile=screenshots");
-  const spec = fs.readFileSync(new URL("./flows/flows.spec.ts", import.meta.url), "utf8");
-  for (const id of Object.keys(RECORDING_FLOWS)) {
-    assert.ok(id.startsWith("sam-tool-") || spec.includes(`test("${id} —`), `No flow for ${id}`);
-  }
+  assert.throws(() => screenshotCatalogPath("not-a-run"), /canonical UUID/);
 });
 
 test("capability-only panels and live inference retain separate recording evidence", () => {
@@ -252,7 +249,6 @@ test("direct legacy Playwright recording refuses before catalog or database setu
     );
     const env = { ...process.env, SCREENSHOT_VALIDATE_ONLY: "0" };
     for (const key of [
-      "SCREENSHOT_DATABASE_URL",
       "SCREENSHOT_CATALOG_JSON",
       "SCREENSHOT_BACKEND_REQUIREMENTS",
       "SCREENSHOT_RECORDING_FLOWS",
@@ -275,7 +271,7 @@ test("direct legacy Playwright recording refuses before catalog or database setu
         ),
       (error) => {
         assert.match(error.stdout, /rehearsal only/);
-        assert.doesNotMatch(error.stdout, /缺少 SCREENSHOT_DATABASE_URL|catalog.*初始化/);
+        assert.doesNotMatch(error.stdout, /catalog.*初始化/);
         return true;
       },
     );

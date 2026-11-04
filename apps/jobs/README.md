@@ -40,22 +40,18 @@ closure or runtime recovery.
 
 ## Test project fixture cleanup
 
-`aap-jobs-fixture-cleanup/v1` publishes the fixed
-`aap_jobs_v1.delete_fixture_project_jobs(uuid[])` capability. It deletes exactly
-current `project_id = ANY(project_ids)` rows of every kind and status, returns a
-nonnegative native bigint, preserves retained/unrelated rows, and borrows the
-caller transaction. Empty scope returns zero; duplicate IDs count each row once.
-The function is granted to ordinary runtime roles only in actual databases whose
-names end in `_test` or `_e2e`, and checks that suffix again inside the definer.
+The current `aap-jobs-fixture-guard/v1` contract exposes
+`aap_jobs_v1.guard_fixture_project_jobs(uuid[])`, which locks and validates the exact
+Workspace project scope and refuses cleanup if any current or retained Jobs row
+still refers to it. A terminal status alone is not proof that physical work has
+stopped. `aap_jobs_v1.delete_fixture_project_jobs(uuid[])` invokes the same
+guard before deletion; unproved Jobs remain as anchors instead of being removed.
+The guard is a test-database-only owner capability, not a product API.
 
-The owner calls Workspace's existing `guard_project_cleanup` in the same
-transaction and validates its exact reply. NULL scopes or malformed guard
-replies return `22023`, project NOWAIT contention returns `55P03`, and an
-unretired video returns `23514`. Original constraints and DELETE triggers remain
-active. The E2E route keeps its earlier fixture gates, namespace/project selection,
-savepoint, and final commit; owner failures stop cleanup rather than skip Jobs.
-This capability cannot substitute for job-ID cleanup in schema-owner screenshot
-tools or for a production retention operation.
+NULL scopes or malformed Workspace replies return `22023`, project NOWAIT
+contention returns `55P03`, and an unretired video or unproved Jobs row returns
+`23514`. The guard borrows the caller transaction and preserves original
+constraints and DELETE triggers.
 
 ## Filtering fixture outcomes
 

@@ -1365,18 +1365,18 @@ AAP_IDENTITY_ROLE_AUDIT_LIVE=1 \
 
 `import_images.py` 只从公开账号事实选任意首账号，保留不检查角色／启用状态的行为。
 `seed_scale.py` 使用 `aap-identity-scale-seed-actors/v1` 两项固定只读能力，创建时间留在
-Identity 内部。普通 Identity API／worker 配置保持五项函数；可信运维账号在普通围栏后
-显式追加选择能力：
+Identity 内部。普通 Identity API／worker 配置保持五项函数；仅对隔离测试库的夹具
+owner 账号在普通围栏后显式追加选择能力：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
-  -v identity_owner=identity_code -v consumer_role=legacy_runtime \
+  -v identity_owner=identity_code -v consumer_role="$FIXTURE_OWNER_ROLE" \
   -f infra/docker/identity-scale-seed-grants.sql
 ```
 
 此例只用于自己拥有的测试资源；不能把追加能力交给普通 HTTP／worker。实际图片导入
-还需要既有 Assets 运维能力。规模种子仍使用其他领域的原可信写入权限，不代表它们
-的最小凭据已经收口。原有清理先提交，后续选择失败或中断不会恢复旧标记图谱。
+还需要既有 Assets 运维能力。规模种子使用明确的 `--run-id`、隔离测试库和夹具 owner
+通道；只清理该运行登记的项目与数据集，旧共享名称不会被自动接管或删除。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
@@ -1395,10 +1395,9 @@ AAP_IDENTITY_SEED_SELECTION_LIVE=1 \
   --test-file tests/test_identity_seed_selection_live.py
 ```
 
-14 项定向检查和一个包含 11 次容器调用的冷案例已通过，包括真实版本化图片对象、
-重复导入、权限拒绝、已提交清理和分阶段写入、137 退出后的实际后端释放与恢复。
-这是本机 ARM64 的有限正确性资格，未验收大规模容量或全部种子工作流。
-收据见 `.worktree/identity-seed-selection-qualification.json`。
+冷案例检查真实版本化图片对象、重复导入、权限拒绝、精确运行清理、分阶段写入和
+实际进程退出后的恢复。验收结果以当次收据为准，不代表大规模容量或全部种子工作流；
+历史收据见 `.worktree/identity-seed-selection-qualification.json`。
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录实际资格与剩余项。
 
 ### 媒体种子的 Identity 边界

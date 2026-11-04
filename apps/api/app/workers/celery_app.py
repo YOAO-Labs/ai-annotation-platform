@@ -4,6 +4,11 @@ from celery import Celery
 from celery.schedules import crontab
 from yoao_jobs.queue_contract import load_queue_configuration
 from app.config import settings
+from yoao_assets_media_runtime.additional_original import (
+    load_additional_original_config,
+)
+
+load_additional_original_config()
 
 celery_app = Celery(
     "annotation_worker",
@@ -12,6 +17,7 @@ celery_app = Celery(
     include=[
         "app.workers.tasks",
         "app.workers.media",
+        "app.workers.assets_media",
         "app.workers.image_pyramid",
         "app.workers.dataset_import_delivery",
         "app.workers.identity_mail_delivery",
@@ -208,10 +214,14 @@ celery_app.conf.update(
             "task": "app.workers.media.cleanup_video_frame_assets",
             "schedule": crontab(hour=2, minute=30),
         },
+        "reconcile-accepted-video-media": {
+            "task": "app.workers.assets_media.reconcile_video_media",
+            "schedule": crontab(hour=2, minute=30),
+        },
         # Recover pending local owner jobs when a worker dies before lease expiry;
         # remote owner mode makes this generic drain a no-op.
         "execute-video-media-recovery": {
-            "task": "app.workers.media.execute_video_media",
+            "task": "app.workers.assets_media.run_video_media",
             "schedule": timedelta(seconds=60),
             "options": {"expires": 55},
         },

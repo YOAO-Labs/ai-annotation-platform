@@ -89,7 +89,7 @@ cd apps/web && pnpm exec playwright test --list --project=pointcloud
 
 写入响应按端点与方法匹配，随后独立断言成功状态和持久结果；不要在等待条件中先过滤掉错误响应，使真实的 4xx／5xx 只表现成超时。
 
-夹具创建／清理由 `e2e/helpers/seed-owner-transport.mjs` 在独立 Python 进程调用现有 seed router；夹具准备时仅该进程使用测试 owner 身份，校验启动器提供的规范资源根、identity、资源清单、数据库 owner 标记及匹配的受限 runtime LOGIN。真实浏览器业务请求仍走受限 HTTP API，不恢复私表授权。该夹具通道是进程内 ASGI，不是独立 HTTP 部署资格证据。截图配置使用明确的 `SCREENSHOT_DATABASE_URL` 为夹具选库，不能指向日常开发或生产数据库。
+夹具创建／清理由 `e2e/helpers/seed-owner-transport.mjs` 在独立 Python 进程调用现有 seed router；夹具准备时仅该进程使用测试 owner 身份，校验启动器提供的规范资源根、identity、资源清单、数据库 owner 标记及匹配的受限 runtime LOGIN。真实浏览器业务请求仍走受限 HTTP API，不恢复私表授权。该夹具通道是进程内 ASGI，不是独立 HTTP 部署资格证据。截图配置使用 worktree 专用受限连接和独立 run UUID，不能指向日常开发或生产数据库。
 
 Identity／Workspace 原生场景使用 `identity_e2e_support.py` 的组合客户端，只有 `/api/v1/__test/seed/` 请求进入同一个受保护 owner 子进程；其他业务请求保持真实受限连接，失败不会切换到 owner 重试。报告将这些场景标为 owner 夹具加受限业务 HTTP，不再计作受限角色执行整个 seed 流程的资格。独立 Node 合同、私表拒绝和借用事务回滚仍分别验收。
 
@@ -409,9 +409,9 @@ test("注入 token 跳过 UI 登录", async ({ page, seed }) => {
 - **训练基线归属**：训练验收种子通过与正式接口相同的分配流程，为新建检测/分割版本登记存储归属；重跑和失败重试保持原回执与保存桶。已有但未登记归属的历史版本不会自动认领，仍需按训练数据集的显式副本核验流程处理。
 - **Labeling owner 命令**：E2E seed 写入 Labeling 的 Batch、Task、Annotation、视频追踪作业和 TaskDatasetItemLink 时通过固定 Labeling owner 命令；视频反馈锚点更新也走同一测试协议。命令只在数据库名以 `_e2e` 或 `_test` 结尾时可由运行角色调用，并在调用方原事务中执行；seed 路由仍负责原有提交或回滚时机。
 - **专项筛选夹具**：筛选验收使用 `seed.filtering()`（或 `e2e/fixtures/filtering.ts`），它先清理自己的命名空间，再返回类型化 manifest：同对象/跨对象属性、必填条件嵌套组、检测与追踪候选组合、101 项分页、Scene 逻辑轨迹和管理列表数据；需要进入视频工作台的用例传入 `{ videoReady: true }`，在种子阶段通过真实派生 worker 入口完成并核验元数据与分块，不依赖 CI 外部 Celery worker；普通筛选用例不额外生成视频。视频预测中的最小 shape 只验证指标；工作台几何交互通过产品预测导入 API 添加有效的带帧候选。点云 fixture 包含真实 PCD 字节和可解析的相机内外参。若需在本地手动体验并保留筛选数据，可运行 `pnpm dev:worktree -- up --mode e2e --scenario filtering`（参见 [多工作树并行开发环境](./how-to/worktree-environments#手动验收筛选功能)）。
-- **Workspace 夹具**：全局 cleanup 前先调用各 namespace 的 owned-cleanup；共享选择器不能代替 owned 项目、筛选模板的精确清理。对象收尾前先调用现有项目退役守卫，已知未退役视频执行或忙锁返回 409。预检 savepoint 回滚，不提前提交从未启动作业的清理许可；最终删除仍重新检查。物理收尾完成后才删除夹具记录，最终数据库拒绝会回滚项目及子记录并保留重试锚点，但不撤销已完成的对象删除；解决阻塞后可重试，不伪造退役历史。协议与授权见 [Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
+- **Workspace 夹具**：`globalTeardown` 只清理本次 suite 已登记的子 run；截图和规模夹具也使用独立 run 清单。对象收尾前先调用现有项目和 Jobs 退役守卫，已知未退役执行或忙锁返回冲突。未确认的存储写入、活跃读取及失败清理保留原始责任和收据；不能通过扫桶或强删 Jobs 绕过。协议与授权见 [Workspace 夹具边界](/api/guides/workspace-runtime#门控-e2e-夹具)。
 - **账号外部引用**：夹具账号仍被非夹具数据引用时，Identity 清理返回 409 并回滚最终数据库删除；先通过数据所属模块删除已确认归属的测试数据，再清理账号。清理不会扩大命名空间或删除无关数据，其他 Identity 清理错误也不会被吞掉。
-- **并发与清理兜底**：全局 `/seed/cleanup` 和无命名空间的 project-roles 仍可清理其他夹具；多进程并行测试须隔离数据库与 MinIO 存储桶，不能凭单个 owned 夹具推断整套测试并行安全。Playwright 结束时的 `globalTeardown` 会调用 `/seed/cleanup`，但强制中断可能跳过 teardown，因此必须始终依赖已核验的工作树 `e2e` 资源隔离，不能把 cleanup 当成可在开发库运行 E2E 的理由。新增清理条件应使用 fixture 的项目、任务或显式标记；数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
+- **并发与清理兜底**：`/seed/cleanup` 只接受明确的 suite ID，截图清理使用独立 run ID。尚未完成并发资格的夹具族仍须串行，不能凭单个 owned 夹具推断整套测试并行安全。强制中断可能跳过 teardown；应保留运行清单并核对真实 owner 状态，绝不能在开发库或共享存储中运行。数据保留断言必须重新查询数据库，不能依赖未过期的 ORM identity map。
 - **页面先退场**：测试结束并记录失败证据后，seed 先关闭经 `injectToken` 绑定的准确页面，再清理它构建的命名空间，避免仍在播放的页面持续创建预取；API-only 用例不会为此启动浏览器，测试中显式调用 `cleanupOwned` 不关闭页面。关闭与清理失败都保留为测试失败。
 - **视频晚准入收尾**：清理先退休加锁时发现的全部派生物归属、提交并释放样本锁，再排空首份快照之后准入的已登记读取。读取可完成最终核验并归还许可；等待预算不增加，超时保留归属与责任，不删除活动或未知操作。
 - **清理范围栅栏**：账号、项目的最终范围锁可有界等候本夹具尚在收尾的请求，并恢复原本的锁超时；上传 owner、存储许可及未知操作仍保持即时拒绝，等待超时仍返回冲突并保留原责任。

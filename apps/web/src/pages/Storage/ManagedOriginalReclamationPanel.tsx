@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type {
-  ManagedOriginalReclamationItem,
-  ManagedOriginalReclamationPreview,
-} from "@/api/generated/types.gen";
+import type { ManagedOriginalReclamationPreview } from "@/api/generated/types.gen";
 import { storageReclamationApi } from "@/api/storageReclamation";
 import { useAuthStore } from "@/stores/authStore";
 import { useSessionRevision } from "@/hooks/useSessionGuard";
@@ -16,6 +13,8 @@ import { ManagedOriginalRetentionPanel } from "./ManagedOriginalRetentionPanel";
 import { ManagedOriginalVerificationPanel } from "./ManagedOriginalVerificationPanel";
 import { ManagedOriginalReclaimPanel } from "./ManagedOriginalReclaimPanel";
 import { ManagedOriginalReferenceAuditPanel } from "./ManagedOriginalReferenceAuditPanel";
+
+type ManagedOriginalReclamationItem = ManagedOriginalReclamationPreview["items"][number];
 
 const statusLabels = { retained: "保留中", protected: "仍有保护要求", blocked: "资格待核实" };
 const identityLabels = {
@@ -293,8 +292,12 @@ function ReclamationDetails({
           [
             ["记录 ID", item.id],
             ["历史数据集", item.dataset_id],
-            ["历史样本", item.dataset_item_id],
-            ["内容身份", item.asset_id],
+            ...(item.owner_type === "dataset_asset"
+              ? ([
+                  ["历史样本", item.dataset_item_id],
+                  ["内容身份", item.asset_id],
+                ] as const)
+              : ([["辅助原件", item.auxiliary_original_id]] as const)),
             ["关系移除时间", date(item.retired_at)],
             ["本条保留期限", item.retain_until ? date(item.retain_until) : "无限期保护"],
             [

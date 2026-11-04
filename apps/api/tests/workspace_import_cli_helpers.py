@@ -109,7 +109,18 @@ class WorkspaceImportCli:
         s3_secret_key: str,
         runtime_database_url: URL | None = None,
         identity_auth_database_url: URL | None = None,
+        fixture_run_ids: frozenset[uuid.UUID] | None = None,
     ) -> None:
+        if fixture_run_ids is not None and (
+            not fixture_run_ids
+            or any(not isinstance(value, uuid.UUID) for value in fixture_run_ids)
+            or runtime_database_url is not None
+            or identity_auth_database_url is not None
+        ):
+            raise ValueError(
+                "Fixture owner needs only its exact run IDs and owner database"
+            )
+        self.fixture_run_ids = fixture_run_ids
         self.test_engine = test_engine
         self.source_root = Path(source_root).resolve(strict=True)
         if self.source_root.is_symlink() or not self.source_root.is_dir():
@@ -157,7 +168,9 @@ class WorkspaceImportCli:
         _verify_postgres(test_engine.url)
         self.redis_owner_url = _verify_redis()
         self.database_name = database_name
-        self.database_url = self._runtime_database_url(runtime_database_url)
+        self.database_url = self._runtime_database_url(
+            test_engine.url if fixture_run_ids is not None else runtime_database_url
+        )
         self.identity_auth_database_url = ""
         if identity_auth_database_url is not None:
             auth = identity_auth_database_url
@@ -258,6 +271,14 @@ class WorkspaceImportCli:
             for argument in command
         ):
             raise ValueError("CLI command must be non-empty single-line arguments")
+        if self.fixture_run_ids is not None:
+            if (
+                command[:4] != ("python", "-m", "scripts.seed_scale", "--run-id")
+                or len(command) < 5
+                or command[4] not in {str(value) for value in self.fixture_run_ids}
+                or command[5:] not in (("4", "2", "1"), ("--purge",))
+            ):
+                raise ValueError("Fixture owner may only seed or purge its exact runs")
         run_id = uuid.uuid4().hex[:12]
         container_name = f"{self.network_name}-{run_id}"
         container_id = self._docker(
@@ -549,6 +570,7 @@ class WorkspaceImportCli:
         database = make_url(env.get("DATABASE_URL", ""))
         if (
             database.username != self.database_url.username
+            or database.password != self.database_url.password
             or database.host != "workspace-import-postgres"
             or database.port != 5432
             or database.database != self.database_name
@@ -560,7 +582,8 @@ class WorkspaceImportCli:
             or env.get("CELERY_BROKER_WRITE_URL") != self.redis_url
             or env.get("MIGRATION_DATABASE_URL")
             or env.get("ALEMBIC_AUTO_UPGRADE") != "false"
-            or env.get("E2E_SEED_ENABLED") != "false"
+            or env.get("E2E_SEED_ENABLED")
+            != ("true" if self.fixture_run_ids is not None else "false")
             or env.get("MINIO_ENDPOINT") != self.minio_authority
             or env.get("MINIO_ACCESS_KEY") != self.s3_access_key
             or env.get("MINIO_SECRET_KEY") != self.s3_secret_key
@@ -652,13 +675,19 @@ class WorkspaceImportCli:
             self._required("AAP_MODULE_DATA_LEGACY_RUNTIME_URL")
         )
         expected_role = (
-            "legacy_runtime"
+            self.test_engine.url.username
+            if self.fixture_run_ids is not None
+            else "legacy_runtime"
             if runtime_database_url is None
             else self.database_name + "_app"
         )
         if (
             value.drivername != "postgresql+asyncpg"
             or value.username != expected_role
+            or (
+                self.fixture_run_ids is not None
+                and value.password != self.test_engine.url.password
+            )
             or not value.password
             or value.query
             or value.host != self.test_engine.url.host
@@ -684,7 +713,7 @@ class WorkspaceImportCli:
             "TEST_DATABASE_URL": "",
             "PLAYWRIGHT_E2E_DATABASE_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
-            "E2E_SEED_ENABLED": "false",
+            "E2E_SEED_ENABLED": "true" if self.fixture_run_ids is not None else "false",
             "PYTHONPATH": "/app",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import builtins
 import logging
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
@@ -12,6 +13,7 @@ from pathlib import Path
 import re
 import signal
 import stat
+import sys
 import tempfile
 from typing import AsyncIterator, Sequence, get_args
 from uuid import UUID, uuid4
@@ -35,11 +37,13 @@ from yoao_assets_media.contract import (
     ObjectIdentity,
     StageTimetableRequest,
     UsageRequest,
+    WorkerOriginalReadRequest,
     WorkOutcome,
 )
 
 from .config import MediaExecutionSettings, load_config
 from .database import MediaDatabase
+from .original_read import admitted_original
 from .processing import (
     MediaProbe,
     MediaProcessingError,
@@ -48,7 +52,7 @@ from .processing import (
     process_claim,
 )
 from .process import FairWorkerPoller, create_worker_runtime
-from .storage import MediaStorage
+from .storage import MediaOriginalStorage, MediaStorage, _run_blocking
 
 _MD5_HASH = re.compile(r"^[0-9a-fA-F]{32}$")
 _SHA256_HASH = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -100,7 +104,7 @@ class VerifiedSourceCache:
 
     @asynccontextmanager
     async def lease(
-        self, source: MediaSource, storage: MediaStorage
+        self, source: MediaSource, storage: MediaOriginalStorage
     ) -> AsyncIterator[VerifiedSource]:
         async with self._lock:
             if self._closed:
@@ -138,8 +142,10 @@ class VerifiedSourceCache:
                 observed_source = source.model_copy(
                     update={"object_identity": identity}
                 )
+                downloaded = False
                 try:
                     await storage.download_source(observed_source, path)
+                    downloaded = True
                     path.chmod(stat.S_IRUSR)
                     size, digest, md5 = await _source_digests_async(
                         path,
@@ -149,15 +155,28 @@ class VerifiedSourceCache:
                         source.file_size is not None and size != source.file_size
                     ):
                         raise MediaFailure("source_changed")
-                    if not _matches_declared_content_hash(
+                    if (
+                        storage.original_sha256 is not None
+                        and digest != storage.original_sha256
+                    ) or not _matches_declared_content_hash(
                         source.content_hash, digest, md5
                     ):
                         raise MediaFailure("source_changed")
                     if await storage.head_source(source.file_path) != identity:
                         raise MediaFailure("source_changed")
                     fingerprint = _file_fingerprint(path)
-                except BaseException:
-                    path.unlink(missing_ok=True)
+                except BaseException as exc:
+                    if downloaded:
+                        try:
+                            path.unlink(missing_ok=True)
+                        except BaseException as cleanup_error:
+                            combined = builtins.BaseExceptionGroup(
+                                "Media source verification and local cleanup both failed",
+                                [exc, cleanup_error],
+                            )
+                            if getattr(exc, "storage_operation_unsettled", False):
+                                combined.storage_operation_unsettled = True
+                            raise combined from None
                     raise
                 self._key = key
                 self._path = path
@@ -177,7 +196,10 @@ class VerifiedSourceCache:
                 if current_fingerprint != self._fingerprint:
                     self._invalidate()
                     raise MediaFailure("source_changed")
-                if self._fingerprint.size != self._identity.byte_size:
+                if self._fingerprint.size != self._identity.byte_size or (
+                    storage.original_sha256 is not None
+                    and self._digest != storage.original_sha256
+                ):
                     self._invalidate()
                     raise MediaFailure("source_changed")
             assert self._path is not None
@@ -193,7 +215,7 @@ class VerifiedSourceCache:
             )
 
     async def verify_current(
-        self, verified: VerifiedSource, storage: MediaStorage
+        self, verified: VerifiedSource, storage: MediaOriginalStorage
     ) -> None:
         if await storage.head_source(verified.source.file_path) != verified.identity:
             self._invalidate()
@@ -326,6 +348,8 @@ class MediaExecutor:
         except MediaProcessingError as exc:
             return await self._fail_claim(claim, heartbeat, exc.code, exc.detail)
         except MediaFailure as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             if exc.code == "storage_unavailable":
                 raise
             if exc.code == "object_missing":
@@ -345,7 +369,19 @@ class MediaExecutor:
                 return await self._fail_claim(claim, heartbeat, exc.code, exc.code)
             raise
         finally:
-            await heartbeat.close()
+            failure = sys.exception()
+            try:
+                await heartbeat.close()
+            except BaseException as close_error:
+                if failure is not None:
+                    combined = builtins.BaseExceptionGroup(
+                        "Media work and heartbeat shutdown failed",
+                        [failure, close_error],
+                    )
+                    if getattr(failure, "storage_operation_unsettled", False):
+                        combined.storage_operation_unsettled = True
+                    raise combined from None
+                raise
 
     async def _execute_claim(
         self, claim: MediaClaim, heartbeat: _LeaseHeartbeat
@@ -359,27 +395,39 @@ class MediaExecutor:
             and expected_snapshot != source.source_snapshot
         ):
             raise MediaFailure("source_changed")
-        async with self.source_cache.lease(source, self.storage) as verified:
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_media_original_worker",
+            WorkerOriginalReadRequest(
+                job_id=claim.job_id,
+                generation=claim.generation,
+                lease_token=claim.lease_token,
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            "finish_media_original_worker",
+        ) as source_storage:
+            return await self._execute_admitted_claim(
+                claim, heartbeat, source, source_storage
+            )
+
+    async def _execute_admitted_claim(
+        self, claim, heartbeat, source, source_storage
+    ) -> WorkOutcome:
+        async with self.source_cache.lease(source, source_storage) as verified:
             heartbeat.check()
             with tempfile.TemporaryDirectory(prefix="video-output-") as output:
                 try:
-                    processing = asyncio.create_task(
-                        asyncio.to_thread(
-                            process_claim,
-                            claim,
-                            verified.path,
-                            Path(output),
-                            verified.identity,
-                            verified.sha256,
-                            probe_client=self.probe_client,
-                        )
+                    processed = await _run_blocking(
+                        process_claim,
+                        claim,
+                        verified.path,
+                        Path(output),
+                        verified.identity,
+                        verified.sha256,
+                        probe_client=self.probe_client,
                     )
-                    try:
-                        processed = await asyncio.shield(processing)
-                    except asyncio.CancelledError:
-                        with suppress(BaseException):
-                            await processing
-                        raise
                 except MediaProcessingError:
                     raise
                 except Exception as exc:
@@ -394,8 +442,10 @@ class MediaExecutor:
                     await self._stage_timetable(claim, processed, heartbeat)
                 heartbeat.check()
                 try:
-                    await self.source_cache.verify_current(verified, self.storage)
+                    await self.source_cache.verify_current(verified, source_storage)
                 except MediaFailure as exc:
+                    if getattr(exc, "storage_operation_unsettled", False):
+                        raise
                     if exc.code == "object_missing":
                         return await self._fail_claim(
                             claim,
@@ -567,15 +617,7 @@ def _file_fingerprint(path: Path) -> _FileFingerprint:
 async def _source_digests_async(
     path: Path, *, need_md5: bool
 ) -> tuple[int, str, str | None]:
-    task = asyncio.create_task(
-        asyncio.to_thread(_source_digests, path, need_md5=need_md5)
-    )
-    try:
-        return await asyncio.shield(task)
-    except asyncio.CancelledError:
-        with suppress(BaseException):
-            await task
-        raise
+    return await _run_blocking(_source_digests, path, need_md5=need_md5)
 
 
 def _source_digests(
