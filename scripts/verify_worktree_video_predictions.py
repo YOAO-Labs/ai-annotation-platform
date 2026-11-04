@@ -73,7 +73,7 @@ def _process(arguments, *, maximum):
 
 def make_video(rgb):
     """Produce a small self-contained video, never a fabricated MP4 header."""
-    with tempfile.TemporaryDirectory(prefix="aap-video-source-") as directory:
+    with tempfile.TemporaryDirectory(prefix="yoao-video-source-") as directory:
         target = Path(directory) / "source.mp4"
         color = "0x" + "".join(f"{component:02x}" for component in rgb)
         _process(
@@ -115,7 +115,7 @@ def inspect_video(raw, expected):
     """Probe and decode the complete bytes obtained through the real signed GET."""
     from app.services.exporting.video_probe import inspect
 
-    with tempfile.TemporaryDirectory(prefix="aap-video-download-") as directory:
+    with tempfile.TemporaryDirectory(prefix="yoao-video-download-") as directory:
         target = Path(directory) / "received.mp4"
         target.write_bytes(raw)
         with target.open("rb") as file:

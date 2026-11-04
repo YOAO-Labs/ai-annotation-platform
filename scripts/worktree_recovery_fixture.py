@@ -960,7 +960,7 @@ async def seed(db, external: Path):
         reference = next(
             row for row in partial.snapshot["samples"] if row.get("asset_reference")
         )
-        with tempfile.TemporaryDirectory(prefix="aap-recovery-partial-") as directory:
+        with tempfile.TemporaryDirectory(prefix="yoao-recovery-partial-") as directory:
             await worker.materialize_sample(
                 db,
                 partial,
@@ -1716,7 +1716,7 @@ async def verify_application(db, external: Path):
             len(package) <= 64 * 1024 * 1024
             and hashlib.sha256(package).hexdigest() == version.package_sha256
         )
-        with tempfile.TemporaryDirectory(prefix="aap-recovery-native-") as directory:
+        with tempfile.TemporaryDirectory(prefix="yoao-recovery-native-") as directory:
             from training_executor.files import extract_dataset
 
             archive = Path(directory) / "dataset.zip"

@@ -651,7 +651,7 @@ def main():
     command.add_argument("--report", type=Path, required=True)
     args = command.parse_args()
     try:
-        with tempfile.TemporaryDirectory(prefix="aap-copy-verification-") as directory:
+        with tempfile.TemporaryDirectory(prefix="yoao-copy-verification-") as directory:
             result = asyncio.run(qualify(verified_environment(), Path(directory)))
         atomic_json(args.report, result)
         print(json.dumps(result, sort_keys=True))

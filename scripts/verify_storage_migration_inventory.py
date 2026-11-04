@@ -392,7 +392,7 @@ def main():
         "scope": "owned local selected-source read-only inventory",
     }
     try:
-        with tempfile.TemporaryDirectory(prefix="aap-e07-live-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="yoao-e07-live-") as temporary:
             asyncio.run(qualify(backend, Path(temporary), report))
     except BaseException as exc:
         report["status"] = "failed"

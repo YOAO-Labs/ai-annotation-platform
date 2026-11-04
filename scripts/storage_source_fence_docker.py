@@ -632,7 +632,7 @@ class DockerAdapter:
         access = os.environ.get(self.credential_prefix + "_ACCESS_KEY")
         secret = os.environ.get(self.credential_prefix + "_SECRET_KEY")
         _require(bool(access) and bool(secret), "native_credentials_missing")
-        with tempfile.TemporaryDirectory(prefix="aap-source-fence-mc-") as directory:
+        with tempfile.TemporaryDirectory(prefix="yoao-source-fence-mc-") as directory:
             environment = {
                 key: value
                 for key, value in os.environ.items()

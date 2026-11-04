@@ -841,7 +841,7 @@ def main():
     }
     atomic_json(options.output, report)
     try:
-        with tempfile.TemporaryDirectory(prefix="aap-e12-c6-") as temporary:
+        with tempfile.TemporaryDirectory(prefix="yoao-e12-c6-") as temporary:
             asyncio.run(qualify(backend, options, Path(temporary), report))
         require(source == fingerprints(), "Measured source changed during execution")
         report["status"] = "passed"
