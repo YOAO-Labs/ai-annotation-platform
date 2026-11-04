@@ -46,7 +46,7 @@ Run locally from this directory with `uv sync --extra server`, then set
 `MASK_CONTENT_PORT` have defaults. The token and both S3 keys accept mutually
 exclusive `*_FILE` alternatives for container secrets; files are bounded to
 4 KiB and one final newline is removed. Start with
-`python -m aap_assets_mask_content_runtime`.
+`python -m yoao_assets_mask_content_runtime`.
 
 The S3 principals should be limited to these fixed prefixes. The content role
 needs GetObject, PutObject, and bucket-location readiness access. The cleanup

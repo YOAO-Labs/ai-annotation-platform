@@ -6,11 +6,11 @@ import uuid
 
 import pytest
 
-from aap_labeling.class_queries import (
+from yoao_labeling.class_queries import (
     LabelingClassQueryManager,
     materialize_labeling_class_query_data,
 )
-from aap_labeling.class_query_contract import (
+from yoao_labeling.class_query_contract import (
     LABELING_CLASS_QUERY_PROTOCOL,
     LabelingClassQueryInvalidRequest,
     LabelingClassQueryUnavailable,
@@ -222,7 +222,7 @@ def test_generated_protocol_schema_is_distributed_and_describes_map_constraints(
 
     schema = labeling_class_query_schema()
     packaged = json.loads(
-        files("aap_labeling").joinpath("class_query_protocol.schema.json").read_text()
+        files("yoao_labeling").joinpath("class_query_protocol.schema.json").read_text()
     )
     assert packaged == schema
     assert schema["x-data-json-schema"]["properties"]["classes"]["propertyNames"] == {

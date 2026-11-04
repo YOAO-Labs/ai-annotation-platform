@@ -55,7 +55,7 @@ class VideoWriterPostgresTransaction:
             isolation = await connection.fetchval("SHOW transaction_isolation")
             if isolation != "read committed":
                 raise VideoWriterUnavailable()
-            from aap_owner_data.postgres import (
+            from yoao_owner_data.postgres import (
                 FunctionRoleUnavailable,
                 verify_function_only_role,
             )

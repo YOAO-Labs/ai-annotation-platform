@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.task_workflow_contract import (
+from yoao_labeling.task_workflow_contract import (
     TASK_WORKFLOW_PROTOCOL,
     SubmitTask,
     TaskWorkflowUnavailable,

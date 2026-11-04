@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_labeling.video_control_contract import (
+from yoao_labeling.video_control_contract import (
     VIDEO_CONTROL_FUNCTION,
     VIDEO_SEGMENT_LIFECYCLE_FUNCTION,
     ClaimVideoSegment,
@@ -21,7 +21,7 @@ from aap_labeling.video_control_contract import (
     decode_video_control_command,
     video_control_schema,
 )
-from aap_labeling.video_control_data import VideoControlDataClient
+from yoao_labeling.video_control_data import VideoControlDataClient
 
 
 def _request():
@@ -239,7 +239,7 @@ def test_video_control_schema_snapshots_match_the_closed_contract():
     root = Path(__file__).resolve().parents[3]
     expected = video_control_schema()
     for snapshot in (
-        root / "apps/labeling/src/aap_labeling/video-control.schema.json",
+        root / "apps/labeling/src/yoao_labeling/video-control.schema.json",
         root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.schema.json",
     ):
         assert json.loads(snapshot.read_text()) == expected
@@ -251,7 +251,7 @@ def test_video_control_schema_snapshots_match_the_closed_contract():
         root / "apps/api/alembic/sql/0360_labeling_video_segment_lifecycle.sql"
     ).read_bytes() == (
         root
-        / "apps/labeling/src/aap_labeling/sql/0360_labeling_video_segment_lifecycle.sql"
+        / "apps/labeling/src/yoao_labeling/sql/0360_labeling_video_segment_lifecycle.sql"
     ).read_bytes()
 
 

@@ -3,7 +3,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.annotation_write_contract import (
+from yoao_labeling.annotation_write_contract import (
     ANNOTATION_WRITE_PROTOCOL,
     AnnotationWriteUnavailable,
     UpdateAnnotation,

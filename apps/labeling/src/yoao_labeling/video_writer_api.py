@@ -61,8 +61,8 @@ class AssetsMaskContentVerifier:
             raise VideoWriterUnavailable() from None
 
         def verify() -> None:
-            from aap_assets_mask_content.client import MaskContentClient
-            from aap_assets_mask_content.contract import (
+            from yoao_assets_mask_content.client import MaskContentClient
+            from yoao_assets_mask_content.contract import (
                 GetRequest,
                 MaskContentFailure,
             )

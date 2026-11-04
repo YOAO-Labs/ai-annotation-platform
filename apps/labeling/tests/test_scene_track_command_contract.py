@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.scene_track_command_contract import (
+from yoao_labeling.scene_track_command_contract import (
     SCENE_TRACK_COMMAND_PROTOCOL,
     SceneTrackCommandFailure,
     SceneTrackCommandUnavailable,
@@ -173,7 +173,8 @@ def test_command_reply_preserves_native_failure_and_schema_is_frozen():
     assert (
         json.loads(
             (
-                root / "apps/labeling/src/aap_labeling/scene-track-commands.schema.json"
+                root
+                / "apps/labeling/src/yoao_labeling/scene-track-commands.schema.json"
             ).read_text(encoding="utf-8")
         )
         == schema
@@ -189,7 +190,7 @@ def test_command_reply_preserves_native_failure_and_schema_is_frozen():
     )
     packaged_sql = (
         root
-        / "apps/labeling/src/aap_labeling/sql/0343_labeling_scene_track_commands.sql"
+        / "apps/labeling/src/yoao_labeling/sql/0343_labeling_scene_track_commands.sql"
     ).read_text(encoding="utf-8")
     migration_sql = (
         root / "apps/api/alembic/sql/0343_labeling_scene_track_commands.sql"

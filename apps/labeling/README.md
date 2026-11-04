@@ -329,7 +329,7 @@ an already cancelled candidate payload. The owner continues to enforce current
 tracker actor, source, Task and segment checks; the task-creation accepted-rights
 rule does not grant a tracker worker new authority.
 
-The optional process entry point is `aap-labeling-video-writer`; it serves
+The optional process entry point is `yoao-labeling-video-writer`; it serves
 `POST /v1/labeling/video-writer/execute` and
 `POST /v1/labeling/video-writer/status` on port 8180 by default. It requires
 `LABELING_VIDEO_WRITER_DATABASE_URL(_FILE)` and

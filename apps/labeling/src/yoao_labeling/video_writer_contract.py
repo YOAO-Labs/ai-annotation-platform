@@ -24,21 +24,21 @@ from pydantic import (
     model_validator,
 )
 
-from aap_assets_mask_content.contract import MASK_PREFIX, MaskReference
-from aap_assets_video_inputs.tracker import (
+from yoao_assets_mask_content.contract import MASK_PREFIX, MaskReference
+from yoao_assets_video_inputs.tracker import (
     TrackerExecutionSpec,
     TrackerVideoInputEvidence,
 )
-from aap_preannotation_results.contract import CanonicalUUID, Digest, UtcDateTime
-from aap_preannotation_results.video_execution import ExecutionProof
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.contract import CanonicalUUID, Digest, UtcDateTime
+from yoao_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution_plan import (
     MAX_VIDEO_RESULT_ROWS,
     VideoExecutionContractFailure,
     VideoExecutionPlan,
     VideoFrameResultRow,
     normalize_video_frame_results,
 )
-from aap_preannotation_results.video_window_checkpoint import (
+from yoao_preannotation_results.video_window_checkpoint import (
     VideoWindowCheckpointManifest,
     decode_video_window_checkpoint_manifest,
     decode_video_window_checkpoint_payload,

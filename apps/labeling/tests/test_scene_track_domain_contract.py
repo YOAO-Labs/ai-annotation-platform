@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.scene_track_domain_contract import (
+from yoao_labeling.scene_track_domain_contract import (
     SCENE_TRACK_DOMAIN_PROTOCOL,
     SceneTrackDomainFailure,
     SceneTrackDomainUnavailable,

@@ -44,7 +44,6 @@ class LockAiMaskDecision(_Command):
     idempotency_key: StrictStr
 
 
-
 class RecordAiMaskDecision(_Command):
     operation: Literal["record_decision"]
     task_id: uuid.UUID

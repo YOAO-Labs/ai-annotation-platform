@@ -6,14 +6,14 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from aap_labeling.ai_mask_accept_contract import (
+from yoao_labeling.ai_mask_accept_contract import (
     AI_MASK_ACCEPT_PROTOCOL,
     RefineAiMaskAnnotation,
     ai_mask_accept_command_json,
     decode_ai_mask_accept_command,
     AiMaskAcceptUnavailable,
 )
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     ApplyPolygonSlice,
     ClaimRasterMaskUploads,
@@ -36,7 +36,7 @@ from aap_labeling.mask_edit_contract import (
     decode_mask_edit_reply,
     mask_edit_command_json,
 )
-from aap_labeling.mask_revision_contract import (
+from yoao_labeling.mask_revision_contract import (
     MASK_REVISION_PROTOCOL,
     MaskRevisionReference,
     ResolveMaskRevisions,

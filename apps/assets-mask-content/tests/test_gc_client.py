@@ -7,9 +7,9 @@ from uuid import UUID
 import httpx
 import pytest
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.gc_client import MaskGcClient
-from aap_assets_mask_content.gc_contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.gc_client import MaskGcClient
+from yoao_assets_mask_content.gc_contract import (
     GC_SCHEMA,
     DeleteOperationRequest,
     DeleteOperationStatus,

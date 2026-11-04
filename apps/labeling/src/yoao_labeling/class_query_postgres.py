@@ -68,7 +68,7 @@ class LabelingClassQueryPostgresData:
 
     async def _verify_policy(self, connection):
         import asyncpg
-        from aap_owner_data.postgres import (
+        from yoao_owner_data.postgres import (
             FunctionRoleUnavailable,
             verify_function_only_role,
         )

@@ -3,13 +3,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from aap_assets_mask_content.contract import contract_document, openapi_document
-from aap_assets_mask_content.gc_contract import (
+from yoao_assets_mask_content.contract import contract_document, openapi_document
+from yoao_assets_mask_content.gc_contract import (
     contract_document as gc_contract_document,
     openapi_document as gc_openapi_document,
 )
 
-PACKAGE = Path(__file__).resolve().parents[1] / "src" / "aap_assets_mask_content"
+PACKAGE = Path(__file__).resolve().parents[1] / "src" / "yoao_assets_mask_content"
 
 
 def test_installed_protocol_schema_matches_frozen_contract():

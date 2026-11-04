@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from aap_labeling.quality_data_contract import (
+from yoao_labeling.quality_data_contract import (
     QUALITY_DATA_PROTOCOL,
     QualityDataUnavailable,
     ReadMaskQCRun,
@@ -18,7 +18,7 @@ from aap_labeling.quality_data_contract import (
     decode_quality_data_command,
     quality_data_command_json,
 )
-from aap_labeling.quality_data_data import QualityDataClient
+from yoao_labeling.quality_data_data import QualityDataClient
 
 
 def test_quality_command_is_closed_and_round_trips() -> None:
@@ -149,7 +149,7 @@ async def test_client_routes_retention_and_qc_to_their_closed_functions() -> Non
         }
 
     client = QualityDataClient(execute)
-    from aap_labeling.quality_data_contract import ReadRasterMaskReferences
+    from yoao_labeling.quality_data_contract import ReadRasterMaskReferences
 
     command = ReadRasterMaskReferences(
         schema=QUALITY_DATA_PROTOCOL,

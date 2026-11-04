@@ -4,14 +4,14 @@ import uuid
 import httpx
 import pytest
 
-from aap_labeling.api import create_app
-from aap_labeling.class_queries import materialize_labeling_class_query_data
-from aap_labeling.class_query_contract import (
+from yoao_labeling.api import create_app
+from yoao_labeling.class_queries import materialize_labeling_class_query_data
+from yoao_labeling.class_query_contract import (
     LabelingClassQueryUnavailable,
     decode_labeling_class_query_reply,
     labeling_class_query_request,
 )
-from aap_labeling.config import RuntimeSettings, secret_source
+from yoao_labeling.config import RuntimeSettings, secret_source
 
 
 class Data:

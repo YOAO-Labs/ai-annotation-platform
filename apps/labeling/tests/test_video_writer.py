@@ -8,9 +8,9 @@ from uuid import UUID
 
 import pytest
 
-import aap_labeling.video_writer as writer
+import yoao_labeling.video_writer as writer
 
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer_contract import (
     LABELING_VIDEO_WRITER_DATA_SCHEMA,
     VideoWriterCommand,
     VideoWriterFacts,
@@ -24,7 +24,7 @@ from aap_labeling.video_writer_contract import (
     video_writer_command_digest,
     video_writer_operation_id,
 )
-from aap_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution import ExecutionProof
 
 
 _JOB_ID = UUID("00000000-0000-0000-0000-0000000003e9")

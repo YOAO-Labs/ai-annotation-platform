@@ -2,12 +2,12 @@ from uuid import uuid4
 
 import pytest
 
-from aap_labeling.task_locks_contract import (
+from yoao_labeling.task_locks_contract import (
     TaskLocksUnavailable,
     decode_task_locks_reply,
     task_locks_command,
 )
-from aap_labeling.task_locks_data import TaskLocksData
+from yoao_labeling.task_locks_data import TaskLocksData
 
 
 @pytest.mark.asyncio

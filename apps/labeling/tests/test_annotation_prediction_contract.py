@@ -4,7 +4,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.annotation_prediction_contract import (
+from yoao_labeling.annotation_prediction_contract import (
     ANNOTATION_PREDICTION_PROTOCOL,
     AnnotationPredictionUnavailable,
     ApplySecondaryAttributes,
@@ -12,7 +12,7 @@ from aap_labeling.annotation_prediction_contract import (
     MarkSecondaryChild,
     decode_annotation_prediction_command,
 )
-from aap_labeling.annotation_prediction_data import AnnotationPredictionDataClient
+from yoao_labeling.annotation_prediction_data import AnnotationPredictionDataClient
 
 
 def _context():

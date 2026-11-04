@@ -6,8 +6,8 @@ from io import BytesIO
 from botocore.exceptions import ClientError
 import pytest
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.contract import (
     DeleteRequest,
     GetRequest,
     ListRequest,
@@ -15,7 +15,7 @@ from aap_assets_mask_content.contract import (
     PutRequest,
     RleContent,
 )
-from aap_assets_mask_content.storage import S3MaskContentStore
+from yoao_assets_mask_content.storage import S3MaskContentStore
 
 
 class FakeS3:

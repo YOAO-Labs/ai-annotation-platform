@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aap-assets-mask-content"
+name = "yoao-assets-mask-content"
 version = "0.1.0"
 description = "Portable content-addressed COCO RLE Mask object contract and runtime"
 requires-python = ">=3.11"
@@ -23,10 +23,10 @@ test = [
 ]
 
 [project.scripts]
-aap-assets-mask-content = "aap_assets_mask_content_runtime.__main__:main"
+yoao-assets-mask-content = "yoao_assets_mask_content_runtime.__main__:main"
 
 [tool.setuptools.package-data]
-aap_assets_mask_content = [
+yoao_assets_mask_content = [
     "protocol.schema.json",
     "openapi.snapshot.json",
     "gc.protocol.schema.json",

@@ -9,8 +9,8 @@ import subprocess
 
 import pytest
 
-from aap_assets_mask_content.client import MaskContentClient
-from aap_assets_mask_content.contract import (
+from yoao_assets_mask_content.client import MaskContentClient
+from yoao_assets_mask_content.contract import (
     DeleteRequest,
     GetRequest,
     ListRequest,

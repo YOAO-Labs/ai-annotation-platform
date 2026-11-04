@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer_contract import (
     LABELING_VIDEO_WRITER_DATA_SCHEMA,
     MAX_VIDEO_WRITER_REQUEST_BYTES,
     MAX_VIDEO_WRITER_STAGED_BYTES,
     VIDEO_WRITER_FUNCTION,
     VideoWriterUnavailable,
 )
-from aap_labeling.video_writer_postgres import VideoWriterPostgresProvider
+from yoao_labeling.video_writer_postgres import VideoWriterPostgresProvider
 
 
 class FakeConnection:
@@ -64,14 +64,14 @@ class FakeConnection:
 
 
 def allow_function_only_role(monkeypatch):
-    import aap_owner_data.postgres
+    import yoao_owner_data.postgres
 
     seen = []
 
     async def verify(connection, *, schema, functions, role):
         seen.append((connection, schema, functions, role))
 
-    monkeypatch.setattr(aap_owner_data.postgres, "verify_function_only_role", verify)
+    monkeypatch.setattr(yoao_owner_data.postgres, "verify_function_only_role", verify)
     return seen
 
 
@@ -164,7 +164,7 @@ async def test_borrowed_adapter_cannot_be_reused_after_its_context_ends(monkeypa
 async def test_bind_rejects_non_read_committed_and_function_profile_mismatch(
     monkeypatch,
 ):
-    import aap_owner_data.postgres
+    import yoao_owner_data.postgres
 
     connection = FakeConnection()
     connection.active = True
@@ -183,9 +183,9 @@ async def test_bind_rejects_non_read_committed_and_function_profile_mismatch(
             pass
 
     async def denied(*args, **kwargs):
-        raise aap_owner_data.postgres.FunctionRoleUnavailable()
+        raise yoao_owner_data.postgres.FunctionRoleUnavailable()
 
-    monkeypatch.setattr(aap_owner_data.postgres, "verify_function_only_role", denied)
+    monkeypatch.setattr(yoao_owner_data.postgres, "verify_function_only_role", denied)
     connection.fetchval = original_fetchval
     with pytest.raises(VideoWriterUnavailable):
         async with data.transaction():

@@ -9,8 +9,8 @@ from typing import Protocol
 from fastapi import FastAPI, Request
 from fastapi.responses import Response
 
-from aap_assets_mask_content import contract as c
-from aap_assets_mask_content import gc_contract as gc
+from yoao_assets_mask_content import contract as c
+from yoao_assets_mask_content import gc_contract as gc
 
 
 class MaskContentStore(Protocol):

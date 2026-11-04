@@ -3,7 +3,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_labeling.annotation_maintenance_contract import (
+from yoao_labeling.annotation_maintenance_contract import (
     ANNOTATION_MAINTENANCE_PROTOCOL,
     AnnotationMaintenanceUnavailable,
     CleanupSchema,

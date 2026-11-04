@@ -6,8 +6,8 @@ from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, AsyncContextManager, Protocol
 from uuid import UUID
 
-from aap_preannotation_results.video_execution import ExecutionProof
-from aap_preannotation_results.video_execution_plan import (
+from yoao_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution_plan import (
     VideoExecutionPlan,
     VideoExecutionWindow,
     VideoFrameResultRow,

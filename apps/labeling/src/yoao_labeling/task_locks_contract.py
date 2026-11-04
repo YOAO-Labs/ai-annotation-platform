@@ -18,7 +18,7 @@ from pydantic import (
     field_validator,
 )
 
-from aap_preannotation_results.contract import CanonicalUUID, UtcDateTime
+from yoao_preannotation_results.contract import CanonicalUUID, UtcDateTime
 
 TASK_LOCKS_PROTOCOL = "aap-labeling-task-locks/v1"
 TASK_LOCKS_DATA_SCHEMA = "aap-labeling-task-locks-data/v1"

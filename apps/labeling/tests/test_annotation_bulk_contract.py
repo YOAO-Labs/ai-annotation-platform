@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from aap_labeling.annotation_bulk_contract import (
+from yoao_labeling.annotation_bulk_contract import (
     ANNOTATION_BULK_PROTOCOL,
     AnnotationBulkPatch,
     AnnotationBulkUnavailable,

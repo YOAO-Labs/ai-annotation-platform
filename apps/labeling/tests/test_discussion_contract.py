@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from aap_labeling.discussion_contract import (
+from yoao_labeling.discussion_contract import (
     DISCUSSION_PROTOCOL,
     TASK_EVENT_PROTOCOL,
     AnnotationCommentRow,
@@ -21,8 +21,8 @@ from aap_labeling.discussion_contract import (
     decode_discussion_reply,
     discussion_command_json,
 )
-from aap_labeling.discussion_data import LabelingDiscussionDataClient
-from aap_labeling.discussion_data import LabelingTaskEventDataClient
+from yoao_labeling.discussion_data import LabelingDiscussionDataClient
+from yoao_labeling.discussion_data import LabelingTaskEventDataClient
 
 
 @pytest.mark.asyncio

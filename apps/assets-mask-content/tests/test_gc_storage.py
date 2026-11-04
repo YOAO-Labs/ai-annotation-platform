@@ -9,15 +9,15 @@ from uuid import UUID
 from botocore.exceptions import ClientError, EndpointConnectionError
 import pytest
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.gc_contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.gc_contract import (
     DeleteOperationRequest,
     DeleteStatusRequest,
     GcScanRequest,
     MaskGcFailure,
     json_bytes,
 )
-from aap_assets_mask_content.gc_storage import S3MaskGcStore
+from yoao_assets_mask_content.gc_storage import S3MaskGcStore
 
 _NOW = datetime(2026, 10, 19, 12, 30, tzinfo=timezone.utc)
 _OPERATION_ID = UUID("2d639c8a-0fd8-4dcb-9f90-26cb8a752f3a")

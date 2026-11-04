@@ -10,7 +10,7 @@ from uuid import uuid4
 
 import pytest
 
-from aap_labeling.cross_frame_write_contract import (
+from yoao_labeling.cross_frame_write_contract import (
     CROSS_FRAME_WRITE_PROTOCOL,
     CrossFrameAnnotationSnapshot,
     CrossFrameSourceSnapshot,
@@ -23,8 +23,8 @@ from aap_labeling.cross_frame_write_contract import (
     cross_frame_write_schema,
     decode_cross_frame_write_command,
 )
-from aap_labeling.cross_frame_write_policy import interpolate_psr
-from aap_labeling.cross_frame_write_data import CrossFrameWriteDataClient
+from yoao_labeling.cross_frame_write_policy import interpolate_psr
+from yoao_labeling.cross_frame_write_data import CrossFrameWriteDataClient
 
 
 def _command():
@@ -84,13 +84,15 @@ def test_contract_round_trips_closed_command_and_schema():
     assert cross_frame_write_schema()["$id"] == CROSS_FRAME_WRITE_PROTOCOL
     assert (
         json.loads(
-            files("aap_labeling").joinpath("cross-frame-writes.schema.json").read_text()
+            files("yoao_labeling")
+            .joinpath("cross-frame-writes.schema.json")
+            .read_text()
         )
         == cross_frame_write_schema()
     )
     repository = Path(__file__).resolve().parents[3]
     assert (
-        files("aap_labeling")
+        files("yoao_labeling")
         .joinpath("sql/0344_labeling_cross_frame_writes.sql")
         .read_text()
         == (
@@ -98,7 +100,7 @@ def test_contract_round_trips_closed_command_and_schema():
         ).read_text()
     )
     assert (
-        files("aap_labeling").joinpath("cross-frame-writes.schema.json").read_text()
+        files("yoao_labeling").joinpath("cross-frame-writes.schema.json").read_text()
         == (
             repository
             / "apps/api/alembic/sql/0344_labeling_cross_frame_writes.schema.json"

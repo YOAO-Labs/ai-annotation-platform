@@ -6,8 +6,8 @@ import uuid
 
 import pytest
 
-from aap_labeling.video_writer_client import VideoWriterHttpClient
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer_client import VideoWriterHttpClient
+from yoao_labeling.video_writer_contract import (
     LABELING_VIDEO_WRITER_PROTOCOL,
     VideoWriterExecuteReply,
     VideoWriterReceipt,
@@ -20,7 +20,7 @@ from aap_labeling.video_writer_contract import (
     video_writer_operation_id,
     video_writer_status_request_bytes,
 )
-from aap_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution import ExecutionProof
 
 
 def command():

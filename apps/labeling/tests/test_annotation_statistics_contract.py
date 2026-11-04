@@ -2,7 +2,7 @@
 
 import pytest
 
-from aap_labeling.annotation_statistics_contract import (
+from yoao_labeling.annotation_statistics_contract import (
     annotation_status_after_recompute,
 )
 

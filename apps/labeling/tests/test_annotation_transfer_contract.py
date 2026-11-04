@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from aap_labeling.annotation_transfer_contract import (
+from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     AnnotationTransferCommand,
     AnnotationTransferUnavailable,
@@ -85,7 +85,7 @@ def test_transfer_command_is_closed_and_frozen_schema_matches_both_artifacts():
     root = Path(__file__).resolve().parents[3]
     package_schema = json.loads(
         (
-            root / "apps/labeling/src/aap_labeling/annotation-transfer.schema.json"
+            root / "apps/labeling/src/yoao_labeling/annotation-transfer.schema.json"
         ).read_text()
     )
     api_schema = json.loads(

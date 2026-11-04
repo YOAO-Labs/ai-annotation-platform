@@ -9,12 +9,12 @@ from uuid import UUID
 
 import pytest
 
-import aap_labeling.video_writer_contract as contract
-from aap_assets_video_inputs.tracker import (
+import yoao_labeling.video_writer_contract as contract
+from yoao_assets_video_inputs.tracker import (
     TrackerExecutionSpec,
     TrackerVideoInputEvidence,
 )
-from aap_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution import ExecutionProof
 
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "video-writer-legacy.json"
@@ -181,7 +181,7 @@ def test_nested_mask_references_are_validated_and_deduplicated_by_value():
 def test_checked_in_json_schema_matches_the_contract():
     from importlib.resources import files
 
-    schema_path = files("aap_labeling").joinpath("video-writer.schema.json")
+    schema_path = files("yoao_labeling").joinpath("video-writer.schema.json")
     assert (
         json.loads(schema_path.read_text(encoding="utf-8"))
         == contract.video_writer_schema()

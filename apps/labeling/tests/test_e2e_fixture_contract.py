@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_labeling.e2e_fixture_contract import (
+from yoao_labeling.e2e_fixture_contract import (
     LABELING_E2E_FILTERING_RENDER_FUNCTION,
     LABELING_E2E_FIXTURE_FUNCTION,
     LABELING_E2E_FIXTURE_PROTOCOL,
@@ -26,7 +26,7 @@ def test_fixture_schema_matches_the_current_contract_and_migration():
     migration = (
         root / "apps/api/alembic/sql/0367_labeling_filtering_rendering.schema.json"
     )
-    resource = files("aap_labeling")
+    resource = files("yoao_labeling")
     packaged_schema = json.loads(
         resource.joinpath("e2e-fixtures.schema.json").read_text(encoding="utf-8")
     )

@@ -6,8 +6,8 @@ from threading import Event
 from fastapi.testclient import TestClient
 import httpx
 
-from aap_assets_mask_content.gc_contract import GC_SCHEMA, GcScanPage
-from aap_assets_mask_content_runtime.api import create_app
+from yoao_assets_mask_content.gc_contract import GC_SCHEMA, GcScanPage
+from yoao_assets_mask_content_runtime.api import create_app
 
 _TOKEN = "cleanup-token-with-more-than-32-characters"
 _OPERATION_ID = "2d639c8a-0fd8-4dcb-9f90-26cb8a752f3a"
@@ -111,7 +111,7 @@ def test_gc_routes_reject_bad_auth_and_oversized_bodies_before_store():
     assert unauthorized.status_code == 401
     assert unauthorized.json()["error"]["code"] == "permission_denied"
 
-    from aap_assets_mask_content.gc_contract import MAX_GC_REQUEST_BYTES
+    from yoao_assets_mask_content.gc_contract import MAX_GC_REQUEST_BYTES
 
     oversized = client.post(
         "/v1/mask-gc/scan",

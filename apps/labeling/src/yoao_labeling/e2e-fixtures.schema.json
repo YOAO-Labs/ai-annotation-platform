@@ -259,13 +259,7 @@
           "title": "Updated At"
         }
       },
-      "required": [
-        "id",
-        "task_id",
-        "project_id",
-        "class_name",
-        "geometry"
-      ],
+      "required": ["id", "task_id", "project_id", "class_name", "geometry"],
       "title": "AnnotationFixtureRow",
       "type": "object"
     },
@@ -297,12 +291,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "rows"],
       "title": "InsertFixtureAnnotations",
       "type": "object"
     },
@@ -334,12 +323,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "rows"],
       "title": "InsertFixtureBatches",
       "type": "object"
     },
@@ -376,13 +360,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "task_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "task_id", "rows"],
       "title": "InsertFixtureTaskDatasetItemLinks",
       "type": "object"
     },
@@ -414,12 +392,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "rows"],
       "title": "InsertFixtureTasks",
       "type": "object"
     },
@@ -451,12 +424,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "rows"],
       "title": "InsertFixtureVideoTrackerJobs",
       "type": "object"
     },
@@ -488,12 +456,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "rows"],
       "title": "PatchFixtureBatches",
       "type": "object"
     },
@@ -570,12 +533,7 @@
           "type": "array"
         }
       },
-      "required": [
-        "schema",
-        "operation",
-        "project_id",
-        "rows"
-      ],
+      "required": ["schema", "operation", "project_id", "rows"],
       "title": "PatchFixtureTasks",
       "type": "object"
     },
@@ -652,10 +610,7 @@
           "title": "Total Tasks"
         }
       },
-      "required": [
-        "id",
-        "project_id"
-      ],
+      "required": ["id", "project_id"],
       "title": "TaskBatchFixturePatch",
       "type": "object"
     },
@@ -687,10 +642,7 @@
         "status": {
           "anyOf": [
             {
-              "enum": [
-                "draft",
-                "annotating"
-              ],
+              "enum": ["draft", "annotating"],
               "type": "string"
             },
             {
@@ -770,12 +722,7 @@
           "title": "Reviewer Id"
         }
       },
-      "required": [
-        "id",
-        "project_id",
-        "display_id",
-        "name"
-      ],
+      "required": ["id", "project_id", "display_id", "name"],
       "title": "TaskBatchFixtureRow",
       "type": "object"
     },
@@ -818,12 +765,7 @@
           "title": "Sensor Name"
         }
       },
-      "required": [
-        "id",
-        "task_id",
-        "dataset_item_id",
-        "role"
-      ],
+      "required": ["id", "task_id", "dataset_item_id", "role"],
       "title": "TaskDatasetItemLinkFixtureRow",
       "type": "object"
     },
@@ -897,11 +839,7 @@
         "file_type": {
           "anyOf": [
             {
-              "enum": [
-                "image",
-                "video",
-                "point_cloud"
-              ],
+              "enum": ["image", "video", "point_cloud"],
               "type": "string"
             },
             {
@@ -914,14 +852,7 @@
         "status": {
           "anyOf": [
             {
-              "enum": [
-                "pending",
-                "annotating",
-                "submitted",
-                "review",
-                "completed",
-                "rejected"
-              ],
+              "enum": ["pending", "annotating", "submitted", "review", "completed", "rejected"],
               "type": "string"
             },
             {
@@ -1171,10 +1102,7 @@
           "title": "Skipped At"
         }
       },
-      "required": [
-        "id",
-        "project_id"
-      ],
+      "required": ["id", "project_id"],
       "title": "TaskFixturePatch",
       "type": "object"
     },
@@ -1238,11 +1166,7 @@
         "file_type": {
           "anyOf": [
             {
-              "enum": [
-                "image",
-                "video",
-                "point_cloud"
-              ],
+              "enum": ["image", "video", "point_cloud"],
               "type": "string"
             },
             {
@@ -1255,14 +1179,7 @@
         "status": {
           "anyOf": [
             {
-              "enum": [
-                "pending",
-                "annotating",
-                "submitted",
-                "review",
-                "completed",
-                "rejected"
-              ],
+              "enum": ["pending", "annotating", "submitted", "review", "completed", "rejected"],
               "type": "string"
             },
             {
@@ -1512,13 +1429,7 @@
           "title": "Skipped At"
         }
       },
-      "required": [
-        "id",
-        "project_id",
-        "display_id",
-        "file_name",
-        "file_path"
-      ],
+      "required": ["id", "project_id", "display_id", "file_name", "file_path"],
       "title": "TaskFixtureRow",
       "type": "object"
     },
@@ -1612,11 +1523,7 @@
           "type": "string"
         },
         "direction": {
-          "enum": [
-            "forward",
-            "backward",
-            "bidirectional"
-          ],
+          "enum": ["forward", "backward", "bidirectional"],
           "title": "Direction",
           "type": "string"
         },

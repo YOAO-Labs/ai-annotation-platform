@@ -3,9 +3,9 @@ from __future__ import annotations
 import httpx
 import pytest
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.client import MaskContentClient
-from aap_assets_mask_content.contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.client import MaskContentClient
+from yoao_assets_mask_content.contract import (
     CONTENT_SCHEMA,
     DeleteRequest,
     GetRequest,
@@ -96,7 +96,7 @@ def test_client_preserves_closed_error_codes_and_bounds_response_bytes():
 
 def test_delete_requires_same_key_in_the_result():
     reference = codec.build_rle_reference(_rle())
-    from aap_assets_mask_content.contract import DeleteResult
+    from yoao_assets_mask_content.contract import DeleteResult
 
     def handler(_request):
         return httpx.Response(

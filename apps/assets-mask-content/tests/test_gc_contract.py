@@ -6,8 +6,8 @@ from uuid import UUID
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.gc_contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.gc_contract import (
     DeleteOperationRequest,
     DeleteOperationStatus,
     GcCandidate,

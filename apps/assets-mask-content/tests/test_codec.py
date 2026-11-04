@@ -6,8 +6,8 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.contract import MaskReference, RleContent
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.contract import MaskReference, RleContent
 
 
 def test_canonical_bytes_and_legacy_identity_reference_match_api_format():

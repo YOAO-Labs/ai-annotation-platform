@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_labeling.scene_read_contract import (
+from yoao_labeling.scene_read_contract import (
     SceneReadUnavailable,
     decode_scene_read_reply,
     scene_read_request,

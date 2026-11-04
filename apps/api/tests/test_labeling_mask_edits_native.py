@@ -712,7 +712,7 @@ async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
 
 
 async def test_acceptance_history_runs_under_existing_function_only_role(test_engine):
-    from aap_labeling.mask_edit_contract import AcceptanceHistory
+    from yoao_labeling.mask_edit_contract import AcceptanceHistory
 
     maker, world = await _seed(test_engine)
     task_id = None

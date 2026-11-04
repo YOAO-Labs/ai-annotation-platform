@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from aap_labeling.mask_edit_contract import (
+from yoao_labeling.mask_edit_contract import (
     MASK_EDIT_PROTOCOL,
     AcceptanceHistory,
     FindOperation,

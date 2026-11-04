@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from aap_labeling.task_maintenance_contract import (
+from yoao_labeling.task_maintenance_contract import (
     TASK_MAINTENANCE_PROTOCOL,
     BatchCounterPatch,
     LockSourceLessTasks,
@@ -36,7 +36,7 @@ def test_task_maintenance_schema_matches_packaged_and_frozen_artifacts():
     ]
     assert (
         json.loads(
-            files("aap_labeling")
+            files("yoao_labeling")
             .joinpath("task-maintenance.schema.json")
             .read_text(encoding="utf-8")
         )
@@ -51,7 +51,7 @@ def test_task_maintenance_schema_matches_packaged_and_frozen_artifacts():
         ).read_text(encoding="utf-8")
     )
     assert frozen_schema == schema
-    assert files("aap_labeling").joinpath(
+    assert files("yoao_labeling").joinpath(
         "sql/0355_labeling_task_maintenance.sql"
     ).read_text(encoding="utf-8") == (
         repository / "apps/api/alembic/sql/0355_labeling_task_maintenance.sql"

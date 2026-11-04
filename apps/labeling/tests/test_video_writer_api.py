@@ -6,13 +6,13 @@ import uuid
 import httpx
 import pytest
 
-from aap_assets_mask_content.codec import build_rle_reference
-from aap_labeling.video_writer_api import (
+from yoao_assets_mask_content.codec import build_rle_reference
+from yoao_labeling.video_writer_api import (
     AssetsMaskContentVerifier,
     create_video_writer_app,
 )
-from aap_labeling.video_writer_config import VideoWriterSettings
-from aap_labeling.video_writer_contract import (
+from yoao_labeling.video_writer_config import VideoWriterSettings
+from yoao_labeling.video_writer_contract import (
     LABELING_VIDEO_WRITER_PROTOCOL,
     MAX_VIDEO_WRITER_REQUEST_BYTES,
     VIDEO_WRITER_FUNCTION,
@@ -24,7 +24,7 @@ from aap_labeling.video_writer_contract import (
     video_writer_command_digest,
     video_writer_operation_id,
 )
-from aap_preannotation_results.video_execution import ExecutionProof
+from yoao_preannotation_results.video_execution import ExecutionProof
 
 
 def command():
@@ -120,7 +120,7 @@ async def test_private_api_requires_auth_and_bounds_wire_before_manager_call(
         }
 
         monkeypatch.setattr(
-            "aap_labeling.video_writer_api.MAX_VIDEO_WRITER_REQUEST_BYTES", 16
+            "yoao_labeling.video_writer_api.MAX_VIDEO_WRITER_REQUEST_BYTES", 16
         )
         too_large = await http.post(
             "/v1/labeling/video-writer/execute",
@@ -221,8 +221,8 @@ async def test_mask_configuration_is_lazy_and_mask_references_fail_closed():
 async def test_mask_owner_failures_are_classified_without_provider_details(
     monkeypatch, failure_code, failure_type
 ):
-    from aap_assets_mask_content.contract import MaskContentFailure
-    import aap_assets_mask_content.client
+    from yoao_assets_mask_content.contract import MaskContentFailure
+    import yoao_assets_mask_content.client
 
     class Client:
         def __init__(self, origin, token, *, timeout_seconds):
@@ -238,7 +238,7 @@ async def test_mask_owner_failures_are_classified_without_provider_details(
         def get(self, request):
             raise MaskContentFailure(failure_code)
 
-    monkeypatch.setattr(aap_assets_mask_content.client, "MaskContentClient", Client)
+    monkeypatch.setattr(yoao_assets_mask_content.client, "MaskContentClient", Client)
     settings = VideoWriterSettings(
         control_token="v" * 40,
         assets_mask_content_url="http://assets-mask-owner",

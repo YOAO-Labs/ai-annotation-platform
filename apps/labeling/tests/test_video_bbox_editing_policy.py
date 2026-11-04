@@ -1,6 +1,6 @@
 import uuid
 
-from aap_labeling.video_bbox_editing_policy import (
+from yoao_labeling.video_bbox_editing_policy import (
     VideoBBoxAnnotationFacts,
     VideoBBoxTaskFacts,
     compose_video_tracks_command,

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from aap_labeling.prediction_record_contract import (
+from yoao_labeling.prediction_record_contract import (
     PREDICTION_RECORDS_FUNCTION,
     PREDICTION_RECORDS_PROTOCOL,
     InsertPredictionResult,

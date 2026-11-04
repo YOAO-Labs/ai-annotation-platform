@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aap_assets_mask_content_runtime.config import load_config
+from yoao_assets_mask_content_runtime.config import load_config
 
 
 def _environment(**overrides):

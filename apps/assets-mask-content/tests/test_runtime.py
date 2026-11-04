@@ -7,8 +7,8 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from aap_assets_mask_content import codec
-from aap_assets_mask_content.contract import (
+from yoao_assets_mask_content import codec
+from yoao_assets_mask_content.contract import (
     CONTENT_SCHEMA,
     CandidatePage,
     DeleteRequest,
@@ -20,7 +20,7 @@ from aap_assets_mask_content.contract import (
     PutResult,
     RleContent,
 )
-from aap_assets_mask_content_runtime.api import create_app
+from yoao_assets_mask_content_runtime.api import create_app
 
 
 class FakeStore:
@@ -134,7 +134,7 @@ def test_bad_payload_and_storage_failure_are_closed_envelopes():
 
 
 def test_runtime_enforces_request_budget_before_json_parse():
-    from aap_assets_mask_content.contract import MAX_REQUEST_BYTES
+    from yoao_assets_mask_content.contract import MAX_REQUEST_BYTES
 
     store = FakeStore()
     client = TestClient(create_app(store, "t" * 40, "content"))

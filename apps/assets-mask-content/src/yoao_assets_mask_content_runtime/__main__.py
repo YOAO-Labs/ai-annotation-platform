@@ -10,8 +10,8 @@ def main() -> None:
     from botocore.config import Config
     import uvicorn
 
-    from aap_assets_mask_content.gc_storage import S3MaskGcStore
-    from aap_assets_mask_content.storage import S3MaskContentStore
+    from yoao_assets_mask_content.gc_storage import S3MaskGcStore
+    from yoao_assets_mask_content.storage import S3MaskContentStore
 
     config = load_config()
 

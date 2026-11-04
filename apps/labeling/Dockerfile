@@ -20,12 +20,12 @@ USER 10006:10006
 EXPOSE 8178
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8178/ready', timeout=2)"
-CMD ["python", "-m", "aap_labeling"]
+CMD ["python", "-m", "yoao_labeling"]
 
 FROM runtime AS video-writer
 EXPOSE 8180
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
   CMD python -c "import os,urllib.request; urllib.request.urlopen('http://127.0.0.1:'+os.environ.get('LABELING_VIDEO_WRITER_PORT','8180')+'/ready', timeout=2)"
-CMD ["aap-labeling-video-writer"]
+CMD ["yoao-labeling-video-writer"]
 
 FROM runtime AS class-query
