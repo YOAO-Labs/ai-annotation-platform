@@ -220,6 +220,15 @@ and revision retention. Current content validation and pixel algorithms remain i
 the calling workflow. `protect_mask_slice_versions` now takes the task ID before
 the report and expiry; all repository callers use that scope.
 
+Acceptance history extends the existing `mask_edit_command`; it does not grant a
+fourth function or private table access. The API journals keyed ordinary acceptance
+and native Mask create/refine in the accepting transaction. Refinement captures
+the prior geometry and prediction lineage before mutation. Restore locks the
+task and complete annotation version set, preserves annotation IDs, journals
+each idempotent transition, and retains image/video Mask revisions under the
+same 30-day policy as slice restore. Current task, actor, segment and source
+qualification remain caller and owner fences; the receipt is not authorization.
+
 `scene_read_query` owns the fixed scene/track/interval/member/timeline reads and
 cache projections, with exact request validation and reply scope binding. Three
 scalar JSON helpers stay private to its owner. Scene facts continue to use the

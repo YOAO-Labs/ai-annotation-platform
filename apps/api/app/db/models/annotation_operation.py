@@ -30,7 +30,7 @@ class AnnotationOperation(Base):
             "'delete_small_islands', 'fill_small_holes', "
             "'resolve_same_class_overlap', 'mask_repair_rollback', "
             "'slice_polygon', 'restore_slice', 'slice_mask', "
-            "'create_annotation')",
+            "'create_annotation', 'accept_prediction', 'restore_acceptance')",
             name="ck_annotation_operations_kind",
         ),
         CheckConstraint(

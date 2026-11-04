@@ -52,6 +52,38 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
     ) -> list[AnnotationOut] | None:
         self._assert_bound(command.write_scope, operation="candidate_accept")
         try:
+            from app.services import acceptance_history
+            from app.services.labeling_write_guard import lock_labeling_write
+
+            request_digest = None
+            if command.idempotency_key is not None:
+                acceptance_history.validate_key(command.idempotency_key)
+                request_digest = acceptance_history.digest(
+                    {
+                        "prediction_id": str(command.prediction_id),
+                        "shape_index": command.shape_index,
+                        "override_class_name": command.override_class_name,
+                        "attribute_overrides": command.attribute_overrides,
+                        "video_segment_id": str(command.video_segment_id)
+                        if command.video_segment_id
+                        else None,
+                    }
+                )
+                await lock_labeling_write(
+                    self._db, command.write_scope, operations=("candidate_accept",)
+                )
+                replay = await acceptance_history.replay(
+                    self._db,
+                    self._task.id,
+                    self._actor.id,
+                    command.idempotency_key,
+                    request_digest,
+                )
+                if replay is not None:
+                    return [
+                        AnnotationOut.model_validate(row)
+                        for row in replay["annotations"]
+                    ]
             annotations = await self._annotations._accept_prediction(
                 command.prediction_id,
                 shape_index=command.shape_index,
@@ -86,10 +118,25 @@ class _CandidateDecisionSqlAdapter(CandidateDecisionPort):
                 )
 
                 await recheck_credentials(self._db, command.video_acceptance_receipt)
-            await self._db.commit()
-            return [
+            response = [
                 AnnotationOut.model_validate(annotation) for annotation in annotations
             ]
+            if command.idempotency_key is not None and annotations:
+                await acceptance_history.record(
+                    self._db,
+                    self._task,
+                    self._actor.id,
+                    key=command.idempotency_key,
+                    request_digest=request_digest,
+                    prediction_id=command.prediction_id,
+                    annotations=annotations,
+                    video_segment_id=command.video_segment_id,
+                    response={
+                        "annotations": [row.model_dump(mode="json") for row in response]
+                    },
+                )
+            await self._db.commit()
+            return response
         except RasterMaskContractError as exc:
             raise CandidateDecisionError(
                 status_code=exc.status_code, detail=exc.detail

@@ -75,6 +75,10 @@ Worker 完整核验登记原件的 SHA／长度，并对同一文件实际探测
 
 `POST /tasks/{task_id}/predictions/{prediction_id}/accept` 始终核对候选所属任务与 URL 一致，不一致返回 `404`。引用候选采纳要求 `tasks:read` 和 `annotations:write`，按当前可编辑权限严格核验原图，并与候选内容溯源匹配；不要求当前 Task 版本等于历史推理版本，因此支持预标后正常分派/激活。后台原生 Mask 额外核验服务端保存的候选、模型/运行时与阶段记录，最终读取 RLE 并复查当前编辑开关。历史作业清理或模型离线不撤销已生成结果的证明；缺失证明的旧原生候选需重新预标。内容证明、候选或权限变化时拒绝写入；忙冲突返回可重试 `409`。内部凭证不作为请求参数。
 
+普通候选采纳可提供 `Idempotency-Key`；同一任务、账号和键的相同请求在丢失响应后返回首次标注结果，不重复创建；参数变化返回 `409`。原生 Mask 使用其已有请求体 `idempotency_key`。调用方需要保存采纳键与返回的完整标注 ID／版本集，以便在当前工作台历史内恢复。
+
+`POST /api/v1/tasks/{task_id}/acceptance-history/{acceptance_key}/restore` 接受 `target`（`before` 或 `after`）、完整 `expected_versions`（标注 UUID 到版本号）、本次变更的 `idempotency_key` 和原 `video_segment_id`（无视频片段时为 `null`）。响应包含更新后的 `result_versions`、`active_annotation_ids`、`restore_expires_at` 和 `idempotent_replay`。响应中断时，用相同变更键和原请求重放；下一次撤销或重做使用新键和最新版本。多标注采纳整体恢复；重做复用原标注 ID，原生细化同时恢复几何、类别和预测来源。沿用切割操作的 30 天恢复期限；目标版本、任务来源或当前权限变化时拒绝写入，不会覆盖后续编辑。
+
 引用图片与托管图片的 `mask_repair` SAM 候选经[批量修复独立资格](./tasks-and-annotations.md#mask-质检批量修复)采纳：必须匹配已提交单元、生成时结果/元信息摘要、源标注及当前原图，其凭证不能代替后台分割资格。重复或已驳回候选返回 `409`。`POST /tasks/{task_id}/predictions/{prediction_id}/reject` 按当前任务编辑和 Key 权限写入驳回状态；来源离线或 native mask 开关关闭不阻止驳回。
 
 ## 图片原生候选内容

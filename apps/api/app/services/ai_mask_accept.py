@@ -659,6 +659,15 @@ async def accept_ai_mask_candidate(
         receipt_claims=receipt_claims,
         frame_index=frame_index,
     )
+    before_history = None
+    if source is not None:
+        from app.services import acceptance_history
+
+        before_history = {
+            str(source.id): await acceptance_history.snapshot(
+                db, task, current_user.id, source.id, source.version
+            )
+        }
     source_version = source.version if source is not None else None
     if media_type == "image":
         assert_raster_mask_write_enabled(project)
@@ -889,6 +898,20 @@ async def accept_ai_mask_candidate(
         result_version=annotation.version,
         content_digest=content_digest,
         replayed=False,
+    )
+    from app.services import acceptance_history
+
+    await acceptance_history.record(
+        db,
+        task,
+        current_user.id,
+        key=data.idempotency_key,
+        request_digest=request_digest,
+        prediction_id=prediction.id,
+        annotations=[annotation],
+        video_segment_id=data.video_segment_id,
+        response={},
+        before=before_history,
     )
     try:
         await ai_mask_accept_command(

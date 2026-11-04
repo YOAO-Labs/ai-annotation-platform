@@ -1,5 +1,100 @@
 {
   "$defs": {
+    "AcceptanceHistory": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "expected_batch_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Batch Id"
+        },
+        "expected_status": {
+          "title": "Expected Status",
+          "type": "string"
+        },
+        "expected_review_round_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Expected Review Round Id"
+        },
+        "schema": {
+          "const": "aap-labeling-mask-edits/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "operation": {
+          "const": "acceptance_history",
+          "title": "Operation",
+          "type": "string"
+        },
+        "action": {
+          "enum": ["snapshot", "record", "restore"],
+          "title": "Action",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        }
+      },
+      "required": [
+        "task_id",
+        "project_id",
+        "actor_id",
+        "expected_batch_id",
+        "expected_status",
+        "expected_review_round_id",
+        "schema",
+        "operation",
+        "action",
+        "payload"
+      ],
+      "title": "AcceptanceHistory",
+      "type": "object"
+    },
+    "AcceptanceHistoryData": {
+      "additionalProperties": false,
+      "properties": {
+        "history": {
+          "additionalProperties": true,
+          "title": "History",
+          "type": "object"
+        }
+      },
+      "required": ["history"],
+      "title": "AcceptanceHistoryData",
+      "type": "object"
+    },
     "AnnotationLineage": {
       "additionalProperties": false,
       "properties": {
@@ -1550,6 +1645,7 @@
     "request": {
       "discriminator": {
         "mapping": {
+          "acceptance_history": "#/$defs/AcceptanceHistory",
           "apply_mask_mutations": "#/$defs/ApplyMaskMutations",
           "apply_polygon_slice": "#/$defs/ApplyPolygonSlice",
           "apply_slice_restore": "#/$defs/ApplySliceRestore",
@@ -1601,6 +1697,9 @@
         },
         {
           "$ref": "#/$defs/WriteAnnotationOperation"
+        },
+        {
+          "$ref": "#/$defs/AcceptanceHistory"
         }
       ],
       "title": "Request"
@@ -1639,6 +1738,9 @@
         },
         {
           "$ref": "#/$defs/WriteOperationData"
+        },
+        {
+          "$ref": "#/$defs/AcceptanceHistoryData"
         }
       ],
       "title": "Data"

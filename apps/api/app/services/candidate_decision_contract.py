@@ -18,6 +18,7 @@ class CandidateAcceptCommand:
     override_class_name: str | None
     attribute_overrides: dict | None
     video_segment_id: UUID | None
+    idempotency_key: str | None = None
     reference_receipt: Any | None = None
     repair_original_receipt: Any | None = None
     video_acceptance_receipt: Any | None = None

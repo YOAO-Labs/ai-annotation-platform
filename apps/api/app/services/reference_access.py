@@ -262,7 +262,14 @@ async def reference_task_guard(
     from app.services import task_access
     from app.services.dataset_content import key_authority
 
-    scope = "annotations:write" if "/annotations" in request.url.path else "tasks:write"
+    history = request.method == "POST" and re.fullmatch(
+        r"/api/v1/tasks/[^/]+/acceptance-history/[^/]+/restore", request.url.path
+    )
+    scope = (
+        "annotations:write"
+        if "/annotations" in request.url.path or history
+        else "tasks:write"
+    )
     key_id = getattr(request.state, "api_key_id", None)
     key_proof = await key_authority(db, actor, key_id, scope)
     await task_access.resolve_task_access(db, task, actor.id, lock_membership=True)
@@ -285,11 +292,13 @@ async def reference_task_guard(
         path,
     )
     bulk = path.endswith("/annotations/bulk-update")
-    if not manual and not bulk:
+    if not manual and not bulk and not history:
         await reject_reference_scope(db, task_ids=[task.id])
     try:
         item_id, sha = parse_reference(task.file_path)
-        scope = "annotations:write" if "/annotations" in path else "tasks:write"
+        scope = (
+            "annotations:write" if "/annotations" in path or history else "tasks:write"
+        )
         from app.services.dataset_references import reference_context
         from app.services import storage_access
 

@@ -194,6 +194,16 @@ class WriteAnnotationOperation(_Command, MaskTaskFence):
     original_report: dict[str, object] | None = None
 
 
+class AcceptanceHistory(_Command, MaskTaskFence):
+    operation: Literal["acceptance_history"]
+    action: Literal["snapshot", "record", "restore"]
+    payload: dict[str, object]
+
+
+class AcceptanceHistoryData(_ClosedModel):
+    history: dict[str, object]
+
+
 MaskEditCommand = Annotated[
     FindOperation
     | ReadOperation
@@ -206,7 +216,8 @@ MaskEditCommand = Annotated[
     | ApplyPolygonSlice
     | ApplyMaskMutations
     | ApplySliceRestore
-    | WriteAnnotationOperation,
+    | WriteAnnotationOperation
+    | AcceptanceHistory,
     Field(discriminator="operation"),
 ]
 
@@ -328,6 +339,7 @@ class _Reply(_ClosedModel):
         | ApplyMaskMutationsData
         | ApplyRestoreData
         | WriteOperationData
+        | AcceptanceHistoryData
     )
 
 
@@ -372,6 +384,7 @@ def decode_mask_edit_reply(request: MaskEditCommand, value: object):
         ApplyMaskMutations: ApplyMaskMutationsData,
         ApplySliceRestore: ApplyRestoreData,
         WriteAnnotationOperation: WriteOperationData,
+        AcceptanceHistory: AcceptanceHistoryData,
     }[type(request)]
     if not isinstance(reply.data, expected_data):
         raise MaskEditUnavailable()

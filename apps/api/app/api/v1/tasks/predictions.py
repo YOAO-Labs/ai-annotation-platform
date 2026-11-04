@@ -1,6 +1,15 @@
 import uuid
 from typing import Any
-from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Request
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+)
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -376,6 +385,7 @@ async def accept_prediction(
             "attributes 原子落库 (多阶段预标的 select/multiselect 属性审阅 + 分步采纳)。"
         ),
     ),
+    idempotency_key: str | None = Header(None, alias="Idempotency-Key"),
     db: AsyncSession = Depends(get_db),
     current_user: IdentityActorFacts = Depends(get_current_user),
 ):
@@ -414,6 +424,7 @@ async def accept_prediction(
                 override_class_name=override_class_name,
                 attribute_overrides=attribute_overrides,
                 video_segment_id=video_segment_id,
+                idempotency_key=idempotency_key,
                 reference_receipt=getattr(request.state, "reference_acceptance", None),
                 repair_original_receipt=getattr(
                     request.state, "repair_original_acceptance", None

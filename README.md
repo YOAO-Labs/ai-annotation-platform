@@ -68,6 +68,8 @@ API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生�
 
 图片标注工作台支持对已确认标注做[二次推理](./docs-site/user-guide/ai/current-task-inference.md)，由标注员、项目管理员或超级管理员使用。审核工作台隐藏相关入口，接口也拒绝审核员调用；人工审核修改保留。
 
+当前题候选采纳支持在工作台历史中撤销和重做，恢复原标注身份与来源；版本冲突或权限变化时不会覆盖后续编辑。普通采纳幂等键和恢复接口见[预测 API](./docs-site/api/guides/predictions.md#原地引用图片)。
+
 <table>
   <tr>
     <td width="50%" valign="top" align="center">

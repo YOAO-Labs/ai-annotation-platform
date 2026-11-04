@@ -913,6 +913,12 @@
 | POST | `/projects/{project_id}/tasks/query` |
 | GET | `/projects/{project_id}/task-views/{view_id}/tasks` |
 
+## `tasks/acceptance_history.py`
+
+| Method | Path |
+|---|---|
+| POST | `/{task_id}/acceptance-history/{acceptance_key}/restore` |
+
 ## `tasks/ai_masks.py`
 
 | Method | Path |
@@ -1249,4 +1255,4 @@
 
 ---
 
-_共 116 模块 / 752 路由_
+_共 117 模块 / 753 路由_

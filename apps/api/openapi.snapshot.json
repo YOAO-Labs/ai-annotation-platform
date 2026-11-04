@@ -69,6 +69,107 @@
         "title": "AcceptInvitationResponse",
         "type": "object"
       },
+      "AcceptanceHistoryRestoreRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "title": "Expected Versions",
+            "type": "object"
+          },
+          "idempotency_key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Idempotency Key",
+            "type": "string"
+          },
+          "target": {
+            "enum": [
+              "before",
+              "after"
+            ],
+            "title": "Target",
+            "type": "string"
+          },
+          "video_segment_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Segment Id"
+          }
+        },
+        "required": [
+          "target",
+          "expected_versions",
+          "idempotency_key"
+        ],
+        "title": "AcceptanceHistoryRestoreRequest",
+        "type": "object"
+      },
+      "AcceptanceHistoryRestoreResponse": {
+        "properties": {
+          "acceptance_key": {
+            "title": "Acceptance Key",
+            "type": "string"
+          },
+          "active_annotation_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Active Annotation Ids",
+            "type": "array"
+          },
+          "idempotent_replay": {
+            "title": "Idempotent Replay",
+            "type": "boolean"
+          },
+          "restore_expires_at": {
+            "format": "date-time",
+            "title": "Restore Expires At",
+            "type": "string"
+          },
+          "result_versions": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "title": "Result Versions",
+            "type": "object"
+          },
+          "target": {
+            "enum": [
+              "before",
+              "after"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "acceptance_key",
+          "target",
+          "result_versions",
+          "active_annotation_ids",
+          "restore_expires_at",
+          "idempotent_replay"
+        ],
+        "title": "AcceptanceHistoryRestoreResponse",
+        "type": "object"
+      },
       "AdminDashboardStats": {
         "properties": {
           "active_users": {
@@ -109578,6 +109679,74 @@
         ]
       }
     },
+    "/api/v1/tasks/{task_id}/acceptance-history/{acceptance_key}/restore": {
+      "post": {
+        "description": "Undo or redo one acceptance atomically, preserving its annotation identities.",
+        "operationId": "restore_acceptance_history_api_v1_tasks__task_id__acceptance_history__acceptance_key__restore_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "task_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Task Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "acceptance_key",
+            "required": true,
+            "schema": {
+              "title": "Acceptance Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptanceHistoryRestoreRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptanceHistoryRestoreResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Restore Acceptance History",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
     "/api/v1/tasks/{task_id}/ai-mask-candidates/accept": {
       "post": {
         "description": "Atomically accept one transient native Mask candidate.\n\nThe immutable content object is written before the final database commit. The\nPrediction, lineage, decision, Annotation mutation, and audit event share that\nsingle commit; a failed transaction leaves only a grace-period GC orphan.",
@@ -112455,6 +112624,22 @@
               ],
               "description": "可选: 采纳时把类别落到指定项目标签 (v0.14.17). 用于预测类名既不在项目标签集、又无 alias 命中时, 由人当场选项目类别再采纳, 避免 422 拒死。",
               "title": "Override Class Name"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Idempotency-Key"
             }
           }
         ],

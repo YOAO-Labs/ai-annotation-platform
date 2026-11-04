@@ -709,3 +709,114 @@ async def test_decision_owner_read_and_lock_excludes_expiry(test_engine):
             async with maker.begin() as db:
                 await db.execute(delete(Task).where(Task.id == task_id))
         await _cleanup(maker, world)
+
+
+async def test_acceptance_history_runs_under_existing_function_only_role(test_engine):
+    from aap_labeling.mask_edit_contract import AcceptanceHistory
+
+    maker, world = await _seed(test_engine)
+    task_id = None
+    connection = None
+    try:
+        annotation_id = uuid.uuid4()
+        prediction_id = uuid.uuid4()
+        async with maker.begin() as db:
+            task = await create_task(
+                db, project_id=world["project_id"], status="in_progress"
+            )
+            task_id = task.id
+            db.add(
+                Annotation(
+                    id=annotation_id,
+                    task_id=task.id,
+                    project_id=task.project_id,
+                    user_id=world["member_id"],
+                    source="prediction_based",
+                    parent_prediction_id=prediction_id,
+                    annotation_type="bbox",
+                    tool_unit_id="bbox",
+                    class_name="car",
+                    geometry={"type": "bbox", "x": 1, "y": 2, "width": 3, "height": 4},
+                    attributes={},
+                    attributes_meta={},
+                    version=1,
+                )
+            )
+            context = {
+                "schema": MASK_EDIT_PROTOCOL,
+                "operation": "acceptance_history",
+                "task_id": task.id,
+                "project_id": task.project_id,
+                "actor_id": world["member_id"],
+                "expected_batch_id": task.batch_id,
+                "expected_status": task.status,
+                "expected_review_round_id": task.review_round_id,
+            }
+        connection = await asyncpg.connect(
+            _dsn(test_engine, "AAP_MODULE_DATA_LABELING_MASK_EDIT_URL", _ROLE),
+            timeout=5,
+            command_timeout=10,
+        )
+
+        async def execute(payload):
+            return await connection.fetchval(
+                "SELECT aap_labeling_v1.mask_edit_command($1::jsonb)", payload
+            )
+
+        client = MaskEditDataClient(execute)
+        transaction = connection.transaction()
+        await transaction.start()
+        key = str(uuid.uuid4())
+        await client.command(
+            AcceptanceHistory(
+                **context,
+                action="record",
+                payload={
+                    "acceptance_key": key,
+                    "request_digest": "a" * 64,
+                    "prediction_id": str(prediction_id),
+                    "annotation_ids": [str(annotation_id)],
+                    "video_segment_id": None,
+                    "before": {},
+                    "response": {"annotations": []},
+                },
+            )
+        )
+        result = await client.command(
+            AcceptanceHistory(
+                **context,
+                action="restore",
+                payload={
+                    "acceptance_key": key,
+                    "idempotency_key": str(uuid.uuid4()),
+                    "request_digest": "b" * 64,
+                    "expected_versions": {str(annotation_id): 1},
+                    "target": "before",
+                    "video_segment_id": None,
+                },
+            )
+        )
+        assert result.history["result_versions"] == {str(annotation_id): 2}
+        assert result.history["active_annotation_ids"] == []
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            async with connection.transaction():
+                await connection.fetch("SELECT id FROM public.annotation_operations")
+        await transaction.rollback()
+        async with maker() as db:
+            row = await db.get(Annotation, annotation_id)
+            assert row.is_active is True and row.version == 1
+            assert not await db.scalar(
+                select(AnnotationOperation.id).where(
+                    AnnotationOperation.task_id == task_id
+                )
+            )
+    finally:
+        if connection is not None:
+            await connection.close()
+        if task_id is not None:
+            async with maker.begin() as db:
+                await db.execute(
+                    delete(Annotation).where(Annotation.task_id == task_id)
+                )
+                await db.execute(delete(Task).where(Task.id == task_id))
+        await _cleanup(maker, world)

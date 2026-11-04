@@ -977,3 +977,169 @@ async def test_write_gate_and_other_user_task_lock_fail_before_storage(
     assert locked.status_code == 409
     assert locked.json()["detail"]["reason"] == "task_lock_conflict"
     store.assert_not_awaited()
+
+
+@pytest.mark.parametrize("media_type", ["image", "video"])
+async def test_native_refine_history_restores_lineage_and_retains_both_masks(
+    media_type, httpx_client, db_session, super_admin, monkeypatch, accept_storage_mocks
+):
+    from sqlalchemy import text
+
+    user, token = super_admin
+    task, backend, pool = await _seed(
+        db_session, owner_id=user.id, media_type=media_type
+    )
+    old_prediction_id = uuid.uuid4()
+    old_mask = build_rle_reference(RLE)
+    geometry = (
+        {"type": "raster_mask", "mask": old_mask}
+        if media_type == "image"
+        else {
+            "type": "video_track_mask",
+            "track_id": "trk_history",
+            "keyframes": [
+                {
+                    "frame_index": 1,
+                    "mask": old_mask,
+                    "source": "manual",
+                    "occluded": False,
+                }
+            ],
+            "outside": [],
+        }
+    )
+    source = Annotation(
+        task_id=task.id,
+        project_id=task.project_id,
+        user_id=user.id,
+        source="manual",
+        annotation_type=geometry["type"],
+        tool_unit_id="region",
+        class_name="object",
+        geometry=geometry,
+        track_id=geometry.get("track_id"),
+        parent_prediction_id=old_prediction_id,
+        confidence=0.25,
+        version=1,
+    )
+    db_session.add(source)
+    await db_session.flush()
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    body = _body(
+        task,
+        backend,
+        pool,
+        rle=ALT_RLE,
+        class_name="other",
+        source=source,
+        frame_index=4 if media_type == "video" else None,
+    )
+    accepted = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/ai-mask-candidates/accept",
+        json=body,
+        headers=_headers(token, **{"If-Match": 'W/"1"'}),
+    )
+    assert accepted.status_code == 200, accepted.text
+    accepted_row = accepted.json()["annotation"]
+    new_prediction_id = accepted_row["parent_prediction_id"]
+    assert new_prediction_id != str(old_prediction_id)
+    key = body["idempotency_key"]
+    url = f"/api/v1/tasks/{task.id}/acceptance-history/{key}/restore"
+    undo_body = {
+        "target": "before",
+        "expected_versions": {str(source.id): accepted_row["version"]},
+        "idempotency_key": str(uuid.uuid4()),
+        "video_segment_id": None,
+    }
+    undone = await httpx_client.post(url, json=undo_body, headers=_headers(token))
+    assert undone.status_code == 200, undone.text
+    await db_session.refresh(source)
+    assert source.geometry == geometry
+    assert source.class_name == "object"
+    assert source.parent_prediction_id == old_prediction_id
+    assert source.confidence == 0.25
+    redo = await httpx_client.post(
+        url,
+        json={
+            "target": "after",
+            "expected_versions": undone.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+        headers=_headers(token),
+    )
+    assert redo.status_code == 200, redo.text
+    await db_session.refresh(source)
+    assert str(source.parent_prediction_id) == new_prediction_id
+    assert source.geometry == accepted_row["geometry"]
+    assert source.class_name == "other"
+    assert (
+        await db_session.scalar(
+            text("""
+        SELECT count(DISTINCT root.object_key)
+        FROM public.mask_gc_roots AS root
+        JOIN public.mask_annotation_revisions AS revision ON root.root_id = revision.id::text
+        WHERE root.root_kind = 'mask_annotation_revisions'
+          AND revision.annotation_id = :annotation_id
+          AND root.object_key IN (:old_key, :new_key)
+          AND root.valid_until > clock_timestamp() + interval '29 days'
+    """),
+            {
+                "annotation_id": source.id,
+                "old_key": old_mask["object_key"],
+                "new_key": build_rle_reference(ALT_RLE)["object_key"],
+            },
+        )
+        == 2
+    )
+
+
+@pytest.mark.parametrize("media_type", ["image", "video"])
+async def test_native_create_history_reactivates_original_annotation(
+    media_type, httpx_client, db_session, super_admin, monkeypatch, accept_storage_mocks
+):
+    user, token = super_admin
+    task, backend, pool = await _seed(
+        db_session, owner_id=user.id, media_type=media_type
+    )
+    monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+    body = _body(task, backend, pool, frame_index=4 if media_type == "video" else None)
+    accepted = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/ai-mask-candidates/accept",
+        json=body,
+        headers=_headers(token),
+    )
+    assert accepted.status_code == 200, accepted.text
+    row = accepted.json()["annotation"]
+    url = (
+        f"/api/v1/tasks/{task.id}/acceptance-history/{body['idempotency_key']}/restore"
+    )
+    undo = await httpx_client.post(
+        url,
+        json={
+            "target": "before",
+            "expected_versions": {row["id"]: row["version"]},
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+        headers=_headers(token),
+    )
+    assert undo.status_code == 200, undo.text
+    redo = await httpx_client.post(
+        url,
+        json={
+            "target": "after",
+            "expected_versions": undo.json()["result_versions"],
+            "idempotency_key": str(uuid.uuid4()),
+            "video_segment_id": None,
+        },
+        headers=_headers(token),
+    )
+    assert redo.status_code == 200, redo.text
+    assert redo.json()["active_annotation_ids"] == [row["id"]]
+    annotation = await db_session.get(
+        Annotation, uuid.UUID(row["id"]), populate_existing=True
+    )
+    assert annotation.is_active
+    assert annotation.geometry == row["geometry"]
+    assert str(annotation.parent_prediction_id) == accepted.json()["prediction"]["id"]
