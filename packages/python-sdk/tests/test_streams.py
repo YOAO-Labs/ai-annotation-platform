@@ -6,8 +6,8 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-from ai_annotation import AAPError, AuthenticationError, StreamError, describe_operation
-from ai_annotation.streams import describe_stream_channel, list_stream_channels
+from yoao import SDKError, AuthenticationError, StreamError, describe_operation
+from yoao.streams import describe_stream_channel, list_stream_channels
 
 from .support_streams import NOW, Socket
 
@@ -195,7 +195,7 @@ async def test_jwt_only_channels_reject_api_key_before_connect(
 @pytest.mark.asyncio
 async def test_missing_optional_dependency_has_safe_install_hint(client, monkeypatch):
     monkeypatch.setitem(sys.modules, "websockets", None)
-    with pytest.raises(AAPError, match=r"ai-annotation-sdk\[streams\]"):
+    with pytest.raises(SDKError, match=r"yoao-sdk\[streams\]"):
         async with client.streams.ml_stats():
             pass
 
@@ -282,7 +282,7 @@ async def test_disconnect_keeps_close_code_without_reconnecting(client, monkeypa
 @pytest.mark.asyncio
 async def test_client_close_prevents_new_stream_connections(client):
     client.close()
-    with pytest.raises(AAPError, match="Client is closed"):
+    with pytest.raises(SDKError, match="Client is closed"):
         async with client.streams.ml_stats():
             pass
 
@@ -332,7 +332,7 @@ async def test_real_websocket_handshake_heartbeat_and_delivery(client):
 
     async with websockets.serve(handle, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
-        from ai_annotation import Client
+        from yoao import Client
 
         with Client(
             base_url=f"http://127.0.0.1:{port}", api_key="ak_+/?secret"
@@ -349,7 +349,7 @@ async def test_real_websocket_handshake_heartbeat_and_delivery(client):
 @pytest.mark.parametrize("annotation_id", [None, "None", ID])
 def test_tracker_event_normalizes_legacy_absent_source(annotation_id):
     from uuid import UUID
-    from ai_annotation import VideoTrackerEvent
+    from yoao import VideoTrackerEvent
 
     event = VideoTrackerEvent(
         type="job_started", job_id=ID, task_id=ID, at=NOW, annotation_id=annotation_id

@@ -5,9 +5,9 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from ai_annotation.errors import ConflictError
-from ai_annotation.video_tracker import VideoTracker
-from ai_annotation.video_tracker_models import (
+from yoao.errors import ConflictError
+from yoao.video_tracker import VideoTracker
+from yoao.video_tracker_models import (
     CocoRleMaskContent,
     VideoMaskCorrectionRequest,
     VideoTrackerCreateRequest,

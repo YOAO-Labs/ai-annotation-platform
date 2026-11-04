@@ -12,9 +12,9 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation._http import HttpTransport
-from ai_annotation.account import Account
-from ai_annotation.account_models import (
+from yoao._http import HttpTransport
+from yoao.account import Account
+from yoao.account_models import (
     AvatarRefUpdate,
     DeactivationRequest,
     PasswordChange,
@@ -23,9 +23,9 @@ from ai_annotation.account_models import (
     TaskEventBatchResult,
     UserPreferencesPatch,
 )
-from ai_annotation.avatars import Avatars
-from ai_annotation.cli import account as account_cli
-from ai_annotation.errors import AAPError, NotFoundError
+from yoao.avatars import Avatars
+from yoao.cli import account as account_cli
+from yoao.errors import SDKError, NotFoundError
 
 from .conftest import API, BASE
 
@@ -221,7 +221,7 @@ def test_avatar_upload_uses_multipart_and_refuses_oversize_before_request(
 
         oversized = tmp_path / "oversized.png"
         oversized.write_bytes(b"x" * (2 * 1024 * 1024 + 1))
-        with pytest.raises(AAPError, match="2 MiB"):
+        with pytest.raises(SDKError, match="2 MiB"):
             Account(transport).upload_avatar(oversized)
         assert route.call_count == 1
     finally:

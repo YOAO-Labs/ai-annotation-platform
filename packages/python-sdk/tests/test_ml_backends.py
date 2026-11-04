@@ -3,8 +3,8 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import ConflictError, NotFoundError, PermissionDeniedError
-from ai_annotation.models import (
+from yoao.errors import ConflictError, NotFoundError, PermissionDeniedError
+from yoao.models import (
     MLBackend,
     MLBackendHealth,
     MLBackendUnloadResult,

@@ -7,14 +7,14 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation import (
+from yoao import (
     AuditExportQuery,
     AuditLogQuery,
     SystemSettingsReset,
     SystemSettingsUpdate,
 )
-from ai_annotation.cli.main import app
-from ai_annotation.errors import APIStatusError
+from yoao.cli.main import app
+from yoao.errors import APIStatusError
 
 from .conftest import API
 
@@ -95,8 +95,8 @@ def test_system_settings_preserve_version_null_and_password_clear(client, respx_
 
 
 def test_smtp_cli_refusal_sends_no_email(monkeypatch, respx_mock):
-    monkeypatch.setenv("AAP_BASE_URL", "http://testserver")
-    monkeypatch.setenv("AAP_API_KEY", "ak_test")
+    monkeypatch.setenv("YOAO_BASE_URL", "http://testserver")
+    monkeypatch.setenv("YOAO_API_KEY", "ak_test")
     route = respx_mock.post(f"{API}/settings/system/test-smtp")
     result = CliRunner().invoke(
         app, ["--error-format", "json", "system-settings", "test-smtp", "--json"]

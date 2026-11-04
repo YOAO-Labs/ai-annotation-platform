@@ -8,14 +8,14 @@ from uuid import uuid4
 import httpx
 from typer.testing import CliRunner
 
-from ai_annotation.cli.feedbacks import app
+from yoao.cli.feedbacks import app
 
 from .conftest import API, BASE
 
 runner = CliRunner()
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "NO_COLOR": "1",
     "TERM": "dumb",
     "COLUMNS": "120",

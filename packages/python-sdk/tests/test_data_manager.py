@@ -9,7 +9,7 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation import (
+from yoao import (
     DataManagerEntityQueryRequest,
     DataManagerMatchesRequest,
     DataManagerSummaryRequest,
@@ -20,12 +20,12 @@ from ai_annotation import (
     NotFoundError,
     describe_operation,
 )
-from ai_annotation.cli.main import app
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
 PROJECT, TASK, ANNOTATION, JOB, SECOND = [str(uuid4()) for _ in range(5)]
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 FILTER = {
     "op": "and",
     "rules": [
@@ -504,7 +504,7 @@ def test_discovery_states_real_grain_scope_and_action_limits():
 
 @pytest.mark.parametrize("status", [403, 422, 503])
 def test_rejected_selected_export_is_not_retried_or_widened(client, respx_mock, status):
-    from ai_annotation import APIStatusError
+    from yoao import APIStatusError
 
     route = respx_mock.post(f"{API}/projects/{PROJECT}/data-manager/tasks/export").mock(
         return_value=httpx.Response(

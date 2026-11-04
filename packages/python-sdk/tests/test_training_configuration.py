@@ -3,8 +3,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 
-from ai_annotation.training import TrainingRuns
-from ai_annotation.training_models import (
+from yoao.training import TrainingRuns
+from yoao.training_models import (
     TrainingConfiguration,
     TrainingDatasetCreate,
     TrainingDatasetSelection,

@@ -7,8 +7,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import APIStatusError
-from ai_annotation.guide_assets import GuideAssets
+from yoao.errors import APIStatusError
+from yoao.guide_assets import GuideAssets
 
 from .conftest import API
 

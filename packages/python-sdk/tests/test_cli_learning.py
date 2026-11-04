@@ -10,16 +10,16 @@ from pydantic import BaseModel, ConfigDict, Field
 from typer.main import get_command
 from typer.testing import CliRunner
 
-from ai_annotation import AAPError
-from ai_annotation.cli._output import read_json_body
-from ai_annotation.cli.main import app
+from yoao import SDKError
+from yoao.cli._output import read_json_body
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
 runner = CliRunner()
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "NO_COLOR": "1",
     "TERM": "dumb",
     "COLUMNS": "120",
@@ -36,7 +36,7 @@ class Request(BaseModel):
 def test_request_file_rejects_invalid_object_without_echo(tmp_path, content):
     path = tmp_path / "request.json"
     path.write_text(content)
-    with pytest.raises(AAPError) as exc:
+    with pytest.raises(SDKError) as exc:
         read_json_body(path, Request)
     assert "secret" not in str(exc.value)
 
@@ -44,13 +44,13 @@ def test_request_file_rejects_invalid_object_without_echo(tmp_path, content):
 def test_request_file_errors_omit_input_values(tmp_path):
     path = tmp_path / "request.json"
     path.write_text(json.dumps({"count": "private-token-value"}))
-    with pytest.raises(AAPError, match="count") as exc:
+    with pytest.raises(SDKError, match="count") as exc:
         read_json_body(path, Request)
     assert "private-token-value" not in str(exc.value)
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         read_json_body(tmp_path / "missing.json", Request)
     path.write_bytes(b"\xff")
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         read_json_body(path, Request)
 
 
@@ -281,7 +281,7 @@ def test_failed_download_integrity_preserves_file_and_credentials(tmp_path, resp
     assert descriptor.call_count == storage.call_count == 1
     assert descriptor.calls.last.request.headers["authorization"] == "Bearer ak_test"
     assert "authorization" not in storage.calls.last.request.headers
-    assert not list(tmp_path.glob(".aap-download-*"))
+    assert not list(tmp_path.glob(".yoao-download-*"))
 
 
 def test_model_decision_request_id_and_body_preserved(tmp_path, respx_mock):

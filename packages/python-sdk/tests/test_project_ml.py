@@ -7,9 +7,9 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.models import MLBackendUnloadResult
-from ai_annotation.project_ml import ProjectML
-from ai_annotation.project_ml_models import (
+from yoao.models import MLBackendUnloadResult
+from yoao.project_ml import ProjectML
+from yoao.project_ml_models import (
     ProjectMLBackendCapabilities,
     ProjectMLBackendCreateRequest,
     ProjectMLBackendOut,
@@ -260,7 +260,7 @@ def test_project_ml_body_validation_and_no_local_filesystem_io(tmp_path):
 
 
 def test_project_backend_tokens_are_hidden_from_repr_and_validation_errors():
-    from ai_annotation.project_ml_models import (
+    from yoao.project_ml_models import (
         ProjectMLBackendCreateRequest,
         ProjectMLBackendUpdateRequest,
     )

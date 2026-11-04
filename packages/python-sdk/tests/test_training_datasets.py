@@ -6,9 +6,9 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import APIStatusError
-from ai_annotation.training import TaskDatasets, TrainingDatasets
-from ai_annotation.training_models import (
+from yoao.errors import APIStatusError
+from yoao.training import TaskDatasets, TrainingDatasets
+from yoao.training_models import (
     TrainingDatasetCreate,
     TrainingDatasetSelection,
 )

@@ -7,14 +7,14 @@ from uuid import UUID
 import httpx
 import pytest
 
-from ai_annotation.errors import (
+from yoao.errors import (
     AuthenticationError,
     ConflictError,
     PermissionDeniedError,
     ValidationError,
 )
-from ai_annotation.model_management import ModelReleases, TrainedModels
-from ai_annotation.model_management_models import (
+from yoao.model_management import ModelReleases, TrainedModels
+from yoao.model_management_models import (
     ModelDecisionCreateRequest,
     ModelDeploymentCreateRequest,
     ModelReleaseCreateRequest,

@@ -6,7 +6,7 @@ import pytest
 import httpx
 from pydantic import ValidationError
 
-from ai_annotation.search import Search
+from yoao.search import Search
 
 from .conftest import API
 

@@ -9,8 +9,8 @@ import httpx
 import pytest
 from pydantic import ValidationError as ModelValidationError
 
-from ai_annotation.errors import APIStatusError
-from ai_annotation.models import (
+from yoao.errors import APIStatusError
+from yoao.models import (
     AnnotationFeedback,
     AnnotationFeedbackPatch,
     AnnotationFeedbackReply,

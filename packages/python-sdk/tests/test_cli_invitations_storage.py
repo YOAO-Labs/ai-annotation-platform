@@ -9,10 +9,10 @@ from uuid import uuid4
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli import invitations as invitations_cli
-from ai_annotation.cli import storage_connections as storage_cli
-from ai_annotation.invitation_models import InvitationEmailSent, InvitationResend
-from ai_annotation.storage_connection_models import (
+from yoao.cli import invitations as invitations_cli
+from yoao.cli import storage_connections as storage_cli
+from yoao.invitation_models import InvitationEmailSent, InvitationResend
+from yoao.storage_connection_models import (
     StorageConnection,
     StorageConnectionTestResult,
 )

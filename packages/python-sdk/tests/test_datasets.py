@@ -5,14 +5,14 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from ai_annotation import (
+from yoao import (
     DatasetLifecycleCounts,
     DatasetLifecyclePreview,
     DatasetLifecycleResult,
 )
-from ai_annotation.dataset_operation_models import DatasetImportFromConnectionRequest
-from ai_annotation.errors import ConflictError, NotFoundError, PermissionDeniedError
-from ai_annotation.models import (
+from yoao.dataset_operation_models import DatasetImportFromConnectionRequest
+from yoao.errors import ConflictError, NotFoundError, PermissionDeniedError
+from yoao.models import (
     Dataset,
     DatasetItem,
     DatasetUnlinkPreview,
@@ -693,7 +693,7 @@ def test_upload_files_three_step_flow(client, respx_mock, tmp_path, upload_url, 
 def test_upload_phases_reuse_saved_keys_after_uncertain_response(
     client, respx_mock, phase
 ):
-    from ai_annotation import DatasetUploadInitResult, DatasetUploadCompleteResult
+    from yoao import DatasetUploadInitResult, DatasetUploadCompleteResult
 
     key, item_id = str(uuid4()), str(uuid4())
     if phase == "init":

@@ -7,8 +7,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai_annotation.models import MLBackendStatsSnapshot
-from ai_annotation.tui.ml_stats_ws import MlStatsStream, build_ws_url, parse_frame
+from yoao.models import MLBackendStatsSnapshot
+from yoao.tui.ml_stats_ws import MlStatsStream, build_ws_url, parse_frame
 
 
 def test_build_ws_url_http_to_ws():

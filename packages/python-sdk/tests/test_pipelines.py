@@ -8,10 +8,10 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.cli import pipelines as cli_pipelines
-from ai_annotation.cli.pipelines import app as pipelines_app
-from ai_annotation.errors import APIStatusError
-from ai_annotation.pipeline_models import (
+from yoao.cli import pipelines as cli_pipelines
+from yoao.cli.pipelines import app as pipelines_app
+from yoao.errors import APIStatusError
+from yoao.pipeline_models import (
     PreannotateRequest,
     PreannotationSubmission,
     ProjectPipeline,
@@ -19,7 +19,7 @@ from ai_annotation.pipeline_models import (
     ProjectPipelineCreate,
     ProjectPipelineUpdate,
 )
-from ai_annotation.pipelines import ProjectPipelines
+from yoao.pipelines import ProjectPipelines
 
 API = "http://testserver/api/v1"
 PROJECT_ID = UUID("12345678-1234-5678-1234-567812345678")

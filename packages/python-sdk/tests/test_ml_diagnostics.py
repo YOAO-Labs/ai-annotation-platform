@@ -6,7 +6,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.ml_diagnostic_models import (
+from yoao.ml_diagnostic_models import (
     GPUArbiterResourcesResponse,
     MLIntegrationsOverview,
     ObserveResponse,
@@ -16,7 +16,7 @@ from ai_annotation.ml_diagnostic_models import (
     SmokeTestRequest,
     SmokeTestResponse,
 )
-from ai_annotation.ml_diagnostics import MLDiagnostics
+from yoao.ml_diagnostics import MLDiagnostics
 
 from .conftest import API
 

@@ -5,12 +5,12 @@ import json
 import httpx
 from typer.testing import CliRunner
 
-from ai_annotation.cli.ml_diagnostics import app
+from yoao.cli.ml_diagnostics import app
 
 from .conftest import API, BASE
 
 runner = CliRunner()
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def test_probe_requires_confirmation_before_network_request(respx_mock):

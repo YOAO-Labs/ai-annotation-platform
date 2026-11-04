@@ -10,8 +10,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from ai_annotation._plugin_docker import ContainerConfig, Docker
-from ai_annotation.errors import AAPError
+from yoao._plugin_docker import ContainerConfig, Docker
+from yoao.errors import SDKError
 
 
 def config():
@@ -137,16 +137,16 @@ def test_create_uses_one_gpu_and_no_shell_or_socket(
             raise AssertionError(argv)
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
-    monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
     monkeypatch.setattr(Docker, "_user", staticmethod(lambda: "1000:1000"))
     docker = Docker()
     if keyring_rw:
-        with pytest.raises(AAPError):
+        with pytest.raises(SDKError):
             docker.ensure_started(cfg)
         assert not any(call[1:3] == ["container", "start"] for call in calls)
         return
     if inspected_script != cfg.entrypoint[0]:
-        with pytest.raises(AAPError, match="entrypoint"):
+        with pytest.raises(SDKError, match="entrypoint"):
             docker.ensure_started(cfg)
         return
     docker.ensure_started(cfg)
@@ -176,8 +176,8 @@ def test_unknown_container_is_not_adopted_or_stopped(monkeypatch):
         out = "c" * 64 if "ls" in argv else '{"aap.installation":"other"}'
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
-    monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
-    with pytest.raises(AAPError, match="another installation"):
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    with pytest.raises(SDKError, match="another installation"):
         Docker().stop_and_remove(config(), "c" * 64, "original")
     assert not any("stop" in argv or "rm" in argv for argv in calls)
 
@@ -204,7 +204,7 @@ def test_candidate_intent_rejects_unknown_container(monkeypatch):
         raise AssertionError(args)
 
     monkeypatch.setattr(docker, "_run", run)
-    with pytest.raises(AAPError, match="another installation"):
+    with pytest.raises(SDKError, match="another installation"):
         docker.create_candidate(cfg)
     assert not any(
         args[:2] in (("container", "start"), ("container", "create")) for args in calls
@@ -236,9 +236,9 @@ def test_candidate_does_not_restart_exited_process_or_replaced_id(monkeypatch):
         raise AssertionError(args)
 
     monkeypatch.setattr(docker, "_run", run)
-    with pytest.raises(AAPError, match="exited"):
+    with pytest.raises(SDKError, match="exited"):
         docker.start_candidate(cfg, "c" * 64, may_start=True)
-    with pytest.raises(AAPError, match="ID differs"):
+    with pytest.raises(SDKError, match="ID differs"):
         docker.start_candidate(cfg, "d" * 64, may_start=True)
     assert not any(args[:2] == ("container", "start") for args in calls)
 
@@ -268,15 +268,15 @@ def test_running_candidate_with_prior_exit_is_not_adopted(monkeypatch):
         raise AssertionError(args)
 
     monkeypatch.setattr(docker, "_run", run)
-    with pytest.raises(AAPError, match="previously exited"):
+    with pytest.raises(SDKError, match="previously exited"):
         docker.start_candidate(cfg, "c" * 64, may_start=True)
     assert not any(args[:2] == ("container", "start") for args in calls)
 
 
 def test_rejects_floating_image_and_nonphysical_gpu():
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         replace(config(), image="example.invalid/plugin:latest").validate()
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         replace(config(), gpu_uuid="all").validate()
 
 
@@ -291,7 +291,7 @@ def test_approved_entrypoint_is_validated_and_part_of_identity():
         ("plugin;echo", *cfg.entrypoint[1:]),
         ("plugin", "serve", "--host", "0.0.0.0", "--port", "9000"),
     ):
-        with pytest.raises(AAPError, match="entrypoint"):
+        with pytest.raises(SDKError, match="entrypoint"):
             replace(cfg, entrypoint=entry).validate()
 
 
@@ -306,8 +306,8 @@ def test_rejects_digest_mismatch_before_creating_container(monkeypatch):
             stderr="",
         )
 
-    monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
-    with pytest.raises(AAPError, match="approved digest"):
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    with pytest.raises(SDKError, match="approved digest"):
         Docker().ensure_started(config())
     assert not any("create" in argv or "start" in argv for argv in calls)
 
@@ -353,8 +353,8 @@ def test_inspect_rejects_unapproved_pid_mode(monkeypatch, pid_mode):
             raise AssertionError(argv)
         return SimpleNamespace(returncode=0, stdout=out, stderr="")
 
-    monkeypatch.setattr("ai_annotation._plugin_docker.subprocess.run", run)
-    with pytest.raises(AAPError, match="resources"):
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    with pytest.raises(SDKError, match="resources"):
         Docker().exists(cfg)
     assert all(
         call[-1] == "c" * 64 for call in calls if call[1:3] == ["container", "inspect"]
@@ -369,7 +369,7 @@ def test_stop_rejects_replacement_and_accepts_absence(monkeypatch):
         docker, "_inspect", lambda config: {"id": "d" * 64, "name": config.name}
     )
     monkeypatch.setattr(docker, "_run", lambda *args: calls.append(args))
-    with pytest.raises(AAPError, match="proven container"):
+    with pytest.raises(SDKError, match="proven container"):
         docker.stop_and_remove(cfg, "c" * 64, "original")
     assert calls == []
     monkeypatch.setattr(docker, "_inspect", lambda config: None)
@@ -435,7 +435,7 @@ def test_stop_rejects_unknown_or_restarted_process(monkeypatch, expected):
         raise AssertionError(args)
 
     monkeypatch.setattr(docker, "_run", run)
-    with pytest.raises(AAPError, match="process identity"):
+    with pytest.raises(SDKError, match="process identity"):
         docker.stop_and_remove(cfg, "c" * 64, expected)
     assert all(call[:2] != ("container", "stop") for call in calls)
 

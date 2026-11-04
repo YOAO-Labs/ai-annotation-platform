@@ -4,8 +4,8 @@ from copy import deepcopy
 
 import pytest
 
-from ai_annotation.errors import AAPError
-from ai_annotation.plugin_deployment import LocalPluginDeployment
+from yoao.errors import SDKError
+from yoao.plugin_deployment import LocalPluginDeployment
 from .support_plugin_deployment import Core, LocalDocker, config, report_file
 
 
@@ -24,12 +24,12 @@ def test_legacy_receipt_migration_requires_same_image_and_immutable_manifest(tmp
     deployment.store.save(legacy)
     original = deepcopy(legacy)
 
-    with pytest.raises(AAPError, match="approved image"):
+    with pytest.raises(SDKError, match="approved image"):
         deployment.migrate_state(approved.manifest, "sha256:" + "e" * 64)
     assert deployment.store.load() == original
 
     modified = approved.manifest.model_copy(update={"version": "other"})
-    with pytest.raises(AAPError, match="immutable"):
+    with pytest.raises(SDKError, match="immutable"):
         deployment.migrate_state(modified, "sha256:" + "d" * 64)
     assert deployment.store.load() == original
 

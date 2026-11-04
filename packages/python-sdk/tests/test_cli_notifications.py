@@ -6,16 +6,16 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli import notifications as notification_cli
-from ai_annotation.notifications import Notifications
+from yoao.cli import notifications as notification_cli
+from yoao.notifications import Notifications
 
 from .conftest import API, BASE
 
 runner = CliRunner()
 NOTICE_ID = str(uuid4())
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "COLUMNS": "120",
     "NO_COLOR": "1",
     "TERM": "dumb",

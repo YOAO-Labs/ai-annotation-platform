@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import pytest
 
-from ai_annotation.errors import AAPError
-from ai_annotation.plugin_deployment import LocalPluginConfig, LocalPluginDeployment
+from yoao.errors import SDKError
+from yoao.plugin_deployment import LocalPluginConfig, LocalPluginDeployment
 
 from .support_plugin_deployment import Core, LocalDocker, config, report_file
 
@@ -42,7 +42,7 @@ def test_cpu_libreyolo_denies_gpu_and_preserves_existing_drain_state(tmp_path):
         == container.identity()
     )
     assert container.env_file.read_text() == old_env
-    with pytest.raises(AAPError, match="Existing deployment file does not match"):
+    with pytest.raises(SDKError, match="Existing deployment file does not match"):
         deployment._container(receipt, result)
 
 
@@ -103,7 +103,7 @@ def test_restart_resumes_interrupted_quiescence_with_bound_intent(tmp_path, comm
                 self.interrupted = True
                 if committed:
                     super().quiesce(installation_id, revision)
-                raise AAPError("quiescence response interrupted")
+                raise SDKError("quiescence response interrupted")
             return super().quiesce(installation_id, revision)
 
     core = InterruptedCore()
@@ -114,7 +114,7 @@ def test_restart_resumes_interrupted_quiescence_with_bound_intent(tmp_path, comm
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
     original = deployment.store.load()["launch"]
-    with pytest.raises(AAPError, match="response interrupted"):
+    with pytest.raises(SDKError, match="response interrupted"):
         deployment.restart()
     pending = deployment.store.load()
     assert core.result.installation.status == "disabled"
@@ -134,7 +134,7 @@ def test_interrupted_restart_does_not_quiesce_mismatched_intent(tmp_path, mutati
     class InterruptedCore(Core):
         def quiesce(self, installation_id, revision):
             self.events.append("interrupted")
-            raise AAPError("quiescence interrupted")
+            raise SDKError("quiescence interrupted")
 
     core = InterruptedCore()
     docker = LocalDocker(core.events)
@@ -143,7 +143,7 @@ def test_interrupted_restart_does_not_quiesce_mismatched_intent(tmp_path, mutati
     )
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
-    with pytest.raises(AAPError, match="quiescence interrupted"):
+    with pytest.raises(SDKError, match="quiescence interrupted"):
         deployment.restart()
     receipt = deployment.store.load()
     intent = receipt["restart_intent"]
@@ -156,7 +156,7 @@ def test_interrupted_restart_does_not_quiesce_mismatched_intent(tmp_path, mutati
     else:
         intent["registry_id"] = str(uuid4())
     deployment.store.save(receipt)
-    with pytest.raises(AAPError, match="intent does not match"):
+    with pytest.raises(SDKError, match="intent does not match"):
         deployment.restart()
     assert core.events.count("interrupted") == 1
     assert docker.running and "stop" not in core.events and "create" not in core.events
@@ -180,7 +180,7 @@ def test_disabled_restart_requires_matching_local_proof(tmp_path, proof_change):
     else:
         receipt["quiescence"]["launch"]["container_id"] = "f" * 64
     deployment.store.save(receipt)
-    with pytest.raises(AAPError, match="quiescence proof"):
+    with pytest.raises(SDKError, match="quiescence proof"):
         deployment.restart()
     assert core.result.installation.status == "disabled"
     assert "create" not in core.events
@@ -205,7 +205,7 @@ def test_proof_replay_never_stops_externally_restarted_process(tmp_path, operati
         def stop_and_remove(self, cfg, container_id, started_at):
             if not hasattr(self, "interrupted"):
                 self.interrupted = True
-                raise AAPError("stop interrupted")
+                raise SDKError("stop interrupted")
             return super().stop_and_remove(cfg, container_id, started_at)
 
     core = Core()
@@ -215,12 +215,12 @@ def test_proof_replay_never_stops_externally_restarted_process(tmp_path, operati
     )
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
-    with pytest.raises(AAPError, match="stop interrupted"):
+    with pytest.raises(SDKError, match="stop interrupted"):
         deployment.disable()
     proof = deployment.store.load()["quiescence"]
     assert proof["started_at"] == "boot-1"
     docker.started_at = "boot-external"
-    with pytest.raises(AAPError, match="process identity"):
+    with pytest.raises(SDKError, match="process identity"):
         getattr(deployment, operation)()
     assert docker.running
     assert "stop" not in core.events
@@ -247,7 +247,7 @@ def test_restart_replays_candidate_creation_without_losing_proof(tmp_path):
             result = super().create_candidate(cfg)
             if not hasattr(self, "interrupted"):
                 self.interrupted = True
-                raise AAPError("create response lost")
+                raise SDKError("create response lost")
             return result
 
     core = Core()
@@ -257,7 +257,7 @@ def test_restart_replays_candidate_creation_without_losing_proof(tmp_path):
     )
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
-    with pytest.raises(AAPError, match="response lost"):
+    with pytest.raises(SDKError, match="response lost"):
         deployment.restart()
     saved = deployment.store.load()
     assert (
@@ -276,7 +276,7 @@ def test_restart_replays_lost_activation_response_and_rejects_replaced_process(
         def activate(self, installation_id, request):
             result = super().activate(installation_id, request)
             if len([event for event in self.events if event == "activate"]) == 2:
-                raise AAPError("activation response lost")
+                raise SDKError("activation response lost")
             return result
 
     core = InterruptedCore()
@@ -286,11 +286,11 @@ def test_restart_replays_lost_activation_response_and_rejects_replaced_process(
     )
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
-    with pytest.raises(AAPError, match="response lost"):
+    with pytest.raises(SDKError, match="response lost"):
         deployment.restart()
     old_start = docker.started_at
     docker.started_at = "external-restart"
-    with pytest.raises(AAPError, match="process identity"):
+    with pytest.raises(SDKError, match="process identity"):
         deployment.restart()
     docker.started_at = old_start
     assert deployment.restart().installation.status == "active"
@@ -307,11 +307,11 @@ def test_active_install_rejects_external_restart_or_replaced_container(tmp_path)
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
     docker.started_at = "new-process"
-    with pytest.raises(AAPError, match="process identity"):
+    with pytest.raises(SDKError, match="process identity"):
         deployment.install()
     docker.started_at = "boot-1"
     docker.container_id = "f" * 64
-    with pytest.raises(AAPError, match="process identity"):
+    with pytest.raises(SDKError, match="process identity"):
         deployment.install()
     assert core.events == ["start", "activate"]
 
@@ -336,7 +336,7 @@ def test_unrecorded_local_container_prevents_cancellation(tmp_path):
     )
     deployment.prepare(config())
     docker.running = True
-    with pytest.raises(AAPError, match="Unrecorded local launch"):
+    with pytest.raises(SDKError, match="Unrecorded local launch"):
         deployment.uninstall()
     assert core.result.installation.status == "prepared"
     assert docker.running and "cancel" not in core.events
@@ -354,12 +354,12 @@ def test_crashed_launch_attempt_blocks_cancellation_even_if_container_disappeare
     report = report_file(tmp_path)
 
     def failed_start(container):
-        raise AAPError("Docker start outcome unknown")
+        raise SDKError("Docker start outcome unknown")
 
     docker.ensure_started = failed_start
-    with pytest.raises(AAPError, match="outcome unknown"):
+    with pytest.raises(SDKError, match="outcome unknown"):
         deployment.install(report)
-    with pytest.raises(AAPError, match="Unrecorded local launch"):
+    with pytest.raises(SDKError, match="Unrecorded local launch"):
         deployment.uninstall()
     assert core.result.installation.status == "prepared"
     assert "cancel" not in core.events
@@ -376,7 +376,7 @@ def test_retired_retry_rejects_same_name_replacement(tmp_path):
     deployment.uninstall()
     docker.container_id = "e" * 64
     docker.running = True
-    with pytest.raises(AAPError, match="Container ID"):
+    with pytest.raises(SDKError, match="Container ID"):
         deployment.uninstall()
     assert docker.running
 
@@ -412,13 +412,13 @@ def test_missing_or_changed_qualification_never_starts(tmp_path):
         core, "https://api.example", tmp_path / "state", docker
     )
     deployment.prepare(config())
-    with pytest.raises(AAPError, match="qualification report is required"):
+    with pytest.raises(SDKError, match="qualification report is required"):
         deployment.install()
     assert "start" not in core.events
     deployment.install(report_file(tmp_path))
     changed = tmp_path / "changed.json"
     changed.write_text('{"different":true}')
-    with pytest.raises(AAPError, match="differs"):
+    with pytest.raises(SDKError, match="differs"):
         deployment.install(changed)
 
 
@@ -464,7 +464,7 @@ def test_invalid_qualification_can_be_corrected_before_persistence(tmp_path, mut
     else:
         report["deployment"]["pool_topology"]["pools"]["models"]["cap"] = 2
     source.write_text(json.dumps(report))
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         deployment.install(source)
     assert not (tmp_path / "state" / "qualification.json").exists()
     assert "qualification" not in deployment.store.load()
@@ -478,7 +478,7 @@ def test_image_inspection_failure_can_be_retried(tmp_path):
         def image_id(self, config):
             if not hasattr(self, "failed"):
                 self.failed = True
-                raise AAPError("inspection failed")
+                raise SDKError("inspection failed")
             return super().image_id(config)
 
     core = Core()
@@ -487,7 +487,7 @@ def test_image_inspection_failure_can_be_retried(tmp_path):
     )
     deployment.prepare(config())
     source = report_file(tmp_path)
-    with pytest.raises(AAPError, match="inspection failed"):
+    with pytest.raises(SDKError, match="inspection failed"):
         deployment.install(source)
     assert not (tmp_path / "state" / "qualification.json").exists()
     assert "qualification" not in deployment.store.load()
@@ -500,14 +500,14 @@ def test_lost_prepare_response_reuses_persisted_identity(tmp_path):
         def prepare(self, request):
             result = super().prepare(request)
             if len(self.requests) == 1:
-                raise AAPError("response lost")
+                raise SDKError("response lost")
             return result
 
     core = InterruptedCore()
     deployment = LocalPluginDeployment(
         core, "https://api.example", tmp_path / "state", LocalDocker(core.events)
     )
-    with pytest.raises(AAPError, match="response lost"):
+    with pytest.raises(SDKError, match="response lost"):
         deployment.prepare(config())
     result = deployment.prepare(config())
     assert (
@@ -527,7 +527,7 @@ def test_active_install_does_not_restart_missing_container(tmp_path):
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
     docker.running = False
-    with pytest.raises(AAPError, match="not running"):
+    with pytest.raises(SDKError, match="not running"):
         deployment.install()
     assert core.events == ["start", "activate"]
 
@@ -541,7 +541,7 @@ def test_disable_does_not_stop_without_core_quiescence_proof(tmp_path):
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
     core.safe = False
-    with pytest.raises(AAPError, match="quiescence"):
+    with pytest.raises(SDKError, match="quiescence"):
         deployment.disable()
     assert docker.running
     assert core.events[-2:] == ["disable", "quiesce"]
@@ -560,7 +560,7 @@ def test_uninstall_preserves_container_when_core_reports_active_dependency(tmp_p
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
     core.dependent = True
-    with pytest.raises(AAPError, match="active dependency"):
+    with pytest.raises(SDKError, match="active dependency"):
         deployment.uninstall()
     assert docker.running
     assert core.result.installation.status == "disabled"
@@ -575,7 +575,7 @@ def test_uninstall_preserves_container_and_credentials_without_quiescence(tmp_pa
     deployment.prepare(config())
     deployment.install(report_file(tmp_path))
     core.safe = False
-    with pytest.raises(AAPError, match="quiescence"):
+    with pytest.raises(SDKError, match="quiescence"):
         deployment.uninstall()
     assert docker.running
     assert (state / "data" / "token").exists()
@@ -616,7 +616,7 @@ def test_retry_rejects_changed_configuration_without_mutation(tmp_path):
     )
     deployment.prepare(config())
     changed = config().model_copy(update={"name": "different"})
-    with pytest.raises(AAPError, match="different configuration"):
+    with pytest.raises(SDKError, match="different configuration"):
         deployment.prepare(changed)
     assert len(core.requests) == 1
 
@@ -634,8 +634,8 @@ def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(
 ):
     import os
 
-    from ai_annotation._plugin_asset_measure import measured_paths
-    from aap_inference_contract.plugin_assets import (
+    from yoao._plugin_asset_measure import measured_paths
+    from yoao_inference_contract.plugin_assets import (
         PluginAssetDescriptor,
         PluginSelectionKey,
     )
@@ -715,5 +715,5 @@ def test_asset_approval_measures_owned_bytes_and_refuses_changed_process(
         [] if replace_host_directory else ["correct.bin"]
     )
     docker.started_at = "replaced-process"
-    with pytest.raises(AAPError, match="process identity"):
+    with pytest.raises(SDKError, match="process identity"):
         deployment.approve_assets(descriptor, choices, 1)

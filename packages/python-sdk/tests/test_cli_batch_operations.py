@@ -9,10 +9,10 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli import batches as batches_cli
-from ai_annotation.cli.main import app
-from ai_annotation.batch_operation_models import BatchAuditLogEntry
-from ai_annotation.models import Batch
+from yoao.cli import batches as batches_cli
+from yoao.cli.main import app
+from yoao.batch_operation_models import BatchAuditLogEntry
+from yoao.models import Batch
 
 from .conftest import API, BASE
 
@@ -100,7 +100,7 @@ def test_bulk_archive_prints_entire_partial_receipt_then_exits_nonzero(respx_moc
             "--yes",
             "--json",
         ],
-        env={**ENV, "AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test"},
+        env={**ENV, "YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test"},
     )
 
     assert result.exit_code == 1
@@ -172,7 +172,7 @@ def test_submit_review_remaining_tasks_preserve_receipt_and_fail_cli(respx_mock)
     result = runner.invoke(
         app,
         ["batches", "submit-review", PROJECT_ID, BATCH_ID, "--yes", "--json"],
-        env={**ENV, "AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test"},
+        env={**ENV, "YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test"},
     )
     assert result.exit_code == 1
     assert json.loads(result.stdout) == receipt

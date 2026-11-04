@@ -7,8 +7,8 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation import describe_operation
-from ai_annotation.cli.main import app
+from yoao import describe_operation
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
@@ -31,7 +31,9 @@ def test_cli_reads_existing_job_without_waiting_or_mutating(respx_mock, json_out
     )
     args = ["jobs", "get", job_id, *(["--json"] if json_output else [])]
     result = CliRunner().invoke(
-        app, args, env={"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+        app,
+        args,
+        env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
     assert result.exit_code == 0, result.output
     assert result.stderr == ""
@@ -74,7 +76,7 @@ def test_registered_pipeline_list_serializes_nonempty_typed_rows(
             project_id,
             *(["--json"] if json_output else []),
         ],
-        env={"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"},
+        env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
     assert result.exit_code == 0, result.output
     assert result.stderr == ""
@@ -137,7 +139,7 @@ def test_registered_preannotation_stdin_requires_confirmation_and_keeps_identity
         key,
         "--json",
     ]
-    env = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+    env = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
     refused = CliRunner().invoke(app, args, input=json.dumps(payload), env=env)
     assert refused.exit_code == 2
     assert json.loads(refused.stderr)["kind"] == "usage_error"
@@ -169,7 +171,7 @@ def test_registered_notification_preference_preserves_other_channels(respx_mock)
         app,
         ["notifications", "update-preference", "--body", "-", "--json"],
         input='{"type":"future-type","toast":false}',
-        env={"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"},
+        env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
     assert result.exit_code == 0, result.output
     assert json.loads(result.stdout) == {"ok": True}

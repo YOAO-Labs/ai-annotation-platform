@@ -5,9 +5,9 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.errors import ConflictError
-from ai_annotation.point_cloud_quality import PointCloudQuality
-from ai_annotation.point_cloud_quality_models import (
+from yoao.errors import ConflictError
+from yoao.point_cloud_quality import PointCloudQuality
+from yoao.point_cloud_quality_models import (
     PointCloudQualityConfig,
     PointCloudQualityConfigRead,
     PointCloudQualityEvaluation,

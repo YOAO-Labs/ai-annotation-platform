@@ -10,26 +10,26 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.annotation_history import (
+from yoao.annotation_history import (
     AnnotationHistory as AnnotationHistoryResource,
 )
-from ai_annotation.bug_report_models import (
+from yoao.bug_report_models import (
     BugCommentCreate,
     BugReportCreate,
     BugReportUpdate,
     BugScreenshotUploadRequest,
 )
-from ai_annotation.bug_reports import BugReports
-from ai_annotation.cli import comments as comments_cli
-from ai_annotation.comment_models import (
+from yoao.bug_reports import BugReports
+from yoao.cli import comments as comments_cli
+from yoao.comment_models import (
     AnnotationCommentCreate,
     AnnotationCommentUpdate,
     CommentAttachmentInput,
     CommentAttachmentUploadRequest,
     CommentMentionInput,
 )
-from ai_annotation.comments import Comments
-from ai_annotation.errors import AAPError, APIStatusError, NotFoundError
+from yoao.comments import Comments
+from yoao.errors import SDKError, APIStatusError, NotFoundError
 
 from .conftest import API
 
@@ -312,7 +312,7 @@ def test_comment_redirect_rejects_non_302_or_unsafe_location(
     route = respx_mock.get(
         f"{API}/annotations/{ANNOTATION_ID}/comment-attachments/download"
     ).mock(return_value=httpx.Response(status, headers={"Location": location}))
-    error_type = APIStatusError if status != 302 else AAPError
+    error_type = APIStatusError if status != 302 else SDKError
     with pytest.raises(error_type, match=message):
         comments.download_attachment(
             ANNOTATION_ID, "comment-attachments/a", tmp_path / "a"
@@ -571,7 +571,7 @@ def test_oversized_screenshot_is_rejected_before_requests(client, respx_mock, tm
     path = tmp_path / "oversized.png"
     with path.open("wb") as stream:
         stream.truncate(10 * 1024 * 1024 + 1)
-    with pytest.raises(AAPError, match="10 MiB"):
+    with pytest.raises(SDKError, match="10 MiB"):
         client.bug_reports.upload_screenshot(path)
     assert not respx_mock.calls
 

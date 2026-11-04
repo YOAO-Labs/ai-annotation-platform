@@ -6,15 +6,15 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation import FileUploadInit
-from ai_annotation.cli.main import app
-from ai_annotation.errors import APIStatusError
+from yoao import FileUploadInit
+from yoao.cli.main import app
+from yoao.errors import APIStatusError
 
 from .conftest import BASE
 
 TASK = "11111111-1111-4111-8111-111111111111"
 URL = "https://storage.example/signed-put"
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def _init(url=URL):

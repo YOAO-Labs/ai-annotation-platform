@@ -8,19 +8,19 @@ from uuid import uuid4
 
 from typer.testing import CliRunner
 
-from ai_annotation.cli import project_performance as performance_cli
-from ai_annotation.cli import projects as projects_cli
-from ai_annotation.cli import search as search_cli
-from ai_annotation.models import Project
-from ai_annotation.project_operation_models import LidarExportPreflight, ProjectPage
-from ai_annotation.project_performance_models import (
+from yoao.cli import project_performance as performance_cli
+from yoao.cli import projects as projects_cli
+from yoao.cli import search as search_cli
+from yoao.models import Project
+from yoao.project_operation_models import LidarExportPreflight, ProjectPage
+from yoao.project_performance_models import (
     ProjectMembersPerformance,
     ProjectPerformanceCoverage,
     ProjectPerformanceMetric,
     ProjectPerformanceTotals,
     ProjectPerformanceScope,
 )
-from ai_annotation.search_models import SearchResponse
+from yoao.search_models import SearchResponse
 
 runner = CliRunner()
 

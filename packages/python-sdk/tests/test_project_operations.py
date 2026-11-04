@@ -9,8 +9,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.client import Projects
-from ai_annotation.project_operation_models import (
+from yoao.client import Projects
+from yoao.project_operation_models import (
     LidarExportPreflightRequest,
     ProjectClassRenameRequest,
     ProjectTransferRequest,

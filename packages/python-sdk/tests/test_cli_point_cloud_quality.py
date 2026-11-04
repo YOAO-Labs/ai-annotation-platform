@@ -3,14 +3,14 @@ from uuid import uuid4
 
 from typer.testing import CliRunner
 
-import ai_annotation.cli.point_cloud_quality as point_cloud_quality_cli
-from ai_annotation.point_cloud_quality_models import (
+import yoao.cli.point_cloud_quality as point_cloud_quality_cli
+from yoao.point_cloud_quality_models import (
     PointCloudQualityConfig,
     PointCloudQualityEvaluation,
     PointCloudQualityIssue,
     PointCloudQualityRun,
 )
-from ai_annotation.point_cloud_quality_models import PointCloudQualityIssuePatch
+from yoao.point_cloud_quality_models import PointCloudQualityIssuePatch
 
 runner = CliRunner()
 ENV = {"COLUMNS": "120", "NO_COLOR": "1", "TERM": "dumb"}

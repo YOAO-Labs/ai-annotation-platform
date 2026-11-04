@@ -6,12 +6,12 @@ from uuid import uuid4
 import httpx
 from typer.testing import CliRunner
 
-from ai_annotation.cli.admin_operations import app
+from yoao.cli.admin_operations import app
 
 from .conftest import API, BASE
 
 runner = CliRunner()
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def test_bulk_clear_refusal_sends_no_request_then_yes_sends_typed_body(

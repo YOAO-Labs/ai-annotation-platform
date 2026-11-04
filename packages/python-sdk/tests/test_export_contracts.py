@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation import (
+from yoao import (
     ExportRequestBody,
     LidarExportOptions,
     VideoExportFrameSelection,

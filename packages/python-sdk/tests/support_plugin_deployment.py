@@ -4,9 +4,9 @@ import hashlib
 import json
 from uuid import uuid4
 
-from ai_annotation.errors import AAPError, APIStatusError
-from ai_annotation.plugin_deployment import LocalPluginConfig
-from aap_inference_contract.plugin import (
+from yoao.errors import SDKError, APIStatusError
+from yoao.plugin_deployment import LocalPluginConfig
+from yoao_inference_contract.plugin import (
     PluginInstallationResponse,
     PluginQuiesceResponse,
 )
@@ -32,7 +32,7 @@ def config():
                 "artifact": "example.invalid/plugin@sha256:" + "b" * 64,
                 "sdk_compatibility": ">=1",
                 "entrypoint": [
-                    "aap-libreyolo",
+                    "yoao-libreyolo",
                     "serve",
                     "--host",
                     "0.0.0.0",
@@ -64,8 +64,8 @@ def config():
 
 
 def report_file(tmp_path):
-    from aap_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
-    from aap_lifecycle_contract import memory_cycle_evidence
+    from yoao_backend_runtime.lifecycle_evidence import build_managed_lifecycle_evidence
+    from yoao_lifecycle_contract import memory_cycle_evidence
     from training_contract.inference_runtime import LIBRE_CUDA_RUNTIME
 
     receipt = json.loads((tmp_path / "state" / "receipt.json").read_text())
@@ -244,9 +244,9 @@ class Core:
         self.events.append("retire")
         assert revision == self.result.installation.revision
         if self.dependent:
-            raise AAPError("active dependency")
+            raise SDKError("active dependency")
         if self.proven_revision != revision:
-            raise AAPError("quiescence proof required")
+            raise SDKError("quiescence proof required")
         return self._transition("retired")
 
     def cancel_prepared(self, installation_id, revision):
@@ -279,7 +279,7 @@ class LocalDocker:
 
     def verify_running(self, config):
         if not self.running:
-            raise AAPError("owned container is not running")
+            raise SDKError("owned container is not running")
         return {
             "id": self.container_id,
             "image_id": "sha256:" + "d" * 64,
@@ -289,16 +289,16 @@ class LocalDocker:
     def wait_ready(self, config, container_id):
         self.verify_running(config)
         if container_id != self.container_id:
-            raise AAPError("Container ID differs from the owned container")
+            raise SDKError("Container ID differs from the owned container")
 
     def exists(self, config):
         return self.running
 
     def stop_and_remove(self, config, proven_id, started_at):
         if self.running and proven_id != self.container_id:
-            raise AAPError("Container ID differs from the proven container")
+            raise SDKError("Container ID differs from the proven container")
         if self.running and (not started_at or started_at != self.started_at):
-            raise AAPError(
+            raise SDKError(
                 "Container process identity differs from the quiescence proof"
             )
         self.events.append("stop")
@@ -311,7 +311,7 @@ class LocalDocker:
 
     def create_candidate(self, config):
         if self.created and self.candidate_token != config.candidate_token:
-            raise AAPError("unknown container")
+            raise SDKError("unknown container")
         if not self.created:
             self.container_id = "e" * 64 if self.container_id != "e" * 64 else "f" * 64
             self.created = True
@@ -325,10 +325,10 @@ class LocalDocker:
             or self.candidate_token != config.candidate_token
             or self.container_id != container_id
         ):
-            raise AAPError("Candidate container ID differs from the recorded identity")
+            raise SDKError("Candidate container ID differs from the recorded identity")
         if not self.running:
             if not may_start:
-                raise AAPError("Candidate process exited")
+                raise SDKError("Candidate process exited")
             self.events.append("start")
             self.running = True
             self.started_at = "boot-" + self.container_id[0]

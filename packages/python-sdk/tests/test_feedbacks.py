@@ -13,7 +13,7 @@ import httpx
 import pytest
 from pydantic import ValidationError as ModelValidationError
 
-from ai_annotation import (
+from yoao import (
     AnnotationFeedback,
     FeedbackAnchorPosition,
     FeedbackPage,
@@ -22,7 +22,7 @@ from ai_annotation import (
     FeedbackVideoTimelineWindow,
     FeedbackVideoViewport,
 )
-from ai_annotation.errors import NotFoundError, PermissionDeniedError, ValidationError
+from yoao.errors import NotFoundError, PermissionDeniedError, ValidationError
 
 
 PROJECT_ID, TASK_ID, ANNOTATION_ID = uuid4(), uuid4(), uuid4()
@@ -269,7 +269,7 @@ class BlockExtras(importlib.abc.MetaPathFinder):
         if fullname.split('.')[0] in {'typer', 'rich', 'textual', 'websockets'}:
             raise ImportError('optional dependency is unavailable: ' + fullname)
 sys.meta_path.insert(0, BlockExtras())
-from ai_annotation import Client, FeedbackVideoContext, FeedbackPage
+from yoao import Client, FeedbackVideoContext, FeedbackPage
 assert FeedbackVideoContext(schema_version=1).schema_version == 1
 assert FeedbackPage(items=[]).next_cursor is None
 with Client(base_url='http://testserver', api_key='ak_test') as client:

@@ -11,9 +11,9 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.cli import video_review as video_review_cli
-from ai_annotation.video_review import VideoReview
-from ai_annotation.video_review_models import (
+from yoao.cli import video_review as video_review_cli
+from yoao.video_review import VideoReview
+from yoao.video_review_models import (
     CocoRleContent,
     VideoMaskKeyframeOperationRequest,
     VideoMaskKeyframeSaveRequest,

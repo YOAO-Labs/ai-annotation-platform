@@ -7,9 +7,9 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.errors import ConflictError
-from ai_annotation.mask_qc import MaskQC
-from ai_annotation.mask_qc_models import (
+from yoao.errors import ConflictError
+from yoao.mask_qc import MaskQC
+from yoao.mask_qc_models import (
     CocoRleMaskContent,
     MaskQCIssue,
     MaskQCIssuePage,

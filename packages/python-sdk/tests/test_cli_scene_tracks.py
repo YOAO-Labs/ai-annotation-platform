@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli import scene_tracks as scene_cli
+from yoao.cli import scene_tracks as scene_cli
 
 TASK_ID, TRACK_ID, SECONDARY_TRACK_ID, OPERATION_ID = [str(uuid4()) for _ in range(4)]
 TOKEN = "d" * 64

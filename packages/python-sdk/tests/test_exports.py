@@ -4,13 +4,13 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import AAPError, APIStatusError
-from ai_annotation.export_models import (
+from yoao.errors import SDKError, APIStatusError
+from yoao.export_models import (
     ExportRequestBody,
     VideoExportFrameSelection,
     VideoExportScopeRequest,
 )
-from ai_annotation.models import Job
+from yoao.models import Job
 
 from .conftest import API, BASE
 
@@ -82,7 +82,7 @@ def test_create_export_sends_typed_json_body_separately_from_query(client, respx
 def test_create_export_rejects_body_fields_as_query_options(client, respx_mock, field):
     route = respx_mock.post(f"{API}/projects/{PROJECT_ID}/export")
 
-    with pytest.raises(AAPError, match="belong in body"):
+    with pytest.raises(SDKError, match="belong in body"):
         client.exports.create(PROJECT_ID, ["coco"], **{field: None})
 
     assert not route.called
@@ -91,7 +91,7 @@ def test_create_export_rejects_body_fields_as_query_options(client, respx_mock, 
 def test_create_export_rejects_voc_with_download_guidance(client, respx_mock):
     route = respx_mock.post(f"{API}/projects/{PROJECT_ID}/export")
 
-    with pytest.raises(AAPError, match="exports.download_voc"):
+    with pytest.raises(SDKError, match="exports.download_voc"):
         client.exports.create(PROJECT_ID, ["voc"])
 
     assert not route.called
@@ -135,7 +135,7 @@ def test_download_voc_posts_authenticated_query_and_streams_atomically(
     assert request.url.params.get_list("targets") == ["voc"]
     assert request.url.params["include_attributes"] == "false"
     assert dest.read_bytes() == b"PK\x03\x04zip"
-    assert not list(tmp_path.glob(".aap-download-*.part"))
+    assert not list(tmp_path.glob(".yoao-download-*.part"))
 
 
 @pytest.mark.parametrize("failure", ["http", "interrupt"])
@@ -161,7 +161,7 @@ def test_download_voc_failure_preserves_destination_and_does_not_retry_post(
 
     assert route.calls.call_count == 1
     assert dest.read_bytes() == b"keep me"
-    assert not list(tmp_path.glob(".aap-download-*.part"))
+    assert not list(tmp_path.glob(".yoao-download-*.part"))
 
 
 def test_download_presigned_absolute_url_no_auth(client, respx_mock, tmp_path):
@@ -195,5 +195,5 @@ def test_download_without_url_raises(client, tmp_path):
     job = Job.model_validate(
         {"id": JOB_ID, "kind": "export", "status": "running", "result": {}}
     )
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         client.exports.download(job, tmp_path / "x.zip")

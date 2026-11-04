@@ -5,10 +5,10 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli.annotations import app as annotations_app
-from ai_annotation.cli.failed_predictions import app as failed_predictions_app
-from ai_annotation.cli.predictions import app as predictions_app
-from ai_annotation.failed_prediction_models import (
+from yoao.cli.annotations import app as annotations_app
+from yoao.cli.failed_predictions import app as failed_predictions_app
+from yoao.cli.predictions import app as predictions_app
+from yoao.failed_prediction_models import (
     FailedPredictionDismissReceipt,
     FailedPredictionRetryReceipt,
 )
@@ -17,8 +17,8 @@ from .conftest import API, BASE
 
 runner = CliRunner()
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "COLUMNS": "120",
     "NO_COLOR": "1",
     "TERM": "dumb",
@@ -143,7 +143,7 @@ def test_failed_prediction_mutations_require_confirmation_before_client(
             return None
 
     monkeypatch.setattr(
-        "ai_annotation.cli.failed_predictions.get_client",
+        "yoao.cli.failed_predictions.get_client",
         lambda _json: FakeClient(),
     )
     refused = runner.invoke(

@@ -3,8 +3,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import ConflictError, JobFailedError, JobTimeoutError
-from ai_annotation.models import JobPage, JobRetryResult
+from yoao.errors import ConflictError, JobFailedError, JobTimeoutError
+from yoao.models import JobPage, JobRetryResult
 
 from .conftest import API
 

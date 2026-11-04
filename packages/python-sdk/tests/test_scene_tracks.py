@@ -7,8 +7,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.errors import ConflictError
-from ai_annotation.scene_track_models import (
+from yoao.errors import ConflictError
+from yoao.scene_track_models import (
     LegacyTrackOperationExecuteRequest,
     LegacyTrackOperationPreview,
     LegacyTrackOperationRequest,
@@ -24,7 +24,7 @@ from ai_annotation.scene_track_models import (
     SceneTrackRevertRequest,
     TrackOperationCandidates,
 )
-from ai_annotation.scene_tracks import SceneTracks
+from yoao.scene_tracks import SceneTracks
 
 from .conftest import API
 

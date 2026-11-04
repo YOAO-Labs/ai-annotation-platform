@@ -9,15 +9,15 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli import datasets as datasets_cli
-from ai_annotation.cli.main import app
+from yoao.cli import datasets as datasets_cli
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
 runner = CliRunner()
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "COLUMNS": "140",
     "NO_COLOR": "1",
     "TERM": "dumb",

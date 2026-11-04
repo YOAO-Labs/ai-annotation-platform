@@ -4,8 +4,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import AAPError, NotFoundError, ValidationError
-from ai_annotation.models import Annotation, AnnotationBulkUpdateResult
+from yoao.errors import SDKError, NotFoundError, ValidationError
+from yoao.models import Annotation, AnnotationBulkUpdateResult
 
 from .conftest import API
 
@@ -154,6 +154,6 @@ def test_import_annotations_file_limit_is_checked_before_http(
     path = tmp_path / "too-large.json"
     with path.open("wb") as file:
         file.truncate(64 * 1024 * 1024 + 1)
-    with pytest.raises(AAPError, match="64 MiB"):
+    with pytest.raises(SDKError, match="64 MiB"):
         client.annotations.import_file("project-1", path)
     assert not respx_mock.calls

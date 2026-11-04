@@ -6,7 +6,7 @@ import pytest
 from typer.testing import CliRunner
 from typer.main import get_command
 
-from ai_annotation.cli import videos
+from yoao.cli import videos
 
 runner = CliRunner()
 ITEM_ID = str(uuid4())

@@ -4,11 +4,11 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.management_operation_models import (
+from yoao.management_operation_models import (
     PredictionPurgeRequest,
     PredictionPurgeResponse,
 )
-from ai_annotation.models import ImportResult
+from yoao.models import ImportResult
 
 from .conftest import API
 

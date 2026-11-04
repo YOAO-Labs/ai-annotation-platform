@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.admin_operation_models import (
+from yoao.admin_operation_models import (
     AliasFrequencyResponse,
     AnalyticsPanelResponse,
     PreannotateBulkClearRequest,
@@ -16,7 +16,7 @@ from ai_annotation.admin_operation_models import (
     PreannotateQueueResponse,
     SystemHealthResponse,
 )
-from ai_annotation.admin_operations import AdminOperations
+from yoao.admin_operations import AdminOperations
 
 from .conftest import API
 

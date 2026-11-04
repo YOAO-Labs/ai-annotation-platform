@@ -6,7 +6,7 @@ import httpx
 import pytest
 from textual.widgets import DataTable, TabbedContent
 
-from ai_annotation.tui.app import AapTuiApp, TrainingRunDetailScreen
+from yoao.tui.app import AapTuiApp, TrainingRunDetailScreen
 
 from .conftest import API, BASE
 from .support_training_runs import _run

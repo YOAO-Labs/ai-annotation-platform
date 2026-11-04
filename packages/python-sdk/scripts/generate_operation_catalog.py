@@ -15,7 +15,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[3]
 PACKAGE = ROOT / "packages" / "python-sdk"
-SOURCE = PACKAGE / "src" / "ai_annotation"
+SOURCE = PACKAGE / "src" / "yoao"
 SNAPSHOT = ROOT / "apps" / "api" / "openapi.snapshot.json"
 MANIFEST = PACKAGE / "api-coverage.toml"
 OUTPUT = SOURCE / "_operation_catalog.generated.json"
@@ -498,7 +498,7 @@ METHOD_NOTES: dict[str, dict[str, Any]] = {
         "examples": [
             {
                 "kind": "workflow",
-                "text": "Run `aap learning runs preflight --project <project-id> --body run.json --json`, copy its digest into the same request body, then call `aap learning runs create`.",
+                "text": "Run `yoao learning runs preflight --project <project-id> --body run.json --json`, copy its digest into the same request body, then call `yoao learning runs create`.",
             }
         ],
     },
@@ -1467,7 +1467,7 @@ def _sdk_declarations() -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]
         tree = ast.parse(
             source_path.read_text(encoding="utf-8"), filename=str(source_path)
         )
-        module = f"ai_annotation.{source_path.stem}"
+        module = f"yoao.{source_path.stem}"
         for class_node in (
             node for node in tree.body if isinstance(node, ast.ClassDef)
         ):
@@ -1669,7 +1669,7 @@ def _sdk_declarations() -> tuple[dict[str, list[str]], dict[str, dict[str, Any]]
 
 def _click_commands() -> list[dict[str, Any]]:
     sys.path.insert(0, str(PACKAGE / "src"))
-    from ai_annotation.cli.main import app
+    from yoao.cli.main import app
 
     commands: list[dict[str, Any]] = []
 
@@ -1746,7 +1746,7 @@ def _click_commands() -> list[dict[str, Any]]:
         command_name = info.name or callback_name.removesuffix("_").replace("_", "-")
         commands.append(
             {
-                "path": " ".join(("aap", *path, command_name)),
+                "path": " ".join(("yoao", *path, command_name)),
                 "alias": ".".join((*path, command_name)),
                 "parameters": params,
                 "sdk_methods": sorted(sdk_calls),
@@ -1911,7 +1911,7 @@ def generate_catalog() -> dict[str, Any]:
         command["sdk_methods"] = sorted(
             name for name in command["sdk_methods"] if name in sdk_methods
         )
-    from ai_annotation.streams import describe_stream_channel, list_stream_channels
+    from yoao.streams import describe_stream_channel, list_stream_channels
 
     channels = [describe_stream_channel(row["name"]) for row in list_stream_channels()]
     channel_paths = {row["name"]: row["path"] for row in channels}
@@ -1926,7 +1926,7 @@ def generate_catalog() -> dict[str, Any]:
         "schema_version": 1,
         "stream_channels": channels,
         "openapi_version": spec["info"].get("version"),
-        "guide_resource": "ai_annotation/AGENT_GUIDE.md",
+        "guide_resource": "yoao/AGENT_GUIDE.md",
         "authority": "Descriptions do not grant permission or prove runtime availability; the server remains authoritative.",
         "invocation_note": "This catalog describes concrete SDK and CLI interfaces; it does not provide a generic JSON request executor.",
         "operation_count": len(result),

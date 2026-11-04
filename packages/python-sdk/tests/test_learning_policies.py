@@ -5,15 +5,15 @@ import json
 import httpx
 import pytest
 
-from ai_annotation.errors import (
+from yoao.errors import (
     AuthenticationError,
     ConflictError,
     PermissionDeniedError,
     ValidationError,
 )
-from ai_annotation.model_management import LearningPolicies
-from ai_annotation.model_management_models import LearningPolicySaveRequest
-from ai_annotation.training_models import TrainingConfiguration
+from yoao.model_management import LearningPolicies
+from yoao.model_management_models import LearningPolicySaveRequest
+from yoao.training_models import TrainingConfiguration
 
 from .conftest import API
 

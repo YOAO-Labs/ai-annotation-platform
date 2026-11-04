@@ -3,16 +3,16 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from ai_annotation.errors import AAPError, APIStatusError, ConflictError
-from ai_annotation.learning_automation import TrainingStudies
-from ai_annotation.learning_automation_models import (
+from yoao.errors import SDKError, APIStatusError, ConflictError
+from yoao.learning_automation import TrainingStudies
+from yoao.learning_automation_models import (
     StudyBudgets,
     TrainingStudyCreate,
     TrainingStudyDetail,
     TrainingStudyPage,
     TrainingStudyPreview,
 )
-from ai_annotation.training_models import TrainingRunCreate
+from yoao.training_models import TrainingRunCreate
 from pydantic import ValidationError as PydanticValidationError
 
 from .conftest import API
@@ -138,7 +138,7 @@ def test_create_requires_preview_without_sending_request(client, respx_mock):
         return_value=httpx.Response(202, json=detail())
     )
 
-    with pytest.raises(AAPError, match="requires a preview_digest"):
+    with pytest.raises(SDKError, match="requires a preview_digest"):
         resource(client).create(PROJECT_ID, body())
 
     assert not route.called

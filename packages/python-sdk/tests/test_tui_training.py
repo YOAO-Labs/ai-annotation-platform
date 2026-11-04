@@ -10,8 +10,8 @@ from uuid import uuid4
 import pytest
 from textual.widgets import DataTable, Select, Static, TabbedContent
 
-from ai_annotation.models import JobPage
-from ai_annotation.tui.app import AapTuiApp, TrainingRunDetailScreen
+from yoao.models import JobPage
+from yoao.tui.app import AapTuiApp, TrainingRunDetailScreen
 
 from .conftest import BASE
 from .support_tui import (

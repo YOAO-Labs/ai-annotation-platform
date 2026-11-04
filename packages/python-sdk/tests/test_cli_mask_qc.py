@@ -8,8 +8,8 @@ from uuid import uuid4
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli import mask_qc as mask_qc_cli
-from ai_annotation.mask_qc_models import (
+from yoao.cli import mask_qc as mask_qc_cli
+from yoao.mask_qc_models import (
     MaskQCIssuePage,
     MaskQCRun,
     MaskRepairBatch,

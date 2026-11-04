@@ -9,11 +9,11 @@ from pathlib import Path
 
 import pytest
 
-from ai_annotation import __aap_target_version__
-from ai_annotation._http import API_PREFIX
+from yoao import __platform_target_version__
+from yoao._http import API_PREFIX
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-CLIENT_SOURCE = PACKAGE_ROOT / "src" / "ai_annotation" / "client.py"
+CLIENT_SOURCE = PACKAGE_ROOT / "src" / "yoao" / "client.py"
 ADDITIONAL_SOURCES = tuple(
     path for path in sorted(CLIENT_SOURCE.parent.glob("*.py")) if path != CLIENT_SOURCE
 )
@@ -354,7 +354,7 @@ def test_client_call_sites_exist_in_snapshot():
 def test_api_coverage_manifest_classifies_watched_operations():
     spec = _snapshot()
     manifest = tomllib.loads(COVERAGE_MANIFEST.read_text(encoding="utf-8"))
-    assert manifest["snapshot"] == __aap_target_version__
+    assert manifest["snapshot"] == __platform_target_version__
 
     watched_tags = set(manifest["watched_tags"])
     assert watched_tags == {"*"}, "all OpenAPI tags must remain covered by drift checks"
@@ -404,7 +404,7 @@ def test_api_coverage_manifest_classifies_watched_operations():
 
 @pytest.mark.skipif(not SNAPSHOT.is_file(), reason="WebSocket router is monorepo-only")
 def test_public_stream_channels_match_root_mounted_router():
-    from ai_annotation.discovery import _catalog
+    from yoao.discovery import _catalog
 
     api = SNAPSHOT.parent
     tree = ast.parse((api / "app/api/v1/ws.py").read_text())

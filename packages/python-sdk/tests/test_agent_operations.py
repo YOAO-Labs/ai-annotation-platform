@@ -7,8 +7,8 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation import describe_operation, list_capabilities
-from ai_annotation.cli.main import app
+from yoao import describe_operation, list_capabilities
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
@@ -78,7 +78,7 @@ def test_stdin_submission_preserves_request_and_structured_failure(respx_mock, s
             "--json",
         ],
         input=json.dumps(payload),
-        env={"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"},
+        env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
 
     assert result.exit_code == 1, result.output
@@ -104,7 +104,7 @@ def test_stdin_submission_preserves_request_and_structured_failure(respx_mock, s
 def test_export_boundary_keeps_actionable_json_hint(client, capsys, respx_mock):
     import typer
 
-    from ai_annotation.cli._output import cli_errors, error_format_context
+    from yoao.cli._output import cli_errors, error_format_context
 
     with error_format_context("json"), pytest.raises(typer.Exit):
         with cli_errors():
@@ -118,23 +118,23 @@ def test_export_boundary_keeps_actionable_json_hint(client, capsys, respx_mock):
 
 @pytest.mark.parametrize("command", ["wait", "upload"])
 def test_structured_error_is_not_mixed_with_progress(monkeypatch, tmp_path, command):
-    from ai_annotation import JobTimeoutError
+    from yoao import JobTimeoutError
 
     def fail(*args, **kwargs):
         raise JobTimeoutError("async job job-456 等待超过 5s 仍未到终态")
 
     if command == "wait":
-        monkeypatch.setattr("ai_annotation.client.Jobs.wait", fail)
+        monkeypatch.setattr("yoao.client.Jobs.wait", fail)
         args = ["jobs", "wait", "job-456"]
     else:
-        monkeypatch.setattr("ai_annotation.client.Datasets.upload_files", fail)
+        monkeypatch.setattr("yoao.client.Datasets.upload_files", fail)
         path = tmp_path / "private-file.txt"
         path.write_text("content")
         args = ["datasets", "upload", "dataset-id", str(path)]
     result = CliRunner().invoke(
         app,
         ["--error-format=json", *args],
-        env={"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"},
+        env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
     assert result.exit_code == 1
     assert result.stderr.count("\n") == 1

@@ -8,10 +8,10 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.file_models import FileUploadInitRequest
-from ai_annotation.files import Files
-from ai_annotation.scene_models import Scene, SceneUpdate
-from ai_annotation.scenes import Scenes
+from yoao.file_models import FileUploadInitRequest
+from yoao.files import Files
+from yoao.scene_models import Scene, SceneUpdate
+from yoao.scenes import Scenes
 
 from .conftest import API
 

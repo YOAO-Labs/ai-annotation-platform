@@ -6,8 +6,8 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli.main import app
-from ai_annotation.errors import AuthenticationError
+from yoao.cli.main import app
+from yoao.errors import AuthenticationError
 
 from .conftest import BASE
 
@@ -44,7 +44,7 @@ def test_overall_health_cli_emits_degraded_report_and_nonzero(respx_mock):
     result = CliRunner().invoke(
         app,
         ["health", "get", "--json"],
-        env={"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"},
+        env={"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"},
     )
     assert result.exit_code == 1
     assert json.loads(result.stdout)["checks"]["db"]["status"] == "error"
@@ -52,8 +52,8 @@ def test_overall_health_cli_emits_degraded_report_and_nonzero(respx_mock):
 
 
 def test_public_health_cli_does_not_require_an_api_key(monkeypatch, respx_mock):
-    from ai_annotation.cli import _output
-    import ai_annotation.client as client_module
+    from yoao.cli import _output
+    import yoao.client as client_module
 
     monkeypatch.setattr(_output, "load_config", lambda **_kwargs: (BASE, None))
     monkeypatch.setattr(client_module, "load_config", lambda **_kwargs: (BASE, None))

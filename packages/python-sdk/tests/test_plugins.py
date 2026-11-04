@@ -8,9 +8,9 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli.main import app
-from ai_annotation.errors import ValidationError
-from aap_inference_contract.plugin import (
+from yoao.cli.main import app
+from yoao.errors import ValidationError
+from yoao_inference_contract.plugin import (
     PreparePluginInstallation,
     PluginResourceBinding,
 )
@@ -50,7 +50,7 @@ def test_json_destructive_command_requires_confirmation_before_mutation(
     def should_not_connect(*args, **kwargs):
         raise AssertionError("must not connect before confirmation")
 
-    monkeypatch.setattr("ai_annotation.cli.plugins.get_client", should_not_connect)
+    monkeypatch.setattr("yoao.cli.plugins.get_client", should_not_connect)
     result = CliRunner().invoke(
         app,
         [
@@ -68,7 +68,7 @@ def test_json_destructive_command_requires_confirmation_before_mutation(
 
 
 def test_restart_cli_returns_active_json_after_real_transition(monkeypatch, tmp_path):
-    from ai_annotation.plugin_deployment import LocalPluginDeployment
+    from yoao.plugin_deployment import LocalPluginDeployment
 
     core = Core()
     docker = LocalDocker(core.events)
@@ -82,8 +82,8 @@ def test_restart_cli_returns_active_json_after_real_transition(monkeypatch, tmp_
     def client(_json_output):
         yield object()
 
-    monkeypatch.setattr("ai_annotation.cli.plugins.get_client", client)
-    monkeypatch.setattr("ai_annotation.cli.plugins._deployment", lambda *_: deployment)
+    monkeypatch.setattr("yoao.cli.plugins.get_client", client)
+    monkeypatch.setattr("yoao.cli.plugins._deployment", lambda *_: deployment)
     result = CliRunner().invoke(
         app,
         [

@@ -5,11 +5,11 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
-from ai_annotation.cli.main import app
+from yoao.cli.main import app
 from .support_streams import NOW, Socket
 
 runner = CliRunner()
-ENV = {"AAP_BASE_URL": "http://testserver", "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": "http://testserver", "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def test_stream_discovery_is_offline_without_optional_dependency(monkeypatch):
@@ -87,4 +87,4 @@ def test_listener_missing_extra_reports_install_hint(monkeypatch):
         app, ["--error-format", "json", "streams", "ml-stats"], env=ENV
     )
     assert result.exit_code == 1
-    assert "ai-annotation-sdk[streams]" in json.loads(result.stderr)["detail"]
+    assert "yoao-sdk[streams]" in json.loads(result.stderr)["detail"]

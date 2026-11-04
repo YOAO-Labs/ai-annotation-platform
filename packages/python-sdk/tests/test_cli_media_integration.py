@@ -4,12 +4,12 @@ import json
 
 from typer.testing import CliRunner
 
-from ai_annotation.cli.main import app
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
 TASK = "11111111-1111-4111-8111-111111111111"
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def test_pending_media_download_reports_actionable_error_without_polling(

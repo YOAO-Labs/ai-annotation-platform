@@ -7,7 +7,7 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.batch_operation_models import (
+from yoao.batch_operation_models import (
     AdminBatchLockRequest,
     BatchAssignmentPreviewRequest,
     BatchAuditLogEntry,
@@ -21,8 +21,8 @@ from ai_annotation.batch_operation_models import (
     ReviewedBatchDistribution,
     UnclassifiedTaskCount,
 )
-from ai_annotation.errors import ConflictError, NotFoundError
-from ai_annotation.models import Batch, BatchDistributeResult, BulkBatchActionResult
+from yoao.errors import ConflictError, NotFoundError
+from yoao.models import Batch, BatchDistributeResult, BulkBatchActionResult
 
 from .conftest import API
 

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
 
-from ai_annotation.models import (
+from yoao.models import (
     Dataset,
     DatasetItem,
     Job,

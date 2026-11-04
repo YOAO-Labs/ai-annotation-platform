@@ -5,14 +5,14 @@ from uuid import uuid4
 
 import pytest
 
-from ai_annotation.errors import AAPError, ValidationError
-from ai_annotation.training import (
+from yoao.errors import SDKError, ValidationError
+from yoao.training import (
     Training,
     TrainingPreviews,
     TrainingRecipes,
     TrainingRuns,
 )
-from ai_annotation.training_models import (
+from yoao.training_models import (
     TrainingConfiguration,
     TrainingConfigurationResolve,
     TrainingPreviewCreate,
@@ -446,6 +446,6 @@ def test_run_create_requires_preflight_digest_before_http(client, monkeypatch):
 
     monkeypatch.setattr(client._http, "request", request)
     body = TrainingRunCreate(name="run", dataset_id=uuid4(), request_id=uuid4())
-    with pytest.raises(AAPError, match="preflight_digest"):
+    with pytest.raises(SDKError, match="preflight_digest"):
         TrainingRuns(client._http).create(_id(), body)
     assert calls == []

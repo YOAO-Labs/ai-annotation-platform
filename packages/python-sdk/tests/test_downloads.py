@@ -5,7 +5,7 @@ import hashlib
 import httpx
 import pytest
 
-from ai_annotation.errors import AAPError, NotFoundError
+from yoao.errors import SDKError, NotFoundError
 
 from .conftest import BASE
 
@@ -31,7 +31,7 @@ class InterruptedStream(httpx.SyncByteStream):
 
 
 def _temporary_files(tmp_path) -> list:
-    return list(tmp_path.glob(".aap-download-*.part"))
+    return list(tmp_path.glob(".yoao-download-*.part"))
 
 
 def test_relative_download_streams_with_auth_params_and_integrity(
@@ -101,7 +101,7 @@ def test_integrity_mismatch_preserves_destination_and_cleans_temp(
     dest = tmp_path / "artifact.bin"
     dest.write_bytes(b"keep me")
 
-    with pytest.raises(AAPError, match="mismatch"):
+    with pytest.raises(SDKError, match="mismatch"):
         client._http.stream_download("/api/v1/files/bad", dest, **metadata)
 
     assert route.called
@@ -116,7 +116,7 @@ def test_integrity_mismatch_preserves_destination_and_cleans_temp(
 def test_invalid_integrity_metadata_raises_sdk_error_before_http(
     client, respx_mock, tmp_path, expected_sha256, expected_size
 ):
-    with pytest.raises(AAPError):
+    with pytest.raises(SDKError):
         client._http.stream_download(
             "/api/v1/files/artifact",
             tmp_path / "artifact.bin",

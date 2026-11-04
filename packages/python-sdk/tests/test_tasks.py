@@ -4,8 +4,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import ConflictError
-from ai_annotation.models import ReviewClaim, Task, TaskActionResult, TaskPage
+from yoao.errors import ConflictError
+from yoao.models import ReviewClaim, Task, TaskActionResult, TaskPage
 
 from .conftest import API
 

@@ -10,7 +10,7 @@ from uuid import uuid4
 import pytest
 from textual.widgets import DataTable, Static, TabbedContent, TabPane
 
-from ai_annotation.models import (
+from yoao.models import (
     Batch,
     HealthMeta,
     JobPage,
@@ -21,7 +21,7 @@ from ai_annotation.models import (
     ServicePoolSummary,
     UserBrief,
 )
-from ai_annotation.tui.app import (
+from yoao.tui.app import (
     AapTuiApp,
     BatchDetailScreen,
     DatasetDetailScreen,
@@ -645,7 +645,7 @@ def _person() -> PersonStat:
 
 
 async def test_stats_tab_renders_sparklines():
-    from ai_annotation.tui.app import AxisChart
+    from yoao.tui.app import AxisChart
 
     app = _make_app()
     async with app.run_test(size=(120, 32)) as pilot:
@@ -662,7 +662,7 @@ async def test_stats_tab_renders_sparklines():
 
 
 async def test_axis_chart_renders_axes_and_line():
-    from ai_annotation.tui.app import _render_axis_chart
+    from yoao.tui.app import _render_axis_chart
 
     plain = _render_axis_chart(
         [50, 60, 55, 80, 40, 95],
@@ -682,7 +682,7 @@ async def test_axis_chart_renders_axes_and_line():
 
 
 async def test_fmt_pool_summarizes_protocol_fields():
-    from ai_annotation.tui.app import _fmt_pool
+    from yoao.tui.app import _fmt_pool
 
     # 协议 PoolStatus / video_pool 字段 → 简洁摘要, 不退化打印原始长 dict
     img = _fmt_pool(

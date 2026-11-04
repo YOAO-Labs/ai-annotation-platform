@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from ai_annotation.discovery import describe_operation, list_capabilities
+from yoao.discovery import describe_operation, list_capabilities
 
 PACKAGE_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = PACKAGE_ROOT.parents[1]
@@ -75,7 +75,7 @@ def test_describe_resolves_sdk_and_cli_aliases_and_expands_request_model():
     assert model["schema"]["properties"]["dataset_id"]["format"] == "uuid"
     assert "preflight_digest" in model["schema"]["properties"]
     assert by_sdk["request_body"]["required"] is True
-    assert by_sdk["cli"][0]["path"] == "aap learning runs create"
+    assert by_sdk["cli"][0]["path"] == "yoao learning runs create"
     assert next(
         parameter
         for parameter in by_sdk["cli"][0]["parameters"]
@@ -112,9 +112,7 @@ def test_describe_exposes_internal_request_dto_and_opaque_json_map():
 
 def test_all_packaged_sdk_methods_have_resolvable_descriptions():
     catalog = json.loads(
-        (
-            PACKAGE_ROOT / "src/ai_annotation/_operation_catalog.generated.json"
-        ).read_text()
+        (PACKAGE_ROOT / "src/yoao/_operation_catalog.generated.json").read_text()
     )
     for method in catalog["sdk_methods"]:
         described = describe_operation(method["name"])
@@ -222,9 +220,7 @@ def test_generated_catalog_is_current_and_deterministic():
 
 
 def test_installed_catalog_is_json_and_does_not_embed_openapi_snapshot():
-    catalog_path = (
-        PACKAGE_ROOT / "src" / "ai_annotation" / "_operation_catalog.generated.json"
-    )
+    catalog_path = PACKAGE_ROOT / "src" / "yoao" / "_operation_catalog.generated.json"
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     assert catalog["operation_count"] == len(catalog["operations"])
     assert "paths" not in catalog
@@ -240,7 +236,7 @@ def test_core_discovery_import_does_not_load_cli_modules():
         [
             sys.executable,
             "-c",
-            "import ai_annotation.discovery, sys; assert not any(name == 'ai_annotation.cli' or name.startswith('ai_annotation.cli.') for name in sys.modules)",
+            "import yoao.discovery, sys; assert not any(name == 'yoao.cli' or name.startswith('yoao.cli.') for name in sys.modules)",
         ],
         cwd=REPO_ROOT,
         env=env,

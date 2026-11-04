@@ -4,8 +4,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import NotFoundError
-from ai_annotation.notification_models import (
+from yoao.errors import NotFoundError
+from yoao.notification_models import (
     Notification,
     NotificationClearReadResult,
     NotificationMarkAllReadResult,
@@ -14,7 +14,7 @@ from ai_annotation.notification_models import (
     NotificationPreferences,
     NotificationUnreadCount,
 )
-from ai_annotation.notifications import Notifications
+from yoao.notifications import Notifications
 
 from .conftest import API
 

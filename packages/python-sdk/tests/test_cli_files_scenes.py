@@ -7,10 +7,10 @@ from uuid import uuid4
 
 from typer.testing import CliRunner
 
-from ai_annotation.cli import files as files_cli
-from ai_annotation.cli import scenes as scenes_cli
-from ai_annotation.file_models import FileUploadInit, ThumbnailBackfill
-from ai_annotation.scene_models import Scene, SceneTrajectory
+from yoao.cli import files as files_cli
+from yoao.cli import scenes as scenes_cli
+from yoao.file_models import FileUploadInit, ThumbnailBackfill
+from yoao.scene_models import Scene, SceneTrajectory
 
 PROJECT_ID, TASK_ID, DATASET_ID, SCENE_ID = [str(uuid4()) for _ in range(4)]
 SCENE = Scene.model_validate(

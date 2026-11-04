@@ -1,7 +1,7 @@
 import httpx
 import pytest
 
-from ai_annotation.errors import (
+from yoao.errors import (
     APIStatusError,
     AuthenticationError,
     ConflictError,

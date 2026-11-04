@@ -8,13 +8,13 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation import VideoAssetRetryRequest
-from ai_annotation.cli.main import app
+from yoao import VideoAssetRetryRequest
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
 ITEM = "11111111-1111-4111-8111-111111111111"
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def test_storage_health_and_bucket_partial_failure(client, respx_mock):

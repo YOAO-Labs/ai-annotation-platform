@@ -4,8 +4,8 @@ from uuid import UUID, uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import ConflictError
-from ai_annotation.models import (
+from yoao.errors import ConflictError
+from yoao.models import (
     CapabilityDrift,
     ServicePool,
     ServicePoolRuntimeSnapshot,

@@ -6,9 +6,9 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.api_key_models import ApiKeyUpdateRequest
-from ai_annotation.cli.main import app
-from ai_annotation.models import ApiKey, ApiKeyCreated
+from yoao.api_key_models import ApiKeyUpdateRequest
+from yoao.cli.main import app
+from yoao.models import ApiKey, ApiKeyCreated
 
 from .conftest import API
 
@@ -108,8 +108,8 @@ def test_patch_preserves_explicit_expiry_clear_and_omission(client, respx_mock):
 def test_cli_key_creation_requires_secret_output_before_request(
     tmp_path, respx_mock, monkeypatch
 ):
-    monkeypatch.setenv("AAP_BASE_URL", "http://testserver")
-    monkeypatch.setenv("AAP_API_KEY", "ak_test")
+    monkeypatch.setenv("YOAO_BASE_URL", "http://testserver")
+    monkeypatch.setenv("YOAO_API_KEY", "ak_test")
     body = tmp_path / "key.json"
     body.write_text('{"name":"agent"}')
     route = respx_mock.post(f"{API}/me/api-keys").mock(

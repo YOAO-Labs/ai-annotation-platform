@@ -1,6 +1,6 @@
-"""aap CLI 命令测试: CliRunner + respx mock HTTP。
+"""yoao CLI 命令测试: CliRunner + respx mock HTTP。
 
-- 凭据通过 CliRunner env 注入 (AAP_BASE_URL / AAP_API_KEY), 不读真实 config 文件
+- 凭据通过 CliRunner env 注入 (YOAO_BASE_URL / YOAO_API_KEY), 不读真实 config 文件
   (autouse fixture 把 config_path 重定向到 tmp_path)。
 - snapshot 风格: 固定 COLUMNS=120 + 禁色, 对 rich 输出断言关键行/列。
 - --json 契约: stdout 可被 json.loads 解析, 断言 schema 关键字段。
@@ -14,7 +14,7 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation.cli.main import app
+from yoao.cli.main import app
 
 from .conftest import API, BASE
 
@@ -30,8 +30,8 @@ def _plain(text: str) -> str:
 
 # 固定宽度 + 禁色, 让 rich 输出稳定可断言
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "COLUMNS": "120",
     "NO_COLOR": "1",
     "TERM": "dumb",
@@ -80,12 +80,10 @@ def _job(status: str, **extra) -> dict:
 @pytest.fixture(autouse=True)
 def _isolate(monkeypatch, tmp_path):
     # 隔离宿主机环境变量与真实 config.toml; 轮询不真实 sleep
-    monkeypatch.delenv("AAP_BASE_URL", raising=False)
-    monkeypatch.delenv("AAP_API_KEY", raising=False)
-    monkeypatch.setattr(
-        "ai_annotation.config.config_path", lambda: tmp_path / "config.toml"
-    )
-    monkeypatch.setattr("ai_annotation.client.time.sleep", lambda s: None)
+    monkeypatch.delenv("YOAO_BASE_URL", raising=False)
+    monkeypatch.delenv("YOAO_API_KEY", raising=False)
+    monkeypatch.setattr("yoao.config.config_path", lambda: tmp_path / "config.toml")
+    monkeypatch.setattr("yoao.client.time.sleep", lambda s: None)
 
 
 # ---------- projects ----------
@@ -280,7 +278,7 @@ def test_401_hints_login(respx_mock):
     )
     result = runner.invoke(app, ["projects", "list"], env=ENV)
     assert result.exit_code == 1
-    assert "aap login" in _plain(result.stderr)
+    assert "yoao login" in _plain(result.stderr)
     assert "Traceback" not in result.stderr
 
 
@@ -291,15 +289,15 @@ def test_401_json_mode_plain_error(respx_mock):
     result = runner.invoke(app, ["projects", "list", "--json"], env=ENV)
     assert result.exit_code == 1
     assert result.stdout.strip() == ""  # stdout 无半截 JSON
-    assert "aap login" in result.stderr
+    assert "yoao login" in result.stderr
 
 
 def test_unconfigured_exits_with_hint():
     result = runner.invoke(app, ["projects", "list"], env=NO_AUTH_ENV)
     assert result.exit_code == 1
     plain = _plain(result.stderr)
-    assert "aap login" in plain
-    assert "AAP_BASE_URL" in plain
+    assert "yoao login" in plain
+    assert "YOAO_BASE_URL" in plain
 
 
 # ---------- login ----------

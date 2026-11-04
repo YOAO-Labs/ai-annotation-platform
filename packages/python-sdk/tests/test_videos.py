@@ -5,8 +5,8 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.errors import AAPError, APIStatusError
-from ai_annotation.video_models import (
+from yoao.errors import SDKError, APIStatusError
+from yoao.video_models import (
     VideoChapterCreate,
     VideoChapterOut,
     VideoChapterUpdate,
@@ -15,7 +15,7 @@ from ai_annotation.video_models import (
     VideoFramePrefetchRequest,
     VideoFrameRetryRequest,
 )
-from ai_annotation.videos import TaskVideos, Videos
+from yoao.videos import TaskVideos, Videos
 
 from .conftest import API
 
@@ -369,7 +369,7 @@ def test_frame_and_chunk_download_require_ready_descriptor(
     client, respx_mock, tmp_path
 ):
     videos = Videos(client._http)
-    with pytest.raises(AAPError, match="not ready"):
+    with pytest.raises(SDKError, match="not ready"):
         videos.download_frame(
             VideoFrameOut(
                 frame_index=3,
@@ -380,7 +380,7 @@ def test_frame_and_chunk_download_require_ready_descriptor(
             ),
             tmp_path / "frame.webp",
         )
-    with pytest.raises(AAPError, match="not ready"):
+    with pytest.raises(SDKError, match="not ready"):
         videos.download_chunk(
             VideoChunkOut(chunk_id=0, start_frame=0, end_frame=9, status="failed"),
             tmp_path / "chunk.mp4",
@@ -391,7 +391,7 @@ def test_frame_and_chunk_download_require_ready_descriptor(
 def test_download_rejects_relative_url_without_sending_api_key(
     client, respx_mock, tmp_path
 ):
-    with pytest.raises(AAPError, match="absolute"):
+    with pytest.raises(SDKError, match="absolute"):
         Videos(client._http).download_frame(
             VideoFrameOut(
                 frame_index=3,

@@ -5,8 +5,8 @@ from uuid import uuid4
 import httpx
 import pytest
 
-from ai_annotation.errors import PermissionDeniedError
-from ai_annotation.models import Project, ProjectAccess
+from yoao.errors import PermissionDeniedError
+from yoao.models import Project, ProjectAccess
 
 from .conftest import API
 from .support_projects import PROJECT
@@ -16,7 +16,7 @@ from .support_projects import PROJECT
 def test_project_quality_config_is_typed_and_additive(
     client, respx_mock, schema_version
 ):
-    from ai_annotation import PointCloudQualityConfigRead
+    from yoao import PointCloudQualityConfigRead
 
     config = {
         "schema_version": schema_version,

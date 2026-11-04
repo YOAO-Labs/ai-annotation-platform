@@ -10,15 +10,15 @@ from pydantic import ValidationError
 from typer.testing import CliRunner
 from typer.main import get_command
 
-from ai_annotation.auth import Auth
-from ai_annotation.auth_models import (
+from yoao.auth import Auth
+from yoao.auth_models import (
     AuthLoginRequest,
     AuthRegisterRequest,
     AuthOpenRegisterRequest,
     AuthResetPasswordRequest,
 )
-from ai_annotation.cli import auth as auth_cli
-from ai_annotation.cli.auth import app
+from yoao.cli import auth as auth_cli
+from yoao.cli.auth import app
 
 from .conftest import API
 

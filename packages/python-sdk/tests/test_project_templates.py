@@ -7,12 +7,12 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.project_template_models import (
+from yoao.project_template_models import (
     ProjectTemplate,
     ProjectTemplateCreate,
     ProjectTemplateUpdate,
 )
-from ai_annotation.project_templates import ProjectTemplates
+from yoao.project_templates import ProjectTemplates
 
 from .conftest import API
 

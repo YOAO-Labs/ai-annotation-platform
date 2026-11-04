@@ -8,15 +8,15 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.errors import APIStatusError
-from ai_annotation.invitation_models import (
+from yoao.errors import APIStatusError
+from yoao.invitation_models import (
     Invitation,
     InvitationEmailSent,
     InvitationPage,
     InvitationResend,
 )
-from ai_annotation.invitations import Invitations
-from ai_annotation.storage_connection_models import (
+from yoao.invitations import Invitations
+from yoao.storage_connection_models import (
     ConnectorAllowlistUpdate,
     S3StorageConfig,
     StorageConnection,
@@ -24,7 +24,7 @@ from ai_annotation.storage_connection_models import (
     StorageConnectionUpdate,
     SFTPStorageConfig,
 )
-from ai_annotation.storage_connections import StorageConnections
+from yoao.storage_connections import StorageConnections
 
 from .conftest import API
 

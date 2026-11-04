@@ -9,11 +9,11 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.cli import groups as groups_cli
-from ai_annotation.cli import users as users_cli
-from ai_annotation.errors import ConflictError
-from ai_annotation.groups import Groups
-from ai_annotation.user_management_models import (
+from yoao.cli import groups as groups_cli
+from yoao.cli import users as users_cli
+from yoao.errors import ConflictError
+from yoao.groups import Groups
+from yoao.user_management_models import (
     AdminResetPasswordResponse,
     BulkGroupAssignmentPreview,
     BulkGroupAssignmentRequest,
@@ -25,7 +25,7 @@ from ai_annotation.user_management_models import (
     InvitationCreated,
     OffboardingCommitRequest,
 )
-from ai_annotation.users import Users
+from yoao.users import Users
 
 from .conftest import API
 

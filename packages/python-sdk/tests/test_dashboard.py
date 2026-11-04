@@ -1,8 +1,8 @@
 import httpx
 import pytest
 
-from ai_annotation.errors import APIStatusError, PermissionDeniedError
-from ai_annotation.management_operation_models import (
+from yoao.errors import APIStatusError, PermissionDeniedError
+from yoao.management_operation_models import (
     AdminPersonDetail,
     MyBatchItem,
     OnboardingProjectSummary,
@@ -10,7 +10,7 @@ from ai_annotation.management_operation_models import (
     RecentReviewItem,
     ReviewerMiniStats,
 )
-from ai_annotation.models import MyPerformance, PersonStat, ProjectStats
+from yoao.models import MyPerformance, PersonStat, ProjectStats
 
 from .conftest import API
 

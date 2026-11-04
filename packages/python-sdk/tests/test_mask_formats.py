@@ -12,9 +12,9 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.cli import mask_formats as mask_formats_cli
-from ai_annotation.errors import APIStatusError, PermissionDeniedError
-from ai_annotation.mask_format_models import (
+from yoao.cli import mask_formats as mask_formats_cli
+from yoao.errors import APIStatusError, PermissionDeniedError
+from yoao.mask_format_models import (
     MaskFormatExportPreflightRequest,
     MaskFormatImportBatch,
     MaskFormatImportExecuteRequest,
@@ -23,7 +23,7 @@ from ai_annotation.mask_format_models import (
     MaskFormatUploadInitRequest,
     MaskFormatUploadInitResult,
 )
-from ai_annotation.mask_formats import MaskFormats
+from yoao.mask_formats import MaskFormats
 
 from .conftest import API
 
@@ -179,7 +179,7 @@ def test_sdk_calls_all_seven_routes_and_preserves_import_receipts(client, respx_
             },
         )
     )
-    from ai_annotation.export_models import VideoExportScopeRequest
+    from yoao.export_models import VideoExportScopeRequest
 
     api.export_preflight(
         PROJECT_ID,

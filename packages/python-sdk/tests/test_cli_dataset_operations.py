@@ -10,16 +10,21 @@ import pytest
 from typer.main import get_command
 from typer.testing import CliRunner
 
-from ai_annotation.cli import datasets as datasets_cli
-from ai_annotation.cli import guide_assets as guide_assets_cli
-from ai_annotation.cli.datasets import app as datasets_app
-from ai_annotation.cli.guide_assets import app as guide_assets_app
-from ai_annotation.guide_assets import GuideAssets
+from yoao.cli import datasets as datasets_cli
+from yoao.cli import guide_assets as guide_assets_cli
+from yoao.cli.datasets import app as datasets_app
+from yoao.cli.guide_assets import app as guide_assets_app
+from yoao.guide_assets import GuideAssets
 
 from .conftest import API, BASE
 
 runner = CliRunner()
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1", "TERM": "dumb"}
+ENV = {
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
+    "NO_COLOR": "1",
+    "TERM": "dumb",
+}
 DATASET_ID = str(uuid4())
 PROJECT_ID = str(uuid4())
 

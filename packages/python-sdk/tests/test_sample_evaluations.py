@@ -6,14 +6,14 @@ from uuid import UUID
 import httpx
 import pytest
 
-from ai_annotation.errors import (
+from yoao.errors import (
     AuthenticationError,
     ConflictError,
     PermissionDeniedError,
     ValidationError,
 )
-from ai_annotation.model_management import SampleEvaluations
-from ai_annotation.model_management_models import SampleEvaluationCreateRequest
+from yoao.model_management import SampleEvaluations
+from yoao.model_management_models import SampleEvaluationCreateRequest
 
 from .conftest import API
 

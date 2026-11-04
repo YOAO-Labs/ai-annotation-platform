@@ -4,8 +4,8 @@ from uuid import uuid4
 import pytest
 from typer.testing import CliRunner
 
-import ai_annotation.cli.point_cloud as point_cloud_cli
-from ai_annotation.point_cloud_models import (
+import yoao.cli.point_cloud as point_cloud_cli
+from yoao.point_cloud_models import (
     CameraAnnotationMember,
     PointCloudManifest,
     SensorCalibrationRevision,

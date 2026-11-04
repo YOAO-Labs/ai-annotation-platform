@@ -10,7 +10,7 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.annotation_operation_models import (
+from yoao.annotation_operation_models import (
     AiMaskAcceptRequest,
     AiMaskAcceptTarget,
     AiMaskCandidateInput,
@@ -36,10 +36,10 @@ from ai_annotation.annotation_operation_models import (
     RasterMaskGeometry,
     SecondaryInferenceRequest,
 )
-from ai_annotation.annotation_operations import AnnotationOperations
-from ai_annotation.cli import annotation_operations as operations_cli
-from ai_annotation.errors import APIStatusError
-from ai_annotation.video_review_models import CocoRleMaskRef
+from yoao.annotation_operations import AnnotationOperations
+from yoao.cli import annotation_operations as operations_cli
+from yoao.errors import APIStatusError
+from yoao.video_review_models import CocoRleMaskRef
 
 from .conftest import API
 

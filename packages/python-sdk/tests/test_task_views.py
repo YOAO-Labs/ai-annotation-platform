@@ -8,13 +8,13 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
-from ai_annotation.task_view_models import (
+from yoao.task_view_models import (
     ProjectTaskQueryRequest,
     ProjectTaskViewCopyRequest,
     ProjectTaskViewCreate,
     ProjectTaskViewUpdate,
 )
-from ai_annotation.task_views import TaskViews
+from yoao.task_views import TaskViews
 
 from .conftest import API
 

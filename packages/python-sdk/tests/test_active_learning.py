@@ -3,9 +3,9 @@ from uuid import uuid4
 
 import httpx
 import pytest
-from ai_annotation.errors import APIStatusError, ConflictError, NotFoundError
-from ai_annotation.learning_automation import ActiveLearning
-from ai_annotation.learning_automation_models import (
+from yoao.errors import APIStatusError, ConflictError, NotFoundError
+from yoao.learning_automation import ActiveLearning
+from yoao.learning_automation_models import (
     ActiveLearningDecisionCreate,
     ActiveLearningFeedbackCreate,
     ActiveLearningRoundCreate,

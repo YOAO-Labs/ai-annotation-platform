@@ -6,8 +6,8 @@ from uuid import uuid4
 
 import httpx
 
-from ai_annotation.project_performance import ProjectPerformance
-from ai_annotation.project_performance_models import ProjectPerformanceQuery
+from yoao.project_performance import ProjectPerformance
+from yoao.project_performance_models import ProjectPerformanceQuery
 
 from .conftest import API, BASE
 

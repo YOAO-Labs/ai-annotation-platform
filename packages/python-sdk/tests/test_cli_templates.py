@@ -7,8 +7,8 @@ from uuid import uuid4
 
 from typer.testing import CliRunner
 
-from ai_annotation.cli import templates as templates_cli
-from ai_annotation.project_template_models import ProjectTemplate
+from yoao.cli import templates as templates_cli
+from yoao.project_template_models import ProjectTemplate
 
 TEMPLATE_ID = str(uuid4())
 TEMPLATE = ProjectTemplate.model_validate(

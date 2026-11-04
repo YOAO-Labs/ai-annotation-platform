@@ -8,17 +8,17 @@ import httpx
 import pytest
 from typer.testing import CliRunner
 
-from ai_annotation import Client
-from ai_annotation.cli import task_views
-from ai_annotation.task_views import TaskViews
+from yoao import Client
+from yoao.cli import task_views
+from yoao.task_views import TaskViews
 
 from .conftest import API, BASE
 
 PROJECT = "11111111-1111-4111-8111-111111111111"
 VIEW = "22222222-2222-4222-8222-222222222222"
 ENV = {
-    "AAP_BASE_URL": BASE,
-    "AAP_API_KEY": "ak_test",
+    "YOAO_BASE_URL": BASE,
+    "YOAO_API_KEY": "ak_test",
     "NO_COLOR": "1",
     "TERM": "dumb",
     "COLUMNS": "120",

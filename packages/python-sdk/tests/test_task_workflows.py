@@ -11,23 +11,23 @@ import pytest
 from pydantic import ValidationError
 from typer.testing import CliRunner
 
-from ai_annotation.cli import cross_frame_jobs as cross_frame_jobs_cli
-from ai_annotation.cli import image_pyramids as image_pyramids_cli
-from ai_annotation.cli import task_context as task_context_cli
-from ai_annotation.cli import task_locks as task_locks_cli
-from ai_annotation.errors import ConflictError, NotFoundError
-from ai_annotation.image_pyramids import ImagePyramids
-from ai_annotation.cross_frame_jobs import CrossFrameJobs
-from ai_annotation.task_context import TaskContext
-from ai_annotation.task_locks import TaskLocks
-from ai_annotation.task_workflow_models import (
+from yoao.cli import cross_frame_jobs as cross_frame_jobs_cli
+from yoao.cli import image_pyramids as image_pyramids_cli
+from yoao.cli import task_context as task_context_cli
+from yoao.cli import task_locks as task_locks_cli
+from yoao.errors import ConflictError, NotFoundError
+from yoao.image_pyramids import ImagePyramids
+from yoao.cross_frame_jobs import CrossFrameJobs
+from yoao.task_context import TaskContext
+from yoao.task_locks import TaskLocks
+from yoao.task_workflow_models import (
     CrossFrameJobCreateRequest,
     ImagePyramidAssetUrlsRequest,
     ImagePyramidOverviewAssetRequest,
     ImagePyramidResponse,
     ImagePyramidTileAssetRequest,
 )
-from ai_annotation.models import Job
+from yoao.models import Job
 
 from .conftest import API
 

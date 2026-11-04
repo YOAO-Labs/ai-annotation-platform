@@ -11,20 +11,20 @@ import typer
 from pydantic import BaseModel
 from typer.testing import CliRunner
 
-from ai_annotation.cli._output import cli_errors, error_format_context, read_json_body
-from ai_annotation.cli.entrypoint import main as console_main
-from ai_annotation.cli.main import app
-from ai_annotation.errors import AAPError, JobFailedError, JobTimeoutError
+from yoao.cli._output import cli_errors, error_format_context, read_json_body
+from yoao.cli.entrypoint import main as console_main
+from yoao.cli.main import app
+from yoao.errors import SDKError, JobFailedError, JobTimeoutError
 
 from .conftest import API, BASE
 
 runner = CliRunner()
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 @pytest.mark.parametrize("status", [401, 403, 404, 409, 422, 429, 503])
 def test_http_errors_use_one_structured_stderr_object(monkeypatch, respx_mock, status):
-    monkeypatch.setattr("ai_annotation._http.time.sleep", lambda _: None)
+    monkeypatch.setattr("yoao._http.time.sleep", lambda _: None)
     respx_mock.get(f"{API}/projects").mock(
         return_value=httpx.Response(
             status,
@@ -236,11 +236,9 @@ def test_error_format_stops_at_command_and_last_root_option_wins():
 
 
 def test_default_error_format_is_text_after_json_invocation(monkeypatch, tmp_path):
-    monkeypatch.delenv("AAP_BASE_URL", raising=False)
-    monkeypatch.delenv("AAP_API_KEY", raising=False)
-    monkeypatch.setattr(
-        "ai_annotation.config.config_path", lambda: tmp_path / "config.toml"
-    )
+    monkeypatch.delenv("YOAO_BASE_URL", raising=False)
+    monkeypatch.delenv("YOAO_API_KEY", raising=False)
+    monkeypatch.setattr("yoao.config.config_path", lambda: tmp_path / "config.toml")
 
     structured = runner.invoke(app, ["--error-format", "json", "projects", "list"])
     plain = runner.invoke(app, ["projects", "list"])
@@ -271,7 +269,7 @@ def test_confirmation_refusal_is_structured_and_sends_no_request(
     def refuse(*args, **kwargs):
         raise typer.Abort()
 
-    monkeypatch.setattr("ai_annotation.cli._output.typer.confirm", refuse)
+    monkeypatch.setattr("yoao.cli._output.typer.confirm", refuse)
     respx_mock.delete(f"{API}/projects/project-secret-id").mock(
         return_value=httpx.Response(204)
     )
@@ -330,7 +328,7 @@ def test_local_validation_error_omits_request_values(monkeypatch, capsys):
 def test_request_error_omits_untrusted_exception_text(capsys):
     with error_format_context("json"), pytest.raises(typer.Exit):
         with cli_errors():
-            raise AAPError("request-secret")
+            raise SDKError("request-secret")
 
     error = json.loads(capsys.readouterr().err)
     assert error == {"kind": "request_error"}
@@ -392,7 +390,7 @@ def test_network_error_omits_exception_text(monkeypatch):
     def fail_request(self, *args, **kwargs):
         raise httpx.ConnectError("Bearer network-secret")
 
-    monkeypatch.setattr("ai_annotation._http.HttpTransport.request", fail_request)
+    monkeypatch.setattr("yoao._http.HttpTransport.request", fail_request)
 
     result = runner.invoke(app, ["--error-format", "json", "projects", "list"], env=ENV)
 
@@ -405,7 +403,7 @@ def test_network_error_omits_exception_text(monkeypatch):
 
 
 def test_console_entrypoint_formats_usage_errors_as_json(monkeypatch, capsys):
-    monkeypatch.setattr(sys, "argv", ["aap", "--error-format=json", "not-a-command"])
+    monkeypatch.setattr(sys, "argv", ["yoao", "--error-format=json", "not-a-command"])
 
     with pytest.raises(SystemExit) as raised:
         console_main()
@@ -420,12 +418,12 @@ def test_core_only_console_shim_honors_json_error_format(monkeypatch, capsys):
     original_import = builtins.__import__
 
     def import_without_cli(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "ai_annotation.cli.main":
+        if name == "yoao.cli.main":
             raise ModuleNotFoundError("No module named 'rich'", name="rich")
         return original_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", import_without_cli)
-    monkeypatch.setattr(sys, "argv", ["aap", "--error-format", "json"])
+    monkeypatch.setattr(sys, "argv", ["yoao", "--error-format", "json"])
 
     with pytest.raises(SystemExit) as raised:
         console_main()
@@ -435,7 +433,7 @@ def test_core_only_console_shim_honors_json_error_format(monkeypatch, capsys):
     assert captured.out == ""
     assert json.loads(captured.err) == {
         "kind": "dependency_error",
-        "detail": "aap CLI 依赖未安装；请运行: pip install 'ai-annotation-sdk[cli]'",
+        "detail": "yoao CLI 依赖未安装；请运行: pip install 'yoao-sdk[cli]'",
     }
 
 
@@ -443,7 +441,7 @@ def test_core_only_console_shim_ignores_leaf_error_format_value(monkeypatch, cap
     original_import = builtins.__import__
 
     def import_without_cli(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "ai_annotation.cli.main":
+        if name == "yoao.cli.main":
             raise ModuleNotFoundError("No module named 'rich'", name="rich")
         return original_import(name, globals, locals, fromlist, level)
 
@@ -451,7 +449,7 @@ def test_core_only_console_shim_ignores_leaf_error_format_value(monkeypatch, cap
     monkeypatch.setattr(
         sys,
         "argv",
-        ["aap", "projects", "list", "--search", "--error-format=json"],
+        ["yoao", "projects", "list", "--search", "--error-format=json"],
     )
 
     with pytest.raises(SystemExit) as raised:
@@ -460,7 +458,7 @@ def test_core_only_console_shim_ignores_leaf_error_format_value(monkeypatch, cap
     assert raised.value.code == 1
     captured = capsys.readouterr()
     assert not captured.err.startswith("{")
-    assert "ai-annotation-sdk[cli]" in captured.err
+    assert "yoao-sdk[cli]" in captured.err
 
 
 def test_body_reader_reports_non_object_json_safely(monkeypatch):
@@ -468,5 +466,5 @@ def test_body_reader_reports_non_object_json_safely(monkeypatch):
         count: int
 
     monkeypatch.setattr(sys, "stdin", io.StringIO('["request-secret"]'))
-    with pytest.raises(AAPError, match="必须包含 JSON 对象"):
+    with pytest.raises(SDKError, match="必须包含 JSON 对象"):
         read_json_body(Path("-"), Request)

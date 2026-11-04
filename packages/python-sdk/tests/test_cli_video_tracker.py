@@ -4,13 +4,13 @@ import json
 from uuid import uuid4
 
 import httpx
-from ai_annotation.cli.video_tracker import app
+from yoao.cli.video_tracker import app
 from typer.testing import CliRunner
 
 from .conftest import API, BASE
 
 runner = CliRunner()
-ENV = {"AAP_BASE_URL": BASE, "AAP_API_KEY": "ak_test", "NO_COLOR": "1"}
+ENV = {"YOAO_BASE_URL": BASE, "YOAO_API_KEY": "ak_test", "NO_COLOR": "1"}
 
 
 def _job(task_id: str, *, status: str = "pending_review") -> dict:
