@@ -526,6 +526,7 @@ async def preflight_import(
             adapter_version=adapter.descriptor.adapter_version,
             manifest_version=adapter.descriptor.manifest_version,
             staged_object_key=staged_object_key,
+            staging_ref=staging_ref,
             staged_sha256=staged_sha256,
             mapping_json=mapping,
             options_json=options,

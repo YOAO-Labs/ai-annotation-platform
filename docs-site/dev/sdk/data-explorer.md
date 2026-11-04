@@ -119,7 +119,7 @@ TASK_ID = "<selected-task-uuid>"
 IDEMPOTENCY_KEY = "<caller-persisted-key>"
 
 with Client() as client:
-    request = DataManagerTaskExportRequest(task_ids=[TASK_ID], targets=["aap_json"])
+    request = DataManagerTaskExportRequest(task_ids=[TASK_ID], targets=["native_json"])
     accepted = client.data_manager.export_tasks(
         PROJECT_ID, request, idempotency_key=IDEMPOTENCY_KEY,
     )

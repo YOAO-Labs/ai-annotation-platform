@@ -44,7 +44,7 @@ class ImageHarness(Harness):
 
 async def request(db, project, *, task_ids=None):
     await db.refresh(project)
-    targets, opts = ["coco", "yolo-det", "aap_json"], {"include_attributes": True}
+    targets, opts = ["coco", "yolo-det", "native_json"], {"include_attributes": True}
     payload = {"targets": targets, "batch_id": None, **opts}
     if task_ids is not None:
         selected = [str(identifier) for identifier in task_ids]

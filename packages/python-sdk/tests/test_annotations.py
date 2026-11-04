@@ -138,7 +138,7 @@ def test_import_annotations_multipart_preserves_partial_receipt(
     )
 
     request = route.calls.last.request
-    assert request.url.params["format"] == "aap_json"
+    assert request.url.params["format"] == "native_json"
     assert request.url.params["dry_run"] == "true"
     assert b'name="file"' in request.content
     assert b'name="overwrite"' in request.content and b"true" in request.content

@@ -731,10 +731,10 @@ async def _exercise_export_dispatch(
         )
         project_path = f"/api/v1/projects/{world['project_id']}"
         requests = [
-            ("project", project_path + "/export?targets=aap_json", None),
+            ("project", project_path + "/export?targets=native_json", None),
             (
                 "batch",
-                project_path + f"/batches/{batch_id}/export?targets=aap_json",
+                project_path + f"/batches/{batch_id}/export?targets=native_json",
                 None,
             ),
             (
@@ -742,7 +742,7 @@ async def _exercise_export_dispatch(
                 project_path + "/data-manager/tasks/export",
                 {
                     "task_ids": [str(world["task_id"])],
-                    "targets": ["aap_json"],
+                    "targets": ["native_json"],
                 },
             ),
         ]
@@ -828,7 +828,7 @@ async def _exercise_export_dispatch(
                         args, kwargs, _embed = json.loads(
                             base64.b64decode(envelope["body"], validate=True)
                         )
-                        assert args == [] and kwargs["targets"] == ["aap_json"]
+                        assert args == [] and kwargs["targets"] == ["native_json"]
                         assert kwargs["project_id"] == str(world["project_id"])
                         messages[kwargs["async_job_id"]] = (execution_id, kwargs)
             assert set(messages) == {item["job_id"] for item in receipts}
@@ -913,7 +913,7 @@ async def _exercise_export_dispatch(
                         },
                         json={
                             "task_ids": [str(world["task_id"])],
-                            "targets": ["aap_json"],
+                            "targets": ["native_json"],
                         },
                     )
                     assert replay.status_code == 202, stack.redact(replay.text)

@@ -70,7 +70,7 @@ def context(*, targets=None, original=False, mask=False, same_name=False):
     data = facts(original=original)
     data["targets"] = targets or [
         "video_json",
-        "aap_json",
+        "native_json",
         "mot",
         "kitti",
         "yolo-frames-det",
@@ -199,7 +199,7 @@ async def test_all_video_formats_use_one_trusted_grid_receipt_and_separate_bases
                 .splitlines()[0]
                 .startswith("0 ")
             )
-            portable = json.loads(output.read("aap_json/annotations.json"))
+            portable = json.loads(output.read("native_json/annotations.json"))
             assert (
                 portable["tasks"][0]["file_path"]
                 == "videos/" + frozen.paths[frozen.tasks[0].id]
@@ -290,7 +290,7 @@ def test_scope_and_out_of_source_keyframes_are_rejected_without_extending_length
     ],
 )
 def test_raster_portable_and_structure_budgets_are_metadata_only(monkeypatch, maximum):
-    frozen = context(targets=["davis", "aap_json"], mask=True)
+    frozen = context(targets=["davis", "native_json"], mask=True)
     monkeypatch.setattr(video_budget, maximum, 1)
     monkeypatch.setattr(packaging, "load_coco_rle", forbidden)
     with pytest.raises(ContentError, match="budget"):
@@ -321,7 +321,9 @@ async def test_empty_video_project_keeps_valid_metadata_archive(monkeypatch, tmp
     try:
         with zipfile.ZipFile(path) as output:
             assert json.loads(output.read("manifest.json"))["videos"] == []
-            assert json.loads(output.read("aap_json/annotations.json"))["tasks"] == []
+            assert (
+                json.loads(output.read("native_json/annotations.json"))["tasks"] == []
+            )
     finally:
         Path(path).unlink()
 

@@ -249,11 +249,13 @@ def test_export_batch(client, respx_mock):
         return_value=httpx.Response(202, json={"job_id": job_id})
     )
     assert (
-        client.batches.export(PID, BID, targets=["coco", "aap_json"], axis_frame="iso")
+        client.batches.export(
+            PID, BID, targets=["coco", "native_json"], axis_frame="iso"
+        )
         == job_id
     )
     params = route.calls.last.request.url.params
-    assert params.get_list("targets") == ["coco", "aap_json"]
+    assert params.get_list("targets") == ["coco", "native_json"]
     assert params["axis_frame"] == "iso"
 
 

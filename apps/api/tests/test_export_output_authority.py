@@ -216,12 +216,12 @@ async def test_all_new_http_export_entries_preserve_and_hide_original_authority(
     endpoint = f"/api/v1/projects/{world.project.id}"
     body = None
     if scope == "project":
-        endpoint += "/export?targets=aap_json"
+        endpoint += "/export?targets=native_json"
     elif scope == "batch":
-        endpoint += f"/batches/{batch_id}/export?targets=aap_json"
+        endpoint += f"/batches/{batch_id}/export?targets=native_json"
     else:
         endpoint += "/data-manager/tasks/export"
-        body = {"task_ids": [str(world.owner.task.id)], "targets": ["aap_json"]}
+        body = {"task_ids": [str(world.owner.task.id)], "targets": ["native_json"]}
     headers = {"Authorization": "Bearer " + token, "Idempotency-Key": uuid.uuid4().hex}
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app_module), base_url="http://test"

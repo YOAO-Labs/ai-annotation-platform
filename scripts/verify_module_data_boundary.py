@@ -192,7 +192,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_v1.ai_mask_pool_reference_row(uuid)": "0356_inference_pool_reference.sql",
     "aap_labeling_v1.video_control_command(jsonb)": "0350_labeling_video_control.sql",
     "aap_labeling_v1.video_segment_lifecycle_command(jsonb)": "0360_labeling_video_segment_lifecycle.sql",
-    "aap_labeling_v1.annotation_transfer_command(jsonb)": "0351_labeling_annotation_transfer.sql",
+    "aap_labeling_v1.annotation_transfer_command(jsonb)": "0431_labeling_mask_staging.sql",
     "aap_labeling_v1._annotation_transfer_exact_fields(jsonb,text[])": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_without_track_ids(jsonb)": "0351_labeling_annotation_transfer.sql",
     "aap_labeling_v1._annotation_transfer_without_suffix(text)": "0351_labeling_annotation_transfer.sql",
@@ -1335,6 +1335,7 @@ SQL_ARTIFACTS = (
     "0427_labeling_actor_batch_share.sql",
     "0428_video_export_core_reads.sql",
     "0429_video_export_pair.sql",
+    "0431_labeling_mask_staging.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0419_dataset_ingest_authority.schema.json",
@@ -1363,6 +1364,7 @@ SCHEMA_ARTIFACTS = (
     "0356_inference_pool_reference.schema.json",
     "0350_labeling_video_control.schema.json",
     "0351_labeling_annotation_transfer.schema.json",
+    "0431_labeling_mask_staging.schema.json",
     "0353_labeling_mask_quality.schema.json",
     "0354_labeling_spatial_quality.schema.json",
     "0355_labeling_task_maintenance.schema.json",

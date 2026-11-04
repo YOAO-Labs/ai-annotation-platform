@@ -156,7 +156,7 @@ def test_portable_rle_expansion_is_counted_once_and_conflicts_fail():
     annotation = SimpleNamespace(geometry=geometry)
     prediction = SimpleNamespace(result=[geometry])
     assert (
-        inputs._portable_masks([annotation, annotation], [prediction], ["aap_json"])
+        inputs._portable_masks([annotation, annotation], [prediction], ["native_json"])
         == 100
     )
     changed = SimpleNamespace(
@@ -177,7 +177,7 @@ def test_portable_rle_expansion_rejects_before_any_object_reads(monkeypatch):
         inputs._portable_masks(
             [SimpleNamespace(geometry={"type": "raster_mask", "mask": reference})],
             [],
-            ["aap_json"],
+            ["native_json"],
         )
 
 
@@ -284,7 +284,9 @@ async def test_db_empty_project_is_a_valid_metadata_snapshot(input_db):
     await db.delete(annotation)
     await db.delete(task)
     await db.commit()
-    snapshot = (await inputs.collect(db, project.id, None, ["aap_json"], {})).snapshot
+    snapshot = (
+        await inputs.collect(db, project.id, None, ["native_json"], {})
+    ).snapshot
     assert snapshot["tasks"] == snapshot["media"] == snapshot["annotations"] == []
     assert snapshot["references"] == {}
     assert snapshot["counts"]["tasks"] == 0
@@ -329,7 +331,9 @@ async def test_db_final_check_rejects_changed_format_inputs(input_db, mutation):
     )
     db.add_all([inactive, prediction])
     await db.commit()
-    snapshot = (await inputs.collect(db, project.id, None, ["aap_json"], {})).snapshot
+    snapshot = (
+        await inputs.collect(db, project.id, None, ["native_json"], {})
+    ).snapshot
     if mutation == "restore":
         inactive.is_active = True
     elif mutation == "category":
@@ -416,7 +420,7 @@ async def test_db_reference_projection_exactly_matches_existing_binding(
     actual = await inputs._reference(db_session, task, item, lock=False)
     assert actual == expected
     snapshot = (
-        await inputs.collect(db_session, project.id, None, ["coco", "aap_json"], {})
+        await inputs.collect(db_session, project.id, None, ["coco", "native_json"], {})
     ).snapshot
     assert snapshot["references"] == {str(task.id): expected}
     assert snapshot["media"] == []

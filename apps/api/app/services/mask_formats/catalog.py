@@ -29,10 +29,10 @@ def _capability(
 
 _DESCRIPTORS = [
     MaskFormatDescriptor(
-        format_id="aap_json",
+        format_id="native_json",
         label="原生 JSON",
         adapter_version="1.0.0",
-        manifest_version="1.3",
+        manifest_version="2.0",
         media_types=frozenset({"image", "video", "lidar"}),
         import_capability=_capability(True, verified=True, enabled_for_ui=True),
         export_capability=_capability(True, verified=True, enabled_for_ui=True),
@@ -202,7 +202,7 @@ _VIDEO_FORMAT_IDS = frozenset({"coco-frames-seg", "davis", "youtube-vos", "mots"
 
 registry = MaskFormatRegistry()
 for descriptor in _DESCRIPTORS:
-    if descriptor.format_id == "aap_json":
+    if descriptor.format_id == "native_json":
         adapter = NativeJsonAdapter(descriptor)
     elif descriptor.format_id in _IMAGE_FORMAT_IDS:
         adapter = ImageMaskImportAdapter(

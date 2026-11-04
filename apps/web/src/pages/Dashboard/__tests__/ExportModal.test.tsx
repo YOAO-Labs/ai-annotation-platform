@@ -405,7 +405,7 @@ describe("ExportModal", () => {
     await waitFor(() => expect(projectsApi.exportProject).toHaveBeenCalled());
     expect(projectsApi.exportProject).toHaveBeenCalledWith(
       "p5",
-      ["aap_json", "kitti", "pointmask"],
+      ["native_json", "kitti", "pointmask"],
       {
         includeAttributes: true,
         lidar: { kittiCameraRole: "camera_front" },

@@ -76,8 +76,8 @@ _SOURCE_PNG = base64.b64decode(
 def _new_job_payload(project: Project, opts: dict | None = None) -> dict:
     options = dict(_TASK_OPTS if opts is None else opts)
     return {
-        "targets": ["aap_json"],
-        "format": "aap_json",
+        "targets": ["native_json"],
+        "format": "native_json",
         **options,
         "project_display_id": project.display_id,
     }
@@ -765,7 +765,7 @@ def _send_export(
         args=[
             str(world["project_id"]),
             None,
-            ["aap_json"],
+            ["native_json"],
             dict(_TASK_OPTS if opts is None else opts),
             str(job_id),
         ],

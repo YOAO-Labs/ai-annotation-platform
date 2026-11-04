@@ -405,7 +405,13 @@ async def _stage_aap_import(client, world, task_indexes: list[int]) -> dict[str,
             }
         )
     payload = json.dumps(
-        {"schema_version": "1.3", "mask_objects": mask_objects, "tasks": staged_tasks},
+        {
+            "schema_version": "2.0",
+            "format": "yoao",
+            "exported_from": {"platform": "yoao"},
+            "mask_objects": mask_objects,
+            "tasks": staged_tasks,
+        },
         separators=(",", ":"),
     ).encode()
     storage_service.client.put_object(
@@ -418,7 +424,7 @@ async def _stage_aap_import(client, world, task_indexes: list[int]) -> dict[str,
         f"/api/v1/projects/{world['project_id']}/mask-formats/imports:preflight",
         headers=_headers(world["token"]),
         json={
-            "format_id": "aap_json",
+            "format_id": "native_json",
             "staged_object_key": object_key,
             "staged_sha256": hashlib.sha256(payload).hexdigest(),
             "mapping": {},
@@ -1045,7 +1051,7 @@ async def test_format_import_celery_consumer_persists_real_rle_pixels(
                 actual = await load_coco_rle(annotation.geometry["mask"])
                 assert actual == expected
                 assert list(decode_coco_rle(actual)) == list(decode_coco_rle(expected))
-                assert batch.format_id == "aap_json"
+                assert batch.format_id == "native_json"
                 world["mask_keys"].add(annotation.geometry["mask"]["object_key"])
     finally:
         await _cleanup_world(sessions, world)

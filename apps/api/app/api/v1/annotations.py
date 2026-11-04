@@ -526,7 +526,7 @@ async def bulk_update_annotations(
 async def import_annotations(
     request: Request,
     file: UploadFile = File(...),
-    format: str = Query("aap_json", pattern="^(aap_json)$"),
+    format: str = Query("native_json", pattern="^(native_json)$"),
     dry_run: bool = Query(False),
     overwrite: bool = Form(False),
     project: Project = Depends(require_project_owner),

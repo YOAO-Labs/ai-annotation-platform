@@ -158,7 +158,7 @@ async def test_empty_and_reference_only_bundles_keep_zero_inventory_and_one_shot
     references,
 ):
     db, receipt, frozen, logical = await allocate(
-        managed=0, references=references, targets=("coco", "aap_json")
+        managed=0, references=references, targets=("coco", "native_json")
     )
     assert len(frozen["tasks"]) == references
     assert receipt.inventory == {"schema": 1, "objects": {}}
@@ -166,7 +166,7 @@ async def test_empty_and_reference_only_bundles_keep_zero_inventory_and_one_shot
     assert bundles.source_objects(receipt, logical) == {}
     assert receipt.logical_paths == {
         "schema": 1,
-        "targets": {"coco": {}, "aap_json": {}},
+        "targets": {"coco": {}, "native_json": {}},
     }
     claim = await bundles.claim(db, receipt.id)
     assert claim.lease_token is not None

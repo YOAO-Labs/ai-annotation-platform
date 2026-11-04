@@ -18,6 +18,7 @@ from app.db.models.mask_format_import import MaskFormatImport
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan
+from app.schemas.native_json import decode_native_json
 from app.services.exporting.cache import compute_cache_key
 from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
@@ -48,17 +49,96 @@ def test_registry_is_versioned_and_verified_import_is_visible() -> None:
         adapter.descriptor.format_id
         for adapter in registry.list(media_type="image", direction="export")
     }
-    assert format_ids >= {"aap_json", "coco", "yolo-seg", "voc"}
-    aap = registry.get("aap_json").descriptor
+    assert format_ids >= {"native_json", "coco", "yolo-seg", "voc"}
+    aap = registry.get("native_json").descriptor
     assert aap.adapter_version == "1.0.0"
-    assert aap.manifest_version == "1.3"
+    assert aap.manifest_version == "2.0"
     assert aap.import_capability.supported is True
     assert aap.import_capability.verified is True
     assert aap.import_capability.enabled_for_ui is True
 
 
+@pytest.mark.parametrize(
+    "document",
+    [
+        {"schema_version": "1.0"},
+        {
+            "schema_version": "1.7",
+            "format": "aap",
+            "exported_from": {"platform": "aap"},
+        },
+        {
+            "schema_version": "2.0",
+            "format": "yoao",
+            "exported_from": {"platform": "yoao"},
+        },
+    ],
+)
+def test_native_documents_decode_to_current_identity(document) -> None:
+    envelope = decode_native_json(document)
+    assert (
+        envelope.schema_version,
+        envelope.format,
+        envelope.exported_from.platform,
+    ) == (
+        "2.0",
+        "yoao",
+        "yoao",
+    )
+
+
+@pytest.mark.parametrize(
+    "document",
+    [
+        {},
+        {"schema_version": "0.9"},
+        {
+            "schema_version": "3.0",
+            "format": "yoao",
+            "exported_from": {"platform": "yoao"},
+        },
+        {"schema_version": "1.7", "format": "yoao"},
+        {"schema_version": "1.7", "exported_from": {"platform": "yoao"}},
+        {
+            "schema_version": "2.0",
+            "format": "aap",
+            "exported_from": {"platform": "yoao"},
+        },
+        {
+            "schema_version": "2.0",
+            "format": "yoao",
+            "exported_from": {"platform": "aap"},
+        },
+        {"schema_version": "2.0"},
+    ],
+)
+@pytest.mark.asyncio
+async def test_empty_native_preflight_rejects_invalid_identity(
+    tmp_path, document
+) -> None:
+    payload = json.dumps({**document, "tasks": []}).encode()
+    path = tmp_path / "empty.json"
+    path.write_bytes(payload)
+    staged = StagedObject(
+        object_key="staged",
+        sha256=hashlib.sha256(payload).hexdigest(),
+        local_path=str(path),
+        size_bytes=len(payload),
+    )
+    with pytest.raises(ValueError):
+        decode_native_json(document)
+    with pytest.raises(ValueError):
+        await registry.get("native_json").preflight_import(
+            None,
+            project=SimpleNamespace(data_type="image"),
+            staged=staged,
+            mapping={},
+            options={},
+        )
+
+
 def test_video_obb_and_keypoint_are_only_claimed_by_lossless_formats() -> None:
-    assert _ALLOWED_GEOMETRY["aap_json"] is None
+    assert _ALLOWED_GEOMETRY["native_json"] is None
     assert _ALLOWED_GEOMETRY["video_json"] is None
     for format_id in (
         "mot",
@@ -81,7 +161,7 @@ def test_video_obb_and_keypoint_are_only_claimed_by_lossless_formats() -> None:
         if adapter.descriptor.import_capability.verified
     }
     assert verified_imports == {
-        "aap_json",
+        "native_json",
         "binary-png",
         "coco",
         "indexed-png",
@@ -279,14 +359,14 @@ async def test_export_preflight_reports_loss_and_unsupported_items(
     response = await httpx_client.post(
         f"/api/v1/projects/{project.id}/mask-formats/exports:preflight",
         headers=_bearer(token),
-        json={"targets": ["aap_json", "yolo-seg"]},
+        json={"targets": ["native_json", "yolo-seg"]},
     )
 
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["loss_class"] == "unsupported"
     assert [plan["format_id"] for plan in body["plans"]] == [
-        "aap_json",
+        "native_json",
         "yolo-seg",
     ]
     yolo_plan = body["plans"][1]
@@ -333,7 +413,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
         headers=_bearer(token),
         json={
-            "format_id": "aap_json",
+            "format_id": "native_json",
             "staged_object_key": object_key,
             "staged_sha256": digest,
             "mapping": {},
@@ -378,7 +458,7 @@ async def test_staged_aap_preflight_receipt_dispatch_once_and_task_execution(
 
     local_file = tmp_path / "annotations.json"
     local_file.write_bytes(payload)
-    adapter = registry.get("aap_json")
+    adapter = registry.get("native_json")
     result = await adapter.execute_import_item(
         db_session,
         project=project,
@@ -473,7 +553,7 @@ async def test_import_execute_rejects_plan_without_executable_items(
         f"/api/v1/projects/{project.id}/mask-formats/imports:preflight",
         headers=_bearer(token),
         json={
-            "format_id": "aap_json",
+            "format_id": "native_json",
             "staged_object_key": object_key,
             "staged_sha256": digest,
             "mapping": {},

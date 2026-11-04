@@ -176,7 +176,7 @@ class NoDatabaseReads:
 async def test_aba_edits_cannot_affect_frozen_geometry_or_project(input_db):
     db = input_db
     project, _, _, _, _, _, _, annotation = await setup(db)
-    frozen = await capture(db, project, ("pointmask", "aap_json"))
+    frozen = await capture(db, project, ("pointmask", "native_json"))
     view = FrozenLidar(frozen.snapshot)
     original_geometry = deepcopy(annotation.geometry)
     annotation.geometry = {**annotation.geometry, "point_indices": [1]}
@@ -304,7 +304,9 @@ def test_detached_typing_rejects_unknown_columns():
         detached(Annotation, {"unknown": 1})
 
 
-@pytest.mark.parametrize("targets", [("pointmask", "aap_json"), ("coco-multicamera",)])
+@pytest.mark.parametrize(
+    "targets", [("pointmask", "native_json"), ("coco-multicamera",)]
+)
 async def test_real_frozen_service_builds_archive_without_business_rereads(
     input_db, targets
 ):

@@ -101,7 +101,7 @@ export async function runBackgroundExportDownload(
   if (!downloadPath) throw new Error("[background-export-download] 浏览器未保存 ZIP 下载");
   const zipEntries = execFileSync("unzip", ["-Z1", downloadPath], { encoding: "utf8" });
   expect(zipEntries).toContain("coco/");
-  expect(zipEntries).toContain("aap_json/");
+  expect(zipEntries).toContain("native_json/");
   expect(download.suggestedFilename()).toMatch(new RegExp(`^${project.display_id}_.+\\.zip$`));
   await page.waitForTimeout(2_800);
 

@@ -1425,14 +1425,14 @@ class ExportService:
 
         envelope = NativeJsonEnvelope(
             schema_version=SCHEMA_VERSION,
-            format="aap",
-            task=target_contract(project, "aap_json")["task"],
+            format="yoao",
+            task=target_contract(project, "native_json")["task"],
             available_tasks=project_tasks(project),
             media_type=project.data_type or "image",
             source=source_contract(project),
             exported_at=datetime.utcnow(),
             exported_from=ExportedFrom(
-                platform="aap",
+                platform="yoao",
                 platform_version=None,
                 project_display_id=project.display_id,
                 batch_display_id=batch_display_id,

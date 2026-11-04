@@ -16,17 +16,20 @@ from yoao_labeling.annotation_transfer_contract import (
     ANNOTATION_TRANSFER_PROTOCOL,
     ApplyConversion,
     CreateImportedAnnotation,
+    CreateMaskFormatImport,
     CreateConversionPlan,
     ConversionAction,
     ConversionSourceFence,
     PurgeImportedAnnotations,
     ResolveTask,
+    ReadMaskFormatImport,
 )
 from yoao_labeling.annotation_transfer_data import AnnotationTransferDataClient
 from yoao_owner_data.postgres import verify_function_only_role
 from app.db.models.annotation import Annotation
 from app.db.models.annotation_operation import AnnotationLineageEdge
 from app.db.models.task import Task
+from app.services.managed_original_retirement import managed_storage_identity
 from tests.factory import create_task
 from tests.test_workspace_project_access_step_native import _cleanup, _seed
 from tests.workspace_project_query_helpers import _dsn
@@ -200,6 +203,90 @@ async def test_import_owner_preserves_scope_partial_writes_and_rollback(test_eng
                     delete(Annotation).where(Annotation.task_id == task_id)
                 )
                 await db.execute(delete(Task).where(Task.id == task_id))
+        await _cleanup(maker, world)
+
+
+async def test_mask_staging_reference_is_preserved_in_owner_transaction(test_engine):
+    maker, world = await _seed(test_engine)
+    connection = None
+    try:
+        connection = await asyncpg.connect(
+            _dsn(
+                test_engine,
+                "AAP_MODULE_DATA_LABELING_ANNOTATION_TRANSFER_URL",
+                _ROLE,
+            ),
+            timeout=5,
+            command_timeout=10,
+        )
+
+        async def execute(payload: str):
+            return await connection.fetchval(
+                "SELECT aap_labeling_v1.annotation_transfer_command($1::jsonb)",
+                payload,
+            )
+
+        client = AnnotationTransferDataClient(execute)
+        import_id = uuid.uuid4()
+        prefix = (
+            f"mask-formats/{world['project_id']}/{world['member_id']}/{uuid.uuid4()}/"
+        )
+        endpoint, bucket = "https://saved-mask.example.test", "saved-mask"
+        staging_ref = {
+            "schema": 2,
+            "purpose": "import",
+            "location_id": str(uuid.uuid4()),
+            "config_revision": 3,
+            "binding_generation": 2,
+            "endpoint_url": endpoint,
+            "bucket": bucket,
+            "key_prefix": "team/_aap_managed/import/" + prefix,
+            "storage_identity": managed_storage_identity(endpoint, bucket),
+        }
+        request = CreateMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="create_mask_format_import",
+            id=import_id,
+            project_id=world["project_id"],
+            requested_by_id=world["member_id"],
+            format_id="native_json",
+            adapter_version="1.0.0",
+            manifest_version="2.0",
+            staged_object_key=prefix + "annotations.json",
+            staging_ref=staging_ref,
+            staged_sha256="a" * 64,
+            mapping_json={},
+            options_json={},
+            mapping_digest="b" * 64,
+            options_digest="c" * 64,
+            plan_json={},
+            plan_digest="d" * 64,
+            token_hash=hashlib.sha256(uuid.uuid4().bytes).hexdigest(),
+            receipt_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+            result_json={"items": {}},
+        )
+        read = ReadMaskFormatImport(
+            schema=ANNOTATION_TRANSFER_PROTOCOL,
+            operation="read_mask_format_import",
+            id=import_id,
+            project_id=world["project_id"],
+        )
+
+        transaction = connection.transaction()
+        await transaction.start()
+        created = await client.command(request)
+        assert created.mask_import.staging_ref == staging_ref
+        await transaction.rollback()
+        assert (await client.command(read)).mask_import is None
+
+        created = await client.command(request)
+        assert created.mask_import.staging_ref == staging_ref
+        saved = (await client.command(read)).mask_import
+        assert saved.staging_ref == staging_ref
+        assert saved.staged_object_key == request.staged_object_key
+    finally:
+        if connection is not None:
+            await connection.close()
         await _cleanup(maker, world)
 
 

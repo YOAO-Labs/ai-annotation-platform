@@ -526,11 +526,11 @@ def test_predictions_import(respx_mock, tmp_path):
         )
     )
     result = runner.invoke(
-        app, ["predictions", "import", pid, str(f), "--format", "aap_json"], env=ENV
+        app, ["predictions", "import", pid, str(f), "--format", "native_json"], env=ENV
     )
     assert result.exit_code == 0
     params = route.calls.last.request.url.params
-    assert params["format"] == "aap_json"
+    assert params["format"] == "native_json"
     assert params["dry_run"] == "false"
     assert "imported=5" in _plain(result.output)
 
@@ -700,7 +700,7 @@ def test_export_project_full_flow(respx_mock, tmp_path):
     out = tmp_path / "out.zip"
     result = runner.invoke(
         app,
-        ["export", "project", pid, "--target", "aap_json", "--out", str(out)],
+        ["export", "project", pid, "--target", "native_json", "--out", str(out)],
         env=ENV,
     )
     assert result.exit_code == 0
@@ -714,7 +714,16 @@ def test_export_project_json(respx_mock, tmp_path):
     out = tmp_path / "out.zip"
     result = runner.invoke(
         app,
-        ["export", "project", pid, "--target", "aap_json", "--out", str(out), "--json"],
+        [
+            "export",
+            "project",
+            pid,
+            "--target",
+            "native_json",
+            "--out",
+            str(out),
+            "--json",
+        ],
         env=ENV,
     )
     assert result.exit_code == 0
@@ -791,7 +800,7 @@ def test_export_project_body_option_sends_typed_json_body(respx_mock, tmp_path):
             "project",
             pid,
             "--target",
-            "aap_json",
+            "native_json",
             "--body",
             str(body_path),
             "--no-wait",

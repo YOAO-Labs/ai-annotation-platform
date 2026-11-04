@@ -288,7 +288,7 @@ async def test_export_modal_lidar_has_axis_frame():
         await pilot.click("#modal-ok")
         await _settle(app, pilot)
         _pid, targets, kwargs = app._client.exports.created[0]
-        assert targets == ["aap_json"]  # lidar 默认勾选
+        assert targets == ["native_json"]  # lidar 默认勾选
         assert kwargs.get("axis_frame") == "iso"
 
 

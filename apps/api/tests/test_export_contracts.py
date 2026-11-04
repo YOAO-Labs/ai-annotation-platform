@@ -26,7 +26,8 @@ def test_multi_target_and_unmapped_native_annotations_never_claim_one_task():
     assert [entry["task"] for entry in contract["contracts"]] == ["detect", "segment"]
     assert all(entry["format"] == "ultralytics-yolo" for entry in contract["contracts"])
     source.tool_bindings["polyline"] = {"enabled": True}
-    native = target_contract(source, "aap_json")
+    native = target_contract(source, "native_json")
+    assert native["format"] == "yoao"
     assert native["task"] is None and native["available_tasks"] == ["detect"]
     assert native["unmapped_tool_units"] == ["polyline"]
     assert not native["training_qualified"]

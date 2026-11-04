@@ -37890,8 +37890,8 @@
           "schema": {
             "title": "Format",
             "type": "string",
-            "default": "aap_json",
-            "pattern": "^(aap_json)$"
+            "default": "native_json",
+            "pattern": "^(native_json)$"
           }
         },
         {
@@ -38930,14 +38930,14 @@
           "name": "targets",
           "in": "query",
           "required": false,
-          "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+          "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
           "schema": {
             "title": "Targets",
             "type": "array",
             "default": [
               "coco"
             ],
-            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
             "items": {
               "type": "string"
             }
@@ -39921,14 +39921,14 @@
           "name": "targets",
           "in": "query",
           "required": false,
-          "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+          "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
           "schema": {
             "title": "Targets",
             "type": "array",
             "default": [
               "coco"
             ],
-            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
             "items": {
               "type": "string"
             }
@@ -42231,8 +42231,8 @@
           "schema": {
             "title": "Format",
             "type": "string",
-            "default": "aap_json",
-            "pattern": "^(aap_json|coco|yolo)$"
+            "default": "native_json",
+            "pattern": "^(native_json|coco|yolo)$"
           }
         },
         {
@@ -64840,7 +64840,7 @@
           "kind": "positional_or_keyword",
           "annotation": "str",
           "required": false,
-          "default": "aap_json"
+          "default": "native_json"
         },
         {
           "name": "yolo_variant",
@@ -83082,7 +83082,7 @@
           "required": true,
           "default": null,
           "type": "list[str]",
-          "description": "导出格式, 可重复: coco / yolo-det / aap_json / video_json / kitti …"
+          "description": "导出格式, 可重复: coco / yolo-det / native_json / video_json / kitti …"
         },
         {
           "name": "out",
@@ -95045,9 +95045,9 @@
             "--format"
           ],
           "required": false,
-          "default": "aap_json",
+          "default": "native_json",
           "type": "str",
-          "description": "aap_json / coco / yolo"
+          "description": "native_json / coco / yolo"
         },
         {
           "name": "dry_run",

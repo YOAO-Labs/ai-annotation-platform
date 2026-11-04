@@ -152,7 +152,7 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
     )
 
     # 导入外部预测
-    client.predictions.import_file(project.id, "preds.json", format="aap_json")
+    client.predictions.import_file(project.id, "preds.json", format="native_json")
 
     # 异步导出: 创建 → 等待 → 下载
     job_id = client.exports.create(project.id, targets=["coco"])
@@ -326,9 +326,9 @@ yoao members preview-role <project-id> <member-id> --role reviewer   # 只读预
 yoao members change-role <project-id> <member-id> --role reviewer \
   --expected-version 2 --preview-token <tok> --reason "重新分配职责" --yes
 
-yoao predictions import <project-id> result.json --format aap_json [--dry-run]
+yoao predictions import <project-id> result.json --format native_json [--dry-run]
 yoao jobs wait <job-id>                             # 进度条跟随到终态
-yoao export project <project-id> --target aap_json --out out.zip
+yoao export project <project-id> --target native_json --out out.zip
 
 yoao ml-backends list --project <project-id>        # 列本项目已启用的模型服务及健康状态
 yoao ml-backends get <backend-id> --project <project-id>

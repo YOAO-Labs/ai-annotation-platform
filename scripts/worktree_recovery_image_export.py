@@ -21,7 +21,7 @@ import zipfile
 from worktree_recovery_export import _read_exact, validate_media_pairs
 
 STATES = ("building", "ready")
-TARGETS = ["aap_json", "coco", "yolo-det"]
+TARGETS = ["native_json", "coco", "yolo-det"]
 OPTIONS = {
     "include_attributes": True,
     "video_frame_mode": "keyframes",
@@ -302,10 +302,10 @@ def _verify_archive(raw, *, bundle, output, metadata, expected):
                 in names
             )
         coco = json.loads(archive.read("coco/annotations.json"))
-        aap = json.loads(archive.read("aap_json/annotations.json"))
+        native = json.loads(archive.read("native_json/annotations.json"))
         image_paths = {"images/" + value for value in relative.values()}
         assert {row["file_name"] for row in coco["images"]} == image_paths
-        assert {row["file_path"] for row in aap["tasks"]} == image_paths
+        assert {row["file_path"] for row in native["tasks"]} == image_paths
         assert output.file_count == 6
 
 

@@ -14,7 +14,7 @@ export interface PredictionImportResult {
   dry_run: boolean;
 }
 
-export type PredictionImportFormat = "aap_json" | "coco" | "yolo";
+export type PredictionImportFormat = "native_json" | "coco" | "yolo";
 export type YoloImportVariant = "det" | "obb" | "seg";
 
 export interface PredictionImportOptions {
@@ -156,8 +156,8 @@ export const predictionsApi = {
   ) => apiClient.post<PredictionPurgeResult>(`/projects/${projectId}/predictions/purge`, payload),
 
   /**
-   * v0.10.54 · 导入 AAP JSON 的 annotations[] (ADR-0028).
-   * - 仅支持 aap_json; geometry 透传内部格式。
+   * 导入原生 JSON 的 annotations[] (ADR-0028).
+   * - 仅支持 native_json; geometry 透传内部格式。
    * - overwrite=true: 只清该 task 之前导入的标注 (attributes._imported), 不碰人工标注。
    */
   importAnnotations: async (
@@ -166,7 +166,7 @@ export const predictionsApi = {
     options: { overwrite?: boolean } = {},
     dryRun = false,
   ): Promise<PredictionImportResult> => {
-    const params = new URLSearchParams({ format: "aap_json", dry_run: String(dryRun) });
+    const params = new URLSearchParams({ format: "native_json", dry_run: String(dryRun) });
     const form = new FormData();
     form.append("file", file);
     if (options.overwrite) form.append("overwrite", "true");

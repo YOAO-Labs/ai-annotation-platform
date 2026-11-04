@@ -705,7 +705,9 @@ class ImageMaskImportAdapter:
                 }
             )
         payload = {
-            "schema_version": "1.3",
+            "schema_version": "2.0",
+            "format": "yoao",
+            "exported_from": {"platform": "yoao"},
             "mask_objects": mask_objects,
             "tasks": [
                 {

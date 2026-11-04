@@ -287,7 +287,7 @@ async def test_database_canonical_owner_and_raw_metadata_only_freeze(
     capture = AsyncMock(side_effect=AssertionError("HTTP must not read bytes"))
     monkeypatch.setattr(managed_original_reader, "capture", capture)
     frozen = await inputs.collect(
-        db, project.id, None, ["video_json", "aap_json"], {}, lock=True
+        db, project.id, None, ["video_json", "native_json"], {}, lock=True
     )
     data = frozen.snapshot
     assert (

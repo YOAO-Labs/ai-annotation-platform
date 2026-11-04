@@ -88790,8 +88790,8 @@
             "name": "format",
             "required": false,
             "schema": {
-              "default": "aap_json",
-              "pattern": "^(aap_json)$",
+              "default": "native_json",
+              "pattern": "^(native_json)$",
               "title": "Format",
               "type": "string"
             }
@@ -90150,7 +90150,7 @@
             }
           },
           {
-            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
             "in": "query",
             "name": "targets",
             "required": false,
@@ -90158,7 +90158,7 @@
               "default": [
                 "coco"
               ],
-              "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+              "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
               "items": {
                 "type": "string"
               },
@@ -91442,7 +91442,7 @@
             }
           },
           {
-            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+            "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
             "in": "query",
             "name": "targets",
             "required": false,
@@ -91450,7 +91450,7 @@
               "default": [
                 "coco"
               ],
-              "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / aap_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
+              "description": "导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg / label-studio-brush / binary-png / indexed-png / native_json / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis / youtube-vos / mots / mot / kitti / coco-multicamera / nuscenes / pointmask（voc 仅可单选，走同步下载；lidar.kitti 为 3D label，video.kitti 为 tracking label）",
               "items": {
                 "type": "string"
               },
@@ -96785,8 +96785,8 @@
             "name": "format",
             "required": false,
             "schema": {
-              "default": "aap_json",
-              "pattern": "^(aap_json|coco|yolo)$",
+              "default": "native_json",
+              "pattern": "^(native_json|coco|yolo)$",
               "title": "Format",
               "type": "string"
             }

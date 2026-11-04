@@ -45,7 +45,7 @@ def snapshot(*, targets=None, names=("same.jpg", "same.png"), reference=False):
 
 
 def test_shared_original_has_distinct_task_paths_and_parallel_yolo_destinations():
-    data = snapshot(targets=["coco", "yolo", "yolo-det", "aap_json"])
+    data = snapshot(targets=["coco", "yolo", "yolo-det", "native_json"])
     relative = paths.paths(data)
     assert len(set(relative.values())) == 2
     assert all(

@@ -6,13 +6,17 @@ this fixture keeps SQL migrations, frozen serialization and cache coupling real.
 
 from contextlib import nullcontext
 import hashlib
+import io
+import json
 from pathlib import Path
 from unittest.mock import AsyncMock
 import uuid
+import zipfile
 
 import pytest
 from sqlalchemy import select, text
 
+from app.db.models.annotation import Annotation
 from app.db.models.async_job import AsyncJob
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -162,9 +166,11 @@ class Harness:
         )
 
 
-async def request(db, project, *, targets=None):
-    targets = targets or ["pointmask", "aap_json"]
+async def request(db, project, *, targets=None, axis_frame=None):
+    targets = targets or ["pointmask", "native_json"]
     opts = {"lidar": {"kitti_camera_role": "camera_front"}}
+    if axis_frame is not None:
+        opts["axis_frame"] = axis_frame
     await db.refresh(project)
     job = AsyncJob(
         id=uuid.uuid4(),
@@ -227,6 +233,59 @@ async def test_real_zip_publication_then_verified_cache_preserves_original_deadl
     # This HTTP attempt's unused inventory is never falsely published.
     unused = await state(db, ExportMediaBundle, new_receipt.id)
     assert unused.state == "building" and unused.published_at is None
+
+
+async def test_worker_native_json_preserves_requested_axis_frame(
+    worker_db, monkeypatch
+):
+    db = worker_db
+    project, dataset, _, _, _, task, _, _ = await setup(db)
+    dataset.metadata_ = {"axis_convention": "apollo"}
+    db.add(
+        Annotation(
+            id=uuid.uuid4(),
+            task_id=task.id,
+            project_id=project.id,
+            class_name="car",
+            annotation_type="box_3d",
+            tool_unit_id="lidar_box_3d",
+            geometry={
+                "type": "box_3d",
+                "center": [0, 1, 0],
+                "size": [4, 2, 1],
+                "rotation": [0, 0, 0],
+            },
+            attributes={},
+            is_active=True,
+            was_cancelled=False,
+        )
+    )
+    await db.commit()
+    harness = Harness(db, monkeypatch)
+    documents = {}
+    for frame in ("iso", "source"):
+        job_id, receipt, args = await request(db, project, axis_frame=frame)
+        await worker.run_owned(db, **args)
+        assert (await state(db, AsyncJob, job_id)).status == "completed"
+        with zipfile.ZipFile(
+            io.BytesIO(harness.objects[receipt.zip_output_id])
+        ) as archive:
+            documents[frame] = json.loads(archive.read("native_json/annotations.json"))
+    iso = next(
+        a["geometry"]
+        for a in documents["iso"]["tasks"][0]["annotations"]
+        if a["geometry"]["type"] == "box_3d"
+    )
+    source = next(
+        a["geometry"]
+        for a in documents["source"]["tasks"][0]["annotations"]
+        if a["geometry"]["type"] == "box_3d"
+    )
+    assert iso["center"] == [0, 1, 0]
+    assert source["center"] == pytest.approx([-1, 0, 0])
+    assert source["size"] == [4, 2, 1]
+    assert source["axis_frame"] == "source"
+    assert source["axis_convention"] == "apollo"
 
 
 async def test_duplicate_and_stale_deliveries_cannot_copy_or_change_winner(

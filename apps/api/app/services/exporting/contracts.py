@@ -82,11 +82,11 @@ def target_contract(project, target):
             "lidar" if project.data_type == "lidar" else "image",
             "kitti",
         )
-    elif target in {"aap_json", "video_json", "coco"}:
+    elif target in {"native_json", "video_json", "coco"}:
         task = available[0] if len(available) == 1 and not unmapped else None
         media_type = project.data_type or "image"
         format_name = {
-            "aap_json": "aap",
+            "native_json": "yoao",
             "video_json": "aap-video-tracks",
             "coco": "coco",
         }[target]
@@ -101,7 +101,7 @@ def target_contract(project, target):
         "purpose": "annotation-export",
         "training_qualified": False,
         "unmapped_tool_units": unmapped
-        if target in {"aap_json", "video_json", "coco"}
+        if target in {"native_json", "video_json", "coco"}
         else [],
     }
 

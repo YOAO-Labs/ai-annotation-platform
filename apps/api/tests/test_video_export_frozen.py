@@ -47,7 +47,7 @@ def facts(*, original=False, collaboration=False):
         "project_id": project,
         "batch_id": None,
         "task_ids": None,
-        "targets": ["video_json", "aap_json"],
+        "targets": ["video_json", "native_json"],
         "options": {},
         "project": {
             "id": project,

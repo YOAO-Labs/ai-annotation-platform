@@ -74,7 +74,7 @@ async def test_failed_storage_rolls_back_real_import_before_failure_receipt(
             await annotations.import_annotations(
                 request=request,
                 file=upload,
-                format="aap_json",
+                format="native_json",
                 dry_run=False,
                 overwrite=True,
                 project=project,
@@ -85,7 +85,7 @@ async def test_failed_storage_rolls_back_real_import_before_failure_receipt(
             await predictions.import_predictions(
                 request=request,
                 files=[upload],
-                format="aap_json",
+                format="native_json",
                 yolo_variant="det",
                 dry_run=False,
                 model_version=None,
@@ -108,7 +108,7 @@ async def test_failed_storage_rolls_back_real_import_before_failure_receipt(
     assert len(jobs) == 1 and jobs[0].status == "failed"
 
 
-@pytest.mark.parametrize("format", ["aap_json", "coco"])
+@pytest.mark.parametrize("format", ["native_json", "coco"])
 @pytest.mark.parametrize("prior_file", [False, True])
 @pytest.mark.parametrize("failure_kind", ["mask", "unexpected"])
 async def test_prediction_multifile_terminal_failure_rolls_back_all_business_writes(
@@ -161,7 +161,7 @@ async def test_prediction_multifile_terminal_failure_rolls_back_all_business_wri
 
     monkeypatch.setattr(
         predictions_import,
-        "import_native_json" if format == "aap_json" else "import_coco",
+        "import_native_json" if format == "native_json" else "import_coco",
         import_file,
     )
     contents = ([b"prior"] if prior_file else []) + [b"fail", b"later"]

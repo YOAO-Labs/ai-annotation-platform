@@ -147,7 +147,7 @@ Workbench 会用该字段显示来源标识，并支持按来源隐藏 / 恢复�
 ## 导入外部预测
 
 ```http
-POST /api/v1/projects/:project_id/predictions/import?format=aap_json&dry_run=false
+POST /api/v1/projects/:project_id/predictions/import?format=native_json&dry_run=false
 ```
 
 使用 multipart `file` 字段上传文件；支持的格式与替换选项见[预测导入与导出](../../user-guide/datasets/prediction-import-export)。

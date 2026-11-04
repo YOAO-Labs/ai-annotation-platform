@@ -182,7 +182,7 @@ test("AAP JSON 视频预测可预检、审阅并持久化采纳/忽略", async (
 
   const dryRun = await json<{ imported: number; dry_run: boolean; errors: unknown[] }>(
     await request.post(
-      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=aap_json&dry_run=true`,
+      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=native_json&dry_run=true`,
       { headers: auth(token), multipart: { file } },
     ),
   );
@@ -197,7 +197,7 @@ test("AAP JSON 视频预测可预检、审阅并持久化采纳/忽略", async (
 
   const imported = await json<{ imported: number; dry_run: boolean; errors: unknown[] }>(
     await request.post(
-      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=aap_json`,
+      `${API_BASE}/api/v1/projects/${data.project_id}/predictions/import?format=native_json`,
       { headers: auth(token), multipart: { file } },
     ),
   );

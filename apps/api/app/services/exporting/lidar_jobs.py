@@ -74,7 +74,7 @@ def _targets(targets):
         _reject()
     if cleaned != targets:
         _reject()
-    return cleaned
+    return targets
 
 
 def _selected(payload, opts, task_ids=None):

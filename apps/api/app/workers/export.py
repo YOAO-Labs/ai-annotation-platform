@@ -38,7 +38,7 @@ from app.services.exporting import output_authority
 from app.services.exporting.packaging import build_export_zip
 from app.services.exporting.video_scope import VideoExportScope
 from app.services.exporting.scope import lock_task_scope
-from app.services.mask_formats.catalog import registry as mask_format_registry
+from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.contracts import canonical_digest
 from app.schemas.export import LidarExportOptions
 from app.db.models.notification import Notification
@@ -862,7 +862,7 @@ async def _run_export(
                     max_updated_at,
                     active_count,
                     axis_frame=axis_frame,
-                    adapter_contracts=mask_format_registry.versions(targets),
+                    adapter_contracts=registry.versions(targets),
                     options_digest=canonical_digest(options_payload),
                 )
                 # v0.10.43 · media 前缀 + 友好下载名（{display_id}_{dataset?}_{job[:8]}.zip）。

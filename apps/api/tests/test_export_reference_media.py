@@ -337,7 +337,7 @@ async def test_all_async_image_formats_embed_verified_bytes_and_share_paths(
                 and params["Key"] == registered.item.file_path
                 for name, params in image_transport.source.calls
             )
-            aap = json.loads(archive.read("aap_json/annotations.json"))
+            aap = json.loads(archive.read("native_json/annotations.json"))
             assert any(
                 row["file_path"] == media.archive_path(task.id) for row in aap["tasks"]
             )

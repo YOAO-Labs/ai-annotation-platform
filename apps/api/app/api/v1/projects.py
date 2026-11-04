@@ -883,7 +883,7 @@ async def export_project(
     targets: list[str] = Query(
         default=["coco"],
         description="导出目标，可多选：coco / yolo-det / yolo-obb / yolo-seg"
-        " / label-studio-brush / binary-png / indexed-png / aap_json"
+        " / label-studio-brush / binary-png / indexed-png / native_json"
         " / video_json / yolo-frames-det / yolo-frames-seg / coco-frames-seg / davis"
         " / youtube-vos / mots / mot / kitti"
         " / coco-multicamera / nuscenes / pointmask"

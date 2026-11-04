@@ -8,7 +8,7 @@ from app.services.content_snapshot import ContentError
 TARGETS = frozenset(
     {
         "video_json",
-        "aap_json",
+        "native_json",
         "mot",
         "kitti",
         "yolo-frames-det",
