@@ -34,6 +34,8 @@ pnpm dev:worktree -- up --with-worker
 
 首次启动会创建独立数据库、Redis 容器和十个 bucket，再运行本 checkout 的迁移。输入桶 `MINIO_INPUTS_BUCKET` 独立启用 versioning，不配置自动过期；派生媒体仍使用不启用 versioning 的 `media-cache`。已有且归属正确的资源会复用；已有但未标记或属于别处的资源不会被自动接管。
 
+`test` 和 `e2e` 还会对归属核验通过的 `MINIO_IMPORT_BUCKET` 启用并检查 versioning，供测试导入原件固定版本使用；`dev` 不因此改变导入桶策略。该准备步骤不接管外部桶，也不把已受理输入桶或导入桶的设置推广到派生缓存。
+
 已保存的八桶和九桶环境仍可运行 `doctor`、`stop` 和 `destroy`；这些命令按旧清单操作，不会创建或接管第十个桶。显式 `init/up` 才会迁移：八桶清单先增加训练桶并保存九桶中间清单，再增加输入桶；九桶清单直接增加输入桶，最后将清单原子更新为十桶。旧资源与数据保留。
 
 若创建输入桶时中断，恢复记录在 `.worktree/<mode>/inputs-bucket-upgrade.json`。缺少归属标签的桶不会被自动接管或清空；管理员需核对精确桶名、归属记录和内容，确认可安全处理后再显式完成 `init`。未完成的输入桶升级会阻止旧清单销毁，以免遗留未登记资源。不要删除旧资源清单或恢复记录来绕过归属检查。
@@ -128,6 +130,8 @@ pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 `exec` 的命令从工作树根目录执行，`--` 后面的参数原样传给子进程。`TEST_DATABASE_URL` 和 `PLAYWRIGHT_E2E_DATABASE_URL` 由入口统一覆盖。入口自动注入 `AAP_WORKTREE_MODE`；在 `dev` 模式中，pytest 和 Playwright 会在准备测试数据库前明确拒绝运行，且不导出其他模式的可用测试连接。需要同类测试并行时使用不同工作树，不要绕过模式锁或手工改写这个内部标识。
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
+
+CI 的可复用 E2E 工作流同样从仓库根目录调用 `pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web <套件命令>`，不再另起使用 owner 连接的 API 或维护第二套运行账号授权。PostgreSQL 的初始 `postgres` 连接用于协调器建库和迁移；实际普通 API 只获得本模式的受限连接。需要已构建 Web 的 CI 套件仍使用经过指纹核验的产物和严格端口 preview；Mask 的开发服务器与原生构建入口保持各自约定。
 
 `--with-worker` 使用当前 checkout 的 Python 依赖，同时启动普通和维护 worker。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，负责审计与预测月分区、旧审计分区归档，以及人员效率和审计统计物化视图刷新。两者均需通过任务注册与队列订阅检查；除了职责队列，也允许 Celery 自动创建的当前节点专属定向队列，缺失职责队列或其他意外订阅仍会阻止启动。`doctor` 分别显示 `worker` 和 `maintenance_worker`；任一个退出都会停止同次启动的服务。
 

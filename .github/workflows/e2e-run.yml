@@ -95,7 +95,7 @@ jobs:
         env:
           POSTGRES_USER: user
           POSTGRES_PASSWORD: pass
-          POSTGRES_DB: annotation_test
+          POSTGRES_DB: postgres
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -103,30 +103,15 @@ jobs:
           --health-retries 5
         ports:
           - 5432:5432
-      redis:
-        image: redis:7
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
     env:
-      DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
-      PLAYWRIGHT_E2E_DATABASE_URL: postgresql+asyncpg://user:pass@localhost:5432/annotation_test
+      # Only the worktree coordinator receives this owner connection.
+      # Its child environment supplies the owned database and distinct _app LOGIN.
+      DATABASE_URL: postgresql+asyncpg://user:pass@127.0.0.1:5432/postgres
       SECRET_KEY: ci-test-secret
-      REDIS_URL: redis://localhost:6379/0
       MINIO_ENDPOINT: localhost:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
-      MINIO_BUCKET: annotations-test
-      # The test router is opt-in and also validates the _test database suffix.
-      E2E_SEED_ENABLED: "true"
       ENVIRONMENT: development
-      # CI 上 Node 把 localhost 解析成 ::1，但 uvicorn --host 0.0.0.0 只听 IPv4，
-      # 用 127.0.0.1 强制 IPv4 避免 ECONNREFUSED ::1:8000。
-      PLAYWRIGHT_API_BASE: http://127.0.0.1:8000
     steps:
       - name: Record prep start
         run: echo "E2E_PREP_START=$(date +%s)" >> "$GITHUB_ENV"
@@ -183,34 +168,6 @@ jobs:
           done
           docker logs minio
           exit 1
-      - name: Initialize versioned inference storage
-        working-directory: apps/api
-        run: |
-          uv run python - <<'PY'
-          from app.services.storage import storage_service
-
-          bucket = storage_service.import_bucket
-          storage_service.ensure_bucket(bucket)
-          storage_service.client.put_bucket_versioning(
-              Bucket=bucket,
-              VersioningConfiguration={"Status": "Enabled"},
-          )
-          assert storage_service.client.get_bucket_versioning(Bucket=bucket)["Status"] == "Enabled"
-          PY
-      - name: alembic upgrade head
-        working-directory: apps/api
-        run: uv run alembic upgrade head
-      - name: Start FastAPI in background
-        if: matrix.built
-        working-directory: apps/api
-        run: |
-          uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 > "$GITHUB_WORKSPACE/apps/web/e2e-api.log" 2>&1 &
-          for i in {1..30}; do
-            if curl -fsS http://127.0.0.1:8000/health/db; then exit 0; fi
-            sleep 1
-          done
-          cat "$GITHUB_WORKSPACE/apps/web/e2e-api.log"
-          exit 1
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -253,11 +210,10 @@ jobs:
       - name: Run E2E suite
         id: e2e
         timeout-minutes: 20
-        working-directory: apps/web
         run: |
           echo "E2E_PREP_SECONDS=$(( $(date +%s) - E2E_PREP_START ))" >> "$GITHUB_ENV"
           echo "E2E_RUN_START=$(date +%s)" >> "$GITHUB_ENV"
-          pnpm ${{ matrix.command }}
+          pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web ${{ matrix.command }}
       - name: Record execution seconds
         if: always() && steps.e2e.outcome != 'skipped'
         run: echo "E2E_RUN_SECONDS=$(( $(date +%s) - E2E_RUN_START ))" >> "$GITHUB_ENV"

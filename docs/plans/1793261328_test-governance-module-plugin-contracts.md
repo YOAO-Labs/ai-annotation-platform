@@ -1240,6 +1240,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - T1 在完整资格的前置范围内补齐私有存储引导／suite 登记，T2 继续独占生产者、消费者、运行清单与清理合同；两路直接协调新入口，主进程审核并持有共享 grants、验证器、迁移顺序及实际激活权。两者尚未形成一致、可运行的集成候选。
 - 当前截图链仍依赖共享账号、固定 display ID 和宽泛 repair；必须将真实 producer、spec、catalog 与清理端一起切到本轮准确身份。仅给 reconciliation 增加 run ID 不能证明两个截图运行互不干扰，旧 repair 不作为验证捷径。
 - GPU 标量回归、待写入 item 恢复及根存储签名围栏当前只有未执行的候选；真实 signer、跨进程读取、维护窗口和并发激活尚未验收。T1 默认完整资格、J1 以及 N5／N6 后继门继续保持未通过。
+- CI 的 E2E 入口已改用现有工作树协调器，不再以初始 owner 连接另起普通 API，并保留已构建 Web 的指纹核验与 preview。本地以此前不存在的 `test` 模式实际执行该入口：独立 `_app` LOGIN 的五项高权限标志均关闭，公共 schema 建表返回 `42501`，专属导入／已受理输入桶版本控制已启用，清除 owner 选择变量的冷 API `/health/db` 返回 200。21 项工作树资源回归、配置格式及 workflow 命名检查通过。探针原先错误地要求 SIGTERM 后退出码为零；原始失败回执保留，实际日志显示完成优雅关闭，安装的 Uvicorn 随后重抛信号并返回 `-15`。核实零连接与资源归属后，该临时 `test` 模式已准确销毁，既有 e2e 未动。此证据不含尚未集成的夹具协调器、T2 回收或远端 CI。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 

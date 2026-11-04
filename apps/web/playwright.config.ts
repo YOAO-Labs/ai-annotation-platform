@@ -162,7 +162,10 @@ export default defineConfig({
           timeout: 120_000,
         },
         {
-          command: "pnpm dev --host 127.0.0.1",
+          command:
+            isCI && !rasterMaskMatrix
+              ? `pnpm preview --host 127.0.0.1 --port ${isolatedWebPort} --strictPort`
+              : "pnpm dev --host 127.0.0.1",
           cwd: configDir,
           env: {
             API_PROXY_TARGET: `http://127.0.0.1:${isolatedApiPort}`,

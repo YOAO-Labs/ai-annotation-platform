@@ -179,6 +179,8 @@ MinIO bucket，并隔离 DuckDB/临时文件。共享 `.env` 只作为基础配�
 
 在线学习使用 `MINIO_TRAINING_BUCKET`（默认 `training`）持久保存冻结原图和训练包，不设置自动过期。已受理的不可变输入对象使用独立 `MINIO_INPUTS_BUCKET`（默认 `accepted-inputs`），该桶必须启用 versioning，且不能设置自动过期；`media-cache` 保持非版本化。旧八桶/九桶工作树只会在显式 `init/up` 时按阶段扩展到十桶；`doctor/stop/destroy` 仍按旧清单只读、停止或销毁，不会隐式创建新桶。升级中断会留下 `.worktree/<mode>/training-bucket-upgrade.json` 或 `inputs-bucket-upgrade.json`；缺少归属标签的新桶不会被自动接管。运行环境更新需应用迁移并刷新 export worker，核验 `app.workers.training_dataset.run_training_dataset` 已注册。
 
+CI 的 E2E 套件也通过 `pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web <套件命令>` 启动。Job 的初始数据库 owner 连接只交给协调器；普通 API 使用独立受限运行账号，启动环境不含迁移或夹具 owner 连接。`test` / `e2e` 准备同时核验专属导入桶和已受理输入桶的 versioning；不修改其他模式或未确认归属的桶。CI 中已构建的 Web 套件继续使用校验过指纹的 `dist` 与 preview，不因切入工作树入口而改测开发服务器。
+
 ### 数据集工作台规模测量
 
 数据集分页、筛选与关联项目统计的可复现本地基线使用 `scripts/benchmark_dataset_workbench.py`，仅运行于 owned、空业务库的 `e2e` 环境。两档索引各含 40 张真实目录图片，其余明确为未核验合成索引；测量前用当前命名空间的迁移账号准备完整统计，API 仍使用普通运行账号。[测量方法与读数](docs-site/dev/reference/dataset-workbench-benchmark.md) 包含运行、浏览器请求预算及清理步骤。

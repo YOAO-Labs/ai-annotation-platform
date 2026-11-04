@@ -1876,6 +1876,10 @@ class LocalResources:
                 )
             require_owner(name, self.bucket_info(name), self.resources["owner"])
         self.ensure_inputs_bucket_versioning()
+        if self.resources["mode"] in {"test", "e2e"}:
+            self._ensure_owned_bucket_versioning(
+                self.resources["buckets"]["MINIO_IMPORT_BUCKET"]
+            )
         self.start_redis()
         for part in ("data", "tmp"):
             state_path(self.root, self.resources["mode"], part).mkdir(
@@ -2009,8 +2013,11 @@ class LocalResources:
             raise WorktreeError(
                 "旧资源清单没有输入 bucket；请显式运行 init 完成资源升级"
             )
+        self._ensure_owned_bucket_versioning(bucket)
+
+    def _ensure_owned_bucket_versioning(self, bucket: str) -> None:
         if not require_owner(bucket, self.bucket_info(bucket), self.resources["owner"]):
-            raise WorktreeError(f"输入 bucket {bucket} 尚未归属于本环境")
+            raise WorktreeError(f"bucket {bucket} 尚未归属于本环境")
         state = self.s3.get_bucket_versioning(Bucket=bucket)
         if state.get("Status") != "Enabled":
             self.s3.put_bucket_versioning(
@@ -2019,7 +2026,7 @@ class LocalResources:
             )
             state = self.s3.get_bucket_versioning(Bucket=bucket)
         if state.get("Status") != "Enabled":
-            raise WorktreeError(f"输入 bucket {bucket} 必须启用 versioning")
+            raise WorktreeError(f"bucket {bucket} 必须启用 versioning")
 
     def upgrade_inputs_bucket(self) -> None:
         """Explicit prepare step: upgrade a legacy 8/9-bucket mode to 10 buckets."""
