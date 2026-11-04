@@ -1,6 +1,6 @@
 /**
  * 更新内容来自仓库根 `CHANGELOG.md` 当前版本段落,由 `vite-plugins/release-notes.ts`
- * 构建期裁剪注入:发布流程(aap-release)同步 bump 三处版本号并写 changelog,构建产物
+ * 构建期裁剪注入:发布流程(yoao-release)同步 bump 三处版本号并写 changelog,构建产物
  * 里的段落与 package.json 版本天然一致;dev 模式修改 CHANGELOG 后重启 dev server 生效。
  */
 import { version as appVersion } from "../../package.json";
