@@ -34,7 +34,6 @@ IMAGE_TARGETS = frozenset(
         "yolo-obb",
         "yolo-seg",
         "native_json",
-        "aap_json",
         "label-studio-brush",
         "binary-png",
         "indexed-png",
@@ -44,7 +43,6 @@ VIDEO_TARGETS = frozenset(
     {
         "video_json",
         "native_json",
-        "aap_json",
         "mot",
         "kitti",
         "yolo-frames-det",

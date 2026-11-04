@@ -14,10 +14,10 @@ from app.services.mask_formats.planning import _plan
 @pytest.mark.parametrize("complete", [False, True])
 def test_plan_digest_matches_normalized_persisted_json(direction, complete):
     payload = {
-        "format_id": "aap_json",
+        "format_id": "native_json",
         "direction": direction,
         "adapter_version": "1.0.0",
-        "manifest_version": "1.3",
+        "manifest_version": "2.0",
         "media_type": "image",
         "loss_class": "lossless",
         "mapping_digest": canonical_digest({}),

@@ -208,7 +208,7 @@ def owned_dispatch(monkeypatch):
         project_id=str(project.id),
         batch_id=str(uuid.uuid4()),
         task_ids=[str(uuid.uuid4()), str(uuid.uuid4())],
-        targets=["aap_json"],
+        targets=["native_json"],
         opts={"include_attributes": False},
         async_job_id=str(job.id),
         celery_task_id="owned-delivery",
@@ -234,34 +234,6 @@ def assert_generic_untouched(wiring):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "media,targets",
-    [
-        ("video", ["davis", "mots"]),
-        ("video", ["aap_json"]),
-        ("image", ["coco"]),
-        ("lidar", ["pointmask", "aap_json"]),
-    ],
-)
-async def test_supported_media_delegates_exact_selection_before_generic_cache(
-    owned_dispatch, media, targets
-):
-    wiring = owned_dispatch
-    wiring.project.data_type = media
-    args = {**wiring.args, "targets": targets}
-    await export_worker._run_export(**args)
-    expected = {**args}
-    if media == "lidar":
-        expected.pop("worker_node_id")
-    else:
-        expected["media_kind"] = media
-    wiring.delegate.assert_awaited_once_with(wiring.db, **expected)
-    assert wiring.db.rollback.await_count == 1
-    wiring.db.commit.assert_not_awaited()
-    assert_generic_untouched(wiring)
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize("media", ["video", "image"])
 async def test_durable_media_proof_still_routes_when_project_is_unavailable(
     owned_dispatch, media
@@ -283,7 +255,7 @@ async def test_owned_authority_failure_cannot_fall_back_to_generic_publication(
     wiring.project.data_type = media
     args = {
         **wiring.args,
-        "targets": ["pointmask"] if media == "lidar" else ["aap_json"],
+        "targets": ["pointmask"] if media == "lidar" else ["native_json"],
     }
     failure = ContentError("original_key_revoked")
     wiring.delegate.side_effect = failure

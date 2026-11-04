@@ -34,7 +34,7 @@ logger = logging.getLogger("app.services.exporting.video")
 # 的类型判别处被**静默丢弃**——连带使 v0.21.20 为 points track 写的外接框降级
 # （``points_to_bbox_norm`` / ``_frame_bbox``）在端到端链路上成了死代码，只被纯函数单测
 # 覆盖。放宽后 polygon / polyline 的单帧与轨迹几何都能进入导出：bbox-only 格式
-# （MOT / KITTI / YOLO-frames-det）降级为顶点外接框，保真格式（video_json / aap_json）
+# （MOT / KITTI / YOLO-frames-det）降级为顶点外接框，保真格式（video_json / native_json）
 # 保留 ``points``。真·segmentation 格式（保留多边形的 YOLO-seg 等）另行落地。
 #
 VIDEO_TRACK_GEOMETRY_TYPES = frozenset(

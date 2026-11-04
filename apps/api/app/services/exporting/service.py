@@ -1278,7 +1278,6 @@ class ExportService:
         batch_id: uuid.UUID | None = None,
         axis_frame: AxisFrame = "iso",
         video_scope: VideoExportScope | None = None,
-        historical: bool = False,
     ) -> str:
         """Export the lossless native JSON interchange format.
 
@@ -1452,13 +1451,6 @@ class ExportService:
             scene_tracks=scene_track_entries,
             tasks=task_blocks,
         )
-
-        if historical:
-            payload = envelope.model_dump(mode="json")
-            payload["schema_version"] = "1.7"
-            payload["format"] = "aap"
-            payload["exported_from"]["platform"] = "aap"
-            return json.dumps(payload, ensure_ascii=False, indent=2)
 
         # 严格写满 null: 走 mode="json" + exclude_none=False (默认).
         return envelope.model_dump_json(indent=2, exclude_none=False)

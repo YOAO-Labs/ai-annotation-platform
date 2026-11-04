@@ -321,7 +321,9 @@ async def test_empty_video_project_keeps_valid_metadata_archive(monkeypatch, tmp
     try:
         with zipfile.ZipFile(path) as output:
             assert json.loads(output.read("manifest.json"))["videos"] == []
-            assert json.loads(output.read("aap_json/annotations.json"))["tasks"] == []
+            assert (
+                json.loads(output.read("native_json/annotations.json"))["tasks"] == []
+            )
     finally:
         Path(path).unlink()
 

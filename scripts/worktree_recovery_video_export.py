@@ -26,7 +26,7 @@ from worktree_recovery_image_export import _historical_url
 
 STATES = ("building", "ready")
 CASES = ("dataset", "standalone")
-TARGETS = ["aap_json", "kitti", "mot", "video_json"]
+TARGETS = ["native_json", "kitti", "mot", "video_json"]
 OPTIONS = {
     "include_attributes": True,
     "video_frame_mode": "keyframes",
@@ -533,7 +533,7 @@ def _archive(raw, *, bundle, metadata, expected):
             ]
             receipts[task_id], urls[task_id] = proof, entry["presigned_url"]
         image_paths = {"videos/" + value for value in relative.values()}
-        for name in ("aap_json/annotations.json", "video_json/annotations.json"):
+        for name in ("native_json/annotations.json", "video_json/annotations.json"):
             document = json.loads(archive.read(name))
             assert {task["file_path"] for task in document["tasks"]} == image_paths
     return {

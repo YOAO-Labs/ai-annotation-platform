@@ -248,11 +248,11 @@ def _native_task_subset_bytes(envelope: NativeJsonEnvelope, source_index: int) -
 class NativeJsonAdapter(LegacyPackagingAdapter):
     async def _load(self, staged: StagedObject) -> NativeJsonEnvelope:
         if staged.size_bytes > 64 * 1024 * 1024:
-            raise ValueError("resource_budget_exceeded:max_aap_json_bytes")
+            raise ValueError("resource_budget_exceeded:max_native_json_bytes")
         try:
             return decode_native_json(json.loads(Path(staged.local_path).read_bytes()))
         except Exception as exc:
-            raise ValueError(f"aap_json_invalid:{exc}") from exc
+            raise ValueError(f"native_json_invalid:{exc}") from exc
 
     async def preflight_import(
         self,

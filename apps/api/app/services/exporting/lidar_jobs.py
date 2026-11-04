@@ -63,20 +63,16 @@ def _same_json(left, right):
     return type(left) in {str, bool, int, type(None)} and left == right
 
 
-def _targets(targets, *, historical=False):
+def _targets(targets):
     from app.services.exporting.packaging import clean_export_targets
 
     if type(targets) is not list or any(type(target) is not str for target in targets):
         _reject()
-    validation_targets = [
-        "native_json" if historical and target == "aap_json" else target
-        for target in targets
-    ]
     try:
-        cleaned = clean_export_targets(validation_targets, "lidar")
+        cleaned = clean_export_targets(targets, "lidar")
     except ValueError:
         _reject()
-    if cleaned != validation_targets:
+    if cleaned != targets:
         _reject()
     return targets
 
@@ -210,7 +206,7 @@ def validate_message(
         or payload["batch_id"] != scope_batch
     ):
         _reject("lidar_export_scope_changed")
-    normalized = _targets(targets, historical=True)
+    normalized = _targets(targets)
     if not _same_json(normalized, frozen.get("targets")) or not _same_json(
         normalized, payload.get("targets")
     ):

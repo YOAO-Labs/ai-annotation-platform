@@ -9,7 +9,6 @@ TARGETS = frozenset(
     {
         "video_json",
         "native_json",
-        "aap_json",
         "mot",
         "kitti",
         "yolo-frames-det",

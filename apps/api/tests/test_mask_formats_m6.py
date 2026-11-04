@@ -20,7 +20,7 @@ from app.db.models.task import Task
 from app.schemas.mask_format import MaskFormatPlan
 from app.schemas.native_json import decode_native_json
 from app.services.exporting.cache import compute_cache_key
-from app.services.mask_formats.catalog import registry, saved_import_adapter
+from app.services.mask_formats.catalog import registry
 from app.services.mask_formats.adapters import _ALLOWED_GEOMETRY
 from app.services.mask_formats.contracts import StagedObject
 from yoao_assets_source.archive import (
@@ -135,17 +135,6 @@ async def test_empty_native_preflight_rejects_invalid_identity(
             mapping={},
             options={},
         )
-
-
-def test_historical_receipts_resolve_without_old_admission() -> None:
-    with pytest.raises(ValueError):
-        registry.get("aap_json")
-    old = saved_import_adapter("aap_json").descriptor
-    assert (old.format_id, old.adapter_version, old.manifest_version) == (
-        "aap_json",
-        "1.0.0",
-        "1.3",
-    )
 
 
 def test_video_obb_and_keypoint_are_only_claimed_by_lossless_formats() -> None:

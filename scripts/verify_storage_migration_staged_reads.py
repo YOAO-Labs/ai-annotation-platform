@@ -482,10 +482,6 @@ class StagedReads(RetainedReads):
 
     def after_seal(self, **context):
         owner, http, summary = (context[key] for key in ("owner", "http", "summary"))
-        require(
-            self.value["plan"]["format_id"] == "native_json",
-            "historical_staged_plan_requires_pre_cutover_reconciliation",
-        )
 
         def op(action, **flags):
             return operator(

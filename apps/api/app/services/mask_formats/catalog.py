@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from dataclasses import replace
-
 from app.schemas.mask_format import MaskFormatCapability
 from app.services.mask_formats.adapters import NativeJsonAdapter, LegacyPackagingAdapter
 from app.services.mask_formats.contracts import MaskFormatDescriptor
@@ -217,31 +215,3 @@ for descriptor in _DESCRIPTORS:
     else:
         adapter = LegacyPackagingAdapter(descriptor)
     registry.register(adapter)
-
-
-# Only durable receipts created before cutover may resolve the old descriptor.
-_historical_native_import = NativeJsonAdapter(
-    replace(
-        registry.get("native_json").descriptor,
-        format_id="aap_json",
-        adapter_version="1.0.0",
-        manifest_version="1.3",
-    )
-)
-
-
-def saved_import_adapter(format_id: str):
-    if format_id == "aap_json":
-        return _historical_native_import
-    return registry.get(format_id)
-
-
-def saved_export_versions(format_ids):
-    versions = registry.versions(set(format_ids) - {"aap_json"})
-    if "aap_json" in format_ids:
-        descriptor = _historical_native_import.descriptor
-        versions["aap_json"] = {
-            "adapter_version": descriptor.adapter_version,
-            "manifest_version": descriptor.manifest_version,
-        }
-    return versions

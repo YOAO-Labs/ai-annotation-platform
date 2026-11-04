@@ -121,7 +121,7 @@ def archive_bytes(manifest):
             tasks.append(
                 {"id": entry["task_id"], "file_path": "videos/" + entry["rel_path"]}
             )
-        for target in ("aap_json", "video_json"):
+        for target in ("native_json", "video_json"):
             archive.writestr(target + "/annotations.json", json.dumps({"tasks": tasks}))
     return output.getvalue()
 

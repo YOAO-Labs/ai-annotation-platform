@@ -127,7 +127,6 @@ from app.services.labeling_core_read_relations import (
 VIDEO_EXPORT_FORMATS = {
     "video_json",
     "native_json",
-    "aap_json",
     "mot",
     "kitti",
     "yolo-frames-det",
@@ -156,7 +155,6 @@ async def _hydrate_mask_geometry_for_export(geometry: dict, check_cancel=None) -
 
 LIDAR_EXPORT_TARGETS = {
     "native_json",
-    "aap_json",
     "coco-multicamera",
     "kitti",
     "nuscenes",
@@ -478,12 +476,12 @@ async def build_export_zip(
     """生成镜像目录 ZIP 到磁盘临时文件，返回 (zip 路径, label 文件数, size_bytes)。
 
     v0.12.1 · B6 · 落盘 + 流式：ZIP 写 tempfile（不再 io.BytesIO 攒整包驻留 RAM）；
-    per-file 格式（YOLO 镜像）按 task 分块流式产出 annotation。COCO/AAP 是单文档 JSON，
+    per-file 格式（YOLO 镜像）按 task 分块流式产出 annotation。COCO/原生 JSON 是单文档，
     本质要全量物化（流式 JSON 编码不在本版范围），仍由 ExportService 自加载。
     调用方（worker）负责上传后清理返回的 zip 路径；本函数内部异常时清理自身临时文件。
 
     v0.10.43 · 多目标（方案 B）：单目标落包根（向后兼容旧布局），>1 目标各落 `{target}/` 子目录。
-    图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, aap_json}（`yolo` 兼容旧 = yolo-det）。
+    图像 targets ∈ {coco, yolo-det, yolo-obb, yolo-seg, native_json}（`yolo` 兼容旧 = yolo-det）。
     VOC 走旧同步路径，不在此处。
     """
     if sum(
@@ -610,7 +608,7 @@ async def build_export_zip(
             "indexed-png",
         }
         for target in other_targets:
-            if target not in {"coco", "native_json", "aap_json", *custom_mask_targets}:
+            if target not in {"coco", "native_json", *custom_mask_targets}:
                 raise UnsupportedExportError(f"unsupported export target: {target}")
         has_yolo = bool(yolo_targets)
         # COCO 需 DatasetItem 真值尺寸算像素坐标；仅在请求 coco 时累积全量 items
@@ -823,7 +821,7 @@ async def build_export_zip(
             if check_cancel:
                 await check_cancel()
 
-            # 单文档目标（coco/aap_json）：本质全量物化，svc 自加载落包根/子目录。
+            # 单文档目标（coco/native_json）由 svc 自加载落包根/子目录。
             for target in other_targets:
                 if target in custom_mask_targets:
                     continue
@@ -837,12 +835,11 @@ async def build_export_zip(
                         dataset_items=dataset_items_all or {},
                         axis_frame=axis_frame,
                     )
-                else:  # aap_json
+                else:  # native_json
                     content = await svc.export_native_json(
                         project_id,
                         batch_id=batch_id,
                         axis_frame=axis_frame,
-                        historical=target == "aap_json",
                     )
                 zf.writestr(f"{prefix}annotations.json", content)
                 file_count += total_tasks
@@ -1647,14 +1644,13 @@ async def _build_lidar_export_zip(
 
         for target in targets:
             prefix = f"{target}/" if multi else ""
-            if target in {"native_json", "aap_json"}:
+            if target == "native_json":
                 zf.writestr(
                     f"{prefix}annotations.json",
                     await svc.export_native_json(
                         project.id,
                         batch_id=batch_id,
                         axis_frame=axis_frame,
-                        historical=target == "aap_json",
                     ),
                 )
                 file_count += frame_count
@@ -2007,7 +2003,7 @@ async def _build_video_export_zip(
     manifest.json + fetch_videos.py 共享落根（MOT/KITTI 另带 fetch_frames.py）。
 
     v0.12.1 · B6 · 落盘 + 按 task 分块流式：逐序列文件（MOT/KITTI/yolo-frames）边遍历
-    chunk 边写盘；video_json/aap_json 单文档由 svc 自加载。ZIP 写入调用方给的 tmp_path，
+    chunk 边写盘；video_json/native_json 单文档由 svc 自加载。ZIP 写入调用方给的 tmp_path，
     临时文件清理由调用方负责，返回 (zip 路径, 文件数, size_bytes)。
     """
     for tg in targets:
@@ -2093,14 +2089,13 @@ async def _build_video_export_zip(
                         video_scope=video_scope,
                     ),
                 )
-            elif target in {"native_json", "aap_json"}:
+            elif target == "native_json":
                 zf.writestr(
                     f"{prefix}annotations.json",
                     await svc.export_native_json(
                         project.id,
                         batch_id=batch_id,
                         video_scope=video_scope,
-                        historical=target == "aap_json",
                     ),
                 )
             elif target in ("yolo-frames-det", "yolo-frames-seg"):
