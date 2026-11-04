@@ -211,6 +211,27 @@ it("retains a lost start request and retries the identical frozen body", async (
   expect(vi.mocked(trainingStudiesApi.create).mock.calls[0][1].preview_digest).toBe(sha);
 });
 
+it("never starts a study when durable persistence fails", async () => {
+  const user = userEvent.setup();
+  mount(
+    <TrainingStudyCreate
+      projectId="project"
+      schema={schema}
+      base={base}
+      onBusy={() => undefined}
+      beforeStart={beforeStart}
+      persist={async () => false}
+      onCreated={onCreated}
+      onDiscard={() => undefined}
+    />,
+  );
+  budgets();
+  await user.click(screen.getByRole("button", { name: "预览全部组合与预算" }));
+  await screen.findByLabelText("搜索计划预览");
+  await user.click(screen.getByRole("button", { name: "开始参数搜索" }));
+  expect(trainingStudiesApi.create).not.toHaveBeenCalled();
+});
+
 it("discards a preview response after the authenticated session changes", async () => {
   const waiting = deferred<Awaited<ReturnType<typeof trainingStudiesApi.preview>>>();
   vi.mocked(trainingStudiesApi.preview).mockReturnValueOnce(waiting.promise);

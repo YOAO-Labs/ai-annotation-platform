@@ -27,7 +27,8 @@ import {
 } from "@/api/trainingRecipes";
 import type { TrainingParameterSchema } from "@/api/generated/types.gen";
 import { useProject } from "@/hooks/useProjects";
-import { useAuthStore } from "@/stores/authStore";
+import { isCurrentAuthOwner, useAuthStore } from "@/stores/authStore";
+import { getAuthSessionRevision } from "@/stores/authSession";
 import { cn } from "@/lib/utils";
 import type { ProjectLearningOutletContext } from "../Projects/ProjectLearningPage";
 import { datasetParentReason } from "../Projects/datasetCompatibility";
@@ -54,7 +55,15 @@ import {
   TrainingInitializationSource,
   useTrainingInitializationSource,
 } from "./TrainingInitializationSource";
-import type { TrainingDraft } from "./trainingDraftStorage";
+import {
+  inspectTrainingDraftRecords,
+  trainingDraftOwner,
+  settledTrainingDraft,
+  upgradeTrainingDraft,
+  withTrainingDraftLock,
+  type TrainingDraft,
+  type TrainingDraftRecords,
+} from "./trainingDraftStorage";
 import {
   segmentationTask,
   trainingModelFamily as modelFamily,
@@ -158,16 +167,11 @@ export function TrainingCreatePage() {
     [id, userId, token, sessionRevision],
   );
   return (
-    <TrainingCreateContent
-      key={ownerMount.key}
-      projectId={id}
-      userId={userId}
-      sessionToken={token}
-    />
+    <TrainingDraftGate key={ownerMount.key} projectId={id} userId={userId} sessionToken={token} />
   );
 }
 
-function TrainingCreateContent({
+function TrainingDraftGate({
   projectId,
   userId,
   sessionToken,
@@ -175,6 +179,231 @@ function TrainingCreateContent({
   projectId: string;
   userId: string;
   sessionToken: string;
+}) {
+  const navigate = useNavigate();
+  const [sessionRevision] = useState(getAuthSessionRevision);
+  const owner = trainingDraftOwner(userId, projectId);
+  const [result, setResult] = useState<
+    | { kind: "loading" }
+    | { kind: "error"; message: string }
+    | { kind: "choice"; records: TrainingDraftRecords }
+    | { kind: "ready"; records: TrainingDraftRecords }
+  >(() => {
+    try {
+      if (!navigator.locks?.request)
+        throw new Error(
+          "浏览器不支持草稿协调锁。请使用支持 Web Locks 的浏览器，保留原记录后重试。",
+        );
+      const records = inspectTrainingDraftRecords(owner);
+      if (records.targetInvalid) {
+        if (records.legacyDraft) return { kind: "choice", records };
+        throw new Error("当前草稿格式或归属不匹配，且没有可恢复的旧草稿。");
+      }
+      return records.legacy === null
+        ? { kind: "ready", records }
+        : records.settlement === null
+          ? { kind: "choice", records }
+          : { kind: "loading" };
+    } catch (reason) {
+      return {
+        kind: "error",
+        message: reason instanceof Error ? reason.message : "无法读取本地草稿。",
+      };
+    }
+  });
+  const active = useRef(true);
+  const owns = () =>
+    active.current &&
+    getAuthSessionRevision() === sessionRevision &&
+    isCurrentAuthOwner(userId) &&
+    useAuthStore.getState().token === sessionToken;
+  const load = async () => {
+    try {
+      const value = await withTrainingDraftLock(owner, async () => {
+        if (!owns()) return null;
+        const records = inspectTrainingDraftRecords(owner);
+        const settled = await settledTrainingDraft(records);
+        if (!owns()) return null;
+        const latest = inspectTrainingDraftRecords(owner);
+        if (
+          records.legacy !== latest.legacy ||
+          records.target !== latest.target ||
+          records.settlement !== latest.settlement
+        )
+          throw new Error("草稿已在其他标签页更改，请重新核对。");
+        return { records, settled };
+      });
+      if (!owns() || !value) return;
+      if (value.records.targetInvalid) {
+        if (value.records.legacyDraft) {
+          setResult({ kind: "choice", records: value.records });
+          return;
+        }
+        throw new Error("当前草稿格式或归属不匹配，且没有可恢复的旧草稿。");
+      }
+      setResult(
+        value.settled
+          ? { kind: "ready", records: value.records }
+          : { kind: "choice", records: value.records },
+      );
+    } catch (reason) {
+      if (owns())
+        setResult({
+          kind: "error",
+          message: reason instanceof Error ? reason.message : "无法读取本地草稿。",
+        });
+    }
+  };
+  useEffect(() => {
+    active.current = true;
+    if (result.kind === "loading") void load();
+    return () => {
+      active.current = false;
+    };
+    // This gate is remounted on owner or session changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const choose = async (records: TrainingDraftRecords, choice: "legacy" | "target" | "ignore") => {
+    if (choice === "legacy" && records.target !== null && records.target !== records.legacy) {
+      const accepted = await confirmDialog({
+        title: "替换当前草稿",
+        description:
+          "当前草稿会被所选旧草稿替换，不会自动备份。请先复制需要保留的内容；尚未确认的创建请求可能已经在服务器创建。",
+        confirmLabel: "放弃当前草稿并使用旧草稿",
+        tone: "danger",
+      });
+      if (!accepted || !owns()) return;
+    }
+    try {
+      const next = await withTrainingDraftLock(owner, async () => {
+        if (!owns()) return null;
+        await upgradeTrainingDraft(owner, records, choice, owns);
+        if (!owns()) return null;
+        const next = inspectTrainingDraftRecords(owner);
+        if (!(await settledTrainingDraft(next)))
+          throw new Error("旧草稿已在其他标签页更改，请重新核对。");
+        if (!owns()) return null;
+        const latest = inspectTrainingDraftRecords(owner);
+        if (
+          next.legacy !== latest.legacy ||
+          next.target !== latest.target ||
+          next.settlement !== latest.settlement
+        )
+          throw new Error("草稿已在其他标签页更改，请重新核对。");
+        return next;
+      });
+      if (owns() && next) setResult({ kind: "ready", records: next });
+    } catch (reason) {
+      if (owns())
+        setResult({
+          kind: "error",
+          message: reason instanceof Error ? reason.message : "无法升级本地草稿。",
+        });
+    }
+  };
+  if (result.kind === "ready")
+    return (
+      <TrainingCreateContent
+        projectId={projectId}
+        userId={userId}
+        sessionToken={sessionToken}
+        initialDraft={{
+          draft: result.records.targetDraft,
+          raw: result.records.target,
+          legacy: result.records.legacy,
+          settlement: result.records.settlement,
+        }}
+      />
+    );
+  return (
+    <Modal open onClose={() => navigate(`/projects/${projectId}/learning`)} title="恢复训练草稿">
+      {result.kind === "loading" && <p role="status">正在核对本地草稿…</p>}
+      {result.kind === "error" && (
+        <>
+          <p role="alert">{result.message} 原记录未被自动覆盖。</p>
+          <Button size="sm" onClick={() => void load()}>
+            重新核对
+          </Button>
+        </>
+      )}
+      {result.kind === "choice" && (
+        <section aria-label="核对本地草稿">
+          <p className="text-sm">
+            旧记录作为恢复证据保留，不会自动提交创建请求。替换当前草稿前，请复制需要保留的内容。
+          </p>
+          {result.records.legacyInvalid && (
+            <p role="alert" className="mt-2 text-sm text-status-danger">
+              旧草稿无法读取或不属于当前账号与项目，不能升级。可明确忽略它，原记录仍会保留。
+            </p>
+          )}
+          {result.records.targetInvalid && (
+            <div className="mt-4">
+              <p role="alert" className="text-sm text-status-danger">
+                当前草稿无法读取或归属不匹配；请在替换前复制原始记录。
+              </p>
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">
+                {result.records.target}
+              </pre>
+              <CopyValueButton value={result.records.target} label="复制损坏的当前草稿" />
+            </div>
+          )}
+          {(["legacy", "target"] as const).map((choice) => {
+            const draft =
+              choice === "legacy" ? result.records.legacyDraft : result.records.targetDraft;
+            if (!draft) return null;
+            return (
+              <div key={choice} className="mt-4">
+                <p className="text-sm font-medium">{choice === "legacy" ? "旧草稿" : "当前草稿"}</p>
+                <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-all text-xs">
+                  {JSON.stringify(draft, null, 2)}
+                </pre>
+                {choice === "target" && (
+                  <CopyValueButton value={result.records.target} label="复制当前草稿" />
+                )}
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    void choose(
+                      result.records,
+                      choice === "target" && result.records.legacyInvalid ? "ignore" : choice,
+                    )
+                  }
+                >
+                  {choice === "legacy"
+                    ? "升级并使用旧草稿"
+                    : result.records.legacyInvalid
+                      ? "忽略旧草稿并保留当前草稿"
+                      : "保留当前草稿"}
+                </Button>
+              </div>
+            );
+          })}
+          {result.records.legacyInvalid && result.records.target === null && (
+            <Button size="sm" onClick={() => void choose(result.records, "ignore")}>
+              忽略旧草稿并开始新草稿
+            </Button>
+          )}
+        </section>
+      )}
+    </Modal>
+  );
+}
+
+function TrainingCreateContent({
+  projectId,
+  userId,
+  sessionToken,
+  initialDraft,
+}: {
+  projectId: string;
+  userId: string;
+  sessionToken: string;
+  initialDraft: {
+    draft: TrainingDraft | null;
+    raw: string | null;
+    legacy: string | null;
+    settlement: string | null;
+  };
 }) {
   const [params, setParams] = useSearchParams();
   const location = useLocation();
@@ -203,6 +432,7 @@ function TrainingCreateContent({
     projectId,
     sessionToken,
     hint === "libreyolo" ? hint : "ultralytics",
+    initialDraft,
   );
   const { draft } = state;
   const navigate = useNavigate();
@@ -1173,10 +1403,11 @@ function TrainingCreateContent({
         (!report || report.runtime !== runtimeRef.current || !schemaStillMatches(snapshot))
       )
         return;
-      if (!state.commit({ ...snapshot, pending: { body } })) return;
+      if (!(await state.commit({ ...snapshot, pending: { body } })) || !state.matches(snapshot))
+        return;
       const run = await trainingRunsApi.create(projectId, body);
       if (!state.matches(snapshot)) return;
-      state.remove(snapshot);
+      if (!(await state.remove(snapshot)) || !state.matches(snapshot)) return;
       void client.invalidateQueries({ queryKey: ["training-runs", projectId] });
       void client.invalidateQueries({ queryKey: ["training-hub"] });
       navigate(`/projects/${projectId}/learning?tab=training&run=${encodeURIComponent(run.id)}`, {
@@ -1434,6 +1665,30 @@ function TrainingCreateContent({
           />
         </p>
       )}
+      {state.storageError && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          <Button size="sm" onClick={() => void state.commit(state.current.current)}>
+            重试保存草稿
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => {
+              const url = URL.createObjectURL(
+                new Blob([JSON.stringify(state.current.current, null, 2)], {
+                  type: "application/json",
+                }),
+              );
+              const link = document.createElement("a");
+              link.href = url;
+              link.download = "training-draft.json";
+              link.click();
+              URL.revokeObjectURL(url);
+            }}
+          >
+            下载本页草稿
+          </Button>
+        </div>
+      )}
       {draft.pending && (
         <section
           aria-label="尚未确认的创建请求"
@@ -1441,7 +1696,9 @@ function TrainingCreateContent({
         >
           <h2 className="text-sm font-medium text-status-caution">创建结果尚未确认</h2>
           <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-            请求内容已保留。重试会使用完全相同的请求身份；确认结果前，配置暂时锁定。也可先返回实验列表检查。
+            {state.storageError
+              ? "本页请求尚未确认已保存，请先处理存储错误。"
+              : "请求内容已保留。重试会使用完全相同的请求身份；确认结果前，配置暂时锁定。也可先返回实验列表检查。"}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Button size="sm" disabled={creating} onClick={() => void create()}>
@@ -1970,10 +2227,10 @@ function TrainingCreateContent({
                     return freshAuthority(snapshot);
                   }}
                   persist={(body) => state.commit({ ...state.current.current, pendingStudy: body })}
-                  onCreated={(studyId) => {
+                  onCreated={async (studyId) => {
                     const snapshot = state.current.current;
                     if (!state.matches(snapshot)) return;
-                    state.remove(snapshot);
+                    if (!(await state.remove(snapshot)) || !state.matches(snapshot)) return;
                     void client.invalidateQueries({ queryKey: ["training-studies", projectId] });
                     void client.invalidateQueries({ queryKey: ["training-runs", projectId] });
                     navigate(
