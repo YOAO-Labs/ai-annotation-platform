@@ -54,9 +54,9 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 
 ## 后端解耦与插件化
 
-核心能力的目标形态是随项目发布的内置插件，模型、UI、训练器、连接器与格式等扩展通过版本化契约接入。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和开发 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立维护面向自定义插件作者的能力抽象与工具；[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 只维护官方插件、模型专属适配和预训练目录。API SDK、契约权威与业务治理留在平台。现有实现明确归属推理能力，UI、训练器、数据导出不依赖推理运行时，也不提前创建空 SDK。全扩展点统一装配及其余模型服务的源码切换仍未完成，资格以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准。
+核心能力的目标形态是随项目发布的内置插件，模型、UI、训练器、连接器与格式等扩展通过版本化契约接入。当前已提取多项 owner 能力并保留同事务、权限和恢复边界；推理插件已有清单、安装治理和开发 SDK，支持获准的多模型能力、命名池及显式 CPU／CUDA 配置，见[管理员安装与历史清单迁移](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。[Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK) 独立维护面向自定义插件作者的能力抽象与工具；[YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins) 维护六个官方插件、模型专属适配和预训练目录。API SDK、契约权威与业务治理留在平台。现有实现明确归属推理能力，UI、训练器、数据导出不依赖推理运行时，也不提前创建空 SDK。全扩展点统一装配尚未完成，资格以[后端解耦与插件化台账](./docs-site/dev/concepts/module-deployment.md)为准。
 
-第一方制品提供固定下载地址、实际源码提交和 SHA256 清单；自定义开发见 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme)，官方实现与候选镜像构建见 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)，官方包及预训练目录可从[固定预发布制品](https://github.com/YOAO-Labs/YOAO-Plugins/releases/tag/python-a18a2d32e682)取得，平台便携契约通过[固定 SDK 渠道](https://github.com/YOAO-Labs/Plugin-SDK/releases/tag/contracts-906628f2619b)分发。公开制品不含权重、私有数据集、完整第三方 wheelhouse 或 OCI 镜像；它们的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
+平台 API 客户端是独立的 `yoao-sdk`（导入 `yoao`、命令 `yoao`）；插件作者 SDK 是 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 的 `yoao-inference-plugin-sdk`（导入 `yoao_inference_plugin`、命令 `yoao-plugin`）。官方实现与候选镜像构建见 [YOAO-Plugins](https://github.com/YOAO-Labs/YOAO-Plugins#readme)。当前源码安装使用经 manifest 与 SHA256 核验的候选 wheel；历史公开制品不证明新发行名已发布。完整第三方 wheelhouse、权重、私有数据集和 OCI 镜像的许可与分发资格分别判断。自定义 CPU 示例不要求模型框架；具体官方模型的 CPU 路径仍可能包含 CUDA-linked Torch，不能据此宣称无 GPU 依赖或获得 GPU 资格。
 
 受控模型兼容声明区分具名导出格式与显式 `format: null` 的原生 checkpoint；两者都必须与实际插件能力及平台模型回执精确匹配，清单声明不替代权重审批或 CPU／CUDA 资格。
 
@@ -180,11 +180,15 @@ API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生�
 
 ### 本地启动
 
+先从可信渠道取得候选 SDK manifest 路径或 URL，以及独立核验的 manifest SHA256；对应 wheel 必须与 manifest 位于同一目录或 URL 目录。将这两个实际值分别设置为 `SDK_MANIFEST` 和 `SDK_MANIFEST_SHA256`。API 通过相对路径使用当前 checkout 中已核验的运行时 wheel，SDK 源码不是平台的 editable 依赖；这些步骤是候选源码安装，不代表发布。
+
 ```bash
 # 1. 安装依赖
 git submodule update --init --recursive
 pnpm install
-cd apps/api && uv sync --extra test && cd ../..
+python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
+  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+cd apps/api && uv sync --locked --extra test && cd ../..
 pnpm codegen
 
 # 可选：已安装 pre-commit 时启用本地 hooks
@@ -204,9 +208,9 @@ pnpm dev:web        # http://localhost:3000
 pnpm dev:worktree   # 独立数据库/Redis/bucket，自动选择端口并配置代理
 ```
 
-源码应通过 Git 获取；已有 checkout 和新 worktree 都须初始化固定提交的子模块。GitHub 源码 ZIP 或普通 `git archive` 不包含 vendor 子模块内容，不能直接替代完整构建输入。插件仓库不属于这些子模块：仅需修改插件时，另行克隆到被忽略的 `plugins/YOAO-plugins/`；常规平台安装直接消费固定公开 wheel。
+源码应通过 Git 获取；已有 checkout 和新 worktree 都须初始化固定提交的子模块。GitHub 源码 ZIP 或普通 `git archive` 不包含 vendor 子模块内容，不能直接替代完整构建输入。插件仓库不属于这些子模块：仅需修改插件时，另行克隆到被忽略的 `plugins/YOAO-plugins/`；常规平台安装使用当前 checkout 暂存并核验的候选 wheel，不要求插件源码。
 
-`dev:worktree` 为每个工作树的 `dev/test/e2e` 模式管理独立数据库、Redis、九个 bucket 及本地文件；共享本机 PostgreSQL/MinIO 实例，不修改共享数据库。默认从 API `8100` 和 Web `3100` 寻找空闲端口，可用 `--with-worker` 启动本工作树的后台任务消费者。`doctor` 诊断、`stop` 停止、带精确确认值的 `reset/destroy` 重建或清理环境。首次启动不复制已有账号和项目。详见[独立工作树开发环境](./docs-site/dev/how-to/worktree-environments.md)。
+`dev:worktree` 为每个工作树的 `dev/test/e2e` 模式管理独立数据库、Redis、十个 bucket（含 `accepted-inputs`）及本地文件；共享本机 PostgreSQL/MinIO 实例，不修改共享数据库。默认从 API `8100` 和 Web `3100` 寻找空闲端口，可用 `--with-worker` 启动本工作树的后台任务消费者。`doctor` 诊断、`stop` 停止、带精确确认值的 `reset/destroy` 重建或清理环境。首次启动不复制已有账号和项目。详见[独立工作树开发环境](./docs-site/dev/how-to/worktree-environments.md)。
 
 Go 审计月报仅保留为[隔离实验](apps/audit-summary/README.md)，不参与默认开发、生产部署或普通测试；正常月报使用本地 Python 计算。
 
@@ -341,7 +345,7 @@ ai-annotation-platform/
 │   ├── storage-agent/             # 跨网络只读站点存储 Agent
 │   ├── training-executor/         # 受控单 GPU 在线学习训练执行器
 │   ├── ...                        # 官方推理插件由 YOAO-Plugins 独立提供
-│   └── _shared/                   # 7 个共享包（backend_runtime / filesystem_read / mask_utils / protocol_v2 / site_agent_contract / task_contract / training_contract）
+│   └── _shared/                   # 平台共享契约与只读文件原语；推理运行时和 Mask 工具由 Plugin-SDK 提供
 ├── packages/
 │   └── python-sdk/                # Python SDK、CLI 与 TUI 客户端
 ├── docs-site/                     # VitePress 用户 / 开发 / API / 运维文档

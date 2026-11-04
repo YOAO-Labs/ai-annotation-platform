@@ -107,9 +107,16 @@ ai-annotation-platform/
 
 MinIO 使用 `icr.io/fusion-open/minio/minio` 的固定 digest，Compose 与两个 CI 启动入口保持一致。原 Quay 镜像已停止分发；若拉取失败，先按[CI 服务依赖排障](docs-site/dev/troubleshooting/ci-flaky-services.md)核验镜像和 manifest，不要改用浮动标签或延长应用超时。
 
+从可信渠道取得候选 SDK manifest 路径或 URL 及独立核验的 manifest SHA256，并分别设置
+`SDK_MANIFEST`、`SDK_MANIFEST_SHA256`；所选 wheel 须与 manifest 相邻。以下命令将核验后的
+运行时和 Mask wheel 暂存到当前 checkout，API 从相对路径使用运行时 wheel，而不是将 SDK 源码作为
+editable 依赖。历史公开制品不证明新发行名已发布；这是候选源码安装，不是发布。
+
 ```bash
 pnpm install               # 自动跑 scripts/install-git-hooks.sh，已装 pre-commit 即启用 hooks
-cd apps/api && uv sync --extra test && cd ../..
+python scripts/fetch-python-artifacts.py --manifest "$SDK_MANIFEST" --sha256 "$SDK_MANIFEST_SHA256" \
+  --output .artifacts/python/plugin-sdk --package yoao-backend-runtime --package yoao-mask-utils
+cd apps/api && uv sync --locked --extra test && cd ../..
 # 若上面提示 "pre-commit 未安装"：uv tool install pre-commit && pre-commit install
 # （用 uv tool 独立安装 pre-commit，勿 pip 装进项目 venv；否则 uv sync 会把它卸载）
 ```
@@ -119,6 +126,17 @@ cd apps/api && uv sync --extra test && cd ../..
 Codex 的 `.codex/environments/environment.toml` 将源目录和 worktree 路径传给
 `scripts/orca-worktree-setup.sh`，与 Orca 共用初始化逻辑。需要提前安装 Node.js、
 pnpm 和 uv；Codex 在找不到 pnpm 时会尝试 `corepack enable`。
+
+Orca 自动 setup 会先执行 API `uv sync`、再运行 codegen，不能先于候选 wheel 暂存。
+创建隔离工作树时可使用 `orca worktree create --setup skip`，进入新 checkout 后按上面的
+manifest 和 SHA256 命令在该 checkout 暂存 wheel。然后调用现有初始化脚本（将源 checkout
+替换为实际绝对路径）：
+
+```bash
+ORCA_ROOT_PATH="/path/to/source-checkout" ORCA_WORKTREE_PATH="$PWD" bash scripts/orca-worktree-setup.sh
+```
+
+脚本也可由 Orca 设置 `ORCA_ROOT_PATH` 和 `ORCA_WORKTREE_PATH` 后运行。`.artifacts` 不会从源 checkout 自动复制或共享；不要向其他 checkout 写入候选工件。
 
 只有依赖清单和锁文件一致、源目录的三个 Node 依赖目录都存在，且已安装的
 `node_modules/.pnpm/lock.yaml` 与源目录锁文件一致时，才共享这些目录；
@@ -336,7 +354,7 @@ node scripts/test-codex-session-start.mjs
 
 首次准备或切换工作树后，按需要初始化 TrackEval 固定子模块；不要使用 `--remote` 随上游分支漂移。Orca 初始化与 `dev:worktree init/up/exec/reset` 会在 API／Alembic 导入前自动补齐缺失的 TrackEval 子模块，`doctor` 只报告缺失及初始化指引。官方推理镜像由独立 YOAO-Plugins 仓库构建和审核，不使用平台源码构建。
 
-常规平台开发无需插件源码。需要修改插件时，在平台根目录单独执行 `git clone https://github.com/YOAO-Labs/YOAO-Plugins.git plugins/YOAO-plugins`，按该仓库 README 准备独立环境；该目录被忽略，不作为平台可编辑依赖或 Docker 源码挂载。插件 SDK、共享运行时、Mask 工具和原生 LibreYOLO 适配器的修改、测试及发布只在独立仓库进行，平台通过固定 URL 与锁文件摘要更新依赖。
+常规平台开发无需插件源码。需要修改插件时，在平台根目录单独执行 `git clone https://github.com/YOAO-Labs/YOAO-Plugins.git plugins/YOAO-plugins`，按该仓库 README 准备独立环境；该目录被忽略，不作为平台可编辑依赖或 Docker 源码挂载。插件 SDK、共享运行时和 Mask 工具由独立 [Plugin-SDK](https://github.com/YOAO-Labs/Plugin-SDK#readme) 维护，LibreYOLO 专属适配由 YOAO-Plugins 维护。作者 SDK 的 `python scripts/build-sdk-artifacts.py --revision COMMIT --output DIR` 从真实不可变提交构建候选制品，具体步骤见该仓库文档；取得实际输出及其可信 manifest 摘要后，按本页的核验流程暂存，不能以源码路径或旧公开制品替代。
 
 ```bash
 docker compose up -d
@@ -682,7 +700,7 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 
 ### Jobs 私有 Celery 队列（本地实验）
 
-可选 `aap-jobs-queue` 只接收现有 Celery 的 JSON 派发和协作撤销命令。API 的 `JOBS_QUEUE_URL` 留空时继续使用内嵌 Celery；显式配置后，远程失败不会回退。API 与 owner 使用同一服务 bearer：`JOBS_QUEUE_TOKEN` 或 `JOBS_QUEUE_TOKEN_FILE`。Owner 只持有 broker URL 与 bearer，不接收数据库或 Identity 凭据。
+可选 `yoao-jobs-queue` 只接收现有 Celery 的 JSON 派发和协作撤销命令。API 的 `JOBS_QUEUE_URL` 留空时继续使用内嵌 Celery；显式配置后，远程失败不会回退。API 与 owner 使用同一服务 bearer：`JOBS_QUEUE_TOKEN` 或 `JOBS_QUEUE_TOKEN_FILE`。Owner 只持有 broker URL 与 bearer，不接收数据库或 Identity 凭据。
 
 在本地组合启动私有容器：
 
@@ -701,7 +719,7 @@ docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml \
   -f docker-compose.jobs-dispatch-relay.yml up -d --build jobs-queue jobs-dispatch-relay
 ```
 
-额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE`，文件只含专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 只有函数 DSN 与 bearer，不持有 broker。脱离 Compose 运行须设置 `JOBS_DISPATCH_RELAY_ENABLED=true`、`JOBS_QUEUE_URL` 及对应 DSN／bearer selector，再运行 `aap-jobs-dispatch-relay`；直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
+额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE`，文件只含专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 只有函数 DSN 与 bearer，不持有 broker。脱离 Compose 运行须设置 `JOBS_DISPATCH_RELAY_ENABLED=true`、`JOBS_QUEUE_URL` 及对应 DSN／bearer selector，再运行 `yoao-jobs-dispatch-relay`；直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
 
 本机已有基础设施时，可用独立 Compose project 复用已核实的网络，不再要求把 Redis
 服务定义合入队列配置。私有 Compose 环境文件还需设置
@@ -785,8 +803,8 @@ Node peer 使用 `NOTIFICATION_DELIVERY_DATABASE_URL`、`_USER_ID`、`_NOTIFICAT
 
 ### 独立 Notifications WebSocket
 
-`apps/notifications/Dockerfile.socket` 安装 `aap-notifications[websocket]`，入口为
-`aap-notifications-socket`。服务持有 JWT 准入、单独的当前账号活动检查、逐帧认证及
+`apps/notifications/Dockerfile.socket` 安装 `yoao-notifications[websocket]`，入口为
+`yoao-notifications-socket`。服务持有 JWT 准入、单独的当前账号活动检查、逐帧认证及
 投递授权、Redis 订阅、30 秒心跳与取消清理；原 publisher 命令仍单独运行。
 API 设置 `NOTIFICATION_SOCKET_URL=ws://notifications-socket:8180` 后，将原
 `/ws/notifications` 的文本和二进制消息直接转发给它。空值使用同一 owner 的内嵌
@@ -821,7 +839,7 @@ selector `IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE` 与
 
 ### Notifications 实时消息合同
 
-独立即时发布使用现有 `aap-notifications-publisher` 进程。配置
+独立即时发布使用现有 `yoao-notifications-publisher` 进程。配置
 `NOTIFICATION_PUBLISH_API_TOKEN(_FILE)` 后，同一进程在 `NOTIFICATION_PUBLISH_HOST`
 与 `NOTIFICATION_PUBLISH_PORT` 提供私网发布和健康接口；不配置 token 时保留原
 durable-only 循环，`--once` 仍只处理一页耐久消息后退出。
