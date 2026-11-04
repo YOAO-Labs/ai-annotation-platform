@@ -1180,6 +1180,10 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 4. 清理身份与运行身份分离；普通请求不得借夹具权限。未取得交错证明的 family 继续串行或独立数据库／桶，不据此全局打开 xdist 或宣称整套共享库并行。
 5. #152 的三视频／126-output 退出门仍单列。若本切片证实同一因果缺陷且获准最小修复，须补其完整正常／错误退出及邻居保护；否则精确清理的一组通过不关闭该 issue。预算语义变更须单独评审，不能直接加等待。
 6. 已批准扩展现有私有 owner 协议，迁移实际独立 Media／Images 原件读者，覆盖真实认证、GET／HEAD／Range、迟到请求及被终止读者的未知 I/O。补齐 `project_id` 为空的 dataset 级作业（包括 `media_backfill`）的类型化准入／退役围栏；未知 payload 不能判为无关。真实读者验证通过前，物理回收例外保持禁用；不另建通用代理、第二个删除引擎或旧协议 fallback。
+7. 夹具存储由私有协调进程记录真实新建实例／卷、发布前状态及准确数据库身份，再登记不可变根回执；普通 seed 请求不能提供“已批准”的清单。协调入口复用现有 owner 通道，默认工作树与 CI／CLI 调用方必须一并接通，不以人工插入根记录作为最终交付。管理凭据不传给普通 API／worker。
+8. 当前生产者先登记准确运行／item 身份、提交真实待写入 item，再开始物理创建。中断恢复只将已验证且 I/O 已结束的 Creation 挂回原有、身份未变的 item；尚未写入的分配仅允许经过精确 CAS 放弃。未知写入、并发挂接及身份变化继续阻止清理；不为旧的无 item 孤立对象扩展退休记录类型或伪造业务锚点。
+9. 裸原件 URL 的签名限制必须在数据集预留前生效，并在最后一个根运行退役后保留，直到相应物理存储被准确退役；UUID 难猜、HEAD 不存在或 URL 到期均不能代替这个闭环。受跟踪的 owner delivery 与其他物理存储的普通读取保持各自合同。
+10. 沿用原件回收 owner 的 location 级 `active → draining → stopped` 维护门。共享该专用 location 的 B 有实际活动操作时，A 清理保持阻塞且不改动双方数据；真实排空后串行进入维护窗口、仅回收 A 的准确版本，再由同一 owner 恢复并验证 B。交错运行的邻居保护不等于不同运行可以独立并发执行物理回收，不停止共享平台 location，也不新增逐 run 绕过。
 
 ### 16.4 迁移验收矩阵
 
@@ -1233,6 +1237,9 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - **流水线局部更新修复已取得定向证据：** 修正映射读取，公开 schema 与独立 owner 均在写入前拒绝 `stages: null`。`96a12de61` 的 borrowed／HTTP 两项完整回放分别核对 69 个保留样本及当前 null 拒绝／状态不变；另一个真实受限 LOGIN 直接向 owner 提交 null 的用例已通过。仅删除未启用模型服务错误的提示文字比较，保留状态、错误中的有序 ID、响应头和数据库前后值；不重录历史字节。当前 checkout 的旧捕获入口因与新合同不再相容而移除，原捕获代码仍保留在 Git 历史。
 - 权限重新应用的真实前后观测证明：旧 Inference owner 的 Project `id`／`ml_backend_pool_id` 列权限被撤销，Workspace ID、Registry 读取和 Workspace lock／clear 能力保留。SDK／OpenAPI 的 26 项检查及实际 CLI 显式 null 拒绝通过；API、Web 和 SDK 产物同步生成。以上仅关闭此定向缺陷，GPU scalar、视频物理退役及完整默认资格仍待验收。
 - T2 的新原件回收资格必须来自协调进程在可销毁数据库中登记的根运行存储身份和源头回执；普通 seed 不能自行声明或修改。父进程另建专用 MinIO 容器、新数据卷及新凭据，实际确认准确新桶已启用版本控制且发布前没有对象、版本、删除标记或 multipart。该物理观测尚未绑定验收数据库、登记根权限或开放普通消费者，不代表 T2 已通过；现有共享存储及旧对象不补造归属。
+- T1 在完整资格的前置范围内补齐私有存储引导／suite 登记，T2 继续独占生产者、消费者、运行清单与清理合同；两路直接协调新入口，主进程审核并持有共享 grants、验证器、迁移顺序及实际激活权。两者尚未形成一致、可运行的集成候选。
+- 当前截图链仍依赖共享账号、固定 display ID 和宽泛 repair；必须将真实 producer、spec、catalog 与清理端一起切到本轮准确身份。仅给 reconciliation 增加 run ID 不能证明两个截图运行互不干扰，旧 repair 不作为验证捷径。
+- GPU 标量回归、待写入 item 恢复及根存储签名围栏当前只有未执行的候选；真实 signer、跨进程读取、维护窗口和并发激活尚未验收。T1 默认完整资格、J1 以及 N5／N6 后继门继续保持未通过。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 
