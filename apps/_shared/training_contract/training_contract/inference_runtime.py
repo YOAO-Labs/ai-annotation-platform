@@ -3,24 +3,26 @@
 from copy import deepcopy
 from types import MappingProxyType
 
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 
 from .model_return import LIBRE_RUNTIME, detection_runtime, segmentation_runtime
 from .models import LEGACY_ULTRALYTICS_VERSION, ULTRALYTICS_VERSION
 
 # Execution qualification only: do not use this as an artifact identity.
-LIBRE_CUDA_RUNTIME = MappingProxyType({
-    "revision": 1,
-    "libreyolo": "1.6.0",
-    "torch": "2.14.1+cu132",
-    "torchvision": "0.29.1+cu132",
-    "device": "cuda",
-    "cuda_build": "13.2",
-    "precision": "fp32",
-    "half": False,
-    "amp": False,
-    "tf32": False,
-})
+LIBRE_CUDA_RUNTIME = MappingProxyType(
+    {
+        "revision": 1,
+        "libreyolo": "1.6.0",
+        "torch": "2.14.1+cu132",
+        "torchvision": "0.29.1+cu132",
+        "device": "cuda",
+        "cuda_build": "13.2",
+        "precision": "fp32",
+        "half": False,
+        "amp": False,
+        "tf32": False,
+    }
+)
 
 
 def inference_runtime(receipt, version, *, device="cpu"):
@@ -101,7 +103,9 @@ def validate_inference_runtime(receipt, runtime):
     if runtime != expected or (
         device == "cuda"
         and (
-            any(type(runtime[key]) is not type(value) for key, value in expected.items())
+            any(
+                type(runtime[key]) is not type(value) for key, value in expected.items()
+            )
             or any(
                 type(runtime["qualification"][key]) is not type(value)
                 for key, value in expected["qualification"].items()

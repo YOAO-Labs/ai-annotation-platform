@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 
 from .catalog import digest
 from .dataset import SEGMENTATION, config_task, data_contract, data_task

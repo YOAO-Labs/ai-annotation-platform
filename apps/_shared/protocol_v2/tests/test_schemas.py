@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 
 import pytest
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     BatchPredictResponse,
     COMPAT_PROTOCOL_VERSIONS,
     CocoRlePayload,

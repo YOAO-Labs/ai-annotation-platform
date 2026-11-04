@@ -13,7 +13,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 from uuid import UUID
 
-from aap_task_contract import Task
+from yoao_task_contract import Task
 from pydantic import (
     BaseModel,
     ConfigDict,

@@ -10,7 +10,7 @@ protocol v2 词表稳定后改动概率低；若 capability_registry 扩展, 需
 
 from __future__ import annotations
 
-from aap_task_contract import TASK_VALUES as TASK_VALUES
+from yoao_task_contract import TASK_VALUES as TASK_VALUES
 
 # `/setup.infra` / `/setup.models[].infra` 受控值. 与 capability_registry.INFRAS 同源.
 INFRA_VALUES: tuple[str, ...] = (

@@ -4,7 +4,7 @@ import stat
 
 import pytest
 
-from aap_protocol_v2.managed_credential import (
+from yoao_protocol_v2.managed_credential import (
     CredentialFileError,
     ensure_credential,
     read_credential,

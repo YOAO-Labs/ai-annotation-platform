@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from aap_audit_contract import ProjectDeletionAuditContext
+from yoao_audit_contract import ProjectDeletionAuditContext
 
 
 def test_context_keeps_its_frozen_schema_name_and_fields() -> None:

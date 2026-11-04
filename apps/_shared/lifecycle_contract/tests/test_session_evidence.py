@@ -2,7 +2,7 @@ from copy import deepcopy
 
 import pytest
 
-from aap_lifecycle_contract import (
+from yoao_lifecycle_contract import (
     memory_cycle_evidence,
     validate_managed_lifecycle_evidence,
 )

@@ -7,8 +7,8 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     REGISTRY_ENV_SYNC_REPLY_MAX_BYTES,
     REGISTRY_ENV_SYNC_RESULT_PROTOCOL,
     RegistryEnvSyncResult,
@@ -20,7 +20,7 @@ from aap_inference_contract.registry_ingress import (
     registry_env_sync_result_bytes,
     registry_env_sync_status_request,
 )
-from aap_inference_contract.registry_ingress_client import RegistryEnvSyncHttpClient
+from yoao_inference_contract.registry_ingress_client import RegistryEnvSyncHttpClient
 
 _REQUEST_ID = uuid.UUID("6c5921c6-9c53-4433-b727-0029c4ba5f1b")
 _HTTPX_ASYNC_CLIENT = httpx.AsyncClient

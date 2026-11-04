@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-from aap_protocol_v2.mask_interaction import MaskInteractionDiagnostic
+from yoao_protocol_v2.mask_interaction import MaskInteractionDiagnostic
 
 
 class TaskItem(BaseModel):

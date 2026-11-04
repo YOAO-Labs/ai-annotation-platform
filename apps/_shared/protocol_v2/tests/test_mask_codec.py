@@ -5,7 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from aap_protocol_v2 import decode_low_res_mask, encode_low_res_mask
+from yoao_protocol_v2 import decode_low_res_mask, encode_low_res_mask
 
 
 def test_roundtrip_equivalence():

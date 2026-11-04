@@ -7,7 +7,7 @@ import uuid
 
 import pytest
 
-from aap_site_agent_contract import (
+from yoao_site_agent_contract import (
     MAX_CONTENT_BYTES,
     MAX_MESSAGE_BYTES,
     ProtocolError,

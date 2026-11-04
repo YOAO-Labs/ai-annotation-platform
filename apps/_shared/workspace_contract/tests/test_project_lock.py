@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from aap_workspace_contract.project_lock import (
+from yoao_workspace_contract.project_lock import (
     PROJECT_LOCK_PROTOCOL,
     ProjectLockUnavailable,
     decode_project_lock_reply,

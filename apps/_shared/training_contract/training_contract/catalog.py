@@ -4,7 +4,7 @@ from copy import deepcopy
 import hashlib
 import json
 from importlib.resources import files
-from aap_task_contract import legacy_training_task, normalize_task
+from yoao_task_contract import legacy_training_task, normalize_task
 from .dataset import DETECTION, SEGMENTATION, INSTANCE_RLE_LIMITS
 from .models import (
     MODEL_SPECS,

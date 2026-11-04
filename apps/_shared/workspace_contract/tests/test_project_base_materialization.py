@@ -2,8 +2,8 @@ from datetime import date, datetime, timezone
 import json
 from uuid import uuid4
 
-from aap_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
-from aap_workspace_contract.project_query_values import materialize_project_base_row
+from yoao_workspace_contract.project_query_contract import PROJECT_ROW_COLUMNS
+from yoao_workspace_contract.project_query_values import materialize_project_base_row
 
 
 def _project_row(project_id, owner_id):

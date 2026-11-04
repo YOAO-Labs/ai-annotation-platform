@@ -1,7 +1,7 @@
 """Strict JSON validation and native observation checks, with no framework imports."""
 
 import math
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 from pathlib import PurePath
 
 from .catalog import FIXED, SEGMENTATION_FIXED, compatible_definitions, schema_identity

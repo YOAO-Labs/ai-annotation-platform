@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from aap_task_contract import (
+from yoao_task_contract import (
     legacy_inference_task,
     legacy_training_task,
     normalize_task,
@@ -86,7 +86,7 @@ def test_legacy_serialization_is_explicit_and_separate():
 def test_import_has_no_service_or_native_framework_dependency():
     source = Path(__file__).resolve().parents[1] / "src"
     code = (
-        f"import sys; sys.path.insert(0, {str(source)!r}); import aap_task_contract; "
-        "assert not {'aap_protocol_v2', 'fastapi', 'pydantic', 'torch'} & sys.modules.keys()"
+        f"import sys; sys.path.insert(0, {str(source)!r}); import yoao_task_contract; "
+        "assert not {'yoao_protocol_v2', 'fastapi', 'pydantic', 'torch'} & sys.modules.keys()"
     )
     subprocess.run([sys.executable, "-I", "-B", "-c", code], check=True)

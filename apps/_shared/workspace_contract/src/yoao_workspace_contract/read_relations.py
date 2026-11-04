@@ -92,7 +92,7 @@ def read_relations_schema() -> dict[str, Any]:
         raise RuntimeError("ProjectMemberRow fields differ from PROJECT_MEMBER_COLUMNS")
 
     schema = json.loads(
-        files("aap_workspace_contract")
+        files("yoao_workspace_contract")
         .joinpath("read_relations.schema.json")
         .read_text(encoding="utf-8")
     )

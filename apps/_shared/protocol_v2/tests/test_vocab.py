@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from aap_protocol_v2 import (
+from yoao_protocol_v2 import (
     GEOMETRY_VALUES,
     INFRA_VALUES,
     INPUT_VALUES,
     PROMPT_VALUES,
     TASK_VALUES,
 )
-from aap_protocol_v2.vocab import TASK_DEFAULT_GEOMETRY
+from yoao_protocol_v2.vocab import TASK_DEFAULT_GEOMETRY
 
 
 def test_task_values_immutable_tuple() -> None:

@@ -8,7 +8,7 @@ import re
 from typing import Any, Literal, Mapping
 from uuid import UUID
 
-from aap_protocol_v2.routing import RoutingProtocolError
+from yoao_protocol_v2.routing import RoutingProtocolError
 
 SCOPE_RETIREMENT_PATH = "/v1/aap-routing/retire-scope"
 SCOPE_RETIREMENT_PROTOCOL = "aap-backend-scope-retirement/v1"

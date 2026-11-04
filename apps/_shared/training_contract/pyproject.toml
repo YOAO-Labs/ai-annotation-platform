@@ -1,9 +1,9 @@
 [project]
-name = "aap-training-contract"
+name = "yoao-training-contract"
 version = "0.1.0"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
-dependencies = ["aap-task-contract"]
+dependencies = ["yoao-task-contract"]
 
 [build-system]
 requires = ["setuptools>=68"]
@@ -16,4 +16,4 @@ training_contract = ["native_inventory*.json"]
 testpaths = ["tests"]
 
 [tool.uv.sources]
-aap-task-contract = { path = "../task_contract", editable = true }
+yoao-task-contract = { path = "../task_contract", editable = true }

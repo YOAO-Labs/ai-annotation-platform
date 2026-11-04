@@ -8,8 +8,8 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference_contract.client import BackendHealthObservationHttpClient
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.client import BackendHealthObservationHttpClient
+from yoao_inference_contract.health_observation import (
     HEALTH_OBSERVATION_PROTOCOL,
     HEALTH_OBSERVATION_REPLY_MAX_BYTES,
     BackendHealthObservationReply,

@@ -9,8 +9,8 @@ import uuid
 
 import pytest
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.probe import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.probe import (
     BACKEND_PROBE_NATIVE_FUNCTIONS,
     BACKEND_PROBE_NATIVE_POLICY_SCHEMA,
     BACKEND_PROBE_PROTOCOL,
@@ -208,7 +208,7 @@ def test_native_policy_readiness_requires_exact_facts_and_duplicate_safe_json() 
 
 def test_packaged_schema_tracks_wire_literals_and_native_policy() -> None:
     schema = json.loads(
-        files("aap_inference_contract")
+        files("yoao_inference_contract")
         .joinpath("backend_probe.schema.json")
         .read_text(encoding="utf-8")
     )

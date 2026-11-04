@@ -9,8 +9,8 @@ import uuid
 
 import pytest
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.registry_ingress import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.registry_ingress import (
     REGISTRY_ENV_SYNC_NATIVE_FUNCTIONS,
     REGISTRY_ENV_SYNC_NATIVE_POLICY_SCHEMA,
     REGISTRY_ENV_SYNC_PROTOCOL,
@@ -296,7 +296,7 @@ def test_native_policy_readiness_requires_exact_closed_facts() -> None:
 
 def test_packaged_schema_matches_protocol_limits_and_native_signatures() -> None:
     schema = json.loads(
-        files("aap_inference_contract")
+        files("yoao_inference_contract")
         .joinpath("registry_ingress.schema.json")
         .read_text(encoding="utf-8")
     )

@@ -1,4 +1,4 @@
-from aap_workspace_contract import (
+from yoao_workspace_contract import (
     derive_attribute_keys,
     derive_attribute_schema,
     derive_classes_config,

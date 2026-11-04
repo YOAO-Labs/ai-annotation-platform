@@ -9,7 +9,7 @@ from uuid import uuid4
 import jwt
 import pytest
 
-from aap_protocol_v2.routing import (
+from yoao_protocol_v2.routing import (
     ROUTE_ADMISSION_AUDIENCE,
     ROUTE_ADMISSION_PROTOCOL,
     ROUTE_CONTROL_PROTOCOL,
@@ -17,12 +17,12 @@ from aap_protocol_v2.routing import (
     RoutingProtocolError,
     decode_backend_route_control_command,
 )
-from aap_protocol_v2.routing_runtime import (
+from yoao_protocol_v2.routing_runtime import (
     BackendRoutingController,
     BackendRoutingMiddleware,
     RouteControlConflict,
 )
-from aap_protocol_v2.scope_retirement import (
+from yoao_protocol_v2.scope_retirement import (
     SCOPE_RETIREMENT_PATH,
     SCOPE_RETIREMENT_PROTOCOL,
     SCOPE_RETIREMENT_REPLY_PROTOCOL,

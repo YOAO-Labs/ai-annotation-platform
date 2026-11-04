@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from aap_filesystem_read import FilesystemStorageError, RootSpec
-from aap_filesystem_read import roots as fs
+from yoao_filesystem_read import FilesystemStorageError, RootSpec
+from yoao_filesystem_read import roots as fs
 
 
 @pytest.fixture

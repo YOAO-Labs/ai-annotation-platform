@@ -8,7 +8,7 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     ROUTING_RESULT_PROTOCOL,
     ROUTING_QUIESCENCE_RESULT_PROTOCOL,
     ROUTING_RUNTIME_RESULT_PROTOCOL,
@@ -28,8 +28,8 @@ from aap_inference_contract.routing import (
     routing_runtime_result_bytes,
     routing_quiescence_result_bytes,
 )
-from aap_inference_contract.routing_client import RoutingHttpClient
-from aap_inference_contract.scope_retirement import (
+from yoao_inference_contract.routing_client import RoutingHttpClient
+from yoao_inference_contract.scope_retirement import (
     SCOPE_RETIREMENT_RESULT_PROTOCOL,
     ScopeRetirementResult,
     ScopeRetirementView,
@@ -37,7 +37,7 @@ from aap_inference_contract.scope_retirement import (
     scope_retirement_request_bytes,
     scope_retirement_result_bytes,
 )
-from aap_inference_contract.video_execution import (
+from yoao_inference_contract.video_execution import (
     VIDEO_EXECUTION_DATA_PROTOCOL,
     VIDEO_EXECUTION_STATUS_PATH,
     decode_video_execution_status_request,

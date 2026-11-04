@@ -6,8 +6,8 @@ import subprocess
 import sys
 import uuid
 
-from aap_inference_contract.preannotate import PipelineStage, PreannotateRequest
-from aap_inference_contract.pipeline import validate_saved_pipeline
+from yoao_inference_contract.preannotate import PipelineStage, PreannotateRequest
+from yoao_inference_contract.pipeline import validate_saved_pipeline
 
 
 def test_shared_saved_pipeline_contract_canonicalizes_task_alias():
@@ -48,7 +48,7 @@ def test_shared_contract_import_does_not_import_inference_provider():
         [
             sys.executable,
             "-c",
-            "import sys; from aap_inference_contract import PreannotateRequest; "
+            "import sys; from yoao_inference_contract import PreannotateRequest; "
             "assert PreannotateRequest.__name__ == 'PreannotateRequest'; "
             "assert 'aap_inference' not in sys.modules",
         ],

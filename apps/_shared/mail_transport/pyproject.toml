@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aap-mail-transport"
+name = "yoao-mail-transport"
 version = "0.1.0"
 description = "Portable standard-library SMTP transport for AAP modules"
 requires-python = ">=3.11"
 dependencies = []
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aap_mail_transport"]
+packages = ["src/yoao_mail_transport"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

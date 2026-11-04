@@ -1,6 +1,6 @@
 import pytest
 
-from aap_protocol_v2.predict import normalize_context_task
+from yoao_protocol_v2.predict import normalize_context_task
 
 
 @pytest.mark.parametrize(

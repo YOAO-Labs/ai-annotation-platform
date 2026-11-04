@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ANNOTATOR_ROLE,
     PLATFORM_ROLE_EMPLOYEE,
     PLATFORM_ROLE_VIEWER,

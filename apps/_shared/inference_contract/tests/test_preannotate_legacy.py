@@ -8,11 +8,11 @@ from pathlib import Path
 
 import pytest
 
-from aap_inference_contract.pipeline import (
+from yoao_inference_contract.pipeline import (
     PipelineValidationError,
     validate_saved_pipeline,
 )
-from aap_inference_contract.preannotate import PipelineStage, PreannotateRequest
+from yoao_inference_contract.preannotate import PipelineStage, PreannotateRequest
 
 
 LEGACY = json.loads(
@@ -53,7 +53,7 @@ def test_shared_model_fields_and_request_materialization_match_legacy():
 
 
 def test_published_request_schema_matches_current_contract():
-    from aap_inference_contract import preannotate
+    from yoao_inference_contract import preannotate
 
     artifact = Path(preannotate.__file__).with_name("preannotate.schema.json")
     assert json.loads(artifact.read_text()) == PreannotateRequest.model_json_schema()

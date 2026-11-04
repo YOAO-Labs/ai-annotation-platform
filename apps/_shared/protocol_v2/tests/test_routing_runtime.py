@@ -9,14 +9,14 @@ import asyncio
 import jwt
 import pytest
 
-from aap_protocol_v2.routing import (
+from yoao_protocol_v2.routing import (
     ROUTE_ADMISSION_AUDIENCE,
     ROUTE_ADMISSION_PROTOCOL,
     ROUTE_CONTROL_PROTOCOL,
     ROUTE_STATUS_PATH,
     decode_backend_route_control_command,
 )
-from aap_protocol_v2.routing_runtime import (
+from yoao_protocol_v2.routing_runtime import (
     BackendRoutingController,
     BackendRoutingMiddleware,
     RouteConfigurationError,

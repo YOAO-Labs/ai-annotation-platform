@@ -3,22 +3,22 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "aap-inference-contract"
+name = "yoao-inference-contract"
 version = "0.1.0"
 license = { file = "LICENSE" }
 description = "Portable Inference contracts and shared preannotation pipeline structure"
 requires-python = ">=3.11"
-dependencies = ["aap-task-contract", "pydantic>=2.10.0"]
+dependencies = ["yoao-task-contract", "pydantic>=2.10.0"]
 
 [tool.uv.sources]
-aap-task-contract = { path = "../task_contract", editable = true }
+yoao-task-contract = { path = "../task_contract", editable = true }
 
 [project.optional-dependencies]
 client = ["httpx>=0.28.0"]
 test = ["pytest>=8.3.0", "pytest-asyncio>=0.24.0", "httpx>=0.28.0"]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/aap_inference_contract"]
+packages = ["src/yoao_inference_contract"]
 
 [tool.uv]
 cache-keys = [

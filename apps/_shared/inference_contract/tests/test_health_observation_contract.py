@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.health_observation import (
     HEALTH_OBSERVATION_EVIDENCE_PROTOCOL,
     HEALTH_OBSERVATION_NATIVE_FUNCTIONS,
     HEALTH_OBSERVATION_NATIVE_POLICY_SCHEMA,
@@ -191,7 +191,7 @@ def test_native_policy_requires_exact_function_and_protection_facts() -> None:
 
 def test_packaged_schema_tracks_wire_and_native_literals() -> None:
     schema = json.loads(
-        files("aap_inference_contract")
+        files("yoao_inference_contract")
         .joinpath("health_observation.schema.json")
         .read_text(encoding="utf-8")
     )

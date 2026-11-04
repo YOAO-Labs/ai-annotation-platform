@@ -29,8 +29,12 @@ GPU_ADMIN_REPAIR_PATH = "/internal/inference/gpu/v1/admin/repair-resource"
 GPU_ADMIN_PROBE_PATH = "/internal/inference/gpu/v1/admin/probe-retired-membership"
 GPU_ADMIN_COLLECT_PATH = "/internal/inference/gpu/v1/admin/collect-tombstone"
 GPU_ADMIN_DIAGNOSTICS_PATH = "/internal/inference/gpu/v1/admin/diagnostics"
-GPU_ADMIN_INSTALLATION_ACTIVATE_PATH = "/internal/inference/gpu/v1/admin/activate-installation"
-GPU_ADMIN_INSTALLATION_QUIESCE_PATH = "/internal/inference/gpu/v1/admin/quiesce-installation"
+GPU_ADMIN_INSTALLATION_ACTIVATE_PATH = (
+    "/internal/inference/gpu/v1/admin/activate-installation"
+)
+GPU_ADMIN_INSTALLATION_QUIESCE_PATH = (
+    "/internal/inference/gpu/v1/admin/quiesce-installation"
+)
 GPU_AUTHORITY_NATIVE_FUNCTIONS = (
     "aap_inference_gpu_v1.gpu_authority_policy()",
     "aap_inference_gpu_v1.gpu_authority_step(text,text)",
@@ -222,7 +226,10 @@ class GPUInstallationControlRequest(_GPUModel):
 
     @model_validator(mode="after")
     def valid_pool_ids(self):
-        if any(not pool or len(pool) > 128 or pool.strip() != pool for pool in self.pool_ids):
+        if any(
+            not pool or len(pool) > 128 or pool.strip() != pool
+            for pool in self.pool_ids
+        ):
             raise ValueError("invalid GPU installation pool IDs")
         if self.pool_ids != sorted(set(self.pool_ids)):
             raise ValueError("GPU installation pool IDs must be unique and ordered")

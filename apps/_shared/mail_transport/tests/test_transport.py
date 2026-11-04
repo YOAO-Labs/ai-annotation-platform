@@ -10,7 +10,7 @@ from email.message import EmailMessage
 from unittest import TestCase
 from unittest.mock import patch
 
-from aap_mail_transport import (
+from yoao_mail_transport import (
     MailDeliveryResult,
     MailOutcome,
     MailReason,
@@ -98,9 +98,9 @@ class SMTPTransportTests(TestCase):
                     return smtp
 
                 with (
-                    patch("aap_mail_transport.transport.smtplib.SMTP", plain),
+                    patch("yoao_mail_transport.transport.smtplib.SMTP", plain),
                     patch(
-                        "aap_mail_transport.transport.smtplib.SMTP_SSL", implicit_tls
+                        "yoao_mail_transport.transport.smtplib.SMTP_SSL", implicit_tls
                     ),
                 ):
                     result = send_message(_config(port), _message())
@@ -136,7 +136,7 @@ class SMTPTransportTests(TestCase):
                     code, b"auth details"
                 )
                 with patch(
-                    "aap_mail_transport.transport.smtplib.SMTP", return_value=smtp
+                    "yoao_mail_transport.transport.smtplib.SMTP", return_value=smtp
                 ):
                     result = send_message(_config(), _message())
 
@@ -152,7 +152,7 @@ class SMTPTransportTests(TestCase):
     def test_tls_failure_never_authenticates_or_sends(self):
         smtp = _SMTPDouble()
         smtp.starttls_error = smtplib.SMTPResponseException(454, b"server-secret")
-        with patch("aap_mail_transport.transport.smtplib.SMTP", return_value=smtp):
+        with patch("yoao_mail_transport.transport.smtplib.SMTP", return_value=smtp):
             result = send_message(_config(587), _message())
 
         self.assertEqual(
@@ -166,7 +166,7 @@ class SMTPTransportTests(TestCase):
         self,
     ):
         smtp = _SMTPDouble(advertises_tls=False)
-        with patch("aap_mail_transport.transport.smtplib.SMTP", return_value=smtp):
+        with patch("yoao_mail_transport.transport.smtplib.SMTP", return_value=smtp):
             result = send_message(_config(2525), _message())
 
         self.assertEqual(
@@ -204,7 +204,7 @@ class SMTPTransportTests(TestCase):
                 smtp = _SMTPDouble()
                 smtp.send_error = error
                 with patch(
-                    "aap_mail_transport.transport.smtplib.SMTP", return_value=smtp
+                    "yoao_mail_transport.transport.smtplib.SMTP", return_value=smtp
                 ):
                     result = send_message(_config(), _message())
                 self.assertEqual(
@@ -215,7 +215,7 @@ class SMTPTransportTests(TestCase):
 
     def test_connect_failure_is_retryable_and_sanitized(self):
         with patch(
-            "aap_mail_transport.transport.smtplib.SMTP",
+            "yoao_mail_transport.transport.smtplib.SMTP",
             side_effect=OSError("server-secret recipient-secret"),
         ):
             result = send_message(_config(), _message())
@@ -229,7 +229,7 @@ class SMTPTransportTests(TestCase):
 
     def test_missing_configuration_and_invalid_message_do_not_connect(self):
         with patch(
-            "aap_mail_transport.transport.smtplib.SMTP",
+            "yoao_mail_transport.transport.smtplib.SMTP",
             side_effect=AssertionError("transport should not connect"),
         ):
             unconfigured = SMTPConfig("", 2525, "", "", "sender@example.test")
@@ -253,7 +253,7 @@ class SMTPTransportTests(TestCase):
         smtp.send_error = smtplib.SMTPServerDisconnected(
             "recipient-and-password-secret"
         )
-        with patch("aap_mail_transport.transport.smtplib.SMTP", return_value=smtp):
+        with patch("yoao_mail_transport.transport.smtplib.SMTP", return_value=smtp):
             result = send_message(_config(), _message())
 
         self.assertEqual(
@@ -265,7 +265,7 @@ class SMTPTransportTests(TestCase):
     def test_partial_recipient_acceptance_is_unknown_without_address_details(self):
         smtp = _SMTPDouble()
         smtp.refused = {"recipient-secret": (550, b"private refusal")}
-        with patch("aap_mail_transport.transport.smtplib.SMTP", return_value=smtp):
+        with patch("yoao_mail_transport.transport.smtplib.SMTP", return_value=smtp):
             result = send_message(_config(), _message())
 
         self.assertEqual(

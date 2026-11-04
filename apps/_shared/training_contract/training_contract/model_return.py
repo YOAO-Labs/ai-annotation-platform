@@ -2,7 +2,7 @@
 
 from copy import deepcopy
 import re
-from aap_task_contract import normalize_task
+from yoao_task_contract import normalize_task
 from .dataset import DETECTION, SEGMENTATION, config_task, data_contract
 from .models import (
     ULTRALYTICS_VERSION,

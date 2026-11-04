@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aap-audit-contract"
+name = "yoao-audit-contract"
 version = "0.1.0"
 description = "Public immutable audit values shared across independent AAP modules"
 requires-python = ">=3.11"

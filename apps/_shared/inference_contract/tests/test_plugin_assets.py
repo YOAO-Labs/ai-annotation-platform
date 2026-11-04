@@ -4,7 +4,7 @@ import hashlib
 import pytest
 from pydantic import ValidationError
 
-from aap_inference_contract.plugin_assets import (
+from yoao_inference_contract.plugin_assets import (
     PluginAssetApprovalUpdate,
     PluginAssetDescriptor,
     plugin_asset_reason,
@@ -172,18 +172,22 @@ def test_legacy_text_selects_only_the_advertised_output_model():
         }
     }
     assert resolve_plugin_selection(health, {"type": "text", "output": "box"}) == (
-        "detection", {"dino_variant": "T"}
+        "detection",
+        {"dino_variant": "T"},
     )
     for output in ("mask", "both"):
         assert resolve_plugin_selection(health, {"type": "text", "output": output}) == (
-            "segmentation", {"sam_variant": "tiny", "dino_variant": "T"}
+            "segmentation",
+            {"sam_variant": "tiny", "dino_variant": "T"},
         )
     assert resolve_plugin_selection(health, {"type": "text", "output": "unknown"}) == (
-        None, {}
+        None,
+        {},
     )
     health["capabilities"]["models"].append(
         {**health["capabilities"]["models"][1], "id": "another-segmentation"}
     )
     assert resolve_plugin_selection(health, {"type": "text", "output": "mask"}) == (
-        None, {}
+        None,
+        {},
     )

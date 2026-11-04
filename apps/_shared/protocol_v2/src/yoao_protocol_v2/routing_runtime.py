@@ -16,13 +16,13 @@ from uuid import UUID, uuid4
 from fastapi import FastAPI
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from aap_protocol_v2.lifecycle import (
+from yoao_protocol_v2.lifecycle import (
     GPU_ADMISSION_TOKEN_HEADER,
     GPU_GENERATION_HEADER,
     validate_canonical_positive_int64,
 )
 
-from aap_protocol_v2.routing import (
+from yoao_protocol_v2.routing import (
     BackendRouteControlCommand,
     BackendRouteControlReply,
     MAX_ROUTE_CONTROL_BYTES,
@@ -33,7 +33,7 @@ from aap_protocol_v2.routing import (
     decode_backend_route_control_command,
     decode_route_admission_token,
 )
-from aap_protocol_v2.scope_retirement import (
+from yoao_protocol_v2.scope_retirement import (
     SCOPE_RETIREMENT_PATH,
     BackendScopeRetirementCommand,
     BackendScopeRetirementReply,

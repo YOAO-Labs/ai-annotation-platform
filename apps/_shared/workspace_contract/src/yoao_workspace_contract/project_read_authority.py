@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ProjectAccess,
     ProjectAccessPolicyFailure,
     project_manager_access,

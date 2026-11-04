@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 import uuid
 
-from aap_inference_contract.scope_retirement import (
+from yoao_inference_contract.scope_retirement import (
     SCOPE_RETIREMENT_PROTOCOL,
     SCOPE_RETIREMENT_RESULT_PROTOCOL,
     ScopeRetirementResult,

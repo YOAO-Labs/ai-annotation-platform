@@ -6,7 +6,7 @@ import math
 import json
 import struct
 
-from aap_task_contract import normalize_task, resolve_task
+from yoao_task_contract import normalize_task, resolve_task
 
 DETECTION = "detect"
 SEGMENTATION = "segment"

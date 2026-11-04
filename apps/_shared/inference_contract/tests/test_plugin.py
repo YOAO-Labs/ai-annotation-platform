@@ -5,8 +5,8 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_inference_contract.execution import freeze_json
-from aap_inference_contract.plugin import (
+from yoao_inference_contract.execution import freeze_json
+from yoao_inference_contract.plugin import (
     PluginActivateRequest,
     PluginInstallation,
     PluginLifecycleQualification,

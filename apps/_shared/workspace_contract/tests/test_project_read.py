@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from aap_workspace_contract import WorkspaceProjectSnapshot
+from yoao_workspace_contract import WorkspaceProjectSnapshot
 
 
 def snapshot_payload():

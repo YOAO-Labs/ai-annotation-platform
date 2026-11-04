@@ -1,6 +1,6 @@
 # Identity admission
 
-`aap-identity-admission` contains the closed, language-neutral authentication
+`yoao-identity-admission` contains the closed, language-neutral authentication
 contract and the small HTTP client used by trusted API runtimes. It has no
 database, ORM, FastAPI, or Identity-runtime dependency.
 

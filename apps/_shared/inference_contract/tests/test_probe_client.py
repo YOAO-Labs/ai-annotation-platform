@@ -8,9 +8,9 @@ import uuid
 import httpx
 import pytest
 
-from aap_inference_contract.capabilities import CapabilityLimits
-from aap_inference_contract.client import BackendProbeHttpClient
-from aap_inference_contract.probe import (
+from yoao_inference_contract.capabilities import CapabilityLimits
+from yoao_inference_contract.client import BackendProbeHttpClient
+from yoao_inference_contract.probe import (
     BACKEND_PROBE_PROTOCOL,
     BackendProbeFailure,
     BackendProbeLegacyFailure,

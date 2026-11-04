@@ -9,7 +9,7 @@ from importlib.resources import files
 
 import pytest
 
-from aap_inference_contract.routing import (
+from yoao_inference_contract.routing import (
     ROUTING_DATA_PROTOCOL,
     ROUTING_NATIVE_ACTIONS,
     ROUTING_NATIVE_FUNCTIONS,
@@ -497,7 +497,7 @@ def test_native_policy_requires_exact_functions_and_ordered_actions() -> None:
 
 def test_packaged_schema_matches_protocol_actions_and_size_caps() -> None:
     schema = json.loads(
-        files("aap_inference_contract")
+        files("yoao_inference_contract")
         .joinpath("routing.schema.json")
         .read_text(encoding="utf-8")
     )

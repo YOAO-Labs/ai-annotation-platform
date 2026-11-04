@@ -8,10 +8,10 @@ from importlib.resources import files
 
 import pytest
 
-from aap_inference_contract.health_observation import (
+from yoao_inference_contract.health_observation import (
     BackendHealthObservationUnavailable,
 )
-from aap_inference_contract.health_observation_outcome import (
+from yoao_inference_contract.health_observation_outcome import (
     HEALTH_OBSERVATION_OUTCOME_MAX_BYTES,
     decode_health_observation_outcome,
     health_observation_outcome_text,
@@ -213,7 +213,7 @@ def test_decoder_rejects_duplicates_unknown_fields_nonobjects_and_oversize() -> 
 
 def test_outcome_schema_defines_private_union_and_size_limit() -> None:
     schema = json.loads(
-        files("aap_inference_contract")
+        files("yoao_inference_contract")
         .joinpath("health_observation.schema.json")
         .read_text(encoding="utf-8")
     )

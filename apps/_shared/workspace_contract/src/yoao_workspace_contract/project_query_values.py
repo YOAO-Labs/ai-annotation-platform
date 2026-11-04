@@ -9,7 +9,7 @@ import re
 import uuid
 
 from .wire import _reject_constant, _unique_object
-from aap_workspace_contract.access import (
+from yoao_workspace_contract.access import (
     ACCESS_KIND_MEMBER,
     ACCESS_KIND_OWNER,
     ACCESS_KIND_SUPER_ADMIN,

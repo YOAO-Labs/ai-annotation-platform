@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal
 
-from aap_task_contract import Task as VisualTaskName, normalize_task_fields
+from yoao_task_contract import Task as VisualTaskName, normalize_task_fields
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 

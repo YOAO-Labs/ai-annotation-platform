@@ -3,7 +3,7 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "aap-lifecycle-contract"
+name = "yoao-lifecycle-contract"
 version = "0.1.0"
 license = { file = "LICENSE" }
 description = "Portable managed lifecycle evidence validation"

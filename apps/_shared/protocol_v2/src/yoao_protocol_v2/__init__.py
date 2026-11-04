@@ -1,17 +1,17 @@
 """ML backend 协议 v2 共享 schema + 受控词表常量。"""
 
-from aap_protocol_v2.errors import (
+from yoao_protocol_v2.errors import (
     LifecycleErrorCode,
     LifecycleHTTPError,
     ModelUnavailableError,
     VariantNotSupportedError,
 )
-from aap_protocol_v2.mask_codec import (
+from yoao_protocol_v2.mask_codec import (
     MAX_LOW_RES_MASK_INPUT_CHARS,
     decode_low_res_mask,
     encode_low_res_mask,
 )
-from aap_protocol_v2.mask_interaction import (
+from yoao_protocol_v2.mask_interaction import (
     CocoRlePayload,
     CorrectionFramePrompt,
     MAX_MASK_DIMENSION,
@@ -37,14 +37,14 @@ from aap_protocol_v2.mask_interaction import (
     canonical_rle_bytes,
     native_mask_candidate_id,
 )
-from aap_protocol_v2.predict import (
+from yoao_protocol_v2.predict import (
     LEGACY_CONTEXT_VARIANT_FIELDS,
     TrackerContextControl,
     log_deprecated_model_variant_fields,
     normalize_context_model_variants,
 )
-from aap_protocol_v2.roles import PlatformRole
-from aap_protocol_v2.schemas import (
+from yoao_protocol_v2.roles import PlatformRole
+from yoao_protocol_v2.schemas import (
     BatchPredictResponse,
     EvictRecord,
     LoadedKey,
@@ -54,14 +54,14 @@ from aap_protocol_v2.schemas import (
     TaskItem,
     WarmupResponse,
 )
-from aap_protocol_v2.vocab import (
+from yoao_protocol_v2.vocab import (
     GEOMETRY_VALUES,
     INFRA_VALUES,
     INPUT_VALUES,
     PROMPT_VALUES,
     TASK_VALUES,
 )
-from aap_protocol_v2.version import COMPAT_PROTOCOL_VERSIONS, PROTOCOL_VERSION
+from yoao_protocol_v2.version import COMPAT_PROTOCOL_VERSIONS, PROTOCOL_VERSION
 
 __all__ = [
     "BatchPredictResponse",

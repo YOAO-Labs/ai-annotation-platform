@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, model_validator
-from aap_task_contract import (
+from yoao_task_contract import (
     TASK_VALUES,
     TASK_ALIASES,
     normalize_task,

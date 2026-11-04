@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from aap_inference_contract.backend_control import (
+from yoao_inference_contract.backend_control import (
     BACKEND_CONTROL_PROTOCOL,
     BackendControlReply,
     BackendRequestOnlyEndpoint,

@@ -1,11 +1,11 @@
 # 站点 Agent 协议合同
 
-`aap-site-agent-contract` 是只依赖 Python 标准库的协议包，供中心和独立 Linux Agent 共同使用。此包只校验消息，不提供身份认证、当前时钟检查、文件访问、传输、业务任务或 ACK 状态持久化。
+`yoao-site-agent-contract` 是只依赖 Python 标准库的协议包，供中心和独立 Linux Agent 共同使用。此包只校验消息，不提供身份认证、当前时钟检查、文件访问、传输、业务任务或 ACK 状态持久化。
 
 ## 消息与 digest
 
 ```python
-from aap_site_agent_contract import (
+from yoao_site_agent_contract import (
     canonical_json, digest, parse_json, validate_command, validate_result,
 )
 
