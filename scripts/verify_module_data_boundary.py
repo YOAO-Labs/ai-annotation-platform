@@ -2024,6 +2024,220 @@ def _write_evidence(path: Path, document: dict) -> None:
     )
 
 
+_STRICT_PROFILE_TARGETS = {
+    "tests/test_identity_e2e_live.py": "identity-e2e",
+    "tests/test_identity_recording_live.py": "recording",
+    "tests/test_identity_seed_selection_live.py": "scale-seed",
+    "tests/test_media_seed_identity_live.py": "media-seed",
+    "tests/test_seed_parent_operator_live.py": "parent-seed",
+    "tests/test_workspace_seed_operator_live.py": "workspace-seed",
+    "tests/test_workspace_import_cli_live.py": "workspace-import",
+}
+
+
+def _append_profile_junit(
+    suites: ET.Element,
+    collection: Path,
+    junit: Path,
+    targets: tuple[str, ...],
+    expected: list[str],
+) -> None:
+    actual = json.loads(collection.read_text(encoding="utf-8"))
+    if (
+        not isinstance(actual, list)
+        or any(not isinstance(node, str) for node in actual)
+        or Counter(actual) != Counter(expected)
+    ):
+        raise RuntimeError("Acceptance profile collection differs from the default")
+    _passed_test_count(junit, targets, actual)
+    root = ET.parse(junit).getroot()
+    for suite in [root] if root.tag == "testsuite" else root.findall("testsuite"):
+        suites.append(suite)
+
+
+def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> int:
+    """Reconcile one default collection across isolated existing verifier profiles."""
+    output = args.output.resolve()
+    junit = (
+        args.junit_xml.resolve()
+        if args.junit_xml
+        else output.with_name(f"{output.stem}.junit.xml")
+    )
+    manifest = output.with_name(f"{output.stem}.collection.json")
+    if len({output, junit, manifest}) != 3:
+        raise SystemExit(
+            "--output, --junit-xml and the collection manifest must be different paths"
+        )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    junit.parent.mkdir(parents=True, exist_ok=True)
+    output.unlink(missing_ok=True)
+    junit.unlink(missing_ok=True)
+    manifest.unlink(missing_ok=True)
+    directory = Path(
+        tempfile.mkdtemp(prefix=f"{output.stem}-profiles-", dir=output.parent)
+    ).resolve()
+    groups = {"ordinary": []}
+    for name in _STRICT_PROFILE_TARGETS.values():
+        groups[name] = []
+    for target in selected:
+        name = _STRICT_PROFILE_TARGETS.get(target.split("::", 1)[0], "ordinary")
+        groups[name].append(target)
+    groups = {name: targets for name, targets in groups.items() if targets}
+    evidence = {
+        "schema": 1,
+        "acceptance": "module-data-boundary",
+        "scope": "strict-default-isolated-profiles",
+        "status": "running",
+        "phase": "default-collection",
+        "started_at": datetime.now(timezone.utc).isoformat(),
+        "code_root": str(ROOT),
+        "test_files": list(selected),
+        "collection_manifest": str(manifest),
+        "junit_xml": str(junit),
+        "profile_directory": str(directory),
+        "collection_evidence": str(directory / "collection.json"),
+        "profiles": {
+            name: {"status": "not_run", "evidence": str(directory / f"{name}.json")}
+            for name in groups
+        },
+    }
+    _write_evidence(output, evidence)
+    exit_code = 1
+    try:
+        collection_output = directory / "collection.json"
+        if main(["--output", str(collection_output)], collect_only=True) != 0:
+            raise RuntimeError("Acceptance default collection stage failed")
+        collected = json.loads(
+            collection_output.with_name("collection.collection.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        if (
+            not isinstance(collected, list)
+            or not collected
+            or any(not isinstance(node, str) for node in collected)
+        ):
+            raise RuntimeError("Acceptance default collection is empty or invalid")
+        manifest.write_text(
+            json.dumps(collected, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        evidence["collected_test_nodes"] = collected
+        if len(set(collected)) != len(collected):
+            raise RuntimeError(
+                "Acceptance default collection contains duplicate node IDs"
+            )
+        path_groups = {
+            target.split("::", 1)[0]: name
+            for name, targets in groups.items()
+            for target in targets
+        }
+        expected = {name: [] for name in groups}
+        for node in collected:
+            name = path_groups.get(node.split("::", 1)[0])
+            if name is None:
+                raise RuntimeError("Acceptance collection contains an unselected file")
+            expected[name].append(node)
+        evidence["collection_status"] = "collected"
+        suites = ET.Element("testsuites")
+        complete = True
+        for name, targets in groups.items():
+            entry = evidence["profiles"][name]
+            entry["status"] = "running"
+            evidence["phase"] = f"profile-{name}"
+            _write_evidence(output, evidence)
+            profile_output = directory / f"{name}.json"
+            arguments = ["--output", str(profile_output)]
+            for target in targets:
+                arguments.extend(("--test-file", target))
+            result = main(arguments, partition_default=False)
+            report = json.loads(profile_output.read_text(encoding="utf-8"))
+            entry["status"] = report["status"]
+            entry["test_exit_code"] = report["test_exit_code"]
+            entry["cleanup"] = report["cleanup"]
+            profile_manifest = profile_output.with_name(f"{name}.collection.json")
+            profile_junit = profile_output.with_name(f"{name}.junit.xml")
+            entry["collection_matches_default"] = None
+            entry["junit_reconciled"] = None
+            if profile_manifest.is_file():
+                try:
+                    actual = json.loads(profile_manifest.read_text(encoding="utf-8"))
+                    entry["collection_matches_default"] = (
+                        isinstance(actual, list)
+                        and all(isinstance(node, str) for node in actual)
+                        and Counter(actual) == Counter(expected[name])
+                    )
+                except (OSError, ValueError) as error:
+                    entry["collection_error"] = type(error).__name__
+            if result == 0 and entry["collection_matches_default"] is True:
+                try:
+                    _append_profile_junit(
+                        suites,
+                        profile_manifest,
+                        profile_junit,
+                        tuple(targets),
+                        expected[name],
+                    )
+                    entry["junit_reconciled"] = True
+                except (OSError, ValueError, RuntimeError, ET.ParseError) as error:
+                    entry["junit_reconciled"] = False
+                    entry["reconciliation_error"] = type(error).__name__
+            if result != 0 or entry["junit_reconciled"] is not True:
+                entry["status"] = "failed"
+                complete = False
+            _write_evidence(output, evidence)
+            if report["cleanup"]["errors"]:
+                evidence["failure"] = {
+                    "phase": f"profile-{name}-cleanup",
+                    "error_type": "CleanupError",
+                }
+                break
+            if result != 0 and report["test_exit_code"] is None:
+                evidence["failure"] = {
+                    "phase": f"profile-{name}-setup",
+                    "error_type": "ProfileSetupFailure",
+                }
+                break
+        if complete and all(
+            entry["status"] == "passed" for entry in evidence["profiles"].values()
+        ):
+            ET.ElementTree(suites).write(junit, encoding="utf-8", xml_declaration=True)
+            evidence["passed_test_count"] = _passed_test_count(
+                junit, selected, collected
+            )
+            evidence["status"] = "passed"
+            exit_code = 0
+        elif "failure" not in evidence:
+            evidence["failure"] = {
+                "phase": "profile-reconciliation",
+                "error_type": "ProfileFailure",
+            }
+    except Exception as error:
+        evidence["failure"] = {
+            "phase": "default-reconciliation",
+            "error_type": type(error).__name__,
+        }
+        if isinstance(error, RuntimeError) and str(error).startswith("Acceptance "):
+            evidence["failure"]["diagnostic"] = str(error)
+    except BaseException as error:
+        evidence["failure"] = {
+            "phase": "default-reconciliation",
+            "error_type": type(error).__name__,
+        }
+        raise
+    finally:
+        if exit_code != 0:
+            evidence["status"] = "failed"
+        evidence["finished_at"] = datetime.now(timezone.utc).isoformat()
+        _write_evidence(output, evidence)
+        print(
+            f"{'PASS' if exit_code == 0 else 'FAIL'}: module-data strict default; "
+            f"evidence={output} junit={junit}",
+            flush=True,
+        )
+    return exit_code
+
+
 def _passed_test_count(
     junit: Path, selected: tuple[str, ...], collected: list[str]
 ) -> int:
@@ -4667,9 +4881,16 @@ def _install_and_rollback_frozen_sql(
     return frozen_relations
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(
+    argv: list[str] | None = None,
+    *,
+    collect_only: bool = False,
+    partition_default: bool = True,
+) -> int:
     args = _arguments(argv)
     test_files = tuple(dict.fromkeys(args.test_files or TEST_FILES))
+    if partition_default and args.test_files is None and not collect_only:
+        return _run_strict_default(args, test_files)
     output = args.output.resolve()
     junit = (
         args.junit_xml.resolve()
@@ -4690,7 +4911,8 @@ def main(argv: list[str] | None = None) -> int:
     evidence = {
         "schema": 1,
         "acceptance": "module-data-boundary",
-        "status": "failed",
+        "status": "running",
+        "phase": "preflight",
         "started_at": datetime.now(timezone.utc).isoformat(),
         "code_root": str(ROOT),
         "container_image": POSTGRES_IMAGE,
@@ -4854,6 +5076,7 @@ def main(argv: list[str] | None = None) -> int:
             "errors": [],
         },
     }
+    _write_evidence(output, evidence)
     phase = "preflight"
     node_diagnostic = None
     exit_code = 1
@@ -5722,6 +5945,8 @@ def main(argv: list[str] | None = None) -> int:
             "host": "127.0.0.1",
             "port": port,
         }
+        evidence["phase"] = "postgres-started"
+        _write_evidence(output, evidence)
         _wait_for_postgres(container_id, container_name, container_identity)
         owner_url = URL.create(
             "postgresql+asyncpg",
@@ -9727,13 +9952,13 @@ SELECT pg_catalog.jsonb_build_object(
             "raise SystemExit(pytest.main(args, plugins=[CollectionManifest()]))\n",
             str(ROOT / "apps/api"),
             str(collection_manifest),
-            "-q",
+            "-q" if collect_only else "-v",
             "--tb=short",
-            f"--junitxml={junit}",
+            *(["--collect-only"] if collect_only else [f"--junitxml={junit}"]),
             *test_files,
         ]
         options = parse_arguments(["exec", "--mode", "test", "--", *command])
-        phase = "pytest"
+        phase = "pytest-collection" if collect_only else "pytest"
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
@@ -9816,6 +10041,8 @@ SELECT pg_catalog.jsonb_build_object(
                     )
                 )
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
+                evidence["phase"] = "pytest-collection" if collect_only else "pytest"
+                _write_evidence(output, evidence)
 
             with patch.object(backend, "prepare", prepare_fenced_resources):
                 test_exit_code = run_processes(backend, options)
@@ -9823,21 +10050,30 @@ SELECT pg_catalog.jsonb_build_object(
         if test_exit_code == 0:
             collected = json.loads(collection_manifest.read_text(encoding="utf-8"))
             evidence["collected_test_nodes"] = collected
-            evidence["passed_test_count"] = _passed_test_count(
-                junit, test_files, collected
-            )
+            if not collect_only:
+                evidence["passed_test_count"] = _passed_test_count(
+                    junit, test_files, collected
+                )
         exit_code = test_exit_code
-        evidence["status"] = "passed" if exit_code == 0 else "failed"
+        evidence["status"] = (
+            "collected"
+            if collect_only and exit_code == 0
+            else "passed"
+            if exit_code == 0
+            else "failed"
+        )
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        if isinstance(error, ModuleNotFoundError):
+            evidence["failure"]["module"] = error.name
         if isinstance(error, RuntimeError) and (
             str(error).startswith("psql acceptance phase failed with exit ")
             or (
                 phase == "preflight"
                 and str(error).startswith("Missing module-data acceptance cases: ")
             )
-            or (phase == "pytest" and str(error).startswith("Acceptance "))
+            or (phase.startswith("pytest") and str(error).startswith("Acceptance "))
         ):
             evidence["failure"]["diagnostic"] = str(error)
         if node_diagnostic is not None:
@@ -9974,8 +10210,14 @@ SELECT pg_catalog.jsonb_build_object(
             evidence["status"] = "failed"
         evidence["finished_at"] = datetime.now(timezone.utc).isoformat()
         _write_evidence(output, evidence)
+        result_label = (
+            "COLLECTED"
+            if collect_only and exit_code == 0
+            else ("PASS" if exit_code == 0 else "FAIL")
+        )
+        scope_label = "selected subset" if args.test_files else "default selection"
         print(
-            f"{'PASS' if exit_code == 0 else 'FAIL'}: module-data acceptance; "
+            f"{result_label}: module-data {scope_label}; "
             f"evidence={output} junit={junit}",
             flush=True,
         )

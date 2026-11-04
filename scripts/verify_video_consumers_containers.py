@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None):
             "tests/test_video_consumers_containers.py",
             "tests/test_video_input_cleanup_containers.py",
         )
-    return verification.main(verifier_arguments)
+    return verification.main(verifier_arguments, partition_default=False)
 
 
 if __name__ == "__main__":

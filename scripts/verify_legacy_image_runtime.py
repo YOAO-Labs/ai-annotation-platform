@@ -9,4 +9,4 @@ import verify_module_data_boundary as verification
 verification.TEST_FILES = ("tests/test_legacy_image_runtime_live.py",)
 
 if __name__ == "__main__":
-    raise SystemExit(verification.main())
+    raise SystemExit(verification.main(partition_default=False))

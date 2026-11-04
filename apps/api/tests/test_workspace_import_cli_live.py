@@ -43,11 +43,14 @@ _PROVISIONING_FUNCTIONS = (
     "aap_identity_v1.create_provisioning_account(jsonb)",
 )
 _IDENTITY_CONSUMER_FUNCTIONS = (
+    "aap_identity_v1.read_accepted_api_key_facts(uuid,uuid)",
     "aap_identity_v1.read_actor_facts(uuid)",
     "aap_identity_v1.lock_accounts_share(uuid[],boolean)",
     "aap_identity_v1.lock_accounts_update(uuid[],boolean)",
     "aap_identity_v1.lock_accounts_key_share(uuid[],boolean)",
     "aap_identity_v1.check_accepted_api_key(uuid,uuid,text[])",
+    "aap_identity_v1.is_jti_revoked(uuid)",
+    "aap_identity_v1.get_credential_generation(uuid)",
 )
 _WORKSPACE_FUNCTIONS = (
     "aap_workspace_v1.read_import_project(text)",

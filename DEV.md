@@ -662,6 +662,13 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 `AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
 记录该命令的 JSON、JUnit 和同级 `<output-stem>.collection.json`；未完成的运行也保留已收集的
 node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
+严格默认验收先在自有资源中收集完整 node ID，再为相互排斥的身份／seed 操作账号
+分别创建独立数据库和对象存储资源运行；普通严格账号、每组 JSON／JUnit 和清理记录
+分别保留在报告指向的 profile 目录。只有每组实际选集与原始 collection 对账一致、
+所有案例通过且资源清理成功，才生成完整默认 JUnit；不会在活跃调用方下切换授权。
+普通 Identity 消费者的精确八函数包含接受后 API Key 事实读取，以及 JWT 撤销状态和凭据
+代次读取：分别服务于 `identity_request_authority` 和 `token_blacklist` 的事务内重验。
+这不授权私有表、凭据哈希或撤销写命令；各操作账号仍须断言自己的准确能力集合。
 
 默认选集中的旧 `test_dataset_import_cancellation.py` 已删除：其中是旧调用转发 mock，
 当前取消结果由已选的 `test_dataset_import.py`（旧任务 HTTP 取消）和
