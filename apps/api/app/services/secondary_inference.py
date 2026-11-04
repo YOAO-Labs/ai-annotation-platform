@@ -50,9 +50,9 @@ def _raise_secondary_execution_error(error: ModelExecutionError) -> NoReturn:
     failure = error.failure
     if failure.code == "backend_timeout":
         detail = (
-            f"推理超时 (>{settings.ml_predict_timeout}s)。backend 可能正在加载模型; "
-            "若多个 GPU backend 同时驻留模型, 显存不足会让加载慢一个数量级。"
-            "可先卸载暂不使用的 backend 释放显存, 再重试。"
+            f"推理超时 (>{settings.ml_predict_timeout}s)。模型服务可能正在加载模型; "
+            "若多个 GPU 模型服务同时驻留模型, 显存不足会让加载慢一个数量级。"
+            "可先卸载暂不使用的模型服务释放显存, 再重试。"
         )
         raise HTTPException(status_code=504, detail=detail) from error
     if failure.code == "backend_unreachable":
@@ -63,7 +63,7 @@ def _raise_secondary_execution_error(error: ModelExecutionError) -> NoReturn:
         status = failure.status_code
         raise HTTPException(
             status_code=status if status < 500 or status == 503 else 502,
-            detail=f"ML backend error (HTTP {status})",
+            detail=f"模型服务错误 (HTTP {status})",
             headers=(
                 {"Retry-After": failure.retry_after}
                 if failure.retry_after is not None

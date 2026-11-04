@@ -152,7 +152,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "audit.view": "查看审计",
   "settings.edit": "系统设置",
   "ai.trigger": "触发 AI",
-  "ml-backend.manage": "管理 ML 模型",
+  "ml-backend.manage": "管理模型服务",
 };
 
 export const PERMISSION_GROUPS: Array<{ key: string; title: string; perms: Permission[] }> = [

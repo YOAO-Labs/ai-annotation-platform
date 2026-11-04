@@ -450,7 +450,7 @@ async def create_ml_backend(
     await db.commit()
     backend = await svc.get_registry(backend.id)
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return _out(backend, project_id)
 
 
@@ -518,7 +518,7 @@ async def set_ml_backend_enablement(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     overrides = {
         k: v for k, v in (("default_variants", data.default_variants),) if v is not None
     }
@@ -544,7 +544,7 @@ async def set_ml_backend_enablement(
     backend = await svc.get_registry(backend_id)
     assoc = await svc.get_assoc(project_id, backend_id)
     if backend is None or assoc is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return ProjectMLBackendItem(
         backend=_out(backend),
         enabled=assoc.enabled,
@@ -570,7 +570,7 @@ async def get_ml_backend(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return _out(backend, project_id)
 
 
@@ -589,7 +589,7 @@ async def update_ml_backend(
 ):
     svc = MLBackendService(db)
     if not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     _setup_cache.pop(backend_id, None)
     updates = data.model_dump(exclude_unset=True)
     # 更新作用于全局注册行 (auth/url/extra_params 等端点固有属性)。
@@ -611,7 +611,7 @@ async def update_ml_backend(
             status_code=409,
             detail={
                 "error_code": "ml_backend_url_conflict",
-                "message": f"该 URL 已注册为全局 backend ({exc.backend_name})",
+                "message": f"该 URL 已注册为全局模型服务 ({exc.backend_name})",
             },
         ) from exc
     except GPUBackendManagedMutationBlocked as exc:
@@ -623,7 +623,7 @@ async def update_ml_backend(
             },
         ) from exc
     if not backend:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     await AuditService.log(
         db,
         actor=current_user,
@@ -637,7 +637,7 @@ async def update_ml_backend(
     await db.commit()
     backend = await svc.get_registry(backend_id)
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return _out(backend, project_id)
 
 
@@ -657,7 +657,7 @@ async def delete_ml_backend(
     # 删全局项是 superadmin 的 admin 端点, 见 PR3)。
     svc = MLBackendService(db)
     if not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     _setup_cache.pop(backend_id, None)
     await svc.set_enabled(project_id, backend_id, enabled=False)
     await AuditService.log(
@@ -704,11 +704,9 @@ async def unload_ml_backend(
     except BackendControlOperationError as exc:
         raise _control_http_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=502, detail=f"backend unload failed: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"模型服务卸载失败: {exc}") from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     await AuditService.log(
         db,
         actor=current_user,
@@ -763,10 +761,10 @@ async def reload_ml_backend(
         raise _control_http_error(exc) from exc
     except Exception as exc:
         raise HTTPException(
-            status_code=502, detail=f"backend reload failed: {exc}"
+            status_code=502, detail=f"模型服务重新加载失败: {exc}"
         ) from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     await AuditService.log(
         db,
         actor=current_user,
@@ -813,7 +811,7 @@ async def warmup_ml_backend(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     control = backend_control_service(db)
     try:
         result = await control.warmup(backend_id, body or {})
@@ -822,11 +820,9 @@ async def warmup_ml_backend(
     except BackendControlOperationError as exc:
         raise _control_http_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=502, detail=f"backend warmup failed: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"模型服务预热失败: {exc}") from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     # v0.14.17 · 预热会改变 backend 已加载的模型, 从而改变 /setup.models[].classes (yolo 加载后
     # 才暴露 model.names). 失效 /setup 缓存, 让随后的 /capabilities 立即拿到新类别表 (否则最坏等 30s TTL)。
     _setup_cache.pop(backend_id, None)
@@ -854,9 +850,7 @@ async def _fetch_setup_cached(db: AsyncSession, backend_id: uuid.UUID) -> dict:
     result = await backend_control_service(db).setup(backend_id)
     if result.setup is None:
         reason = result.error.code if result.error is not None else "unknown failure"
-        raise HTTPException(
-            status_code=502, detail=f"backend /setup unreachable: {reason}"
-        )
+        raise HTTPException(status_code=502, detail=f"模型服务 /setup 不可达: {reason}")
     _setup_cache[backend_id] = (now, result.setup)
     return result.setup
 
@@ -1057,7 +1051,7 @@ def _interactive_response(
                 status_code=502,
                 detail={
                     "reason": "invalid_mask_session_payload",
-                    "message": "backend returned invalid Mask session logits",
+                    "message": "模型服务返回的 Mask 会话 logits 无效",
                 },
             ) from exc
     return {
@@ -1159,7 +1153,7 @@ async def get_ml_backend_setup(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
 
     return await _fetch_setup_cached(db, backend_id)
 
@@ -1183,7 +1177,7 @@ async def get_ml_backend_capabilities(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
 
     setup = await _fetch_setup_cached(db, backend_id)
     return extract_capabilities(setup, limits=capability_limits_from_settings()) or {}
@@ -1207,7 +1201,7 @@ async def refresh_ml_backend_capabilities(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
 
     _setup_cache.pop(backend_id, None)
     setup = await _fetch_setup_cached(db, backend_id)
@@ -1228,12 +1222,12 @@ async def check_health(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     healthy = await backend_control_service(db).check_health(backend_id)
     await db.commit()
     backend = await svc.get_registry(backend_id)
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return MLBackendHealthResponse(
         status="ok" if healthy else "error",
         backend_id=backend.id,
@@ -1280,7 +1274,7 @@ async def predict_test(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
 
     task = await _get_task_in_project(db, task_id, project_id)
     await db.commit()
@@ -1361,11 +1355,11 @@ async def interactive_annotating(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     if not backend.is_interactive:
         raise HTTPException(
             status_code=400,
-            detail="This backend does not support interactive annotation",
+            detail="该模型服务不支持交互式标注",
         )
 
     await _require_ai_interactive_enabled(db, project_id)
@@ -1550,7 +1544,7 @@ async def predict_frame(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
 
     await _require_ai_interactive_enabled(db, project_id)
     task = await _get_task_in_project(db, task_id, project_id)
@@ -1702,11 +1696,11 @@ async def interactive_annotating_frame(
     svc = MLBackendService(db)
     backend = await svc.get_registry(backend_id)
     if not backend or not await svc.is_enabled(project_id, backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     if not backend.is_interactive:
         raise HTTPException(
             status_code=400,
-            detail="This backend does not support interactive annotation",
+            detail="该模型服务不支持交互式标注",
         )
 
     await _require_ai_interactive_enabled(db, project_id)

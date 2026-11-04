@@ -1499,7 +1499,7 @@ async def trigger_preannotation(
     # (project_ml_backend_pool.enabled, 经 pool member 解析回 registry):
     # 与下游阶段校验对称, 防止 owner 手动 POST 未启用/别项目 backend id 触发预标。
     if not backend or not await svc.is_enabled(project.id, source_backend_id):
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
 
     from aap_inference.capabilities import resolve_model_task
 
@@ -1588,7 +1588,7 @@ async def trigger_preannotation(
                 ):
                     raise HTTPException(
                         status_code=404,
-                        detail=f"stage {st.stage} 的 ML Backend 不存在或未在本项目启用",
+                        detail=f"阶段 {st.stage} 的模型服务不存在或未在本项目启用",
                     )
                 try:
                     st.task = resolve_model_task(st_backend, st.model_id, st.task)

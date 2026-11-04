@@ -833,7 +833,10 @@ async def list_gpu_resources(
             )
             item_diagnostics.append(runtime_diagnostic)
             runtime_diagnostics.append(runtime_diagnostic)
-        if resource["effective_mode"] == "enforce" and runtime.durable_domain_matches is not True:
+        if (
+            resource["effective_mode"] == "enforce"
+            and runtime.durable_domain_matches is not True
+        ):
             domain_diagnostic = GPUConfigDiagnostic(
                 code="gpu_arbiter_domain_mismatch",
                 level="blocker",
@@ -849,7 +852,9 @@ async def list_gpu_resources(
             and not rollout["dispatch_blocked"]
             and settings.gpu_arbiter_rollout_enabled
             and runtime.durable_domain_matches is True
-            and not any(d.code == "gpu_rollout_active_while_disabled" for d in item_diagnostics)
+            and not any(
+                d.code == "gpu_rollout_active_while_disabled" for d in item_diagnostics
+            )
             and runtime.ready
         )
         status = max(
@@ -914,7 +919,9 @@ async def list_gpu_resources(
                 resource_ready[resource["gpu_resource_id"]]
                 if resource["desired_mode"] == "enforce"
                 else (
-                    not rollout_by_resource[resource["gpu_resource_id"]]["dispatch_blocked"]
+                    not rollout_by_resource[resource["gpu_resource_id"]][
+                        "dispatch_blocked"
+                    ]
                     and not any(
                         diagnostic.code == "gpu_rollout_active_while_disabled"
                         for diagnostic in static_diagnostics
@@ -967,7 +974,7 @@ async def create_registry(
             status_code=409,
             detail={
                 "error_code": "ml_backend_url_conflict",
-                "message": f"该 URL 已注册为全局 backend ({existing.name})",
+                "message": f"该 URL 已注册为全局模型服务 ({existing.name})",
             },
         )
     try:
@@ -1001,7 +1008,10 @@ async def create_registry(
     except GPUBackendManagedMutationBlocked as exc:
         raise HTTPException(
             status_code=409,
-            detail={"error_code": "plugin_installation_owner_required", "message": str(exc)},
+            detail={
+                "error_code": "plugin_installation_owner_required",
+                "message": str(exc),
+            },
         ) from exc
     await AuditService.log(
         db,
@@ -1016,7 +1026,7 @@ async def create_registry(
     await db.commit()
     fresh = await svc.get_registry(backend.id)
     if fresh is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return MLBackendOut.model_validate(to_record(fresh))
 
 
@@ -1056,7 +1066,7 @@ async def update_registry(
             status_code=409,
             detail={
                 "error_code": "ml_backend_url_conflict",
-                "message": f"该 URL 已注册为全局 backend ({exc.backend_name})",
+                "message": f"该 URL 已注册为全局模型服务 ({exc.backend_name})",
             },
         ) from exc
     except GPUBackendManagedMutationBlocked as exc:
@@ -1068,7 +1078,7 @@ async def update_registry(
             },
         ) from exc
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     await AuditService.log(
         db,
         actor=admin,
@@ -1082,7 +1092,7 @@ async def update_registry(
     await db.commit()
     fresh = await svc.get_registry(registry_id)
     if fresh is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return MLBackendOut.model_validate(to_record(fresh))
 
 
@@ -1112,7 +1122,7 @@ async def delete_registry(
     except MLBackendDeleteBlocked as exc:
         raise HTTPException(
             status_code=409,
-            detail=f"该 backend 上仍有 {exc.running_jobs} 个运行中的预标任务, 无法删除",
+            detail=f"该模型服务上仍有 {exc.running_jobs} 个运行中的预标任务, 无法删除",
         ) from exc
     except GPUBackendManagedMutationBlocked as exc:
         raise HTTPException(
@@ -1123,7 +1133,7 @@ async def delete_registry(
             },
         ) from exc
     if not ok:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     await AuditService.log(
         db,
         actor=admin,
@@ -1147,12 +1157,12 @@ async def check_registry_health(
     svc = MLBackendService(db)
     backend = await svc.get_registry(registry_id)
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     healthy = await backend_control_service(db).check_health(registry_id)
     await db.commit()
     backend = await svc.get_registry(registry_id)
     if backend is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     return MLBackendHealthResponse(
         status="ok" if healthy else "error",
         backend_id=backend.id,
@@ -1188,11 +1198,9 @@ async def unload_registry_backend(
     except BackendControlOperationError as exc:
         raise _control_http_error(exc) from exc
     except Exception as exc:
-        raise HTTPException(
-            status_code=502, detail=f"backend unload failed: {exc}"
-        ) from exc
+        raise HTTPException(status_code=502, detail=f"模型服务卸载失败: {exc}") from exc
     if result is None:
-        raise HTTPException(status_code=404, detail="ML Backend not found")
+        raise HTTPException(status_code=404, detail="模型服务不存在")
     await AuditService.log(
         db,
         actor=admin,
@@ -1297,18 +1305,21 @@ def _extract_supported_variants(setup: dict | None) -> list[dict]:
                 merged[key] = group
     return list(merged.values())
 
+
 def _observation_registry(url: str, registry_facts):
     origin = normalized_backend_url(url)
     matches = [
         row
         for row in registry_facts
         if (
-            origin and normalized_backend_url(row.url) == origin
-            or not origin and row.url.rstrip("/") == url.rstrip("/")
+            origin
+            and normalized_backend_url(row.url) == origin
+            or not origin
+            and row.url.rstrip("/") == url.rstrip("/")
         )
     ]
     if len(matches) > 1:
-        raise HTTPException(409, detail="Ambiguous backend registration")
+        raise HTTPException(409, detail="模型服务注册信息存在歧义")
     return matches[0] if matches else None
 
 
@@ -1319,7 +1330,6 @@ def _unregistered_observation_endpoint(url: str) -> BackendRequestOnlyEndpoint:
         auth_method="token" if authorization else "none",
         auth_token=authorization.removeprefix("Bearer ") if authorization else None,
     )
-
 
 
 def _probe_one(fact) -> ObserveTarget:
@@ -1388,7 +1398,7 @@ async def observe_backends(
         if registered is not None and registered.auth_method != "none" and fact.ok:
             setup = await control.setup(registered.id)
             if setup.error is not None and setup.error.status_code == 503:
-                raise HTTPException(503, detail="Inference backend control unavailable")
+                raise HTTPException(503, detail="推理服务控制不可用")
             if setup.setup is not None:
                 fact = fact.model_copy(update={"setup": setup.setup})
         target = _probe_one(fact)
@@ -1608,7 +1618,7 @@ async def smoke_test_backend(
         if registered_backend is not None:
             healthy, health = await control.health_meta(registered_backend.id)
             if not healthy:
-                raise RuntimeError("registered backend /health 不可达")
+                raise RuntimeError("已注册模型服务的 /health 不可达")
             health = health or {}
         else:
             fact = await control.manual_probe(
@@ -1680,7 +1690,7 @@ async def smoke_test_backend(
                 dino_variant=payload.dino_variant,
             )
             if reload_data is None:
-                raise ValueError("registered backend unavailable")
+                raise ValueError("已注册模型服务不可用")
             load_latency_ms = int((time.monotonic() - load_started) * 1000)
         else:
             smoke_result = await control.smoke_unregistered(endpoint, body)
@@ -2142,7 +2152,7 @@ async def accept_pool_member_capability_drift(
             status_code=409,
             detail={
                 "error_code": "ml_backend_capability_revalidation_failed",
-                "message": "backend health and capability refresh failed",
+                "message": "模型服务健康状态和能力刷新失败",
             },
         )
     try:

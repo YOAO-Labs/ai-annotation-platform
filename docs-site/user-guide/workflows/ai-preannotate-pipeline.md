@@ -26,7 +26,7 @@ last_reviewed: 2026-10-20
 ## Step 1：全局注册模型服务（超管） {#step-1-全局注册-ml-backend-超管}
 
 1. 主导航 → **模型市场**（`/model-market`）→ **注册管理** tab
-2. 注册模型服务，填写服务 URL（如 `http://sam-backend:8001`，全局唯一）并点击**测试连接** — 返回 200 且协议版本匹配即可
+2. 注册模型服务，填写服务 URL（如 `http://sam-backend:8001`，全局唯一）并点击**测试连接**。测试请求服务的 `/health`：成功表示收到 HTTP 200 和 JSON 对象，且响应中的 `ok` 为真值或未提供；它不验证协议版本、认证、项目启用状态或实际推理。
 3. 保存后该模型服务进入全局注册表，可在**模型目录**中看到具体模型；**协议能力**解释支持的操作
 
 详见[模型服务注册](/user-guide/superadmin/ml-backend-registry)与 [ML Backend 协议](/dev/reference/ml-backend-protocol)。
