@@ -1,20 +1,171 @@
 """Frozen serializers must not re-read rows while an archive is being built."""
 
 from copy import deepcopy
+from datetime import datetime, timezone
+import hashlib
 import json
 import uuid
 
 import pytest
-from sqlalchemy import update
+from sqlalchemy import delete, select, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.annotation import Annotation
+from app.db.models.dataset import Dataset, DatasetItem
+from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.task_dataset_item_link import TaskDatasetItemLink
+from app.db.models.user import User
 from app.services.content_snapshot import ContentError
-from app.services.exporting import lidar_inputs as inputs
+from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
+from app.services.exporting import core_reads, lidar_inputs as inputs
 from app.services.exporting.lidar_frozen import FrozenLidar, detached
-from tests.test_lidar_export_inputs import input_db as input_db, capture, setup
+from tests.factory import build_tool_bindings
+from tests.test_lidar_export_inputs import capture
+from tests.test_original_sources import add_link
+
+
+@pytest.fixture
+async def input_db(test_engine):
+    """Use real owner projections and committed rows for independent writers."""
+    project_id, dataset_id, user_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+        db.info["frozen_lidar_ids"] = (project_id, dataset_id, user_id)
+        try:
+            await ensure_legacy_bindings(db)
+            db.add(
+                User(
+                    id=user_id,
+                    email=f"frozen-lidar-{user_id.hex}@example.test",
+                    name="Frozen LiDAR owner",
+                    password_hash="not-a-login",
+                )
+            )
+            await db.commit()
+            yield db
+        finally:
+            await db.rollback()
+            await db.execute(
+                delete(Annotation).where(Annotation.project_id == project_id)
+            )
+            await db.execute(
+                delete(TaskDatasetItemLink).where(
+                    TaskDatasetItemLink.task_id.in_(
+                        select(Task.id).where(Task.project_id == project_id)
+                    )
+                )
+            )
+            await db.execute(delete(Task).where(Task.project_id == project_id))
+            await db.execute(
+                delete(DatasetItem).where(DatasetItem.dataset_id == dataset_id)
+            )
+            await db.execute(delete(Dataset).where(Dataset.id == dataset_id))
+            await db.execute(delete(Project).where(Project.id == project_id))
+            await db.execute(delete(User).where(User.id == user_id))
+            await db.commit()
+
+
+async def setup(db, *, direct=True):
+    project_id, dataset_id, user_id = db.info["frozen_lidar_ids"]
+    project = Project(
+        id=project_id,
+        display_id="freeze-" + uuid.uuid4().hex[:12],
+        name="LiDAR",
+        type_key="lidar-detection",
+        type_label="LiDAR",
+        data_type="lidar",
+        owner_id=user_id,
+        tool_bindings=build_tool_bindings(["car"], unit="point_mask_3d"),
+    )
+    dataset = Dataset(
+        id=dataset_id,
+        display_id="DS-" + uuid.uuid4().hex[:14],
+        name="PCD",
+        data_type="point_cloud",
+        created_by=user_id,
+        metadata_={"axis_convention": "iso8855"},
+    )
+    db.add_all([project, dataset])
+    await db.flush()
+
+    async def item_with_asset(file_type):
+        item = DatasetItem(
+            id=uuid.uuid4(),
+            dataset_id=dataset_id,
+            file_name="original.bin",
+            file_path="originals/" + uuid.uuid4().hex,
+            file_type=file_type,
+            file_size=999,
+            content_hash="a" * 32,
+            width=24,
+            height=16,
+        )
+        db.add(item)
+        await db.flush()
+        asset = DatasetAsset(
+            id=uuid.uuid4(),
+            dataset_item_id=item.id,
+            media_type=file_type,
+            verification_state="verified",
+            checksum_algorithm="sha256",
+            checksum_value=hashlib.sha256(b"saved").hexdigest(),
+            size_bytes=5,
+        )
+        db.add(asset)
+        await db.flush()
+        replica = DatasetAssetLocation(
+            asset_id=asset.id,
+            location_id=LEGACY_LOCATION_ID,
+            bucket="saved-original-bucket",
+            object_key=item.file_path,
+            role="managed_original",
+            reference_state="present",
+            etag="historical-etag",
+            verified_at=datetime.now(timezone.utc),
+        )
+        db.add(replica)
+        await db.flush()
+        return item, asset, replica
+
+    item, asset, replica = await item_with_asset("point_cloud")
+    task = Task(
+        id=uuid.uuid4(),
+        project_id=project_id,
+        dataset_item_id=item.id if direct else None,
+        display_id="src-" + uuid.uuid4().hex[:20],
+        file_name=item.file_name,
+        file_path=item.file_path,
+        file_type=item.file_type,
+    )
+    db.add(task)
+    await db.flush()
+    await add_link(db, task.id, item.id)
+    cameras = []
+    for role in ("camera_front", "camera_back"):
+        camera, camera_asset, camera_replica = await item_with_asset("image")
+        link = await add_link(db, task.id, camera.id, role=role)
+        link.sensor_name = role.removeprefix("camera_")
+        cameras.append((camera, camera_asset, camera_replica, link))
+    annotation = Annotation(
+        id=uuid.uuid4(),
+        task_id=task.id,
+        project_id=project_id,
+        class_name="car",
+        annotation_type="point_mask_3d",
+        tool_unit_id="point_mask_3d",
+        geometry={
+            "type": "point_mask_3d",
+            "point_indices": [0, 2],
+            "source_point_count": 3,
+        },
+        attributes={},
+        is_active=True,
+        was_cancelled=False,
+    )
+    db.add(annotation)
+    await db.commit()
+    return project, dataset, item, asset, replica, task, cameras, annotation
 
 
 class NoDatabaseReads:
@@ -103,7 +254,7 @@ async def test_guarded_hydration_rechecks_budget_in_its_own_statement(
     async def change_after_measure(self, session, model, predicate, max_rows):
         nonlocal changed
         result = await measured(self, session, model, predicate, max_rows)
-        if model is Project and not changed:
+        if model is core_reads.Project and not changed:
             changed = True
             async with async_sessionmaker(db.bind, expire_on_commit=False)() as writer:
                 await writer.execute(
