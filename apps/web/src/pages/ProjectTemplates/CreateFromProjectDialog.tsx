@@ -63,8 +63,8 @@ export function CreateFromProjectDialog({ open, onClose }: Props) {
     <Modal open={open} onClose={onClose} title="从已有项目导出模板" width={540}>
       <div className={styles.modalBody}>
         <p className={styles.titleHint}>
-          从源项目自动复制 classes / classes_config / attribute_schema / AI 配置 / 标注指引
-          等可克隆字段。导出后可在模板库中编辑。
+          从源项目复制类别、属性、AI 配置和标注指引等配置。模板不包含指引图片资源，
+          导出后可在模板库中编辑。
         </p>
 
         <label className={styles.label}>

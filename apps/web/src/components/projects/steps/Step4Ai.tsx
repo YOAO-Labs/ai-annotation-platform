@@ -42,7 +42,7 @@ export function Step4Ai({
           />
 
           <div className={styles.aiHelpBox}>
-            选「复用 backend」后, 项目创建时会自动复制 backend 配置到新项目, 无需再回设置页注册.
+            选择已有模型服务后，新项目会启用同一服务并复用其服务池绑定，不会复制服务配置。
           </div>
         </>
       )}
@@ -87,7 +87,7 @@ function BackendSourceSelect({
         <div className={clsx(styles.input, styles.readonlyInput)}>加载中…</div>
       ) : items.length === 0 ? (
         <div className={clsx(styles.input, styles.readonlyInput)}>
-          系统内尚无已注册 backend; 项目创建后到设置页注册一个.
+          系统内尚无已注册的模型服务；项目创建后可在设置页接入。
         </div>
       ) : (
         <select
@@ -112,8 +112,8 @@ function BackendSourceSelect({
       )}
       {selected && (
         <div className={styles.helpText}>
-          将复制 {selected.name} ({selected.url}) 到新项目, 含 auth 配置, state 重置为 disconnected.
-          {selectedHint ? ` ${selectedHint}（仍可选, 绑定时后端会按模态二次校验）。` : ""}
+          新项目将启用 {selected.name} ({selected.url})，与原项目复用同一服务及服务池绑定。
+          {selectedHint ? ` ${selectedHint}（仍可选，绑定时会再次校验模态）。` : ""}
         </div>
       )}
     </div>

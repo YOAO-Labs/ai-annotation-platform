@@ -58,7 +58,7 @@ describe("PreannotateJobsBadge", () => {
       connected: true,
     });
     render(withRouter(<PreannotateJobsBadge />));
-    expect(screen.getByTitle(/2 个预标 job 进行中/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "2" })).toBeInTheDocument();
   });
 
   it("点击展开 popover 列出每个 job", async () => {
@@ -88,7 +88,7 @@ describe("PreannotateJobsBadge", () => {
       connected: true,
     });
     render(withRouter(<PreannotateJobsBadge />));
-    await user.click(screen.getByTitle(/2 个预标 job 进行中/));
+    await user.click(screen.getByRole("button", { name: "2" }));
     expect(screen.getByText(/预标进行中 \(2\)/)).toBeInTheDocument();
     // 项目名按 receivedAt desc: Beta 在前
     const buttons = screen.getAllByRole("button");
@@ -117,7 +117,7 @@ describe("PreannotateJobsBadge", () => {
       connected: true,
     });
     render(withRouter(<PreannotateJobsBadge />));
-    await user.click(screen.getByTitle(/1 个预标 job 进行中/));
+    await user.click(screen.getByRole("button", { name: "1" }));
     expect(screen.getByText(/25\/100 · 25%/)).toBeInTheDocument();
   });
 });

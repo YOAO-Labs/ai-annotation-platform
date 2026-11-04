@@ -214,7 +214,7 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
         title: `删除属性「${key}」`,
         description:
           count > 0
-            ? "删除后引用该属性的标注值将变为孤儿；暂不影响标注数据，加回同 key 属性即可恢复。工作台可隐藏孤儿标注，如需彻底清除请运维执行清理。"
+            ? "删除后引用该属性的标注值将变为孤儿；暂不影响标注数据，加回相同属性键即可恢复。工作台可隐藏孤儿标注，如需彻底清除请运维执行清理。"
             : "该属性暂无标注引用，可放心删除。",
         details: count > 0 ? `已被 ${count} 条标注使用` : undefined,
         confirmLabel: "删除",
@@ -370,7 +370,7 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
     if (attributes.length > 0) parts.push(`${attributes.length} 个属性`);
     pushToast({
       msg: `已预填${parts.join(" + ")}到 ${activeUnit} 工具单位`,
-      sub: "记得点「保存」落库",
+      sub: "预填仅修改当前编辑内容，请点击「保存」生效",
       kind: "success",
     });
   };
@@ -402,20 +402,20 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
                 {
                   id: "export-attributes",
                   icon: "download",
-                  label: "导出属性 schema (JSON)",
+                  label: "导出属性配置 (JSON)",
                   onSelect: onExportJson,
                 },
                 {
                   id: "import-attributes",
                   icon: "upload",
-                  label: "导入属性 schema (JSON)",
+                  label: "导入属性配置 (JSON)",
                   onSelect: () => importInputRef.current?.click(),
                 },
               ] satisfies DropdownItem[]
             }
             footer={
               <div className="text-2xs leading-snug text-muted-foreground">
-                仅含当前工具单位的属性 schema；类别不能经 JSON 导入 / 导出。
+                导出当前工具单位的属性编辑内容；导入会替换该单位的全部属性，保存后生效。类别不包含在内。
               </div>
             }
             trigger={({ open, toggle, ref }) => (
@@ -437,8 +437,8 @@ export function ClassesSection({ project }: { project: ProjectResponse }) {
       <div className="flex flex-col gap-2.5 p-4">
         <p className="m-0 text-xs leading-normal text-muted-foreground">
           {dataType === "video"
-            ? "点击工具单位后，维护该几何的类别、颜色、排序和属性 schema；单帧与轨迹共用同一单位的 schema，不同工具单位（矩形框 / 多边形 / 折线）相互隔离。"
-            : "点击工具单位后，直接维护该工具的类别、颜色、排序和属性 schema；同名类在不同工具单位下相互隔离。"}
+            ? "点击工具单位后，维护该几何的类别、颜色、排序和属性；单帧与轨迹共用同一单位的属性，不同工具单位（矩形框 / 多边形 / 折线）相互隔离。"
+            : "点击工具单位后，直接维护该工具的类别、颜色、排序和属性；同名类在不同工具单位下相互隔离。"}
         </p>
         <ToolUnitTabs
           bindings={bindings}

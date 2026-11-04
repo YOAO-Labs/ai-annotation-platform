@@ -431,7 +431,7 @@ describe("AIPreAnnotateJobsPage", () => {
       total: 1,
     });
     renderUI();
-    const cancelButton = await screen.findByTitle("取消 job");
+    const cancelButton = await screen.findByTitle("取消作业");
     fireEvent.click(cancelButton);
     await waitFor(() => {
       expect(mockAsyncJobsCancel).toHaveBeenCalledWith("job-1");

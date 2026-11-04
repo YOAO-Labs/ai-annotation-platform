@@ -34,8 +34,7 @@ export function Step3AttributesPerUnit({
   return (
     <div className={styles.formStack}>
       <div className={styles.sectionHintTall}>
-        属性 schema 也按工具单位独立。同一项目可让 bbox 工具有「朝向 / 遮挡」, region
-        工具有「面积估值」, 互不影响。
+        属性按工具单位独立配置。例如矩形框可设置「朝向 / 遮挡」，区域可设置「面积估值」， 互不影响。
       </div>
       <UnitTabs form={form} setForm={setForm} />
       {!activeBinding?.enabled ? (

@@ -261,7 +261,7 @@ export function ClassEditor({
                     value={linkedVisual?.alias ?? ""}
                     disabled
                     placeholder="继承自链接"
-                    title="alias 继承自链接的工具单位类；清除链接后可单独编辑"
+                    title="英文别名继承自链接的工具单位类别；清除链接后可单独编辑"
                     className={`${CONTROL_CLASS} text-xs opacity-[0.6]`}
                   />
                 ) : (
@@ -269,9 +269,9 @@ export function ClassEditor({
                     value={r.alias ?? ""}
                     onChange={(e) => setAlias(i, e.target.value)}
                     onBlur={() => normalizeAliasOnBlur(i)}
-                    placeholder="英文 alias（SAM 提示用，可空）"
+                    placeholder="英文别名（SAM 提示用，可空）"
                     maxLength={50}
-                    title="供 SAM 文本预标 prompt 下拉填入；ASCII 字母/数字/空格/逗号/下划线/连字符；blur 自动规范化"
+                    title="供 SAM 文本预标的提示词选择使用；支持 ASCII 字母、数字、空格、逗号、下划线和连字符；离开输入框时自动规范化"
                     className={`${CONTROL_CLASS} text-xs`}
                   />
                 )}

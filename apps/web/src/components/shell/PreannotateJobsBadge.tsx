@@ -50,7 +50,7 @@ export function PreannotateJobsBadge() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
-        title={`${runningJobs.length} 个预标 job 进行中`}
+        title={`${runningJobs.length} 个预标作业进行中`}
         className="inline-flex cursor-pointer items-center gap-1 rounded-full border border-violet-500 bg-violet-500/[0.18] px-2 py-1 text-xs font-semibold leading-[1.2] text-status-info"
       >
         <Icon name="sparkles" size={12} />

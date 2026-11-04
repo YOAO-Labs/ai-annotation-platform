@@ -393,7 +393,7 @@ function JobRow({
     job.kind === "batch_predict" && (job.status === "pending" || job.status === "running");
 
   return (
-    <tr className={styles.clickableRow} onClick={() => onOpenDetail(job.id)} title="查看 job 详情">
+    <tr className={styles.clickableRow} onClick={() => onOpenDetail(job.id)} title="查看作业详情">
       <td className={styles.tableCell}>
         {job.project_name ?? "(已删除)"}
         {job.project_display_id && (
@@ -440,7 +440,7 @@ function JobRow({
               event.stopPropagation();
               onCancel(job.id);
             }}
-            title="取消 job"
+            title="取消作业"
             disabled={cancelPending}
           >
             <Icon name="x" size={11} />

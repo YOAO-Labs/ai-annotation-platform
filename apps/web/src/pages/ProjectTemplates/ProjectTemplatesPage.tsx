@@ -166,8 +166,7 @@ export function ProjectTemplatesPage() {
         <div>
           <h2 className={styles.title}>项目模板库</h2>
           <p className={styles.titleHint}>
-            v0.10.14 · 模板是独立资产, 应用模板时把字段复制进新项目; 后续修改模板不影响已有项目.
-            与"从已有项目复制"功能并存.
+            模板是独立配置，应用时复制到新项目；后续修改模板不影响已有项目。也可直接从已有项目复制配置。
           </p>
         </div>
         <div className={styles.toolbar}>

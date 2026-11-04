@@ -292,8 +292,7 @@ export function TemplateEditModal({ open, onClose, initial }: Props) {
         {tab === "tools" && (
           <>
             <p className={styles.help}>
-              工具维度独立配置类别与属性 (v0.10.17)。勾选启用工具单位, 在 Tab 内编辑. 强隔离:
-              不同工具的同名类是独立记录。
+              每个工具单位独立配置类别与属性。勾选启用工具单位后在对应标签页编辑；不同工具的同名类别是独立记录。
             </p>
             <ToolUnitTabs
               bindings={bindings}
@@ -311,7 +310,7 @@ export function TemplateEditModal({ open, onClose, initial }: Props) {
               <>
                 <h4 className={styles.subheading}>类别</h4>
                 <ClassEditor value={activeBinding.classRows} onChange={onChangeClasses} max={50} />
-                <h4 className={styles.subheading}>属性 schema</h4>
+                <h4 className={styles.subheading}>属性配置</h4>
                 <AttributeSchemaEditor
                   value={activeBinding.attributeFields}
                   onChange={onChangeAttributes}

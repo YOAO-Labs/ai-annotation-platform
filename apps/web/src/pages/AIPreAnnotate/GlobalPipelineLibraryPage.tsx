@@ -457,7 +457,8 @@ export default function GlobalPipelineLibraryPage() {
               </select>
               {pipelineScope === "organization" && (
                 <span className={styles.hint}>
-                  组织编排需在创建后通过 PATCH 指定 organization_id（首版未提供 UI 字段）
+                  页面尚不能指定组织，选择组织范围保存会被拒绝；请通过 API 创建并指定
+                  organization_id。
                 </span>
               )}
             </label>
@@ -468,7 +469,7 @@ export default function GlobalPipelineLibraryPage() {
               variant="primary"
               onClick={savePipeline}
               disabled={!sourcePayload || createProjectPipeline.isPending}
-              title="把画布上的 DAG 保存为公共命名编排"
+              title="把画布上的编排保存为命名编排"
             >
               <Icon name="save" size={12} />
               保存公共编排
@@ -495,8 +496,8 @@ export default function GlobalPipelineLibraryPage() {
             <Icon name="warning" size={12} />
             <span>
               多个阶段写同一属性键：
-              {Array.from(conflictInfo.displayFinals).join("、")}。保存会被拒绝，请调整 各阶段 label
-              / write.keys。
+              {Array.from(conflictInfo.displayFinals).join("、")}
+              。保存会被拒绝，请调整各阶段的属性标签或写回键。
             </span>
           </div>
         )}
@@ -516,7 +517,7 @@ export default function GlobalPipelineLibraryPage() {
             </Suspense>
             {uniqueBackendCount < 2 ? (
               <span className={styles.stageEmptyHint}>
-                全局池至少需要 2 个不同 backend 才能加下游阶段（下游须用不同于源的 backend）。
+                下游阶段需要兼容裁剪图或框提示的非交互、非组合模型；请查看已注册服务的模型能力。
               </span>
             ) : !hasDownstreamCards ? (
               <span className={styles.stageEmptyHint}>
@@ -556,7 +557,7 @@ export default function GlobalPipelineLibraryPage() {
               )}
               <div className={styles.stageEmptyHint}>
                 {isVideoTracking
-                  ? "对整段视频做多目标追踪，生成跨帧轨迹；源模型只列 tracker，下游对轨迹富集。"
+                  ? "对整段视频做多目标追踪，生成跨帧轨迹；源模型只列追踪模型，下游对轨迹补充结果。"
                   : srcDataType === "video"
                     ? "对每一帧独立做图像检测，生成无跨帧关联的单帧框；下游对检出框富集。"
                     : "源模型只列图像检测；下游对检出框富集。"}
@@ -602,9 +603,7 @@ export default function GlobalPipelineLibraryPage() {
       <Card>
         <div className={styles.libraryHeader}>
           <strong className={styles.sectionTitle}>命名编排库（公共 / 组织）</strong>
-          <span className={styles.hint}>
-            列出所有 public / organization 编排; 可加载回画布编辑, 或删除.
-          </span>
+          <span className={styles.hint}>列出公共和组织编排；可加载到画布编辑，或删除。</span>
         </div>
         {projectPipelinesQ.isLoading ? (
           <div className={styles.stageEmptyHint}>加载中…</div>
