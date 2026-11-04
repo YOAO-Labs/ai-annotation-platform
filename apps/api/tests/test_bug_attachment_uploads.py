@@ -26,6 +26,12 @@ from app.db.models.bug_report import BugReport
 from app.db.models.storage_maintenance import StorageMaintenanceGate, StorageOperation
 from app.services import bug_attachment_storage as storage
 from app.services import bug_attachment_uploads as uploads, storage_access
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from tests.feedback_committed_fixtures import (
+    committed_feedback_world as committed_feedback_world,
+)
+from tests.test_export_output_authority import world as world
+from tests.test_reference_original_cache import referenced_cache as referenced_cache
 
 UPLOAD = "/api/v1/bug_reports/screenshot/upload"
 
@@ -382,8 +388,11 @@ async def test_ready_commit_unknown_never_deletes_candidate(
 @pytest.mark.parametrize("stage", ["validation", "io"])
 @pytest.mark.parametrize("change", ["disabled", "hash", "scopes", "expiry", "revoked"])
 async def test_original_authority_rechecked_in_both_windows(
-    stage, change, httpx_client, annotator, objects, db_session, monkeypatch
+    stage, change, committed_feedback_world, objects, monkeypatch
 ):
+    httpx_client = committed_feedback_world.client
+    annotator = committed_feedback_world.annotator
+    db_session = committed_feedback_world.db
     created_key = await api_key(httpx_client, annotator)
     key = await db_session.get(ApiKey, uuid.UUID(created_key["id"]))
 
@@ -433,25 +442,72 @@ async def test_original_authority_rechecked_in_both_windows(
     assert not objects.deleted
 
 
-async def test_presented_original_key_checked_at_capture(db_session, annotator):
-    actor = annotator[0]
-    key = ApiKey(
-        id=uuid.uuid4(),
-        user_id=actor.id,
-        name="rotated",
-        key_prefix="ak_original",
-        key_hash=hash_password("ak_new"),
-        scopes=["datasets:read"],
-    )
-    db_session.add(key)
-    await db_session.flush()
+@pytest.mark.parametrize("credential", ["jwt", "key"])
+async def test_committed_feedback_report_respects_current_owner(
+    credential, committed_feedback_world
+):
+    world = committed_feedback_world
+    actor = world.annotator
+    if credential == "key":
+        key = await api_key(world.client, actor)
+        actor = (actor[0], key["plaintext"])
+    report = await created(world.client, actor)
+    path = f"/api/v1/bug_reports/{report['id']}"
+    response = await world.client.get(path, headers=bearer(actor[1]))
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == report["id"]
+    foreign = await world.client.get(path, headers=bearer(world.reviewer[1]))
+    assert foreign.status_code == 403, foreign.text
+
+
+@pytest.mark.parametrize("consumer", ["feedback", "audit"])
+@pytest.mark.parametrize("stage", ["before_capture", "after_capture"])
+@pytest.mark.parametrize("change", ["rotation", "scopes", "expiry", "revoked", "owner"])
+async def test_original_key_proof_rejects_committed_identity_changes(
+    world, consumer, stage, change
+):
+    from sqlalchemy import update
+    from app.services import audit_archive_reads
+
+    authority_service = uploads if consumer == "feedback" else audit_archive_reads
+    async with world.owner.factory() as db:
+        if stage == "after_capture":
+            _, authority = await authority_service.lock_authority(
+                db, world.actor, world.request
+            )
+            await db.commit()
+
+        values = {
+            "rotation": {"key_hash": hash_password("ak_" + uuid.uuid4().hex)},
+            "scopes": {"scopes": ["*"]},
+            "expiry": {"expires_at": uploads.now() + timedelta(days=2)},
+            "revoked": {"revoked_at": uploads.now()},
+            "owner": {"user_id": world.owner.stranger.id},
+        }[change]
+        async with world.owner.factory() as owner:
+            await owner.execute(
+                update(ApiKey).where(ApiKey.id == world.key_id).values(**values)
+            )
+            await owner.commit()
+
+        with pytest.raises(HTTPException) as caught:
+            if stage == "before_capture":
+                await authority_service.lock_authority(db, world.actor, world.request)
+            else:
+                await authority_service.reauthorize(db, authority)
+        assert caught.value.status_code == 403
+
+
+async def test_capture_rejects_another_presented_token(world):
     request = Request(
-        {"type": "http", "headers": [(b"authorization", b"Bearer ak_original")]}
+        {"type": "http", "headers": [(b"authorization", b"Bearer ak_wrong")]}
     )
-    request.state.api_key_id = str(key.id)
-    request.state.api_key_scopes = ["datasets:read"]
-    with pytest.raises(HTTPException) as caught:
-        await uploads.capture_authority(db_session, actor, request)
+    request.state.api_key_id = str(world.key_id)
+    request.state.api_key_scopes = world.request.state.api_key_scopes
+    request.state.identity_principal = world.request.state.identity_principal
+    async with world.owner.factory() as db:
+        with pytest.raises(HTTPException) as caught:
+            await uploads.lock_authority(db, world.actor, request)
     assert caught.value.status_code == 403
 
 
@@ -471,7 +527,12 @@ async def test_key_natural_expiry_during_final_gate_wait(
     )
     db_session.add(key)
     await db_session.flush()
-    authority = uploads.Authority(actor.id, key.id, (key.key_hash, (), key.expires_at))
+    facts = await IdentityAccountLockData(db_session).read_accepted_api_key_facts(
+        actor.id, key.id
+    )
+    authority = uploads.Authority(
+        actor.id, key.id, (facts.revision, facts.scopes, facts.expires_at)
+    )
     check = storage_access.check
 
     async def waited(*args, **kwargs):
@@ -573,8 +634,12 @@ async def test_download_integrity_errors_do_not_sign_or_fallback(
     "change", ["actor", "key", "visibility", "registration", "gate"]
 )
 async def test_download_final_authority_and_relationship_fences(
-    change, httpx_client, annotator, reviewer, objects, db_session, monkeypatch
+    change, committed_feedback_world, objects, monkeypatch
 ):
+    httpx_client = committed_feedback_world.client
+    annotator = committed_feedback_world.annotator
+    reviewer = committed_feedback_world.reviewer
+    db_session = committed_feedback_world.db
     key = await api_key(httpx_client, annotator)
     actor = (annotator[0], key["plaintext"])
     value = await uploaded(httpx_client, actor)

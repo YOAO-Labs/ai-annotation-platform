@@ -14,13 +14,10 @@ import uuid
 from fastapi import HTTPException
 from sqlalchemy import or_, select
 
-from app.core.security import verify_password
 from app.db.enums import UserRole
-from app.db.models.api_key import ApiKey
 from app.db.models.bug_attachment_upload import BugAttachmentUpload
 from app.db.models.bug_report import BugReport
 from app.db.models.storage_maintenance import StorageOperation
-from app.db.models.user import User
 from app.schemas.bug_report import BugAttachment
 from app.services import bug_attachment_accounting as accounting
 from app.services import bug_attachment_storage as storage, storage_access
@@ -28,6 +25,12 @@ from app.services import object_removal_accounting as removal
 from app.services import storage_migration_artifact_reads as migrated_reads
 from app.services import storage_migration_read_publications as publications
 from app.services.content_snapshot import ContentError
+from app.services.identity_account_lock_data import IdentityAccountLockData
+from app.services.identity_contracts import (
+    IdentityCredentialRejected,
+    IdentityGatewayUnavailable,
+)
+from app.services.identity_request_authority import capture_request_key_proof
 
 log = logging.getLogger(__name__)
 _KEY = re.compile(
@@ -125,12 +128,10 @@ async def _locked(db, identifier, *, skip_locked=False):
 
 
 async def _actor(db, identifier):
-    actor = await db.scalar(
-        select(User)
-        .where(User.id == identifier)
-        .with_for_update()
-        .execution_options(populate_existing=True)
+    accounts = await IdentityAccountLockData(db).lock_accounts(
+        [identifier], mode="share", nowait=False
     )
+    actor = accounts.get(identifier)
     if actor is None or not actor.is_active:
         reject("bug_attachment_authority_revoked", 403)
     return actor
@@ -149,20 +150,12 @@ def _key_id(request):
 async def _key_proof(db, actor_id, key_id):
     if key_id is None:
         return None
-    key = await db.scalar(
-        select(ApiKey)
-        .where(ApiKey.id == key_id)
-        .with_for_update(read=True)
-        .execution_options(populate_existing=True)
+    facts = await IdentityAccountLockData(db).read_accepted_api_key_facts(
+        actor_id, key_id
     )
-    if (
-        key is None
-        or key.user_id != actor_id
-        or key.revoked_at is not None
-        or (key.expires_at is not None and key.expires_at <= now())
-    ):
+    if facts is None or (facts.expires_at is not None and facts.expires_at <= now()):
         reject("api_key_authority_revoked", 403)
-    return key.key_hash, tuple(key.scopes or ()), key.expires_at
+    return facts.revision, facts.scopes, facts.expires_at
 
 
 @dataclass(frozen=True)
@@ -175,21 +168,29 @@ class Authority:
 async def lock_authority(db, actor, request):
     """Validate the presented original key without introducing new scopes."""
     actor_id = actor.id
-    scheme, _, presented = request.headers.get("authorization", "").partition(" ")
     key_id = _key_id(request)
-    raw_scopes = getattr(request.state, "api_key_scopes", None)
-    if key_id is None and raw_scopes is not None:
+    principal = getattr(request.state, "identity_principal", None)
+    if key_id is not None and (
+        principal is None
+        or principal.credential_type != "api_key"
+        or principal.actor_id != actor_id
+        or principal.credential_id != key_id
+    ):
         reject("api_key_authority_revoked", 403)
-    authenticated_scopes = tuple(raw_scopes or ())
+    if principal is not None and (principal.credential_type == "api_key") != (
+        key_id is not None
+    ):
+        reject("api_key_authority_revoked", 403)
+    try:
+        facts = await capture_request_key_proof(db, actor_id=actor_id, request=request)
+    except IdentityCredentialRejected:
+        reject("api_key_authority_revoked", 403)
+    except IdentityGatewayUnavailable:
+        raise HTTPException(503, "身份认证服务暂不可用") from None
     actor = await _actor(db, actor_id)
-    proof = await _key_proof(db, actor_id, key_id)
-    if proof is not None:
-        try:
-            valid = scheme.lower() == "bearer" and verify_password(presented, proof[0])
-        except (ValueError, TypeError):
-            valid = False
-        if not valid or authenticated_scopes != proof[1]:
-            reject("api_key_authority_revoked", 403)
+    proof = (facts.revision, facts.scopes, facts.expires_at) if facts else None
+    if proof is not None and proof[2] is not None and proof[2] <= now():
+        reject("api_key_authority_revoked", 403)
     return actor, Authority(actor_id, key_id, proof)
 
 

@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.exceptions import ClientError
-from fastapi import HTTPException
 import pytest
 from sqlalchemy import delete, select
 from starlette.requests import Request
@@ -25,6 +24,10 @@ from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import audit_archive_reads as reads
 from app.services import audit_archive_storage as storage, storage_access
+from tests.feedback_committed_fixtures import (
+    committed_feedback_world as committed_feedback_world,
+)
+from tests.test_reference_original_cache import referenced_cache as referenced_cache
 
 ARCHIVES = "/api/v1/audit-logs/archives"
 
@@ -311,8 +314,11 @@ async def test_no_partial_page_escapes_full_validation(
 
 
 async def test_narrow_admin_key_preserves_existing_role_only_contract(
-    httpx_client, super_admin, db_session, objects
+    committed_feedback_world, objects
 ):
+    httpx_client = committed_feedback_world.client
+    super_admin = committed_feedback_world.super_admin
+    db_session = committed_feedback_world.db
     await seed_archive(db_session, objects)
     key = await key_for(httpx_client, super_admin)
     for path in (ARCHIVES, ARCHIVES + "/2024/1"):
@@ -325,8 +331,11 @@ async def test_narrow_admin_key_preserves_existing_role_only_contract(
     "change", ["inactive", "role", "hash", "scopes", "expiry", "revoked"]
 )
 async def test_original_authority_rechecked_before_and_after_physical_read(
-    stage, change, httpx_client, super_admin, db_session, objects, monkeypatch
+    stage, change, committed_feedback_world, objects, monkeypatch
 ):
+    httpx_client = committed_feedback_world.client
+    super_admin = committed_feedback_world.super_admin
+    db_session = committed_feedback_world.db
     await seed_archive(db_session, objects)
     created = await key_for(httpx_client, super_admin)
     key = await db_session.get(ApiKey, uuid.UUID(created["id"]))
@@ -389,28 +398,13 @@ async def test_list_rechecks_current_role_after_query(
     assert not objects.heads
 
 
-async def test_capture_verifies_presented_original_key(db_session, super_admin):
-    key = ApiKey(
-        id=uuid.uuid4(),
-        user_id=super_admin[0].id,
-        name="rotated",
-        key_prefix="ak_original",
-        key_hash=hash_password("ak_replacement"),
-        scopes=["datasets:read"],
-    )
-    db_session.add(key)
-    await db_session.flush()
-    with pytest.raises(HTTPException) as caught:
-        await reads.lock_authority(
-            db_session, super_admin[0], request("ak_original", key)
-        )
-    assert caught.value.status_code == 403
-
-
 @pytest.mark.parametrize("credential", ["jwt", "key"])
 async def test_natural_expiry_after_final_gate_wait(
-    credential, httpx_client, super_admin, db_session, objects, monkeypatch
+    credential, committed_feedback_world, objects, monkeypatch
 ):
+    httpx_client = committed_feedback_world.client
+    super_admin = committed_feedback_world.super_admin
+    db_session = committed_feedback_world.db
     await seed_archive(db_session, objects)
     token = create_access_token(
         str(super_admin[0].id), "super_admin", timedelta(seconds=30)
