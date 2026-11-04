@@ -1098,10 +1098,10 @@ class MlBackendDetailScreen(Screen[None]):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            f"YOAO ▸ Backend {self._backend.name} · 实时", classes="breadcrumb"
+            f"YOAO ▸ 模型服务 {self._backend.name} · 实时", classes="breadcrumb"
         )
         with VerticalScroll(classes="detail-body") as box:
-            box.border_title = "Backend 实时监控 (WS 1s)"
+            box.border_title = "模型服务实时监控 (WS 1s)"
             yield Static(_ml_backend_detail(self._backend), id="ml-static")
             yield Static("等待实时数据…", id="ml-live")
             yield Static("GPU 利用率 %", classes="spark-label")
@@ -1173,7 +1173,7 @@ class MlBackendDetailScreen(Screen[None]):
             self.query_one("#spark-hit", AxisChart).set_data(list(self._hit))
 
         loaded = (
-            "✅ 已预热"
+            "✅ 已加载"
             if snap.loaded
             else ("⚪ 未加载" if snap.loaded is not None else "-")
         )
@@ -1290,7 +1290,7 @@ class ProjectDetailScreen(Screen[None]):
                 yield DataTable(
                     id="pd-backends-table", cursor_type="row", zebra_stripes=True
                 )
-            with TabPane("🧭 Pools", id="pd-pools"):
+            with TabPane("🧭 资源池", id="pd-pools"):
                 yield DataTable(
                     id="pd-pools-table", cursor_type="row", zebra_stripes=True
                 )
@@ -1315,20 +1315,20 @@ class ProjectDetailScreen(Screen[None]):
         jt.fixed_columns = 1
         jt.border_title = "本项目任务"
         bt = self.query_one("#pd-backends-table", DataTable)
-        bt.add_columns("name", "state", "model_version", "GPU", "显存", "last_checked")
+        bt.add_columns("名称", "状态", "模型版本", "GPU", "显存", "上次检查")
         bt.fixed_columns = 1
         bt.border_title = "本项目模型服务"
         pools = self.query_one("#pd-pools-table", DataTable)
         pools.add_columns(
-            "name",
-            "pool enabled",
-            "项目 enabled",
-            "members",
-            "generation",
-            "default variants",
+            "名称",
+            "资源池启用",
+            "项目启用",
+            "成员",
+            "路由代次",
+            "默认变体",
         )
         pools.fixed_columns = 1
-        pools.border_title = "本项目可用 Pool"
+        pools.border_title = "本项目可用资源池"
         self.query_one("#pd-overview-body", Static).border_title = "概览"
         self._load()
 
@@ -1416,7 +1416,7 @@ class ProjectDetailScreen(Screen[None]):
             rows = list(self._client.ml_backends.list_available_pools(self._project.id))
         except Exception as exc:  # noqa: BLE001
             self.app.call_from_thread(
-                self._pane_error, "pd-pools-table", "本项目可用 Pool", exc
+                self._pane_error, "pd-pools-table", "本项目可用资源池", exc
             )
             return
         self.app.call_from_thread(self._render_pools, rows)
@@ -1528,7 +1528,7 @@ class ProjectDetailScreen(Screen[None]):
                 str(item.default_variants or {}),
                 key=str(item.pool.id),
             )
-        table.border_title = f"本项目可用 Pool · {len(pools)}"
+        table.border_title = f"本项目可用资源池 · {len(pools)}"
         table.loading = False
         self.query_one("#pd-pools", TabPane).loading = False
 
@@ -2219,7 +2219,7 @@ class TuiApp(App[None]):
                         classes="secondary-action",
                     )
                 with Horizontal(classes="filter-bar"):
-                    yield Input(placeholder="搜索 Backend 名称", id="ml-search")
+                    yield Input(placeholder="搜索模型服务名称", id="ml-search")
                     yield Select(
                         [("全部项目", "")],
                         value="",
@@ -2288,7 +2288,7 @@ class TuiApp(App[None]):
         training_table.border_title = "训练运行"
         ml_table = self.query_one("#ml-backends-table", DataTable)
         ml_table.add_columns(
-            "name", "项目", "state", "model_version", "GPU", "显存", "last_checked"
+            "名称", "项目", "状态", "模型版本", "GPU", "显存", "上次检查"
         )
         ml_table.fixed_columns = 1
         ml_table.border_title = "模型服务"
@@ -2772,9 +2772,7 @@ class TuiApp(App[None]):
                     else:
                         merged[key] = (b, [p])
         except Exception as exc:  # noqa: BLE001
-            self.call_from_thread(
-                self._view_failed, "tab-ml-backends", "ml-backends", exc
-            )
+            self.call_from_thread(self._view_failed, "tab-ml-backends", "模型服务", exc)
             return
         self.call_from_thread(self._render_ml_backends, list(merged.values()))
 

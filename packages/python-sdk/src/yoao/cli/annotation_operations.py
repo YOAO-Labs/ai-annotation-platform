@@ -139,7 +139,7 @@ def secondary_inference(
     yes: bool = typer.Option(False, "--yes", "-y", help="确认运行并写回推理结果"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """同步运行模型；params 和 model_variants 原样传给指定 backend。"""
+    """同步运行模型；params 和 model_variants 原样传给指定模型服务。"""
     with cli_errors(json_output):
         request = read_json_body(request_file, SecondaryInferenceRequest)
         confirm_destructive("确认运行二次推理并写入结果?", yes, json_output)

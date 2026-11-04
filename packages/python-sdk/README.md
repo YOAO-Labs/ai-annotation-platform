@@ -1,8 +1,8 @@
 # yoao-sdk
 
-AI 标注平台官方 Python SDK(beta)。同步 Client 覆盖 projects / datasets / tasks / annotations /
-feedbacks / predictions / jobs / exports / ml_backends / batches / members / dashboard / api_keys 等稳定自动化工作流；
-并提供全局 ML registry 与 service pool 运维；extras 提供 `yoao` CLI 与终端监控面板。
+YOAO 官方 Python SDK（beta）提供同步客户端，覆盖项目、数据集、任务、标注、反馈、预测、作业、
+导出、模型服务、批次、成员、看板和 API key 等自动化工作流，也支持全局模型服务实例与资源池运维。
+可选依赖提供 `yoao` CLI 与终端监控面板。
 
 在线学习命名空间覆盖冻结训练数据、训练实验与观测、配方和增强预览、逐样本评估、受控模型回流与发布、学习策略、有预算的参数搜索和人工主动学习；CLI 使用 `yoao learning`，TUI 提供按需加载的训练监控。
 
@@ -43,8 +43,8 @@ python -m pip install 'yoao-sdk[plugins] @ file:///absolute/path/yoao_sdk-0.20.0
 配置按字段依次使用显式参数、`YOAO_BASE_URL`／`YOAO_API_KEY`、新配置文件；
 旧环境变量不会自动读取，需由调用方自行改名。
 
-TUI 支持 Textual 8.x，启动时只加载 Projects、Jobs 与当前主体；Datasets、ML、看板和绩效按首次访问加载。
-列表提供筛选与分页，详情可查看 Dataset items、Batch、项目 Pool，并可确认后重试 failed Job。
+TUI 支持 Textual 8.x，启动时只加载项目、作业与当前主体；数据集、模型服务、看板和绩效按首次访问加载。
+列表提供筛选与分页，详情可查看数据集条目、批次、项目资源池，并可确认后重试失败作业。
 
 ## 本机 GPU 推理插件安装
 
@@ -257,7 +257,7 @@ with Client(base_url="http://localhost:8000", api_key="ak_...") as client:
 
 通知的 `payload` 保留服务端 JSON 原值，可以是对象、数组、字符串、数字、布尔值或 `null`；省略该字段时仍默认为空对象。REST 列表、typed WebSocket 流和 `yoao notifications list --json` 均不把旧值强制转换成对象。
 
-`client.pipelines` 管理可见编排库；`apply()` 将模板复制到项目，`preannotate()` 才提交推理。使用明确的范围和稳定的 `Idempotency-Key`，通过现有 `jobs.get/wait` 查询受理后的状态。服务器继续校验项目／组织权限、backend 启用、模型能力、任务归属与锁状态，不提供独立的 dry-run。
+`client.pipelines` 管理可见编排库；`apply()` 将模板复制到项目，`preannotate()` 才提交推理。使用明确的范围和稳定的 `Idempotency-Key`，通过现有 `jobs.get/wait` 查询受理后的状态。服务器继续校验项目／组织权限、模型服务启用状态、模型能力、任务归属与锁状态，不提供独立的 dry-run。
 
 ```bash
 yoao notifications list --unread-only --limit 20 --json
@@ -328,12 +328,12 @@ yoao predictions import <project-id> result.json --format aap_json [--dry-run]
 yoao jobs wait <job-id>                             # 进度条跟随到终态
 yoao export project <project-id> --target aap_json --out out.zip
 
-yoao ml-backends list --project <project-id>        # 列本项目已启用的 ML Backend + 健康状态
+yoao ml-backends list --project <project-id>        # 列本项目已启用的模型服务及健康状态
 yoao ml-backends get <backend-id> --project <project-id>
-yoao ml-backends available --project <project-id>   # 列全局 backend 及本项目启用态
+yoao ml-backends available --project <project-id>   # 列全局模型服务实例及本项目启用状态
 
-yoao ml-registry list                               # super-admin: 物理 backend registry
-yoao service-pools list                             # super-admin: 逻辑 service pool
+yoao ml-registry list                               # 超管：全局模型服务实例
+yoao service-pools list                             # 超管：模型服务资源池
 yoao service-pools topology --json                  # 路由拓扑的机器可读快照
 
 yoao tui        # 按需加载的终端监控与轻运维台；需要 [tui] extras
@@ -344,9 +344,10 @@ ZIP 上传和存储扫描均为同步操作。调用前生成并保存一个 UUI
 
 所有命令支持 `--json`:输出裸 JSON、无 rich 装饰/进度条,退出码非 0 表示失败,供 CI/脚本使用。破坏性命令的 JSON 模式必须显式传 `--yes`；本地确认不会绕过服务端权限。错误默认写到 stderr 文本提示；根选项 `--error-format json` 可选择结构化错误，成功输出与退出码约定不变。
 
-`ml-backends list` 只返回本项目已启用的 backend；`MLBackend.id` 是全局物理 registry ID，同一实例
-在不同项目中保持同一 ID。service pool 是独立的逻辑路由身份，使用 `service-pools` 命令管理，不与
-registry ID 混用。删除、卸载、drain 和能力漂移接受等保护操作需要显式确认，且不会绕过服务端的
+`ml-backends list` 只返回本项目已启用的模型服务实例；`MLBackend.id` 是全局实例 ID，同一实例
+在不同项目中保持同一 ID。资源池是独立的逻辑路由身份，使用 `service-pools` 命令管理，不与
+实例 ID 混用。登记、健康检查、服务认证和项目启用是不同环节；登记或启用不代表模型已加载、
+预热或成功执行。删除、卸载、排空和接受能力漂移等保护操作需要显式确认，且不会绕过服务端的
 409/503 静默守卫。
 
 ## 在线学习自动化

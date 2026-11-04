@@ -37,7 +37,7 @@ def _read_auth_token(env_name: str | None, prompt: bool) -> str | None:
 def list_(
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """列出全局 registry instance。"""
+    """列出全局已登记的模型服务实例。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             backends = client.ml_registry.list()
@@ -53,8 +53,8 @@ def list_(
 @app.command("create")
 def create(
     name: str = typer.Option(..., "--name", help="名称"),
-    url: str = typer.Option(..., "--url", help="backend URL"),
-    interactive: bool = typer.Option(False, "--interactive", help="交互式 backend"),
+    url: str = typer.Option(..., "--url", help="模型服务地址"),
+    interactive: bool = typer.Option(False, "--interactive", help="交互式模型服务"),
     auth_method: str = typer.Option("none", "--auth-method", help="认证方式"),
     auth_token_env: str | None = typer.Option(
         None, "--auth-token-env", help="从指定环境变量读取认证 token"
@@ -71,7 +71,7 @@ def create(
     eviction_priority: int = typer.Option(0, "--eviction-priority", help="驱逐优先级"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """注册全局物理 backend。"""
+    """登记全局模型服务实例；登记不代表服务健康或项目已启用。"""
     auth_token = _read_auth_token(auth_token_env, prompt_auth_token)
     fields = {
         key: value
@@ -93,14 +93,14 @@ def create(
     if json_output:
         print_json(backend.model_dump(mode="json"))
     else:
-        console.print(f"[green]registry backend 已创建[/green] {backend.id}")
+        console.print(f"[green]模型服务实例已登记[/green] {backend.id}")
 
 
 @app.command("update")
 def update(
-    registry_id: str = typer.Argument(..., help="registry instance ID"),
+    registry_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     name: str | None = typer.Option(None, "--name", help="名称"),
-    url: str | None = typer.Option(None, "--url", help="backend URL"),
+    url: str | None = typer.Option(None, "--url", help="模型服务地址"),
     auth_method: str | None = typer.Option(None, "--auth-method", help="认证方式"),
     auth_token_env: str | None = typer.Option(
         None, "--auth-token-env", help="从指定环境变量读取认证 token"
@@ -119,7 +119,7 @@ def update(
     ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """更新 registry instance。"""
+    """更新全局模型服务实例配置。"""
     auth_token = _read_auth_token(auth_token_env, prompt_auth_token)
     fields = {
         key: value
@@ -142,12 +142,13 @@ def update(
     if json_output:
         print_json(backend.model_dump(mode="json"))
     else:
-        console.print(f"[green]registry backend 已更新[/green] {registry_id}")
+        console.print(f"[green]模型服务实例配置已更新[/green] {registry_id}")
 
 
 def _destructive(registry_id: str, action: str, yes: bool, json_output: bool) -> None:
+    action_label = {"delete": "删除", "unload": "卸载模型"}[action]
     confirm_destructive(
-        f"确认 {action} registry backend {registry_id}?", yes, json_output
+        f"确认对模型服务实例 {registry_id} 执行{action_label}?", yes, json_output
     )
     with cli_errors(json_output):
         with get_client(json_output) as client:
@@ -158,25 +159,25 @@ def _destructive(registry_id: str, action: str, yes: bool, json_output: bool) ->
         else:
             print_json(result.model_dump(mode="json"))
     else:
-        console.print(f"[green]{action} 已完成[/green] {registry_id}")
+        console.print(f"[green]{action_label}已完成[/green] {registry_id}")
 
 
 @app.command("delete")
 def delete(
-    registry_id: str = typer.Argument(..., help="registry instance ID"),
+    registry_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """删除已静默的 registry instance。"""
+    """删除已静默的模型服务实例。"""
     _destructive(registry_id, "delete", yes, json_output)
 
 
 @app.command("health")
 def health(
-    registry_id: str = typer.Argument(..., help="registry instance ID"),
+    registry_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """检查 registry instance 健康并刷新能力快照。"""
+    """检查模型服务实例健康状态并刷新能力快照。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             result = client.ml_registry.check_health(registry_id)
@@ -188,9 +189,9 @@ def health(
 
 @app.command("unload")
 def unload(
-    registry_id: str = typer.Argument(..., help="registry instance ID"),
+    registry_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     yes: bool = typer.Option(False, "--yes", "-y", help="跳过确认"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """在服务端静默守卫通过后卸载 backend。"""
+    """在服务端静默守卫通过后卸载实例中的模型。"""
     _destructive(registry_id, "unload", yes, json_output)

@@ -27,7 +27,7 @@ def _read_token(env_name: str | None, prompt: bool) -> str | None:
     if env_name and prompt:
         raise typer.BadParameter("--auth-token-env 与 --prompt-auth-token 不能同时使用")
     if prompt:
-        return typer.prompt("backend auth token", hide_input=True)
+        return typer.prompt("模型服务认证 token", hide_input=True)
     if env_name:
         token = os.environ.get(env_name)
         if token is None:
@@ -41,10 +41,10 @@ def overview(
     yes: bool = typer.Option(False, "--yes", "-y", help="确认列举五个对象桶"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """汇总对象桶容量与全局项目/backend 绑定，可能扫描大量对象。"""
+    """汇总对象桶容量与项目和模型服务实例的全局绑定，可能扫描大量对象。"""
     with cli_errors(json_output):
         confirm_destructive(
-            "确认扫描五个存储桶并读取全局 backend 概览?", yes, json_output
+            "确认扫描五个存储桶并读取全局模型服务概览?", yes, json_output
         )
         with get_client(json_output) as client:
             result = client.ml_diagnostics.overview()
@@ -64,13 +64,13 @@ def gpu_resources(
 
 @app.command("observe")
 def observe(
-    yes: bool = typer.Option(False, "--yes", "-y", help="确认探测已配置的 backend URL"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="确认探测已配置的模型服务地址"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """探测环境配置的 backend /health 与 /setup。"""
+    """探测环境配置的模型服务 /health 与 /setup。"""
     with cli_errors(json_output):
         confirm_destructive(
-            "确认对配置的 backend URL 发起 health/setup 请求?", yes, json_output
+            "确认对配置的模型服务地址发起 /health 和 /setup 请求?", yes, json_output
         )
         with get_client(json_output) as client:
             result = client.ml_diagnostics.observe()
@@ -90,13 +90,13 @@ def runtime_hints(
 
 @app.command("probe")
 def probe(
-    url: str = typer.Option(..., "--url", help="目标 backend base URL"),
+    url: str = typer.Option(..., "--url", help="目标模型服务基础地址"),
     auth_method: str = typer.Option("none", "--auth-method", help="none 或 token"),
     auth_token_env: str | None = typer.Option(
         None, "--auth-token-env", help="从指定环境变量读取 token"
     ),
     prompt_auth_token: bool = typer.Option(
-        False, "--prompt-auth-token", help="隐藏输入 backend token"
+        False, "--prompt-auth-token", help="隐藏输入模型服务认证 token"
     ),
     yes: bool = typer.Option(False, "--yes", "-y", help="确认向 URL 发送 health 请求"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
@@ -108,7 +108,7 @@ def probe(
     with cli_errors(json_output):
         body = ProbeRequest(url=url, auth_method=auth_method, auth_token=token)
         confirm_destructive(
-            "确认对指定 backend URL 发起 health 请求?", yes, json_output
+            "确认对指定模型服务地址发起 /health 请求?", yes, json_output
         )
         with get_client(json_output) as client:
             result = client.ml_diagnostics.probe(body)
@@ -121,7 +121,7 @@ def smoke_test(
         ..., "--body-file", help="请求 JSON 文件，或 - 读取 stdin"
     ),
     yes: bool = typer.Option(
-        False, "--yes", "-y", help="确认可能 reload/unload backend 模型"
+        False, "--yes", "-y", help="确认可能重新加载或卸载模型服务中的模型"
     ),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
@@ -129,7 +129,7 @@ def smoke_test(
     with cli_errors(json_output):
         body = read_json_body(body_file, SmokeTestRequest)
         confirm_destructive(
-            "确认对指定 backend URL 执行 smoke test?",
+            "确认对指定模型服务地址执行运行检查?",
             yes,
             json_output,
         )

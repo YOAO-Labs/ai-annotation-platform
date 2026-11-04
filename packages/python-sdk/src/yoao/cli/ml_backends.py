@@ -80,7 +80,7 @@ def available(
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """列出全局 registry backend 及本项目启用态。"""
+    """列出全局已登记的模型服务实例及其在本项目的启用状态。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             items = client.ml_backends.list_available(project_id)
@@ -114,31 +114,31 @@ def _set_backend_enabled(
 
 @app.command("enable")
 def enable(
-    backend_id: str = typer.Argument(..., help="registry backend ID"),
+    backend_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """为项目启用 registry backend。"""
+    """为项目启用已登记的模型服务实例。"""
     _set_backend_enabled(project_id, backend_id, True, json_output)
 
 
 @app.command("disable")
 def disable(
-    backend_id: str = typer.Argument(..., help="registry backend ID"),
+    backend_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """为项目停用 registry backend。"""
+    """为项目停用模型服务实例。"""
     _set_backend_enabled(project_id, backend_id, False, json_output)
 
 
 @app.command("health")
 def health(
-    backend_id: str = typer.Argument(..., help="registry backend ID"),
+    backend_id: str = typer.Argument(..., help="全局模型服务实例 ID"),
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """对项目已启用 backend 执行健康检查。"""
+    """对项目已启用的模型服务实例执行健康检查。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             result = client.ml_backends.check_health(project_id, backend_id)
@@ -153,7 +153,7 @@ def pools(
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """列出项目可用 service pool 及启用态。"""
+    """列出项目可用的模型服务资源池及启用状态。"""
     with cli_errors(json_output):
         with get_client(json_output) as client:
             items = client.ml_backends.list_available_pools(project_id)
@@ -181,25 +181,25 @@ def _set_pool_enabled(
         print_json(item.model_dump(mode="json"))
     else:
         console.print(
-            f"[green]{'已启用' if enabled else '已停用'}[/green] pool {pool_id}"
+            f"[green]{'已启用' if enabled else '已停用'}[/green] 资源池 {pool_id}"
         )
 
 
 @app.command("pool-enable")
 def pool_enable(
-    pool_id: str = typer.Argument(..., help="service pool ID"),
+    pool_id: str = typer.Argument(..., help="模型服务资源池 ID"),
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """为项目启用 service pool。"""
+    """为项目启用模型服务资源池。"""
     _set_pool_enabled(project_id, pool_id, True, json_output)
 
 
 @app.command("pool-disable")
 def pool_disable(
-    pool_id: str = typer.Argument(..., help="service pool ID"),
+    pool_id: str = typer.Argument(..., help="模型服务资源池 ID"),
     project_id: str = typer.Option(..., "--project", help="项目 ID"),
     json_output: bool = typer.Option(False, "--json", help="输出裸 JSON"),
 ) -> None:
-    """为项目停用 service pool。"""
+    """为项目停用模型服务资源池。"""
     _set_pool_enabled(project_id, pool_id, False, json_output)

@@ -91873,7 +91873,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "registry backend ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "project_id",
@@ -91914,7 +91914,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "registry backend ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "project_id",
@@ -91996,7 +91996,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "registry backend ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "project_id",
@@ -92069,7 +92069,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "project_id",
@@ -92110,7 +92110,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "project_id",
@@ -92249,7 +92249,7 @@
           "required": false,
           "default": false,
           "type": "bool",
-          "description": "确认探测已配置的 backend URL"
+          "description": "确认探测已配置的模型服务地址"
         },
         {
           "name": "json_output",
@@ -92314,7 +92314,7 @@
           "required": true,
           "default": null,
           "type": "str",
-          "description": "目标 backend base URL"
+          "description": "目标模型服务基础地址"
         },
         {
           "name": "auth_method",
@@ -92347,7 +92347,7 @@
           "required": false,
           "default": false,
           "type": "bool",
-          "description": "隐藏输入 backend token"
+          "description": "隐藏输入模型服务认证 token"
         },
         {
           "name": "yes",
@@ -92424,7 +92424,7 @@
           "required": false,
           "default": false,
           "type": "bool",
-          "description": "确认可能 reload/unload backend 模型"
+          "description": "确认可能重新加载或卸载模型服务中的模型"
         },
         {
           "name": "json_output",
@@ -92467,7 +92467,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "backend URL"
+          "description": "模型服务地址"
         },
         {
           "name": "interactive",
@@ -92478,7 +92478,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "交互式 backend"
+          "description": "交互式模型服务"
         },
         {
           "name": "auth_method",
@@ -92574,7 +92574,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "yes",
@@ -92614,7 +92614,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "json_output",
@@ -92665,7 +92665,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "yes",
@@ -92705,7 +92705,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "全局模型服务实例 ID"
         },
         {
           "name": "name",
@@ -92727,7 +92727,7 @@
           "required": false,
           "default": null,
           "type": "str | None",
-          "description": "backend URL"
+          "description": "模型服务地址"
         },
         {
           "name": "auth_method",
@@ -95088,7 +95088,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "json_output",
@@ -95141,7 +95141,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认登记或启用全局 backend"
+          "description": "确认登记或启用全局模型服务实例"
         },
         {
           "name": "json_output",
@@ -95180,7 +95180,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "yes",
@@ -95192,7 +95192,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认在此项目停用 backend"
+          "description": "确认在此项目停用模型服务"
         },
         {
           "name": "json_output",
@@ -95231,7 +95231,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "body_file",
@@ -95293,7 +95293,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "body_file",
@@ -95355,7 +95355,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "body_file",
@@ -95417,7 +95417,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "task_id",
@@ -95477,7 +95477,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "yes",
@@ -95489,7 +95489,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认清缓存并请求 backend /setup"
+          "description": "确认清缓存并请求模型服务 /setup"
         },
         {
           "name": "json_output",
@@ -95528,7 +95528,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "body_file",
@@ -95551,7 +95551,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认修改共享 backend 驻留模型"
+          "description": "确认修改共享模型服务的驻留模型"
         },
         {
           "name": "json_output",
@@ -95590,7 +95590,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "json_output",
@@ -95629,7 +95629,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "yes",
@@ -95641,7 +95641,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认卸载共享 backend 驻留模型"
+          "description": "确认卸载共享模型服务的驻留模型"
         },
         {
           "name": "json_output",
@@ -95680,7 +95680,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "body_file",
@@ -95703,7 +95703,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认修改共享全局 backend 配置"
+          "description": "确认修改共享的全局模型服务配置"
         },
         {
           "name": "json_output",
@@ -95742,7 +95742,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "全局 backend UUID"
+          "description": "全局模型服务实例 UUID"
         },
         {
           "name": "body_file",
@@ -95753,7 +95753,7 @@
           "required": false,
           "default": null,
           "type": "pathlib.Path | None",
-          "description": "backend 专属 JSON body，或 - 读取 stdin"
+          "description": "模型服务专属 JSON 请求体，或 - 读取 stdin"
         },
         {
           "name": "yes",
@@ -95765,7 +95765,7 @@
           "required": false,
           "default": false,
           "type": "<class 'bool'>",
-          "description": "确认调用 backend warmup"
+          "description": "确认调用模型服务预热"
         },
         {
           "name": "json_output",
@@ -97908,7 +97908,7 @@
           "required": false,
           "default": null,
           "type": "str | None",
-          "description": "legacy registry instance ID"
+          "description": "历史模型服务实例 ID"
         },
         {
           "name": "json_output",
@@ -97938,7 +97938,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "yes",
@@ -97980,7 +97980,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "registry_id",
@@ -97991,7 +97991,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "模型服务实例 ID"
         },
         {
           "name": "expected_fingerprint",
@@ -98002,7 +98002,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "预览得到的 candidate fingerprint"
+          "description": "预览得到的候选能力指纹"
         },
         {
           "name": "enable_pool",
@@ -98056,7 +98056,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "registry_id",
@@ -98067,7 +98067,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "模型服务实例 ID"
         },
         {
           "name": "json_output",
@@ -98097,7 +98097,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "json_output",
@@ -98148,7 +98148,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "registry_id",
@@ -98159,7 +98159,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "模型服务实例 ID"
         },
         {
           "name": "weight",
@@ -98200,7 +98200,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "registry_id",
@@ -98211,7 +98211,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "模型服务实例 ID"
         },
         {
           "name": "yes",
@@ -98251,7 +98251,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "registry_id",
@@ -98262,7 +98262,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "模型服务实例 ID"
         },
         {
           "name": "yes",
@@ -98302,7 +98302,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "registry_id",
@@ -98313,7 +98313,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "registry instance ID"
+          "description": "模型服务实例 ID"
         },
         {
           "name": "json_output",
@@ -98385,7 +98385,7 @@
           "required": true,
           "default": null,
           "type": "<class 'str'>",
-          "description": "service pool ID"
+          "description": "模型服务资源池 ID"
         },
         {
           "name": "name",
