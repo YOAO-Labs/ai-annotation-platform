@@ -1,6 +1,6 @@
 # 面向后端模组解耦与能力插件化的测试治理计划草案
 
-> 状态：首批实施与验收中；本轮范围为 G0＋G1、G6a／G6b 稳定性样板、G2 有界清理样板及 N1 所需的 G3 冻结图像导出合同切片。实现与实际证据见文末 Outcome；不表示全计划完成，不授权拆仓、发布或生产采用。
+> 状态：阶段 E 已完成 N1–N3 配套测试切片与阻塞缺陷的本地集成验收，提交为 `52c1701bb`；G2／G3／G6 及全计划仍按具名证据逐项推进。第 16 节规划与 N4–N6 并行的下一批任务，尚未启动；不授权公开发布或生产采用。
 >
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
@@ -189,7 +189,7 @@ LibreYOLO 首切片的最新 Outcome 已记录真实训练、GPU 试用、人工
 
 同一固定向量分别作用于真实提供方和消费者。Node 自己回显、两端共享同一错误实现、单操作 peer 成功均不等于整模块语言替换。完整替代提供方仍按原计划独立选择、切换和验收。
 
-当前模块验收器以退出码和“至少一个用例通过”排除空成功，仍不足以证明所选场景全部执行。应在既有证据输出上增加选定 case／必需场景与 JUnit 结果对账：缺失、unexpected skip、setup 失败、提前中断均不得变成完整通过。只为选定范围定义 required，不把历史所有场景永久塞进每次定向验收。
+当前模块验收器已核对选定 target、实际 collection 与 JUnit case，多余／缺失 case、skip、setup 失败、提前中断和旧报告不能变成完整通过。下一步是取得当前所选资格的完整运行证据，而不是再创建结果框架；只为选定范围定义 required，不把历史所有场景永久塞进每次定向验收。
 
 ### 4.4 隔离与清理
 
@@ -261,13 +261,12 @@ GPU 仅使用授权的独占设备；当前首切片只验单卡，不接管主�
 
 ### 6.1 最小套件清单，而非第二个测试框架
 
-在现有 runner 上增加轻量的套件执行归属清单，拟议位置为 `scripts/test-suites.json`；该文件及以下字段目前是设计，不是已提供的接口：
+现有 `scripts/test-suites.json` 按真实执行入口组织清单，不是第二个测试框架：
 
-- `id / owner / repository / paths`：套件身份、责任和发现范围。
-- `runner / cwd / command`：调用现有 pytest、Vitest、Playwright、Node 或具名验收命令；不引入万能执行器。
-- `resources / contract_inputs`：所需服务、原生依赖／硬件、公共契约与工件输入。
-- `selection_source / required_for`：由哪个现有 planner／job 选择，在 PR、原生资格、拆仓或发布门何时必需。
-- `result_artifact / skip_policy`：真实结果位置和允许的不适用条件。
+- `ml_cpu`：记录 `id / owner / paths / python / resources / skip_policy`。
+- `owner_contracts`：记录独立包 `directory / options` 及所需 `system_packages`。
+- `other_test_roots`：记录 `paths / owner / selection_source / resources / skip_policy`，指向现有 job，而不复制其执行逻辑。
+- 真实 collection、命令及结果工件由对应 runner／验收器记录；不把尚未存在的统一字段或万能执行器描述为已交付接口。
 
 E2E 的详细路径选择继续由 `plan-e2e-suites.mjs` 维护，清单只引用其套件，不复制另一份选择规则。ML/shared 选择若迁入清单，则删除 runner 与 planner 的重复列表，由它们消费同一数据；不能新增第三份手工清单。历史 research TSV 保持历史，不被改写成实时配置。
 
@@ -1148,3 +1147,62 @@ Orca Run `run_5939cc27ecca` 从排期提交 `e74f38bba` 创建六个独立工作
 - 父工作树 test／e2e 与额外 Inference 资格环境按准确所有权销毁；自有 PostgreSQL、MinIO 及其匿名卷和闲置资格镜像已移除。当前普通服务、CPU demo、TUI、文档预览均退出；临时消费者环境、造数脚本及私有凭据清理，验收制品和脱敏证据保留。共享开发容器 ID 与镜像不变，8 个仓库 stash 完整保留；当前 API 开发环境、共享 Node 依赖与 `.artifacts/python/plugin-sdk` 保留用于继续开发。
 
 退役回执位于同一证据目录：`original-runtime-retirement.json`、`fresh-runtime-retirement.json`、`worker-handoff-preservation.json`、`worker-retirement-eligibility.json`、`worker-retirement.json`、`rebased-integration-proof.json`、`branch-runtime-retirement.json`、`scratch-retirement.json` 和 `image-retirement.json`。本轮没有执行全局 prune、推送、公开发布或生产资源迁移。
+
+## 16. 阶段 F 规划：迁移前后的并行测试治理
+
+### 16.1 当前状态与调度约束
+
+基线为 `52c1701bb`；本节是用户请求的下一阶段规划，**没有执行新测试、数据迁移或环境采用**。Orca Run `run_e7b759f25170` 已登记 14 个任务和 8 个批准／集成门，规格位于 `.orca-dag/20261104-074930-788/`；未派发实施 worker。产品目标、任务编号、文件责任及 N4–N6 保留边界见[产品语言计划](1793263851_yoao-product-language-and-naming.md)第 16 节。
+
+F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路首批；T1 后串行准备 N5-S，再实施 N5-W。J1 由主进程审核集成并完成真实验收；随后 N6-S／N6-E 两路并行，J2 收口。N4-F、N5-S、N5-W、N6-S、N6-E 各自有明确批准门，J1／J2 是主进程集成门；F0 的总实施门不替代这些具体切换批准。
+
+所有修改 worker 使用独立工作树、OMP `openai-codex/gpt-6.1-terra` 与 reasoning `xhigh`。主进程持有总计划、CHANGELOG、迁移 head、共享 grants／验证器和验收资源；后继从已集成的确切前置提交起步。任务状态／人工 checkpoint 不证明 Git 已合并。本 Run 不使用自动 merge worker；主进程继续承担审核和合入。不要以 viewer 默认共享工作树直接启动整图。
+
+### 16.2 T1：补完整资格，不重建结果门
+
+当前 `scripts/test-suites.json` 和 `verify_module_data_boundary.py::_passed_test_count` 已有真实执行归属与严格结果对账，分别不再当作“拟新增清单”和“仅要求至少一项通过”的缺口。本轮重点是阶段 E 四项函数权限场景没有覆盖的 **当前默认 module-data 验证器组合门**。
+
+- F0 固定当前默认选集、原始 collection、实际代码／制品及环境身份；保留 default strict profile，不用定向 `--test-file` 缩小后冒称完整通过。
+- 按当前已有角色、函数／读关系、Node peer、冷 API／worker、前向迁移及 restore 场景执行；owner 仅负责准备，产品请求和被测调用使用真实受限 LOGIN。
+- 已知 58 项超时没有最终 JUnit，不为“确认失败”再次盲跑。先处理与本次资格相关的明确前置；若新运行停滞，保留首次 phase、请求／连接／锁证据和完整退出，不通过增加时限或重试改绿。
+- 必需 target、实际收集 nodeid、JUnit 及验证器非 pytest 阶段逐项对账；缺失、错误、skip、中断、清理失败均保留为未通过。定向修复后的子集证据不能代替最终默认选集。
+- 完成只意味着当前具名验证器的资格通过，不代表所有模块替代语言实现、GPU、生产拓扑或治理全计划通过。若某前置确需越出批准范围，只阻断对应门并报告，不偷换成更小选集。
+
+### 16.3 T2：收敛仍会跨运行清理的设施
+
+当前 `global-teardown.ts` 仍调用 `/api/v1/__test/seed/cleanup`；E2E README 明确它可能影响其他命名空间，截图 reconciliation 和 scale seed 也保留独立串行边界。因此由一个 owner 完整迁移这条相连通道，避免三个 worker 分别修改同一 seed／cleanup 合同。
+
+1. 复用现有 owner 通道、准确 namespace／ID／对象版本清单，迁移全局 teardown、截图准备／reconciliation 和 scale 的真实生产者与清理消费者。先迁完整 caller 再删除旧广域入口，不提交空 teardown、旧删除 fallback 或第二套通用 fixture 框架。
+2. 在可销毁环境交错两个独立运行及一组普通预存数据，实际创建、更新、提交和清理；分别覆盖 owned、截图和 scale。A 成功／失败／取消退出时，B 的行、源文件和准确对象版本不变；新旧资源不能仅凭相同 SHA 或前缀判定归属。
+3. 真实迟到请求、活动读取／执行、外部引用及归属变化保留拒绝语义，物理 I/O 未结束不能先删锚点。保留首个异常和准确清理结果，不能用 `finally` 覆盖原始失败。
+4. 清理身份与运行身份分离；普通请求不得借夹具权限。未取得交错证明的 family 继续串行或独立数据库／桶，不据此全局打开 xdist 或宣称整套共享库并行。
+5. #152 的三视频／126-output 退出门仍单列。若本切片证实同一因果缺陷且获准最小修复，须补其完整正常／错误退出及邻居保护；否则精确清理的一组通过不关闭该 issue。预算语义变更须单独评审，不能直接加等待。
+
+### 16.4 迁移验收矩阵
+
+| 通道                  | 必需独立证据                                                                                                                                            | 不能替代它的结果                                                                                            |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| N4-F 历史与新格式     | 保留旧 ZIP／向量及摘要；普通 worker 的新导出；当前支持的图像／视频／LiDAR annotation 导入和独立几何／轨迹／来源读回；直接和目录 reader 的版本／身份负例 | 用新 writer 重建全部旧 fixture；服务函数单测代替 worker；声称不存在的 LiDAR prediction 或完整视频跨实例往返 |
+| N4-F 活跃与冻结边界   | 三种导出入口、幂等重放、Mask preflight／部分恢复／journal、旧执行排空、新 selector 拒绝旧准入；历史 bundle 下载及退役仍可用                             | 只改 OpenAPI；取消／TTL／终态当物理停止；删除旧恢复路径或改写冻结摘要                                       |
+| N4-D1 run／study 草稿 | 真实旧稿升级和重载；原 owner／revision／request／pending 不变；服务已提交后丢响应，用户显式恢复只得到一个原请求资源                                     | mock echo、Toast、自动重提；存储失败仍报告提交成功                                                          |
+| N4-D2 数据集请求      | session／user／project／task／bridge 隔离；完整新 `ownerKey`；相同 request/body 的恢复和不同 body 的冲突                                                | 只替换键前缀；重新生成 request ID 规避冲突                                                                  |
+| N4-D3 导入文字        | 实际向导 → 存储配置 → 返回／重载；成功单次消费及失败保留；仅持久化既定非秘密字段                                                                        | 删除后才验证；吞保存异常后跳走；承诺关闭标签页后的恢复                                                      |
+| D1／D2 并发与错误     | 新标签页协作锁、无锁支持时拒绝、旧标签页晚到写入、账号切换迟到回调、配额／损坏／旧新冲突及准确恢复                                                      | `getItem`／`setItem` 的先检查后写被称为原子操作；永久双写或静默 fallback                                    |
+| N5-S 安全识别         | 旧／新 namespace 中额外能力、PUBLIC／SECURITY DEFINER、私表／列／序列、CREATE／TEMP 和角色提升实际拒绝                                                  | 仅断言 SQL 含新字符串；为了新命名放宽整体 grants                                                            |
+| N5-W owner-transfer   | 空库历史链、已有数据前向迁移、dump／restore、真实 LOGIN／Node、调用方 commit／rollback、重复／冲突回执、锁竞争及旧谱系拒绝                              | 单次 ALTER SCHEMA、source import、直接 stamp 或删掉 populated receipt 后“回滚成功”                          |
+| N6-K 技能发现         | 单一来源／链接完整，新的隔离会话实际发现新名称，其他 checkout／用户全局链接未变                                                                         | 当前会话缓存、目录名称 grep 或改写全局 agent 配置                                                           |
+| N6-S export 分配      | 新前缀真实 worker 产物；旧精确 key/version 的下载／保留／退役；错误／在途 I/O／外部引用拒绝与恢复                                                       | 相同字节即归属相同；批量替换 DB 字符串或复制／删除旧对象                                                    |
+| N6-E 本地环境         | 精确新旧清单，普通 API／worker／队列／存储实跑，未知 owner／活跃连接／旧 manifest／变量冲突拒绝，状态性恢复及切换后新写入                               | 空库空卷启动成功；换标签取得所有权；共享生产环境替代可销毁验证                                              |
+
+草稿源码核对已经定位 D1 持久化失败返回值和 D3 解析／导航顺序风险；格式核对发现目录空任务版本检查、普通 LiDAR worker 的 source-axis 传递需要单独证明。它们是下一批的验收／最小修复目标，**不是本次规划已经复现或修复的结论**。未影响的有效业务期望保持，新回归只保护数据丢失、权限、状态、身份和恢复等消费者可见风险。
+
+### 16.5 组合门、资源窗口与后置事项
+
+- J1 统一核对代码／候选制品／迁移 head 后执行真实格式、三类草稿、精确清理和 owner-transfer 组合门；J2 再在新命名环境核验新 export 分配、历史读取与恢复。两个 join 由主进程审核真实提交并执行，不能直接采纳 worker 的“完成”作为通过。
+- 数据库／对象存储和重型资格使用各自确认过的隔离资源与明确窗口；浏览器操作／截图期间不创建或删除 Docker 容器／网络。UI 只对受影响页面检查明暗、桌面／窄屏、请求、控制台和溢出，不重录无关素材。
+- 为每个持久切片分别记录切换前恢复点、停准入／旧 writer 退出、受支持的失败恢复以及新写入后的策略。恢复旧快照可能丢失新写入时必须拒绝无损回退声明，不能重新开放旧写者或擦除回执来通过。
+- 整个 Run 没有公开发布、版本升级、生产／日常采用或全局 prune 授权。只清理本任务准确归属的资源和已审核集成的干净工作树，保留脱敏证据。
+- #151 长驻环境延迟、#152 完整视频退出门及单次原件身份 409 分别保留原证据与归属。对账阶段 E 的 `.worktree/test-language-e-17482e/sdk-runtime.xml` 后确认：165 项 runtime 报告包含通过的 `test_new_terminal_generation_fences_abandoned_drain_without_releasing_work`，原“该外部用例未执行”的欠账已关闭，不再为确认旧失败重复运行。它不证明实际 provider／GPU 物理排空或新控制合同资格；后者在改变相关制品／退役实例时仍须单独验收，不当作 N4／Workspace 的无关前置。
+- 剩余 N5 namespace／GUC、跨 owner task-edit 锁域和跨仓路由／GPU 控制，以及 N6 其他存储用途／引用哨兵／真实 systemd 与 Compose，留给独立批准的后继。控制面必须先具备匹配制品和所有实际 provider 的物理排空／签名证明；CPU、未加载模型或控制 ACK 不能替代它。
+
+本次规划只验证文档、任务图和批准状态；实际实施后再写 Outcome。默认完整验证器、每个首切片与后续环境采用保持独立结论，不以一张“阶段全绿”覆盖未执行范围。
