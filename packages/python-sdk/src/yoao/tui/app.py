@@ -1931,7 +1931,7 @@ class TrainingRunDetailScreen(Screen[None]):
             self._refresh()
 
 
-class AapTuiApp(App[None]):
+class TuiApp(App[None]):
     """监控面板主 App。client 由构造方注入 (测试可传 stub)。"""
 
     TITLE = "YOAO"
@@ -3393,6 +3393,6 @@ def run() -> None:
         raise SystemExit(1)
     client = Client(base_url=base_url, api_key=api_key)
     try:
-        AapTuiApp(client, base_url=base_url, api_key=api_key).run()
+        TuiApp(client, base_url=base_url, api_key=api_key).run()
     finally:
         client.close()

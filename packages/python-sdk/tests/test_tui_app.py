@@ -22,7 +22,7 @@ from yoao.models import (
     UserBrief,
 )
 from yoao.tui.app import (
-    AapTuiApp,
+    TuiApp,
     BatchDetailScreen,
     DatasetDetailScreen,
     DetailScreen,
@@ -92,12 +92,12 @@ def _make_app(
     with_ml=False,
     role="employee",
     job_kind="export",
-) -> AapTuiApp:
+) -> TuiApp:
     pages = [JobPage(items=[_job(s, kind=job_kind)], total=1) for s in job_statuses]
     project = _project()
     ml_by_project = {project.id: [_ml_backend(project.id)]} if with_ml else {}
     client = _StubClient([project], [_dataset()], pages, ml_by_project, role=role)
-    return AapTuiApp(client, base_url=BASE)
+    return TuiApp(client, base_url=BASE)
 
 
 async def test_renders_tabs_and_status_bar():
@@ -204,7 +204,7 @@ async def test_ml_backends_dedup_shared_backend_merges_one_row():
         [JobPage(items=[_job("running")], total=1)],
         {proj_a.id: [shared], proj_b.id: [shared]},
     )
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 30)) as pilot:
         await _settle(app, pilot)
         app.query_one("#tabs", TabbedContent).active = "tab-ml-backends"
@@ -276,7 +276,7 @@ async def test_export_modal_lidar_has_axis_frame():
         status="active",
     )
     client = _StubClient([project], [_dataset()], [JobPage(items=[], total=0)])
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(100, 30)) as pilot:
         await _settle(app, pilot)
         await pilot.press("e")
@@ -338,7 +338,7 @@ async def test_open_project_pushes_detail_with_subtabs():
     client = _StubClient(
         [project], [_dataset()], pages, {project.id: [_ml_backend(project.id)]}
     )
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         await pilot.press("o")  # 打开 Projects 高亮首行
@@ -363,7 +363,7 @@ async def test_project_detail_jobs_filtered_excludes_other_project():
     other = _job("running")  # project_id=None → 应被过滤掉
     pages = [JobPage(items=[other], total=1)]
     client = _StubClient([project], [_dataset()], pages, {})
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         await pilot.press("o")
@@ -427,7 +427,7 @@ async def test_batch_detail_and_project_pool_tab():
         pools_by_project={project.id: [pool]},
         batches_by_project={project.id: [batch]},
     )
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         await pilot.press("o")
@@ -533,7 +533,7 @@ async def test_completed_export_job_detail_download_closure():
     }
     job = _job("completed", result=result)  # _job 默认 kind="export"
     client = _StubClient([_project()], [_dataset()], [JobPage(items=[job], total=1)])
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         app.query_one("#tabs", TabbedContent).active = "tab-jobs"
@@ -588,7 +588,7 @@ async def test_project_detail_batches_and_members_subtabs():
         batches_by_project={project.id: [_batch(project.id)]},
         members_by_project={project.id: [_member()]},
     )
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         await pilot.press("o")
@@ -617,7 +617,7 @@ async def test_project_detail_degrades_when_batches_endpoint_unavailable():
         raise RuntimeError("404 batches not found")
 
     client.batches.list = _boom  # type: ignore[assignment]
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         await pilot.press("o")
@@ -711,7 +711,7 @@ async def test_people_tab_loads_for_super_admin():
         role="super_admin",
         people=[_person()],
     )
-    app = AapTuiApp(client, base_url=BASE)
+    app = TuiApp(client, base_url=BASE)
     async with app.run_test(size=(120, 32)) as pilot:
         await _settle(app, pilot)
         app.query_one("#tabs", TabbedContent).active = "tab-people"

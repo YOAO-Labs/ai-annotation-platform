@@ -26,6 +26,7 @@ _GPU = re.compile(
 )
 _NAME = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}$")
 _OWNER = re.compile(r"^[0-9a-f]{64}$")
+_LIBREYOLO_ENTRYPOINT = "yoao-libreyolo"
 
 
 def _validate_entrypoint(entrypoint: Sequence[str], container_port: int) -> None:
@@ -583,6 +584,12 @@ class Docker:
 
     def prepare_assets(self, config: ContainerConfig) -> None:
         config.validate()
+        if config.entrypoint[0] != _LIBREYOLO_ENTRYPOINT:
+            raise SDKError(
+                "Selected LibreYOLO image manifest does not declare the "
+                "yoao-libreyolo entrypoint; use its original tools for historical "
+                "images or select a new compatible image"
+            )
         self._verify_image(config)
         self._run(
             "container",
@@ -605,7 +612,7 @@ class Docker:
             "--mount",
             f"type=bind,src={config.data_dir},dst={config.data_target}",
             "--entrypoint",
-            "yoao-libreyolo",
+            _LIBREYOLO_ENTRYPOINT,
             "--",
             config.image,
             "prepare-assets",

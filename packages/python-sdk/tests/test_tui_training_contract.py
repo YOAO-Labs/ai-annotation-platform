@@ -6,7 +6,7 @@ import httpx
 import pytest
 from textual.widgets import DataTable, TabbedContent
 
-from yoao.tui.app import AapTuiApp, TrainingRunDetailScreen
+from yoao.tui.app import TuiApp, TrainingRunDetailScreen
 
 from .conftest import API, BASE
 from .support_training_runs import _run
@@ -143,7 +143,7 @@ async def test_typed_training_queue_and_detail_are_openable(client, respx_mock):
         respx_mock.get(
             f"{API}/projects/{project}/training-runs/{run['id']}/attempts/{attempt}/{stream}"
         ).mock(return_value=httpx.Response(200, json={**observation, "items": [item]}))
-    app = AapTuiApp(client, base_url=BASE, poll_interval=999)
+    app = TuiApp(client, base_url=BASE, poll_interval=999)
     async with app.run_test(size=(80, 24)) as pilot:
         await _settle(app, pilot)
         assert not queue.called

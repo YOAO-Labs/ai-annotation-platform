@@ -9,7 +9,7 @@ import pytest
 from textual.widgets import Button, DataTable, Input, Static, TabbedContent
 
 from yoao.models import Dataset, JobPage, Page
-from yoao.tui.app import AapTuiApp, ExportConfigModal, ProjectDetailScreen
+from yoao.tui.app import TuiApp, ExportConfigModal, ProjectDetailScreen
 
 from .conftest import BASE
 from .support_tui import (
@@ -25,8 +25,8 @@ from .support_tui import (
 pytestmark = pytest.mark.asyncio
 
 
-def _app(client) -> AapTuiApp:
-    return AapTuiApp(client, base_url=BASE, poll_interval=999)
+def _app(client) -> TuiApp:
+    return TuiApp(client, base_url=BASE, poll_interval=999)
 
 
 async def test_mount_only_loads_projects_jobs_and_principal():

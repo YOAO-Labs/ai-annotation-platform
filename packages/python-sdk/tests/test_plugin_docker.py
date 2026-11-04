@@ -34,6 +34,37 @@ def config():
     )
 
 
+def test_asset_preparation_rejects_historical_image_contract(monkeypatch):
+    cfg = replace(config(), entrypoint=("aap-libreyolo", "serve", "--port", "8000"))
+    calls = []
+    monkeypatch.setattr(
+        "yoao._plugin_docker.subprocess.run",
+        lambda argv, **kwargs: calls.append(argv),
+    )
+
+    with pytest.raises(SDKError, match="image manifest does not declare"):
+        Docker().prepare_assets(cfg)
+    assert calls == []
+
+
+def test_asset_preparation_uses_selected_new_image(monkeypatch):
+    cfg = replace(config(), entrypoint=("yoao-libreyolo", "serve", "--port", "8000"))
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        output = json.dumps([cfg.image]) if argv[1:3] == ["image", "inspect"] else ""
+        return SimpleNamespace(returncode=0, stdout=output, stderr="")
+
+    monkeypatch.setattr("yoao._plugin_docker.subprocess.run", run)
+    monkeypatch.setattr("yoao._plugin_docker.os.geteuid", lambda: 1000)
+    monkeypatch.setattr("yoao._plugin_docker.os.getegid", lambda: 1000)
+    Docker().prepare_assets(cfg)
+    assert calls[0][-1] == cfg.image
+    assert calls[1][calls[1].index("--entrypoint") + 1] == "yoao-libreyolo"
+    assert calls[1][calls[1].index("--") + 1] == cfg.image
+
+
 @pytest.mark.parametrize(
     "inspected_script,keyring_rw",
     [

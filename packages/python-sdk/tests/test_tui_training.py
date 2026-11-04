@@ -11,7 +11,7 @@ import pytest
 from textual.widgets import DataTable, Select, Static, TabbedContent
 
 from yoao.models import JobPage
-from yoao.tui.app import AapTuiApp, TrainingRunDetailScreen
+from yoao.tui.app import TuiApp, TrainingRunDetailScreen
 
 from .conftest import BASE
 from .support_tui import (
@@ -157,7 +157,7 @@ def _detail(run, attempt_id):
 
 
 def _app(client):
-    return AapTuiApp(client, base_url=BASE, poll_interval=999)
+    return TuiApp(client, base_url=BASE, poll_interval=999)
 
 
 @pytest.mark.parametrize("size", [(80, 24), (120, 32)])

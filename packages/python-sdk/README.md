@@ -23,8 +23,9 @@ yoao --version  # yoao <sdk-version>@platform<platform-target-version>
 
 ## 安装
 
-新发行名尚未声明在公共 registry 发布；以下从本地构建并校验的 wheel 安装，依赖须来自可信的
-已配置索引或 wheelhouse。将路径替换为实际构建的绝对路径；不需要从源码目录运行：
+目前 PyPI 的 `yoao-sdk` 名称查询返回 404；这不表示名称已保留，也不表示已公开发布。
+以下从本地构建并校验的 wheel 安装，依赖须来自可信的已配置索引或 wheelhouse。
+将路径替换为实际构建的绝对路径；不需要从源码目录运行：
 
 ```bash
 python -m pip install /absolute/path/yoao_sdk-0.20.0-py3-none-any.whl
@@ -61,6 +62,11 @@ UID/GID 读取仅该用户可访问的状态目录。
 `image_hosts`（允许下载图片的主机名列表）。manifest 的 `allowed_asset_sources` 是批准的
 资产源 origin 列表。`host_port` 暴露容器的 8000 端口；确保 URL 指向这个实例，且网络策略
 允许核心访问它。配置仅含公钥，不含业务 Token。
+
+`prepare-assets` 要求所选固定摘要镜像对应的已审批 manifest 将 `yoao-libreyolo`
+声明为入口命令；旧版 `aap-libreyolo` 清单会在启动容器前拒绝。此检查不证明镜像内
+命令实际存在，镜像构建与检查仍须验证其打包合同。历史不可变镜像继续使用其原工具
+安全排空或退役；新工具不会探测后回退到旧命令，也不会改写已有状态目录。
 
 ```bash
 yoao plugins prepare --config deployment.json --state-dir ./libreyolo-state --json
