@@ -8,7 +8,7 @@ import uuid
 
 import asyncpg
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.project_pipeline import ProjectPipeline
@@ -420,5 +420,94 @@ async def test_inference_pipeline_delete_retains_success_after_selected_row_disa
             await db.execute(
                 delete(ProjectPipeline).where(ProjectPipeline.id == pipeline_id)
             )
+            if actor_id is not None:
+                await db.execute(delete(User).where(User.id == actor_id))
+
+
+async def test_restricted_owner_rejects_null_stages_without_persisting(test_engine):
+    from yoao_inference.pipeline_contract import (
+        PipelineFailure,
+        pipeline_command_request,
+    )
+    from yoao_inference.pipeline_manager import PipelineManager
+    from yoao_inference.pipeline_postgres import PipelinePostgresData
+    from tests.inference_pipeline_owner_helpers import pipeline_dsn
+    from tests.test_inference_pipeline_restore import _seed_receipt
+
+    await assert_owned_test_database(test_engine)
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    actor_id = None
+    pipeline_id = None
+    seed_operation = None
+    try:
+        async with maker.begin() as db:
+            actor = await create_user(
+                db,
+                "super_admin",
+                f"null-stages-{uuid.uuid4().hex}@example.test",
+                "Pipeline owner",
+            )
+            actor_id = actor.id
+        seed_command, pipeline_id = await _seed_receipt(test_engine, actor_id)
+        seed_operation = seed_command.operation_id
+        async with maker() as db:
+            before = await db.scalar(
+                text(
+                    "SELECT to_jsonb(p)::text FROM public.project_pipelines AS p WHERE p.id=:id"
+                ),
+                {"id": pipeline_id},
+            )
+            assert before is not None
+
+        dsn = pipeline_dsn(test_engine)
+        connection = await asyncpg.connect(dsn, timeout=5, command_timeout=10)
+        try:
+            assert await connection.fetchval("SELECT current_user = session_user")
+            assert (
+                await connection.fetchval("SELECT current_user")
+                == "inference_pipelines_client"
+            )
+        finally:
+            await connection.close()
+        command = pipeline_command_request(
+            "update_pipeline",
+            actor_id=actor_id,
+            actor_role="super_admin",
+            target_id=pipeline_id,
+            payload={"stages": None},
+        )
+        reply = await PipelineManager(PipelinePostgresData(dsn)).execute(command)
+        assert isinstance(reply, PipelineFailure)
+        assert reply.error.status_code == 422
+        assert reply.commit_state == "rolled_back"
+        async with maker() as db:
+            after = await db.scalar(
+                text(
+                    "SELECT to_jsonb(p)::text FROM public.project_pipelines AS p WHERE p.id=:id"
+                ),
+                {"id": pipeline_id},
+            )
+            assert after == before
+            assert not await db.scalar(
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM aap_inference_pipelines_v1.operation_receipts "
+                    "WHERE operation_id=:id)"
+                ),
+                {"id": command.operation_id},
+            )
+    finally:
+        async with maker.begin() as db:
+            if seed_operation is not None:
+                await db.execute(
+                    text(
+                        "DELETE FROM aap_inference_pipelines_v1.operation_receipts "
+                        "WHERE operation_id=:id"
+                    ),
+                    {"id": seed_operation},
+                )
+            if pipeline_id is not None:
+                await db.execute(
+                    delete(ProjectPipeline).where(ProjectPipeline.id == pipeline_id)
+                )
             if actor_id is not None:
                 await db.execute(delete(User).where(User.id == actor_id))

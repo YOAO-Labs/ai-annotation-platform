@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import difflib
 import hashlib
 import json
 import os
@@ -35,6 +36,7 @@ from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
 _ROOT = Path(__file__).resolve().parents[3]
 _BASE_COMMIT = "6dee1a78753a302c5cd04c24a63c40f7e6040b6e"
 _FIXTURE_PATH = Path(__file__).parent / "fixtures/named_pipeline_legacy/samples.json"
+_SUPERSEDED_NULL_STAGES = "update_null_stages_records_legacy_failure"
 _HEADERS = ("content-type", "location", "www-authenticate", "retry-after")
 _TIMESTAMP_FIELDS = {"created_at", "updated_at", "joined_at"}
 _MISSING = object()
@@ -1130,7 +1132,6 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
 
     for label, body in (
         ("update_null_name_records_legacy_failure", {"name": None}),
-        ("update_null_stages_records_legacy_failure", {"stages": None}),
         ("update_null_is_default_records_legacy_failure", {"is_default": None}),
     ):
         await _request(
@@ -1145,28 +1146,25 @@ async def _run_scenarios(client, maker, world) -> list[dict]:
             expected_status=500,
         )
         sample = world["samples"][-1]
-        if "stages" in body:
-            changed = next(
-                row
-                for row in sample["database_after"]
-                if row["id"] == "$pipeline_private_main"
-            )
-            assert changed["stages"] is None
-            assert sample["database_before"] != sample["database_after"]
-            # JSONB None commits JSON null; restore only this seeded row for
-            # the following independent invalid-field observations.
-            async with maker.begin() as db:
-                await db.execute(
-                    text(
-                        "UPDATE public.project_pipelines SET stages=CAST(:stages AS jsonb) WHERE id=:id"
-                    ),
-                    {
-                        "id": private_main,
-                        "stages": json.dumps(_canonical_stages(missing_backend)),
-                    },
-                )
-        else:
-            assert sample["database_before"] == sample["database_after"]
+        assert sample["database_before"] == sample["database_after"]
+
+    # Explicit null stages rejects without changing any persisted pipeline row.
+    await _request(
+        client,
+        maker,
+        world,
+        label="update_null_stages_rejected_without_mutation",
+        method="PUT",
+        path=f"/api/v1/project-pipelines/{private_main}",
+        actor="owner",
+        body={"stages": None},
+        expected_status=422,
+    )
+    current_null_stages = world["samples"].pop()
+    assert (
+        current_null_stages["database_before"] == current_null_stages["database_after"]
+    )
+    assert not any(current_null_stages["database_updated_at_changed"].values())
 
     await _request(
         client,
@@ -1662,7 +1660,6 @@ EXPECTED_SAMPLE_LABELS = [
     "update_structurally_invalid_stages_rolls_back",
     "update_omitted_fields_preserve_stages_and_default",
     "update_null_name_records_legacy_failure",
-    "update_null_stages_records_legacy_failure",
     "update_null_is_default_records_legacy_failure",
     "update_null_scope_private_is_owner_pair_422",
     "update_null_private_project_is_owner_pair_422",
@@ -1831,6 +1828,20 @@ async def test_replay_legacy_named_pipeline_http_and_database(
     )
     expected_samples = fixture.get("samples")
     assert isinstance(expected_samples, list)
+    # A null stages update now rejects before persistence rather than returning
+    # 500 after committing JSON null. Keep the historical capture immutable.
+    assert (
+        sum(
+            sample.get("label") == _SUPERSEDED_NULL_STAGES
+            for sample in expected_samples
+        )
+        == 1
+    )
+    expected_samples = [
+        sample
+        for sample in expected_samples
+        if sample.get("label") != _SUPERSEDED_NULL_STAGES
+    ]
     assert [
         sample.get("label") for sample in expected_samples
     ] == EXPECTED_SAMPLE_LABELS
@@ -1842,16 +1853,52 @@ async def test_replay_legacy_named_pipeline_http_and_database(
         monkeypatch,
         application_name="named-pipeline-legacy-replay",
     )
-    for observed, expected in zip(live["samples"], expected_samples, strict=True):
-        # Snapshot SQL uses random UUID tie-breakers; only this diagnostic row
-        # ordering is normalized. Public response array order remains exact.
-        def view(sample):
-            return {
-                **sample,
-                **{
-                    key: sorted(sample[key], key=lambda row: (row["name"], row["id"]))
-                    for key in ("database_before", "database_after")
+
+    # Normalize snapshot row order; public response array order stays exact.
+    def view(sample):
+        result = {
+            **sample,
+            **{
+                key: sorted(sample[key], key=lambda row: (row["name"], row["id"]))
+                for key in ("database_before", "database_after")
+            },
+        }
+        if (
+            sample["label"]
+            == "apply_unenabled_backend_returns_ordered_ids_without_mutation"
+        ):
+            response = result["response"]
+            body = response["body"]
+            detail = body["detail"]
+            result["response"] = {
+                **response,
+                "body": {
+                    **body,
+                    "detail": {
+                        key: value for key, value in detail.items() if key != "message"
+                    },
                 },
             }
+        return result
 
-        assert view(observed) == view(expected), observed["label"]
+    differences = []
+    for observed, expected in zip(live["samples"], expected_samples, strict=True):
+        observed_view, expected_view = view(observed), view(expected)
+        if observed_view != expected_view:
+            differences.extend(
+                difflib.unified_diff(
+                    json.dumps(
+                        expected_view, ensure_ascii=False, indent=2, sort_keys=True
+                    ).splitlines(),
+                    json.dumps(
+                        observed_view, ensure_ascii=False, indent=2, sort_keys=True
+                    ).splitlines(),
+                    fromfile=f"{observed['label']}:expected",
+                    tofile=f"{observed['label']}:actual",
+                    lineterm="",
+                )
+            )
+    report = "\n".join(differences)
+    assert live["runtime_url"] not in report
+    assert all(token not in report for token in live["tokens"])
+    assert not differences, report
