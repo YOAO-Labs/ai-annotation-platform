@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { webcrypto } from "node:crypto";
 import { act, render, screen, waitFor, cleanup, fireEvent } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -166,8 +167,23 @@ function mount(path = "/projects/project-1/learning?tab=data") {
 }
 
 beforeEach(() => {
+  vi.stubGlobal("crypto", webcrypto);
   vi.clearAllMocks();
   localStorage.clear();
+  const queues = new Map<string, Promise<unknown>>();
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: {
+      request: (key: string, callback: () => unknown) => {
+        const next = (queues.get(key) ?? Promise.resolve()).then(callback);
+        queues.set(
+          key,
+          next.catch(() => {}),
+        );
+        return next;
+      },
+    },
+  });
   vi.mocked(useProject).mockReturnValue({
     data: {
       name: "路口车辆",
@@ -214,6 +230,7 @@ afterEach(() => {
   clients.splice(0).forEach((client) => client.clear());
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "locks");
   useAuthStore.getState().logout();
   localStorage.clear();
 });
@@ -837,6 +854,47 @@ describe("project learning data versions", () => {
     },
   );
 
+  it("does not remove either owner's request when a previous session's create resolves late", async () => {
+    let finish!: () => void;
+    vi.mocked(trainingDatasetsApi.create).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = () => resolve(version as never);
+        }),
+    );
+    const user = userEvent.setup();
+    mount();
+    const oldKey = trainingDatasetDraftKey({
+      userId: "user-a",
+      sessionId: useAuthStore.getState().sessionId!,
+      projectId: "project-1",
+      task: "detect",
+    });
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    await user.click(screen.getByRole("button", { name: "检查训练数据" }));
+    await screen.findByText("数据检查通过");
+    await user.click(screen.getByRole("button", { name: "创建数据版本" }));
+    await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledOnce());
+    const oldSource = localStorage.getItem(oldKey);
+    expect(oldSource).not.toBeNull();
+    act(() => useAuthStore.getState().setAuth("session-b", { id: "user-b" } as MeResponse));
+    const newKey = trainingDatasetDraftKey({
+      userId: "user-b",
+      sessionId: useAuthStore.getState().sessionId!,
+      projectId: "project-1",
+      task: "detect",
+    });
+    const newBody = {
+      ...vi.mocked(trainingDatasetsApi.create).mock.calls[0][1],
+      name: "另一账号的请求",
+    };
+    const newSource = JSON.stringify({ version: 1, ownerKey: newKey, body: newBody });
+    localStorage.setItem(newKey, newSource);
+    await act(async () => finish());
+    expect(localStorage.getItem(oldKey)).toBe(oldSource);
+    expect(localStorage.getItem(newKey)).toBe(newSource);
+  });
+
   it.each(["project_busy", "account_busy", "membership_busy"])(
     "retains a lost-response request across a transient %s conflict and remount",
     async (reason) => {
@@ -863,6 +921,38 @@ describe("project learning data versions", () => {
       expect(trainingDatasetsApi.preflight).toHaveBeenCalledOnce();
     },
   );
+
+  it("upgrades a legacy request explicitly and only sends after confirmation", async () => {
+    const key = trainingDatasetDraftKey({
+      userId: "user-a",
+      sessionId: useAuthStore.getState().sessionId!,
+      projectId: "project-1",
+      task: "detect",
+    });
+    const oldKey = key.replace("training:dataset-request:1:", "aap-training-dataset-request:1:");
+    const body = {
+      name: "原请求",
+      task: "detect",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      preflight_digest: "a".repeat(64),
+      task_ids: ["selected"],
+      confirmed_negative_ids: [],
+    };
+    localStorage.setItem(oldKey, JSON.stringify({ version: 1, ownerKey: oldKey, body }));
+    const user = userEvent.setup();
+    mount();
+    await user.click(screen.getByRole("button", { name: "准备新版本" }));
+    expect(screen.getByRole("button", { name: "创建数据版本" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "升级旧版请求" }));
+    expect(await screen.findByRole("button", { name: "确认原创建请求" })).toBeEnabled();
+    expect(screen.getByLabelText("版本名称")).toHaveValue("原请求");
+    expect(trainingDatasetsApi.create).not.toHaveBeenCalled();
+    expect(localStorage.getItem(oldKey)).toBe(
+      JSON.stringify({ version: 1, ownerKey: oldKey, body }),
+    );
+    await user.click(screen.getByRole("button", { name: "确认原创建请求" }));
+    await waitFor(() => expect(trainingDatasetsApi.create).toHaveBeenCalledWith("project-1", body));
+  });
 
   it("blocks replacement of malformed persisted requests without revealing their contents", async () => {
     const key = trainingDatasetDraftKey({
@@ -895,7 +985,7 @@ describe("project learning data versions", () => {
       key,
       value,
     ) {
-      if (key.startsWith("aap-training-dataset-request:"))
+      if (key.startsWith("training:dataset-request:"))
         throw new DOMException("Quota exceeded", "QuotaExceededError");
       setItem.call(this, key, value);
     });

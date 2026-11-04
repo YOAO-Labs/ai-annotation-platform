@@ -51,6 +51,9 @@ import {
   readTrainingDatasetDraft,
   saveTrainingDatasetDraft,
   removeMatchingTrainingDatasetDraft,
+  upgradeTrainingDatasetDraft,
+  discardTrainingDatasetDraft,
+  trainingDatasetDraftSnapshot,
   type TrainingDatasetDraftOwner,
 } from "../Training/trainingDatasetDraftStorage";
 
@@ -171,23 +174,20 @@ function ProjectLearningContent({
       : undefined;
   const [storedRequests] = useState(
     () =>
-      new Map(
-        (
-          [
-            { task: "detect" },
-            { task: "segment" },
-            { task: "segment", bridge: instanceMaskBridge },
-          ] as const
-        ).map((entry) => {
-          const bridge = "bridge" in entry ? entry.bridge : undefined;
-          return [
-            datasetDraftScope(entry.task, bridge),
-            owner.userId && owner.sessionId && owns()
-              ? readTrainingDatasetDraft(datasetOwner(entry.task, bridge))
-              : { body: null, error: "登录会话不可用，请重新登录。" },
-          ] as const;
-        }),
-      ),
+      new Map<
+        string,
+        {
+          body: TrainingDatasetCreate | null;
+          error: string | null;
+        }
+      >([
+        [datasetDraftScope("detect"), { body: null, error: "正在检查本地创建请求…" }],
+        [datasetDraftScope("segment"), { body: null, error: "正在检查本地创建请求…" }],
+        [
+          datasetDraftScope("segment", instanceMaskBridge),
+          { body: null, error: "正在检查本地创建请求…" },
+        ],
+      ]),
   );
   const initialRequest = storedRequests.get(datasetDraftScope(initialTask, initialBridge))!;
   const initialBody = initialRequest.body;
@@ -309,6 +309,104 @@ function ProjectLearningContent({
   const preferredBridges = useRef(
     new Map<string, InstanceMaskBridge | undefined>([[initialTask, bridge]]),
   );
+  const applyStoredRequest = useCallback(
+    (scopeKey: string, stored: { body: TrainingDatasetCreate | null; error: string | null }) => {
+      storedRequests.set(scopeKey, stored);
+      taskDrafts.current.delete(scopeKey);
+      if (activeDraft.current !== scopeKey) return;
+      setStorageError(stored.error);
+      setError("");
+      setPendingCreate(stored.body);
+      requestId.current = stored.body?.request_id ?? randomId();
+      checkedDigest.current = null;
+      setReport(null);
+      if (stored.body) {
+        const body = stored.body;
+        setName(body.name);
+        setBatchId(body.batch_id ?? "");
+        setSourceDatasetId(body.dataset_id ?? "");
+        const filter = readDatasetTrainingFilter(
+          body.dataset_filter == null ? null : JSON.stringify(body.dataset_filter),
+          body.dataset_id ?? "",
+        );
+        setDatasetFilter(filter.filter);
+        setDatasetFilterError(filter.error);
+        setParentId(body.parent_id ?? "");
+        setMode(body.mode ?? "reviewed");
+        setSeed(String(body.seed ?? 42));
+        setFraction(String((body.validation_fraction ?? 0.2) * 100));
+        setSelected(body.task_ids ?? []);
+        setNegatives(body.confirmed_negative_ids ?? []);
+      }
+    },
+    [storedRequests],
+  );
+  useEffect(() => {
+    if (!owns()) return;
+    const entries = [
+      { task: "detect" as const },
+      { task: "segment" as const },
+      { task: "segment" as const, bridge: instanceMaskBridge },
+    ] as const;
+    void Promise.all(
+      entries.map(async (entry) => {
+        const bridge = "bridge" in entry ? entry.bridge : undefined;
+        return [
+          datasetDraftScope(entry.task, bridge),
+          await readTrainingDatasetDraft(datasetOwner(entry.task, bridge)),
+        ] as const;
+      }),
+    ).then((results) => {
+      if (!owns()) return;
+      results.forEach(([key, stored]) => applyStoredRequest(key, stored));
+    });
+  }, [applyStoredRequest, datasetOwner, owns]);
+  const [recoveringRequest, setRecoveringRequest] = useState(false);
+  const recoverStoredRequest = async (kind: "upgrade" | "legacy" | "current") => {
+    if (!owns() || recoveringRequest) return;
+    const selectedOwner = datasetOwner(trainingTask, bridge);
+    const scopeKey = datasetDraftScope(trainingTask, bridge);
+    let expected: string | null = null;
+    if (kind !== "upgrade") {
+      try {
+        expected = trainingDatasetDraftSnapshot(selectedOwner)[kind];
+      } catch {
+        setStorageError("无法读取浏览器存储，原记录未更改。");
+        return;
+      }
+      if (expected === null) {
+        setStorageError("指定记录已不存在，请刷新后检查。");
+        return;
+      }
+      if (
+        !(await confirmDialog({
+          title: kind === "legacy" ? "忽略旧版创建请求？" : "删除新版创建请求？",
+          description:
+            kind === "legacy"
+              ? "旧记录仍会保留；若此前请求已提交，请先核对数据版本，避免重复创建。"
+              : "删除后无法恢复新版记录。若此前请求已提交，请先核对数据版本。",
+          confirmLabel: kind === "legacy" ? "忽略旧记录" : "删除记录",
+          tone: "danger",
+        }))
+      )
+        return;
+    }
+    if (!owns()) return;
+    setRecoveringRequest(true);
+    const failure =
+      kind === "upgrade"
+        ? await upgradeTrainingDatasetDraft(selectedOwner, assert)
+        : await discardTrainingDatasetDraft(selectedOwner, kind, expected!, assert);
+    if (!owns()) return;
+    setRecoveringRequest(false);
+    if (failure) {
+      if (activeDraft.current === scopeKey) setStorageError(failure);
+      return;
+    }
+    const stored = await readTrainingDatasetDraft(selectedOwner);
+    if (!owns()) return;
+    applyStoredRequest(scopeKey, stored);
+  };
   const selection: TrainingDatasetSelection = useMemo(
     () => ({
       task: trainingTask,
@@ -493,36 +591,89 @@ function ProjectLearningContent({
     },
   });
   const create = useMutation({
-    mutationFn: (body: TrainingDatasetCreate) => {
+    mutationFn: async (body: TrainingDatasetCreate) => {
       assert();
+      const stored = await readTrainingDatasetDraft(
+        datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+      );
+      assert();
+      if (stored.error || JSON.stringify(stored.body) !== JSON.stringify(body))
+        throw new Error(stored.error ?? "本地创建请求已变化，请刷新后核对。");
       return trainingDatasetsApi.create(projectId, body);
     },
-    onMutate: (body) => {
+    onMutate: async (body) => {
       assert();
-      const failure = saveTrainingDatasetDraft(
+      const epoch = selectionEpoch.current;
+      const scopeKey = datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge));
+      const failure = await saveTrainingDatasetDraft(
         datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
         body,
+        localStorage,
+        assert,
       );
-      if (failure) throw new Error(failure);
+      assert();
+      if (failure) {
+        const stored = await readTrainingDatasetDraft(
+          datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        );
+        assert();
+        storedRequests.set(scopeKey, stored);
+        if (epoch === selectionEpoch.current && stored.error) setStorageError(stored.error);
+        throw new Error(failure);
+      }
+      if (epoch !== selectionEpoch.current) {
+        storedRequests.set(
+          scopeKey,
+          await readTrainingDatasetDraft(
+            datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+          ),
+        );
+        assert();
+        throw new DOMException("已切换任务，请确认原创建请求。", "AbortError");
+      }
       currentDraft.current.pendingCreate = body;
       setPendingCreate(body);
-      return selectionEpoch.current;
+      return epoch;
     },
-    onSuccess: (value, body, epoch) => {
+    onSuccess: async (value, body, epoch) => {
       if (!owns()) return;
-      const failure = removeMatchingTrainingDatasetDraft(
+      const failure = await removeMatchingTrainingDatasetDraft(
         datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
         body,
+        localStorage,
+        assert,
       );
+      if (!owns()) return;
       if (failure) {
-        setError(failure);
+        const stored = await readTrainingDatasetDraft(
+          datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        );
+        if (!owns()) return;
+        storedRequests.set(
+          datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+          stored,
+        );
+        if (epoch === selectionEpoch.current) {
+          if (stored.error) setStorageError(stored.error);
+          setError(failure);
+        }
         return;
       }
+      storedRequests.set(
+        datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        await readTrainingDatasetDraft(
+          datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+        ),
+      );
+      if (!owns()) return;
       refresh();
       const previous = taskDrafts.current.get(
         datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
       );
-      if (previous?.pendingCreate?.request_id === body.request_id)
+      if (
+        previous?.pendingCreate &&
+        JSON.stringify(previous.pendingCreate) === JSON.stringify(body)
+      )
         taskDrafts.current.set(
           datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
           {
@@ -534,7 +685,9 @@ function ProjectLearningContent({
             checkedDigest: null,
           },
         );
-      setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
+      setPendingCreate((current) =>
+        current && JSON.stringify(current) === JSON.stringify(body) ? null : current,
+      );
       if (epoch !== selectionEpoch.current) return;
       setDetailId(value.id);
       setCreateOpen(false);
@@ -543,8 +696,25 @@ function ProjectLearningContent({
       requestId.current = randomId();
       checkedDigest.current = null;
     },
-    onError: (reason: Error, body, epoch) => {
+    onError: async (reason: Error, body, epoch) => {
       if (!owns()) return;
+      if (
+        epoch === undefined &&
+        activeDraft.current !==
+          datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge))
+      )
+        return;
+      const stored = await readTrainingDatasetDraft(
+        datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+      );
+      if (!owns()) return;
+      if (
+        stored.error &&
+        activeDraft.current ===
+          datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)) &&
+        (epoch === undefined || epoch === selectionEpoch.current)
+      )
+        setStorageError(stored.error);
       const transientConflict =
         reason instanceof ApiError &&
         reason.status === 409 &&
@@ -561,18 +731,31 @@ function ProjectLearningContent({
         ![408, 425, 429].includes(reason.status) &&
         !transientConflict;
       if (refused) {
-        const failure = removeMatchingTrainingDatasetDraft(
+        const failure = await removeMatchingTrainingDatasetDraft(
           datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
           body,
+          localStorage,
+          assert,
         );
+        if (!owns()) return;
         if (failure) {
-          setError(failure);
+          if (epoch === selectionEpoch.current) setError(failure);
           return;
         }
+        storedRequests.set(
+          datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+          await readTrainingDatasetDraft(
+            datasetOwner(body.task ?? "detect", nativeBridgeOf(body.bridge)),
+          ),
+        );
+        if (!owns()) return;
         const previous = taskDrafts.current.get(
           datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
         );
-        if (previous?.pendingCreate?.request_id === body.request_id)
+        if (
+          previous?.pendingCreate &&
+          JSON.stringify(previous.pendingCreate) === JSON.stringify(body)
+        )
           taskDrafts.current.set(
             datasetDraftScope(body.task ?? "detect", nativeBridgeOf(body.bridge)),
             {
@@ -582,7 +765,9 @@ function ProjectLearningContent({
               error: reason.message,
             },
           );
-        setPendingCreate((current) => (current?.request_id === body.request_id ? null : current));
+        setPendingCreate((current) =>
+          current && JSON.stringify(current) === JSON.stringify(body) ? null : current,
+        );
       }
       if (epoch !== undefined && epoch !== selectionEpoch.current) return;
       setError(reason.message);
@@ -1102,9 +1287,36 @@ function ProjectLearningContent({
           >
             <section ref={datasetForm} aria-labelledby="create-dataset-title" className="min-w-0">
               {storageError && (
-                <p role="alert" className="mb-4 text-sm text-status-danger">
-                  {storageError}
-                </p>
+                <div className="mb-4">
+                  <p role="alert" className="text-sm text-status-danger">
+                    {storageError}
+                  </p>
+                  {storageError !== "正在检查本地创建请求…" && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button
+                        size="sm"
+                        disabled={recoveringRequest}
+                        onClick={() => void recoverStoredRequest("upgrade")}
+                      >
+                        升级旧版请求
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={recoveringRequest}
+                        onClick={() => void recoverStoredRequest("legacy")}
+                      >
+                        忽略旧版记录
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={recoveringRequest}
+                        onClick={() => void recoverStoredRequest("current")}
+                      >
+                        删除新版记录
+                      </Button>
+                    </div>
+                  )}
+                </div>
               )}
               {error && (
                 <p
