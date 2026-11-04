@@ -21,6 +21,7 @@ from yoao_identity.platform_role_manager import PlatformRoleManager
 from yoao_identity.platform_role_postgres import PlatformRolePostgresData
 from yoao_identity.postgres import PostgresData
 from app.db.models.user import User
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,
@@ -212,26 +213,21 @@ async def test_restored_platform_role_receipt_replays_frozen_result(
                 changed_request
             )
 
-        refused = _alembic(owner_url, "downgrade", "bo0244")
-        assert refused.returncode != 0
-        assert (
-            b"Cannot remove Identity platform-role ownership while receipts exist"
-            in refused.stdout + refused.stderr
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored,
+            _alembic,
+            [
+                (
+                    "bo0245",
+                    "bo0244",
+                    "0245_identity_platform_roles.py",
+                    "identity_platform_role_operation_receipts",
+                    "operation_id",
+                    operation_id,
+                )
+            ],
         )
-        async with restored.begin() as db:
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_platform_role_operation_receipts "
-                    "WHERE operation_id=:operation_id"
-                ),
-                {"operation_id": operation_id},
-            )
-        assert _alembic(owner_url, "downgrade", "bo0244").returncode == 0
-        async with restored.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "bo0244"
-            )
         record_property(
             "platform_role_restore",
             "same-secret-frozen-replay,no-repeat-Audit,exact-two-functions,epoch-refusal,populated-downgrade-refusal,empty-downgrade",

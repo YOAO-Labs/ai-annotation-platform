@@ -21,6 +21,7 @@ from yoao_identity.suspension_contract import (
 from yoao_identity.suspension_manager import SuspensionManager
 from yoao_identity.suspension_postgres import SuspensionPostgresData
 from app.db.models.user import User
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,
@@ -208,30 +209,21 @@ async def test_restored_suspension_receipt_replays_and_populated_downgrade_refus
         assert epoch.value.code == "operation_conflict"
         assert epoch.value.status_code == 409
 
-        refused = _alembic(owner_url, "downgrade", "bo0245")
-        assert refused.returncode != 0
-        assert (
-            b"Cannot remove Identity suspension ownership while receipts exist"
-            in refused.stdout + refused.stderr
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored,
+            _alembic,
+            [
+                (
+                    "bo0246",
+                    "bo0245",
+                    "0246_identity_suspensions.py",
+                    "identity_suspension_operation_receipts",
+                    "operation_id",
+                    operation_id,
+                )
+            ],
         )
-        async with restored.begin() as db:
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_suspension_operation_receipts "
-                    "WHERE operation_id=:operation_id"
-                ),
-                {"operation_id": operation_id},
-            )
-        empty = _alembic(owner_url, "downgrade", "bo0245")
-        assert empty.returncode == 0, "Owned empty suspension downgrade failed"
-        async with restored.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "bo0245"
-            )
-            assert await db.scalar(
-                text("SELECT to_regnamespace('aap_identity_suspensions_v1') IS NULL")
-            )
     finally:
         await restored.dispose()
         if created:

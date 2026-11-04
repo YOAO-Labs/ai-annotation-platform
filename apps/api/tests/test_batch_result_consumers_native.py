@@ -315,6 +315,7 @@ async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots
                 member,
                 result,
                 requests,
+                request=world.request,
                 manifest_backed=False,
             )
         assert await _counts(world) == (1, 1, 0, 1)
@@ -387,6 +388,7 @@ async def test_actual_multi_result_write_transfers_receipts_counts_and_releases_
                 member,
                 result,
                 requests,
+                request=world.request,
                 manifest_backed=False,
             )
         assert await _counts(world) == (2, 2, 0, 2)
@@ -850,6 +852,7 @@ async def test_stale_worker_cannot_commit_ready_prediction_after_lease_takeover(
                         member,
                         result,
                         requests,
+                        request=world.request,
                         manifest_backed=False,
                     )
                 await db.rollback()
@@ -864,6 +867,7 @@ async def test_stale_worker_cannot_commit_ready_prediction_after_lease_takeover(
                     member,
                     actual_result,
                     actual_requests,
+                    request=world.request,
                     manifest_backed=False,
                 )
             assert await _counts(world) == (1, 1, 0, 1)
@@ -896,6 +900,7 @@ async def test_lost_real_commit_ack_reads_exact_receipt_without_duplicate_predic
                 member,
                 result,
                 requests,
+                request=world.request,
                 manifest_backed=False,
             )
         assert await _counts(world) == (1, 1, 0, 1)

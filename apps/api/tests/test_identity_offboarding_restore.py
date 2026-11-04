@@ -21,6 +21,7 @@ from yoao_identity.offboarding_manager import OffboardingManager
 from yoao_identity.offboarding_postgres import OffboardingPostgresData
 from yoao_identity.postgres import PostgresData
 from app.db.models.user import User
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_admission_live import _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,
@@ -278,35 +279,21 @@ async def test_restored_offboarding_receipt_replays_and_populated_downgrade_refu
             )
         assert getattr(epoch.value, "code", None) == "operation_conflict"
 
-        refused = _alembic(owner_url, "downgrade", "bo0247")
-        assert refused.returncode != 0
-        assert (
-            b"Cannot remove Identity offboarding ownership while receipts exist"
-            in refused.stdout + refused.stderr
-        )
-        async with restored.begin() as db:
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_offboarding_operation_receipts "
-                    "WHERE operation_id=:operation_id"
-                ),
-                {"operation_id": operation_id},
-            )
-        empty = _alembic(owner_url, "downgrade", "bo0247")
-        assert empty.returncode == 0, "Owned empty offboarding downgrade failed"
-        async with restored.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "bo0247"
-            )
-            assert await db.scalar(
-                text("SELECT to_regnamespace('aap_identity_offboarding_v1') IS NULL")
-            )
-            assert await db.scalar(
-                text(
-                    "SELECT to_regclass('public.identity_offboarding_operation_receipts') IS NULL"
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored,
+            _alembic,
+            [
+                (
+                    "bo0248",
+                    "bo0247",
+                    "0248_identity_offboarding.py",
+                    "identity_offboarding_operation_receipts",
+                    "operation_id",
+                    operation_id,
                 )
-            )
+            ],
+        )
     finally:
         await restored.dispose()
         if created:

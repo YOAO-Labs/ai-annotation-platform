@@ -18,7 +18,7 @@ from yoao_identity.recovery_crypto import mail_key_from_secret, token_hash
 from yoao_identity.recovery_manager import RecoveryManager
 from yoao_identity.recovery_postgres import RecoveryPostgresData
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_identity_admission_live import _cleanup, _dsn, _world
+from tests.test_identity_admission_live import _dsn
 from tests.test_identity_recovery import (
     _alembic,
     _postgres_tool,
@@ -48,10 +48,9 @@ def _apply_grant_script(test_engine, database, filename, variables):
     )
 
 
-async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path: Path):
+async def test_0239_preserves_live_legacy_challenge_links(test_engine):
     recovery_source = _dsn("RECOVERY", test_engine)
-    first_maker, first_user = await _world(test_engine)
-    second_maker, second_user = await _world(test_engine)
+    first_user, second_user = uuid.uuid4(), uuid.uuid4()
     first_email = f"identity-live-{first_user}@example.test"
     second_email = f"identity-live-{second_user}@example.test"
 
@@ -65,7 +64,6 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
     restored = create_async_engine(owner_url)
     created = False
     routing_role_created = False
-    snapshot = tmp_path / "identity-challenges.dump"
 
     live_token = "legacy.reset/nonhex+token"
     used_token = "legacy.verify/nonhex+token"
@@ -77,14 +75,8 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
     used_id = uuid.uuid4()
 
     try:
-        dump = _postgres_tool(
-            test_engine,
-            ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
-        )
-        assert dump.startswith(b"PGDMP")
-        snapshot.touch(mode=0o600)
-        snapshot.write_bytes(dump)
-
+        # Build the actual legacy revision instead of downgrading a current
+        # database past later, intentionally irreversible migrations.
         async with admin.connect() as db:
             await db.execute(text(f'CREATE DATABASE "{clone}" TEMPLATE template0'))
             created = True
@@ -113,39 +105,22 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
                     text(f'GRANT {privilege} ON DATABASE "{clone}" TO {role}{suffix}')
                 )
 
-        _postgres_tool(
-            test_engine,
-            ["pg_restore", "-U", "owner", "--exit-on-error", "--dbname", clone],
-            body=snapshot.read_bytes(),
-        )
-        async with restored.begin() as db:
-            # This task owns the restored database. Clear only its copied recovery
-            # state so the migration begins from a known empty 0239 image.
-            for table in (
-                "identity_offboarding_operation_receipts",
-                "identity_suspension_operation_receipts",
-                "identity_deletion_operation_receipts",
-                "identity_platform_role_operation_receipts",
-                "identity_admin_password_reset_receipts",
-                "identity_directory_export_receipts",
-                "identity_invitation_operation_receipts",
-                "identity_group_operation_receipts",
-                "identity_recovery_operation_receipts",
-                "identity_credential_mail_outbox",
-                "password_reset_tokens",
-                "email_verification_tokens",
-            ):
-                await db.execute(text(f"DELETE FROM public.{table}"))
-                assert (
-                    await db.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
-                )
-
-        downgraded = _alembic(owner_url, "downgrade", "bo0238")
-        assert downgraded.returncode == 0, "Owned empty recovery downgrade failed"
+        prepared = _alembic(owner_url, "upgrade", "bo0238")
+        assert prepared.returncode == 0, "Owned legacy challenge setup failed"
         async with restored.begin() as db:
             assert (
                 await db.scalar(text("SELECT version_num FROM alembic_version"))
                 == "bo0238"
+            )
+            await db.execute(
+                text(
+                    "INSERT INTO public.users (id,email,name,password_hash,role,is_active) "
+                    "VALUES (:id,:email,'Live Identity user','fixture-only','super_admin',true)"
+                ),
+                [
+                    {"id": first_user, "email": first_email},
+                    {"id": second_user, "email": second_email},
+                ],
             )
             await db.execute(
                 text(
@@ -339,7 +314,6 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
             )
 
     finally:
-        snapshot.unlink(missing_ok=True)
         await restored.dispose()
         try:
             if created:
@@ -360,18 +334,3 @@ async def test_0239_preserves_live_legacy_challenge_links(test_engine, tmp_path:
                         await db.execute(text(f'DROP ROLE "{routing_role}"'))
         finally:
             await admin.dispose()
-            try:
-                async with first_maker.begin() as db:
-                    await db.execute(
-                        text("DELETE FROM public.password_reset_tokens WHERE id=:id"),
-                        {"id": live_id},
-                    )
-                    await db.execute(
-                        text(
-                            "DELETE FROM public.email_verification_tokens WHERE id=:id"
-                        ),
-                        {"id": used_id},
-                    )
-                await _cleanup(first_maker, first_user, [])
-            finally:
-                await _cleanup(second_maker, second_user, [])

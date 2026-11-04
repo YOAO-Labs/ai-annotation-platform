@@ -16,6 +16,7 @@ from yoao_workspace.owner_transfer import OwnerTransferManager
 from yoao_workspace.owner_transfer_postgres import OwnerTransferPostgresData
 from app.db.models.project import Project
 from app.db.models.user import User
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_recovery import _alembic, _postgres_tool
 
 pytestmark = [
@@ -224,41 +225,21 @@ async def test_owner_transfer_receipt_replays_after_restore_and_blocks_populated
                 == 0
             )
 
-        refused = _alembic(test_engine.url.set(database=clone), "downgrade", "bo0253")
-        assert refused.returncode != 0
-        assert b"receipts" in refused.stdout + refused.stderr
-        async with restored_owner.begin() as db:
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT shobj_description(oid,'pg_database') "
-                        "FROM pg_database WHERE datname=current_database()"
-                    )
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored_owner,
+            _alembic,
+            [
+                (
+                    "bo0254",
+                    "bo0253",
+                    "0254_workspace_owner_transfer.py",
+                    "workspace_owner_transfer_operation_receipts",
+                    "operation_id",
+                    operation_id,
                 )
-                == ownership
-            )
-            await db.execute(
-                text("DELETE FROM public.workspace_owner_transfer_operation_receipts")
-            )
-        empty = _alembic(test_engine.url.set(database=clone), "downgrade", "bo0253")
-        assert empty.returncode == 0, (
-            "Owned empty Workspace owner transfer downgrade failed"
+            ],
         )
-        async with restored_owner.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "bo0253"
-            )
-            assert await db.scalar(
-                text(
-                    "SELECT to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL"
-                )
-            )
-            assert await db.scalar(
-                text(
-                    "SELECT to_regclass('public.workspace_owner_transfer_operation_receipts') IS NULL"
-                )
-            )
     finally:
         await restored_owner.dispose()
         if created:

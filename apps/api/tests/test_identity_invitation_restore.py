@@ -22,6 +22,7 @@ from yoao_identity.invitation_postgres import InvitationPostgresData
 from yoao_identity.mail_v2_postgres import MailV2PostgresData
 from yoao_identity.postgres import PostgresData
 from yoao_identity.recovery_crypto import decrypt_mail_token, mail_key_from_secret
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,
@@ -284,39 +285,24 @@ async def test_restored_invitation_receipts_jwt_and_durable_mail_lease(
                 dsn("INVITATION"), dsn("AUTH"), signing_secret=changed_secret
             ).execute(changed_request)
 
-        async with restored.connect() as db:
-            before_downgrade = await db.scalar(
-                text("SELECT version_num FROM public.alembic_version")
-            )
-        refused = _alembic(owner_url, "downgrade", "bo0241")
-        assert refused.returncode != 0
-        assert (
-            b"Cannot remove Identity invitation ownership while receipts or durable mail state exists"
-            in refused.stdout + refused.stderr
-        )
-        async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == before_downgrade
-            )
-            await db.execute(
-                text("DELETE FROM public.identity_invitation_operation_receipts")
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_credential_mail_outbox WHERE purpose='invitation'"
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored,
+            _alembic,
+            [
+                (
+                    "bo0242",
+                    "bo0241",
+                    "0242_identity_invitations.py",
+                    "identity_invitation_operation_receipts",
+                    "operation_id",
+                    operations[0],
                 )
-            )
-        empty = _alembic(owner_url, "downgrade", "bo0241")
-        assert empty.returncode == 0, "Owned empty invitation downgrade failed"
-        async with restored.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == "bo0241"
-            )
+            ],
+        )
         record_property(
             "invitation_restore",
-            "same-token-and-JWT-replay,no-repeat-Audit,mail-lease-renew-and-finish,exact-3-and-4-functions,epoch-refusal,populated-downgrade-refusal",
+            "same-token-and-JWT-replay,no-repeat-Audit,mail-lease-renew-and-finish,exact-3-and-4-functions,epoch-refusal,populated-downgrade-refusal,empty-downgrade",
         )
     finally:
         await restored.dispose()

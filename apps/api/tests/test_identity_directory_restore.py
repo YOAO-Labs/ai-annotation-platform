@@ -17,6 +17,7 @@ from yoao_identity.directory_contract import DirectoryFailure, decode_directory_
 from yoao_identity.directory_manager import DirectoryManager
 from yoao_identity.directory_postgres import DirectoryPostgresData
 from yoao_identity.postgres import PostgresData
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_admission_live import _cleanup, _dsn, _token, _world
 from tests.test_identity_recovery import (
     _alembic,
@@ -202,23 +203,24 @@ async def test_restored_directory_export_replays_snapshot_and_rejects_epoch(
             await manager(dsn("DIRECTORY"), dsn("AUTH"), changed_secret).execute(
                 changed_request
             )
-        refused = _alembic(owner_url, "downgrade", "bo0242")
-        assert refused.returncode != 0
-        assert (
-            b"Cannot remove Identity directory ownership while export receipts exist"
-            in refused.stdout + refused.stderr
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored,
+            _alembic,
+            [
+                (
+                    "bo0243",
+                    "bo0242",
+                    "0243_identity_directory.py",
+                    "identity_directory_export_receipts",
+                    "operation_id",
+                    operation_id,
+                )
+            ],
         )
-        async with restored.begin() as db:
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_directory_export_receipts WHERE operation_id=:id"
-                ),
-                {"id": operation_id},
-            )
-        assert _alembic(owner_url, "downgrade", "bo0242").returncode == 0
         record_property(
             "directory_restore",
-            "same-eight-field-export-and-metadata,current-principal-profile,exact-two-functions,no-repeat-Audit,epoch-refusal,populated-downgrade-refusal",
+            "same-eight-field-export-and-metadata,current-principal-profile,exact-two-functions,no-repeat-Audit,epoch-refusal,populated-downgrade-refusal,empty-downgrade",
         )
     finally:
         await restored.dispose()

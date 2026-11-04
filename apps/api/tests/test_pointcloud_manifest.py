@@ -1,12 +1,4 @@
-"""v0.13.2 · 点云 manifest 端点测试 (0.13.2-1)。
-
-GET /api/v1/tasks/{id}/point-cloud/manifest:
-  - lidar 项目 + 一 scene (1 帧 lidar + 2 相机 + calib) → 200,
-    point_cloud_url 非空、cameras 数量/名字/标定值正确
-  - 非 lidar (image) task → 409
-
-不真连 MinIO: monkeypatch storage_service.generate_download_url 返回伪 URL。
-"""
+"""Point-cloud manifests expose authenticated identities and spatial facts."""
 
 from __future__ import annotations
 
@@ -27,21 +19,6 @@ def _calib(extr_seed: float, intr_seed: float) -> dict:
         "extrinsic": [extr_seed + i for i in range(16)],
         "intrinsic": [intr_seed + i for i in range(9)],
     }
-
-
-@pytest.fixture
-def _patch_presign(monkeypatch):
-    """伪 presign: 记录下载签名参数,不连 MinIO。"""
-    calls = []
-
-    def _fake(key, expires_in=3600, bucket=None):
-        calls.append((key, expires_in, bucket))
-        return f"http://storage.local/{key}"
-
-    monkeypatch.setattr(
-        "app.api.v1.tasks.video.storage_service.generate_download_url", _fake
-    )
-    return calls
 
 
 async def _seed_lidar_scene(db, owner_id):
@@ -111,12 +88,13 @@ async def _seed_lidar_scene(db, owner_id):
 
 
 async def test_point_cloud_manifest_returns_scene(
-    db_session, httpx_client, super_admin, _patch_presign
+    db_session, httpx_client, super_admin
 ):
-    from app.services.storage import storage_service
+    from app.services.task_dataset_link import get_linked_items
 
     user, token = super_admin
     task, front_calib, rear_calib = await _seed_lidar_scene(db_session, user.id)
+    links = {link.role: link for link in await get_linked_items(db_session, task.id)}
 
     resp = await httpx_client.get(
         f"/api/v1/tasks/{task.id}/point-cloud/manifest",
@@ -127,21 +105,10 @@ async def test_point_cloud_manifest_returns_scene(
 
     assert body["task_id"] == str(task.id)
     assert body["point_cloud_format"] == "pcd"
-    assert body["expires_in"] == 3600
-    assert body["point_cloud_url"] == "http://storage.local/scene-a/lidar/000001.pcd"
-    assert _patch_presign[0] == (
-        "scene-a/lidar/000001.pcd",
-        3600,
-        storage_service.datasets_bucket,
-    )
-    assert {key for key, _, _bucket in _patch_presign} == {
-        "scene-a/lidar/000001.pcd",
-        "scene-a/camera/front/000001.jpg",
-        "scene-a/camera/rear/000001.jpg",
-    }
-    assert all(
-        expires_in == 3600 and bucket == storage_service.datasets_bucket
-        for _, expires_in, bucket in _patch_presign
+    assert body["expires_in"] == 0
+    assert body["point_cloud_url"] is None
+    assert body["original_identity_path"] == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
     )
     # v0.13.11 · dataset 无 axis_convention 时 manifest 字段为 None,前端按 iso_8855 处理。
     assert body["axis_convention"] is None
@@ -150,15 +117,26 @@ async def test_point_cloud_manifest_returns_scene(
     assert [c["name"] for c in cameras] == ["front", "rear"]  # 按 name 排序
     front, rear = cameras
     assert front["role"] == "camera_front"
-    assert front["image_url"] == "http://storage.local/scene-a/camera/front/000001.jpg"
+    assert front["image_url"] is None
+    assert front["dataset_item_id"] == str(links["camera_front"].dataset_item_id)
+    assert front["link_id"] == str(links["camera_front"].id)
+    assert front["original_identity_path"] == (
+        f"/api/v1/files/tasks/{task.id}/links/{links['camera_front'].id}/original-identity"
+    )
     assert front["calibration"]["extrinsic"] == front_calib["extrinsic"]
     assert front["calibration"]["intrinsic"] == front_calib["intrinsic"]
+    assert rear["dataset_item_id"] == str(links["camera_rear"].dataset_item_id)
+    assert rear["link_id"] == str(links["camera_rear"].id)
+    assert rear["image_url"] is None
+    assert rear["original_identity_path"] == (
+        f"/api/v1/files/tasks/{task.id}/links/{links['camera_rear'].id}/original-identity"
+    )
     assert rear["calibration"]["extrinsic"] == rear_calib["extrinsic"]
     assert rear["calibration"]["intrinsic"] == rear_calib["intrinsic"]
 
 
 async def test_point_cloud_manifest_exposes_dataset_axis_convention(
-    db_session, httpx_client, super_admin, _patch_presign
+    db_session, httpx_client, super_admin
 ):
     """v0.13.11 · 主点云所在 dataset.metadata.axis_convention 透到 manifest 字段。"""
     user, token = super_admin
@@ -186,7 +164,7 @@ async def test_point_cloud_manifest_exposes_dataset_axis_convention(
 
 
 async def test_point_cloud_manifest_keeps_cameras_when_calibration_is_unavailable(
-    db_session, httpx_client, super_admin, _patch_presign
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, _, _ = await _seed_lidar_scene(db_session, user.id)
@@ -227,31 +205,18 @@ async def test_point_cloud_manifest_keeps_cameras_when_calibration_is_unavailabl
     cameras = response.json()["cameras"]
     assert [camera["name"] for camera in cameras] == ["front", "rear"]
     for camera in cameras:
-        assert camera["image_url"]
+        assert camera["image_url"] is None
+        assert camera["original_identity_path"] == (
+            f"/api/v1/files/tasks/{task.id}/links/{camera['link_id']}/original-identity"
+        )
         assert camera["calibration"] is None
         assert camera["calibration_revision"] is None
         assert camera["calibration_digest"] is None
 
 
-@pytest.mark.parametrize(
-    ("file_path", "expected_status", "expected_url"),
-    [
-        (
-            "pointcloud/fallback.pcd",
-            200,
-            "http://storage.local/pointcloud/fallback.pcd",
-        ),
-        ("", 404, None),
-    ],
-)
-async def test_point_cloud_manifest_without_links_uses_task_fallback_or_404(
-    file_path,
-    expected_status,
-    expected_url,
-    db_session,
-    httpx_client,
-    super_admin,
-    _patch_presign,
+@pytest.mark.parametrize("file_path", ["pointcloud/fallback.pcd", ""])
+async def test_point_cloud_manifest_without_links_requires_original_identity(
+    file_path, db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     project = await create_project(db_session, owner_id=user.id, type_key="lidar")
@@ -272,16 +237,22 @@ async def test_point_cloud_manifest_without_links_uses_task_fallback_or_404(
         headers={"Authorization": f"Bearer {token}"},
     )
 
-    assert response.status_code == expected_status, response.text
-    if expected_status == 200:
-        assert response.json()["point_cloud_url"] == expected_url
-        assert response.json()["cameras"] == []
-    else:
-        assert response.json()["detail"] == "Point cloud file not available"
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["point_cloud_url"] is None
+    assert body["original_identity_path"] == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
+    )
+    assert body["cameras"] == []
+    identity = await httpx_client.get(
+        body["original_identity_path"], headers={"Authorization": f"Bearer {token}"}
+    )
+    assert identity.status_code == 409, identity.text
+    assert identity.json()["detail"]["code"] == "no_readable_original"
 
 
 async def test_point_cloud_manifest_rejects_non_lidar_task(
-    db_session, httpx_client, super_admin, _patch_presign
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     project = await create_project(db_session, owner_id=user.id, type_key="image-det")
