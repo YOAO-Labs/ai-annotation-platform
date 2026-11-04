@@ -192,42 +192,47 @@ def _minio_dependency(resources: dict) -> dict:
     ):
         pytest.fail("verifier MinIO endpoint was not loopback scoped")
 
-    candidates = _docker(
-        "container",
-        "ls",
-        "--filter",
-        "status=running",
-        "--filter",
-        f"publish={endpoint.port}",
-        "--format",
-        "{{.ID}}",
-    ).splitlines()
-    matches = {}
-    for candidate in candidates:
-        details = _inspect_docker(candidate)
-        config = details.get("Config", {})
-        if "minio" not in str(config.get("Image", "")).lower():
-            continue
-        ports = details.get("NetworkSettings", {}).get("Ports") or {}
-        for container_port, bindings in ports.items():
-            service_port = int(container_port.split("/", 1)[0])
-            if any(
-                binding.get("HostIp") in {"127.0.0.1", "0.0.0.0", "::1", "::"}
-                and int(binding.get("HostPort", 0)) == endpoint.port
-                for binding in bindings or []
-            ):
-                matches[(details.get("Id"), service_port)] = details
-    if len(matches) != 1:
-        pytest.fail("the shared MinIO container was not uniquely identified")
-    (container_id, service_port), details = next(iter(matches.items()))
-    if not (
-        isinstance(container_id, str)
-        and details.get("Name")
-        and isinstance(details.get("Image"), str)
-        and details["Image"].startswith("sha256:")
-        and details.get("State", {}).get("Running") is True
+    container_id = _required("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+    if re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
+        pytest.fail("the verifier MinIO container ID was not immutable")
+    details = _inspect_docker(container_id)
+    image_id = details.get("Image")
+    if (
+        not isinstance(image_id, str)
+        or re.fullmatch(r"sha256:[0-9a-f]{64}", image_id) is None
     ):
-        pytest.fail("the shared MinIO container identity was incomplete")
+        pytest.fail("the verifier MinIO image ID was not immutable")
+    image = inspect_owned_docker("image", image_id)
+    digests = image.get("RepoDigests") or []
+    bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get(
+        "9000/tcp"
+    ) or []
+    matching_bindings = [
+        binding
+        for binding in bindings
+        if binding.get("HostIp") in {"127.0.0.1", "0.0.0.0", "::1", "::"}
+        and binding.get("HostPort") == str(endpoint.port)
+    ]
+    if not (
+        details.get("Id") == container_id
+        and details.get("Name")
+        and details.get("State", {}).get("Running") is True
+        and (details.get("Config", {}).get("Labels") or {}).get(
+            "com.docker.compose.service"
+        )
+        == "minio"
+        and image.get("Id") == image_id
+        and any(
+            re.fullmatch(
+                r"(?:minio/minio|quay\.io/minio/minio)@sha256:[0-9a-f]{64}", digest
+            )
+            for digest in digests
+            if isinstance(digest, str)
+        )
+        and len(matching_bindings) == 1
+    ):
+        pytest.fail("the verifier MinIO container, image, or published port differed")
+    service_port = 9000
     return {
         "id": container_id,
         "name": details["Name"],

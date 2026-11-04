@@ -35,11 +35,14 @@ pytestmark = [
 ]
 
 _IDENTITY_CONSUMER_FUNCTIONS = {
+    "read_accepted_api_key_facts(uuid,uuid)",
     "read_actor_facts(uuid)",
     "lock_accounts_share(uuid[],boolean)",
     "lock_accounts_update(uuid[],boolean)",
     "lock_accounts_key_share(uuid[],boolean)",
     "check_accepted_api_key(uuid,uuid,text[])",
+    "is_jti_revoked(uuid)",
+    "get_credential_generation(uuid)",
 }
 _FIXTURE_PREFERENCE_FUNCTION = "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)"
 _IDENTITY_VIEWS = {

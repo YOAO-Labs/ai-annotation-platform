@@ -660,7 +660,32 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 修改日常 PostgreSQL 的角色。运行命令及参数见
 `scripts/verify_module_data_boundary.py --help`；验证器会创建 workflow、cleanup、catalog 三类受限登录角色并向测试进程注入
 `AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
-记录该命令的 JUnit 与 JSON 结果。
+记录该命令的 JSON、JUnit 和同级 `<output-stem>.collection.json`；未完成的运行也保留已收集的
+node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
+严格默认验收先在自有资源中收集完整 node ID，再为相互排斥的身份／seed 操作账号
+分别创建独立数据库和对象存储资源运行；普通严格账号、每组 JSON／JUnit 和清理记录
+分别保留在报告指向的 profile 目录。只有每组实际选集与原始 collection 对账一致、
+所有案例通过且资源清理成功，才生成完整默认 JUnit；不会在活跃调用方下切换授权。
+会提交极大 Audit ID 的维护／冷消费者测试各用独立 profile，避免不可回滚的序列或
+归档夹具影响后续消费者；验收记录保留三条预检 Audit 事件，不把它们当成测试产生的写入。
+会提交固定演示账号的父级 seed 测试也独立运行，避免其 `admin` 账号影响其他验收。
+Workspace 独立 Node 对照依赖必须安装在 `apps/workspace/conformance/node` 自身；
+验证器在创建数据库或容器前检查该目录中的 `pg`，不会借用共享 Node 安装。
+普通 Identity 消费者的精确八函数包含接受后 API Key 事实读取，以及 JWT 撤销状态和凭据
+代次读取：分别服务于 `identity_request_authority` 和 `token_blacklist` 的事务内重验。
+这不授权私有表、凭据哈希或撤销写命令；各操作账号仍须断言自己的准确能力集合。
+
+默认选集中的旧 `test_dataset_import_cancellation.py` 已删除：其中是旧调用转发 mock，
+当前取消结果由已选的 `test_dataset_import.py`（旧任务 HTTP 取消）和
+`test_dataset_import_native.py`（管理员／原 owner 取消及迟到完成围栏）验证。
+旧 `test_assets_images_api_bridge.py` 测试已移除的 `AssetsImagePyramidApi`；当前
+`test_image_pyramid.py` 覆盖公开 manifest、ETag、资源范围和重试，默认选集还包含
+`test_image_pyramid_http.py`，覆盖实际 HTTP 消费、授权撤销和损坏清单恢复。
+这些是当前消费者的选择调整，不表示已删除实现的内部调用合同仍然存在。
+Labeling video-writer 容器验收还要求不可变 `AAP_LABELING_VIDEO_WRITER_IMAGE` 和
+绝对路径 `AAP_LABELING_VIDEO_WRITER_IMAGE_ARTIFACT`；工件记录镜像 ID、身份、源码提交、
+构建输入哈希和断网安装文件核对结果。验收会重新核对源码、镜像标签与受限容器配置，
+不把历史镜像的旧提交标签当作当前源码资格。
 它不验证生产容量，也不提供完整 assets/labeling 模块的独立部署资格。具体事务约束
 见 [ADR-0092](docs/adr/0092-transactional-module-data-capabilities.md)。
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -33,8 +34,6 @@ pytestmark = [
     ),
 ]
 
-_IMAGE_TAG = "aap-labeling-video-writer:qualified-10a6a8299"
-_SOURCE_REVISION = "10a6a829991555fce58ccb28a0b0ff4b31881dd4"
 _OWNER_LABEL = "org.aap.acceptance"
 _IDENTITY_LABEL = "org.aap.acceptance-id"
 _FORBIDDEN_DISTRIBUTIONS = {
@@ -82,11 +81,38 @@ def _inspect_docker(target: str) -> dict:
 
 
 def _inspect_image(image_ref: str) -> tuple[str, dict]:
-    if (
-        image_ref != _IMAGE_TAG
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", image_ref) is None
+    if re.fullmatch(r"sha256:[0-9a-f]{64}", image_ref) is None:
+        pytest.fail("the verifier must pass an immutable Labeling writer image ID")
+    artifact_path = Path(os.environ["AAP_LABELING_VIDEO_WRITER_IMAGE_ARTIFACT"])
+    if not artifact_path.is_absolute() or artifact_path.is_symlink():
+        pytest.fail("the Labeling writer artifact must be an owned regular file")
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    manifest = artifact.get("source_manifest")
+    if not (
+        artifact.get("status") == "passed"
+        and artifact.get("image_id") == image_ref
+        and artifact.get("offline_proof", {}).get("source_hashes_match") is True
+        and artifact.get("offline_proof", {}).get("status") == "passed"
+        and isinstance(manifest, dict)
+        and manifest
+        and isinstance(artifact.get("identity"), str)
+        and bool(artifact["identity"])
+        and re.fullmatch(r"[0-9a-f]{40}", artifact.get("source_commit", ""))
+        and {
+            "apps/labeling/Dockerfile",
+            "apps/labeling/pyproject.toml",
+            "apps/labeling/uv.lock",
+        }.issubset(manifest)
     ):
-        pytest.fail("the verifier must pass the qualified image tag or immutable ID")
+        pytest.fail("the Labeling writer artifact did not prove its source bytes")
+    root = Path(__file__).resolve().parents[3]
+    for name, digest in manifest.items():
+        source = (root / name).resolve()
+        if (
+            not source.is_relative_to(root)
+            or hashlib.sha256(source.read_bytes()).hexdigest() != digest
+        ):
+            pytest.fail(f"Labeling writer source differs from artifact: {name}")
     try:
         values = json.loads(_docker("image", "inspect", image_ref, timeout=20))
     except json.JSONDecodeError:
@@ -95,18 +121,14 @@ def _inspect_image(image_ref: str) -> tuple[str, dict]:
         pytest.fail("Labeling writer image identity was not unique")
     image = values[0]
     image_id = image.get("Id")
-    tags = image.get("RepoTags") or []
     labels = image.get("Config", {}).get("Labels") or {}
     if not (
-        isinstance(image_id, str)
-        and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
-        and (image_ref == image_id or image_ref == _IMAGE_TAG)
-        and _IMAGE_TAG in tags
-        and labels.get("org.aap.source-revision") == _SOURCE_REVISION
+        image_id == image_ref
+        and labels.get(_OWNER_LABEL) == "labeling-video-writer-image"
+        and labels.get(_IDENTITY_LABEL) == artifact.get("identity")
+        and labels.get("org.aap.source-revision") == artifact.get("source_commit")
     ):
-        pytest.fail(
-            "Labeling writer image digest, tag, or source revision did not match"
-        )
+        pytest.fail("Labeling writer image ID or source identity did not match")
     return image_id, image
 
 
@@ -218,6 +240,8 @@ class _RestrictedWriterContainer:
         tmp_path: Path,
     ):
         self.image_id = image_id
+        _, image = _inspect_image(image_id)
+        self.source_revision = image["Config"]["Labels"]["org.aap.source-revision"]
         self.output_geometry = output_geometry
         self.origin = ""
         self.token = secrets.token_urlsafe(36)
@@ -278,7 +302,7 @@ class _RestrictedWriterContainer:
             config.get("Image") == self.image_id
             and config.get("Cmd") == ["yoao-labeling-video-writer"]
             and config.get("User") == "10006:10006"
-            and labels.get("org.aap.source-revision") == _SOURCE_REVISION
+            and labels.get("org.aap.source-revision") == self.source_revision
             and host.get("ReadonlyRootfs") is True
             and host.get("CapDrop") == ["ALL"]
             and host.get("Privileged") is False

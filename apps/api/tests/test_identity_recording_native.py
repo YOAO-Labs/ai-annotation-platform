@@ -40,14 +40,14 @@ pytestmark = [
 def replay(name, value, record_property):
     if CAPTURE:
         directory = ROOT / ".worktree/identity-recording-baseline-cases"
-        directory.mkdir(exist_ok=True)
+        directory.mkdir(parents=True, exist_ok=True)
         (directory / f"{name}.json").write_text(
             json.dumps(value, indent=2, ensure_ascii=False) + "\n"
         )
     else:
         if value != GOLDEN[name]:
             directory = ROOT / ".worktree/recording-replay-mismatches"
-            directory.mkdir(exist_ok=True)
+            directory.mkdir(parents=True, exist_ok=True)
             (directory / f"{name}.json").write_text(
                 json.dumps(
                     {"actual": value, "expected": GOLDEN[name]},
