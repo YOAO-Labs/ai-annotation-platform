@@ -1185,6 +1185,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 9. 裸原件 URL 的签名限制必须在数据集预留前生效，并在最后一个根运行退役后保留，直到相应物理存储被准确退役；UUID 难猜、HEAD 不存在或 URL 到期均不能代替这个闭环。受跟踪的 owner delivery 与其他物理存储的普通读取保持各自合同。
 10. 沿用原件回收 owner 的 location 级 `active → draining → stopped` 维护门。共享该专用 location 的 B 有实际活动操作时，A 清理保持阻塞且不改动双方数据；真实排空后串行进入维护窗口、仅回收 A 的准确版本，再由同一 owner 恢复并验证 B。交错运行的邻居保护不等于不同运行可以独立并发执行物理回收，不停止共享平台 location，也不新增逐 run 绕过。
 11. nuScenes 截图实际使用独立 `map`／`raw_lidar` 辅助原件，不能伪造成 DatasetItem。沿现有 Assets 辅助原件 owner，在物理写入前登记准确运行、准入、原件／Creation 身份及来源合同；只恢复或退休本轮身份一致、已验证且 I/O 结束的真实意图。复用同一回收引擎，新增明确的 `dataset_auxiliary` 变体；原 `dataset_asset` 变体仍强制真实 item／asset 身份，不能扩成无锚点的通用 Creation 回收。公开回收 DTO、OpenAPI 与真实 UI／SDK 消费者同步表达互斥身份。私有准入能力不因测试库后缀授予普通 API 账号；未知状态、外部引用及普通非夹具行为继续保留原保护。
+12. 夹具专用目标不得覆盖平台默认 `datasets` 存储绑定。协调进程登记私有、不可变的目标身份与真实 generation；分配、读取、维护窗口及回收均复核该目标和原 location 门。普通 API 创建／上传／读取／退役仍使用原业务绑定，并与 A／B 夹具交错验证。复用现有 Python 分配器和 native 写入／核验能力，不保留已被替代的私有 SQL 分配旁路，不自动认领普通上传或放宽整桶签名限制。截图实际使用的本地多相机标定读取也须凭真实 item／接受操作取得许可；可选独立 Catalog／Spatial 部署不因这条本地路径通过而取得资格。
 
 ### 16.4 迁移验收矩阵
 
@@ -1245,6 +1246,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - 固定 MinIO 服务镜像实际包含 `/usr/bin/mc`；主进程核对镜像身份、提取该二进制并在宿主机执行，得到 `RELEASE.2025-08-13T08-35-41Z`，SHA256 为 `01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891`。E2E CI 复用这份镜像内客户端，不新增 Go 构建依赖，也不使用已返回 410 的旧官方下载地址。此证据只证明工具准备和宿主执行，不证明新的 IAM／协调器／回收生命周期已通过。
 - 当前 native Media／Images 的额外只读目标与私有协调器已形成待集成源码，真实独立进程读取仍未验收。源码审查补齐了取消后的物理线程／子进程排空、真实版本删除拒绝探针、引导前工具检查及销毁全程持有同一归属锁；这些修正尚未取得运行证据。nuScenes 辅助原件与回收响应的明确变体正在同一 T2 owner 内收敛，不改变前述未通过状态。
 - 验证器退役临时 resource root 时，若仍有准确源头回执或 owner journal，则保留原目录，并在清理结果登记路径、SHA256 与 `fixture_evidence` 原因；成功销毁运行资源不再同时抹掉物理来源证据。实际调用该退役入口，分别验证真实观测字节副本、真实空 owner 生命周期的 journal 单独存在时均被保留，无此证据的临时根仍删除；临时探针目录已收尾，未改数据库或对象桶。此窄验证不是协调器、T2 物理回收或完整资格通过，证据为 `runtime-private/fixture-evidence-retention-smoke.json`。
+- 主进程在独立集成工作树接入协调器候选，尚未改动主分支的保留运行环境。源码审核确认该候选改写默认 `datasets` 绑定，普通 API 分配可能进入夹具桶却没有运行归属，与原件读取围栏及准确退役冲突。修正采用私有目标绑定，并同步实际分配器、协调器及维护／回收检查；完整运行验证仍待进行。新的夹具表与回收身份结构统一由冻结 SQL 安装，避免正常迁移与从基线安装的结构分叉。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 
