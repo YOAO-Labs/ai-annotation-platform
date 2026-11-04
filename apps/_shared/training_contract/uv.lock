@@ -3,17 +3,17 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-task-contract"
+name = "yoao-task-contract"
 version = "0.1.0"
 source = { editable = "../task_contract" }
 
 [[package]]
-name = "aap-training-contract"
+name = "yoao-training-contract"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "aap-task-contract" },
+    { name = "yoao-task-contract" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "aap-task-contract", editable = "../task_contract" }]
+requires-dist = [{ name = "yoao-task-contract", editable = "../task_contract" }]

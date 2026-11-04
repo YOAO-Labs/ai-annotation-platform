@@ -3,41 +3,6 @@ revision = 3
 requires-python = ">=3.11"
 
 [[package]]
-name = "aap-inference-contract"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "aap-task-contract" },
-    { name = "pydantic" },
-]
-
-[package.optional-dependencies]
-client = [
-    { name = "httpx" },
-]
-test = [
-    { name = "httpx" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "aap-task-contract", editable = "../task_contract" },
-    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
-    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
-    { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
-    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
-]
-provides-extras = ["client", "test"]
-
-[[package]]
-name = "aap-task-contract"
-version = "0.1.0"
-source = { editable = "../task_contract" }
-
-[[package]]
 name = "annotated-types"
 version = "0.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -356,3 +321,38 @@ sdist = { url = "https://files.pythonhosted.org/packages/a3/26/b09b8010994eccc3c
 wheels = [
     { url = "https://files.pythonhosted.org/packages/67/81/4add07e5172b7ac40d8ed5ff580409a7801a4fe26d529bdd915401dabfbe/typing_inspection-0.4.4-py3-none-any.whl", hash = "sha256:65b8397ba37ccbce054456aaccddfc91e6e3083c92824df348d96ca832f3f147", size = 14750, upload-time = "2026-08-12T12:37:24.648Z" },
 ]
+
+[[package]]
+name = "yoao-inference-contract"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "pydantic" },
+    { name = "yoao-task-contract" },
+]
+
+[package.optional-dependencies]
+client = [
+    { name = "httpx" },
+]
+test = [
+    { name = "httpx" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "httpx", marker = "extra == 'client'", specifier = ">=0.28.0" },
+    { name = "httpx", marker = "extra == 'test'", specifier = ">=0.28.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pytest", marker = "extra == 'test'", specifier = ">=8.3.0" },
+    { name = "pytest-asyncio", marker = "extra == 'test'", specifier = ">=0.24.0" },
+    { name = "yoao-task-contract", editable = "../task_contract" },
+]
+provides-extras = ["client", "test"]
+
+[[package]]
+name = "yoao-task-contract"
+version = "0.1.0"
+source = { editable = "../task_contract" }
