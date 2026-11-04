@@ -90,11 +90,13 @@ class ModuleDataSelectionTests(unittest.TestCase):
             with self.assertRaises(ET.ParseError):
                 _passed_test_count(path, ("tests/test_first.py",), collected)
 
-    def test_interruption_writes_failed_evidence_and_discards_stale_junit(self):
+    def test_interruption_writes_failed_evidence_and_discards_stale_reports(self):
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "evidence.json"
             junit = Path(directory) / "evidence.junit.xml"
+            collection = Path(directory) / "evidence.collection.json"
             junit.write_text("<testsuites><testsuite/></testsuites>")
+            collection.write_text('["stale"]')
             with (
                 patch(
                     "scripts.verify_module_data_boundary.shutil.which",
@@ -115,6 +117,17 @@ class ModuleDataSelectionTests(unittest.TestCase):
             self.assertEqual(evidence["status"], "failed")
             self.assertEqual(evidence["failure"]["error_type"], "KeyboardInterrupt")
             self.assertFalse(junit.exists())
+            self.assertFalse(collection.exists())
+            self.assertEqual(evidence["collection_manifest"], str(collection))
+
+    def test_collection_manifest_cannot_alias_junit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "evidence.json"
+            collection = Path(directory) / "evidence.collection.json"
+            collection.write_text("preserve")
+            with self.assertRaises(SystemExit):
+                main(["--output", str(output), "--junit-xml", str(collection)])
+            self.assertEqual(collection.read_text(), "preserve")
 
     def test_target_selection_keeps_node_ids_and_rejects_external_paths(self):
         node = "tests/test_identity_gateway.py::test_profile_role_changed_after_admission_is_not_restored"

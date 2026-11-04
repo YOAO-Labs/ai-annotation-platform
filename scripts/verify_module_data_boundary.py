@@ -3,8 +3,9 @@
 Usage: apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
     --output /tmp/aap-module-data-acceptance.json
 
-The JSON report is paired with a sibling JUnit XML file. Only this invocation's
-PostgreSQL container and LocalResources test topology are created or removed.
+The JSON report is paired with sibling JUnit XML and collection manifest files.
+Only this invocation's PostgreSQL container and LocalResources test topology
+are created or removed.
 """
 
 from __future__ import annotations
@@ -4676,12 +4677,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.junit_xml
         else output.with_name(f"{output.stem}.junit.xml")
     )
-    if output == junit:
-        raise SystemExit("--output and --junit-xml must be different paths")
+    collection_manifest = output.with_name(f"{output.stem}.collection.json")
+    if len({output, junit, collection_manifest}) != 3:
+        raise SystemExit(
+            "--output, --junit-xml and the collection manifest must be different paths"
+        )
     output.parent.mkdir(parents=True, exist_ok=True)
     junit.parent.mkdir(parents=True, exist_ok=True)
-    # A report from an earlier invocation must never stand in for this run.
+    # Reports from an earlier invocation must never stand in for this run.
     junit.unlink(missing_ok=True)
+    collection_manifest.unlink(missing_ok=True)
 
     evidence = {
         "schema": 1,
@@ -4808,6 +4813,7 @@ def main(argv: list[str] | None = None) -> int:
         "jobs_list_query": {"function_only_grants": False},
         "test_files": list(test_files),
         "junit_xml": str(junit),
+        "collection_manifest": str(collection_manifest),
         "test_exit_code": None,
         "migrations": {
             "head_before_frozen_install": None,
@@ -4875,11 +4881,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         selected_test_paths = {name.split("::", 1)[0] for name in test_files}
-        missing_tests = [
+        missing_tests = sorted(
             name
             for name in selected_test_paths
             if not (ROOT / "apps/api" / name).is_file()
-        ]
+        )
         if missing_tests:
             raise RuntimeError(f"Missing module-data acceptance cases: {missing_tests}")
         node_bin = shutil.which("node")
@@ -9706,7 +9712,6 @@ SELECT pg_catalog.jsonb_build_object(
                         ],
                     }
                 )
-        collection_manifest = resource_root / "pytest-collection.json"
         command = [
             sys.executable,
             "-c",
@@ -9829,6 +9834,10 @@ SELECT pg_catalog.jsonb_build_object(
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         if isinstance(error, RuntimeError) and (
             str(error).startswith("psql acceptance phase failed with exit ")
+            or (
+                phase == "preflight"
+                and str(error).startswith("Missing module-data acceptance cases: ")
+            )
             or (phase == "pytest" and str(error).startswith("Acceptance "))
         ):
             evidence["failure"]["diagnostic"] = str(error)
