@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import { createConnection } from "node:net";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 const apiRoot = fileURLToPath(new URL("../../../api/", import.meta.url));
@@ -29,7 +30,9 @@ function startOwner() {
     failure = error;
     for (const request of pending) {
       clearTimeout(request.timer);
-      request.reject(error);
+      const rejected = new Error(error.message, { cause: error });
+      rejected.operationId = request.operationId;
+      request.reject(rejected);
     }
     pending.length = 0;
     if (socketPath) child.destroy();
@@ -48,9 +51,14 @@ function startOwner() {
     }
     clearTimeout(request.timer);
     try {
-      request.resolve(JSON.parse(line));
+      const result = JSON.parse(line);
+      if (result.operation_id !== request.operationId) {
+        throw new Error("Fixture owner response identity changed");
+      }
+      request.resolve(result);
     } catch {
       const error = new Error("Fixture owner returned invalid JSON");
+      error.operationId = request.operationId;
       request.reject(error);
       fail(error);
     }
@@ -70,24 +78,85 @@ function startOwner() {
   if (socketPath) {
     input.write(`${JSON.stringify({ operation: "bind_fixture_suite", suite_id: suiteId })}\n`);
   }
+  function exchange(envelope, timeout) {
+    if (failure) return Promise.reject(failure);
+    const { promise, resolve, reject } = Promise.withResolvers();
+    const timer =
+      timeout > 0
+        ? setTimeout(() => fail(new Error("Fixture owner request timed out")), timeout)
+        : undefined;
+    pending.push({ resolve, reject, timer, operationId: envelope.operation_id });
+    input.write(`${JSON.stringify(envelope)}\n`);
+    return promise;
+  }
   return {
-    post(payload, timeout) {
-      if (failure) return Promise.reject(failure);
-      const { promise, resolve, reject } = Promise.withResolvers();
-      const timer =
-        timeout > 0
-          ? setTimeout(() => fail(new Error("Fixture owner request timed out")), timeout)
-          : undefined;
-      pending.push({ resolve, reject, timer });
-      input.write(`${JSON.stringify(payload)}\n`);
-      return promise;
+    async post(payload, timeout) {
+      const operationId = randomUUID();
+      const response = await exchange(
+        { action: "execute", operation_id: operationId, payload },
+        timeout,
+      );
+      if (response.state === "pending") {
+        const error = new Error("Fixture operation outcome remains pending");
+        error.operationId = operationId;
+        throw error;
+      }
+      if (
+        (response.owner_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.owner_error)) ||
+        (response.owner_error === undefined &&
+          (!Number.isInteger(response.status) || typeof response.body !== "string")) ||
+        (response.journal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.journal_error)) ||
+        (response.relay_journal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.relay_journal_error))
+      ) {
+        const error = new Error("Fixture owner returned an invalid operation result");
+        error.operationId = operationId;
+        throw error;
+      }
+      if (!["OperationOutcomeUnresolved", "OperationIdentityConflict"].includes(response.owner_error)) {
+        try {
+          const receipt = await exchange({ action: "ack", operation_id: operationId }, timeout);
+          if (receipt.state !== "acknowledged") {
+            throw new Error("Fixture operation receipt was not acknowledged");
+          }
+        } catch (error) {
+          error.operationId = operationId;
+          Object.defineProperty(error, "fixtureResponse", { value: response });
+          throw error;
+        }
+      }
+      const causes = [];
+      if (response.owner_error) causes.push(new Error(`Fixture operation failed: ${response.owner_error}`));
+      else if (response.journal_error || response.relay_journal_error) causes.push(new Error(`Fixture operation returned HTTP ${response.status}`));
+      if (response.journal_error) causes.push(new Error(`Fixture evidence journal failed: ${response.journal_error}`));
+      if (response.relay_journal_error) causes.push(new Error(`Raster evidence journal failed: ${response.relay_journal_error}`));
+      if (causes.length) {
+        const error = causes.length === 1 ? causes[0] : new AggregateError(causes, "Fixture operation and evidence failed");
+        error.operationId = operationId;
+        throw error;
+      }
+      return response;
     },
+    exchange,
     async close() {
       input.end();
       await closed.promise;
       if (failure) throw failure;
     },
   };
+}
+
+// Recovery never resubmits a mutation; callers explicitly acknowledge a
+// completed outcome after inspecting it.
+export async function recoverFixtureOperation(operationId) {
+  transport ??= startOwner();
+  const result = await transport.exchange({ action: "recover", operation_id: operationId }, 30_000);
+  return result.status >= 300 ? { ...result, body: safeFailureBody(result.body) } : result;
+}
+
+export async function acknowledgeFixtureOperation(operationId) {
+  transport ??= startOwner();
+  const result = await transport.exchange({ action: "ack", operation_id: operationId }, 30_000);
+  if (result.state !== "acknowledged") throw new Error("Fixture operation is not completed");
 }
 
 export async function closeFixtureTransport() {

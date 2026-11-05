@@ -10,6 +10,9 @@ import time
 
 from storage_s3_contract import ContractError, require
 
+# Keep exact pidfds and Popen handles reachable if cooperative drain fails.
+_unsettled_consumers = []
+
 
 def _proc_stat(pid):
     try:
@@ -94,38 +97,38 @@ def _signal_consumer(group, tracked, sig):
 
 
 def _drain_consumer(child, tracked):
-    """Bound shutdown of the exact process group and observed descendants."""
+    """Request cooperative exit and prove the exact group and descendants exited."""
     capture_failure = None
     try:
         _track_consumer_descendants(child.pid, tracked)
     except Exception as error:
         capture_failure = error
     _signal_consumer(child.pid, tracked, signal.SIGTERM)
-    for sig, seconds in ((None, 3), (signal.SIGKILL, 2)):
-        if sig is not None:
-            _signal_consumer(child.pid, tracked, sig)
-        deadline = time.monotonic() + seconds
-        while _group_live(child.pid) or any(_pidfd_live(fd) for fd in tracked.values()):
-            if time.monotonic() >= deadline:
-                break
-            time.sleep(0.05)
-        else:
-            result = child.wait(timeout=0.1)
+    deadline = time.monotonic() + 3
+    while _group_live(child.pid) or any(_pidfd_live(fd) for fd in tracked.values()):
+        if time.monotonic() >= deadline:
+            unsettled = ContractError("raster_consumer_group_unsettled")
+            # The caller must retain these exact handles rather than interpreting
+            # a deadline as physical settlement.
+            unsettled.child = child
+            unsettled.pidfds = tracked
             if capture_failure is not None:
-                raise capture_failure
-            return result
-    unsettled = ContractError("raster_consumer_group_unsettled")
+                raise builtins.BaseExceptionGroup(
+                    "raster descendant capture and shutdown failed",
+                    [capture_failure, unsettled],
+                )
+            raise unsettled
+        time.sleep(0.05)
+    result = child.wait(timeout=0.1)
     if capture_failure is not None:
-        raise builtins.BaseExceptionGroup(
-            "raster descendant capture and shutdown failed",
-            [capture_failure, unsettled],
-        )
-    raise unsettled
+        raise capture_failure
+    return result
 
 
 def run_product(command, environment, api, relay, *, cwd):
     tracked = {}
     observed = None
+    retain = False
     failure = None
     interrupted_by = None
 
@@ -162,6 +165,8 @@ def run_product(command, environment, api, relay, *, cwd):
         try:
             result = _drain_consumer(child, tracked)
         except BaseException as error:
+            retain = True
+            _unsettled_consumers.append((child, tracked))
             if failure is not None:
                 raise builtins.BaseExceptionGroup(
                     "raster consumer and shutdown failed", [failure, error]
@@ -178,7 +183,8 @@ def run_product(command, environment, api, relay, *, cwd):
             raise failure
         return result
     finally:
-        for descriptor in tracked.values():
-            os.close(descriptor)
+        if not retain:
+            for descriptor in tracked.values():
+                os.close(descriptor)
         for sig, handler in handlers.items():
             signal.signal(sig, handler)

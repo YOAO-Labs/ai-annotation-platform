@@ -1,4 +1,4 @@
-"""A failed API cannot leave a detached Mask consumer descendant running."""
+"""A failed API must not force-settle an uncooperative consumer descendant."""
 
 import ctypes
 import os
@@ -10,7 +10,7 @@ import tempfile
 from types import SimpleNamespace
 import unittest
 
-from raster_consumer_process import run_product
+from raster_consumer_process import _unsettled_consumers, run_product
 from storage_s3_contract import ContractError
 
 
@@ -49,7 +49,7 @@ class RasterConsumerShutdownTests(unittest.TestCase):
             self.addCleanup(self.stop, api)
             self.addCleanup(self.stop, seed)
             try:
-                with self.assertRaisesRegex(ContractError, "raster_api_exited"):
+                with self.assertRaises(BaseExceptionGroup) as raised:
                     run_product(
                         [sys.executable, "-c", consumer, grandchild, str(marker)],
                         dict(os.environ),
@@ -57,13 +57,32 @@ class RasterConsumerShutdownTests(unittest.TestCase):
                         SimpleNamespace(seed=seed, failure=None),
                         cwd=root,
                     )
+                self.assertTrue(
+                    any(
+                        isinstance(error, ContractError)
+                        and str(error) == "raster_api_exited"
+                        for error in raised.exception.exceptions
+                    )
+                )
+                self.assertTrue(
+                    any(
+                        isinstance(error, ContractError)
+                        and str(error) == "raster_consumer_group_unsettled"
+                        for error in raised.exception.exceptions
+                    )
+                )
                 self.assertTrue(marker.exists(), "detached child did not start")
                 pid = int(marker.read_text())
-                reaped, _status = os.waitpid(pid, os.WNOHANG)
-                self.assertEqual(reaped, pid, "detached child was not stopped")
+                self.assertEqual(os.waitpid(pid, os.WNOHANG), (0, 0))
+                self.assertIn(pid, _unsettled_consumers[-1][1])
             finally:
                 if marker.exists():
                     self.stop_adopted(int(marker.read_text()))
+                while _unsettled_consumers:
+                    child, tracked = _unsettled_consumers.pop()
+                    child.wait(timeout=2)
+                    for descriptor in tracked.values():
+                        os.close(descriptor)
 
     @staticmethod
     def stop(process):

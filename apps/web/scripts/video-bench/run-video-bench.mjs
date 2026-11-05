@@ -284,7 +284,6 @@ async function runPreciseFrame(config, args, runId) {
         if (!errors.includes(error)) errors.push(error);
       }
       try {
-        await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned-cleanup", scope);
         await seedRequest(args.baseUrl, "/api/v1/__test/seed/cleanup", {
           suite_id: scope.suite_id,
         });

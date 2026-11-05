@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import uuid
 
 import pytest
 
@@ -41,7 +42,11 @@ def test_owner_seed_refuses_cross_boundary_setup_without_leaking_credentials(
     secret = "fixture-secret-not-for-output"
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
-        input=json.dumps({"path": path, "data": {"namespace": "guarded"}}),
+        input=json.dumps({
+            "action": "execute",
+            "operation_id": str(uuid.uuid4()),
+            "payload": {"path": path, "data": {"namespace": "guarded"}},
+        }),
         text=True,
         capture_output=True,
         env={
@@ -71,7 +76,11 @@ def test_mask_lifecycle_owner_refuses_foreign_database_or_disabled_e2e(
     secret = "fixture-secret-not-for-output"
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
-        input=json.dumps({"operation": "mask_slice_lifecycle", "data": {}}),
+        input=json.dumps({
+            "action": "execute",
+            "operation_id": str(uuid.uuid4()),
+            "payload": {"operation": "mask_slice_lifecycle", "data": {}},
+        }),
         text=True,
         capture_output=True,
         env={

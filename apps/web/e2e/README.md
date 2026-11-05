@@ -129,16 +129,31 @@ suite 清理先完成全部子运行的原生执行退休，再逐个清理数�
 不要按前缀扫桶或删除 Jobs 强行通过。强制中断可能使 teardown 无法执行，应保留
 原错误并核对该 run 的实际 owner 状态，而不是重建共享环境冒充精确清理成功。
 客户端超时、EOF、异常或中断不代表已接纳操作结束，也不会自动释放模型等待。
-后续私有客户端只能重新连接同一个已记录的存活 authority，不能重放结果不明的变更、
-替换提供方或根据名称重建失联 owner。精确退休完成后才可请求受保护的关闭；其他
-suite 仍有真实资源时 authority 保持存活。生命周期记录、socket 或进程身份不匹配时
-应保留记录并核查，不能删除标记后重新启动以冒充原 owner。
+私有调用为每次操作分配 UUID；原 authority 在客户端断开后仍保留该 UUID 的进行中或
+完整结果。发生传输故障时记录错误中的操作 UUID，重新连接同一 authority，以
+`recover` 查询该 UUID，检查实际结果后才发送 `ack`；不要用新 UUID 重放尚未确认的
+相同变更。普通 Node 客户端提供 `recoverFixtureOperation` 和
+`acknowledgeFixtureOperation`；Python 私有客户端提供对应的恢复和确认方法。
+最终 Node／Python 客户端解析并验证响应后确认接收；确认通道失败时仍保留已收到的
+原始结果与 UUID，不能自动生成新 UUID 重试。客户端进程丢失后，新 UUID 表示新请求，
+不保证应用回调对旧结果恰好消费一次；原 authority 存活期间，确认后仍可按原 UUID 查询。
+收到 socket 写入成功不构成调用方确认。未知物理 I/O 或未确认结果会阻止受保护的
+authority 关闭；如果私有失败日志无法持久写入，原操作结果及日志错误分别保留在存活的
+authority 中，后续变更拒绝执行，不能用重建 owner 消除该故障。
 私有记录位于对应工作树模式的 `fixture-authority/owner.json`，只应由拥有该
-隔离环境的调用方读取。Raster 中断在封闭阶段时，恢复方先核对记录中的原始进程和
-资源身份，再通过同一私有客户端执行 `owner_offline_status`，并以记录中的封闭凭据
-显式请求 `owner_offline_resume`；不要将记录内容或凭据打印到终端。完成准确 suite
-清理后以其 UUID 请求 `owner_shutdown`；若还有其他 suite，返回的 `shared` 表示
-authority 继续持有邻居，并不表示该邻居已退休。
+隔离环境的调用方读取。Raster 中断在封闭阶段时，恢复方先核对原始进程与资源身份，
+再通过同一私有客户端执行 `owner_offline_status`。只有 `phase: sealed` 同时证明每个
+原提供方已封闭并完成在途工作、seed 数据库连接池已释放；`sealing`、`resuming` 和
+`incomplete` 均不是静默证明。先恢复同一原生 Routing/Health 端点，再以记录中的封闭
+凭据显式请求 `owner_offline_resume`；部分恢复仍不能报告为已封闭。不要将记录内容或
+凭据打印到终端。完成准确 suite 清理后以其 UUID 请求 `owner_shutdown`；若还有其他
+suite，返回的 `shared` 表示 authority 继续持有邻居，并不表示该邻居已退休。
+最终关闭必须由持有 pidfd 的客户端证明原进程退出并完成精确记录收尾；若该客户端在
+确认结果后、证明退出之前失联，则保留原 generation 和证据为未决状态，报告失败，
+不得自动重建 authority、重放操作或销毁资源。最终退出后的原 authority 不再提供查询。
+原生推理 owner 必须通过原始进程身份与私有控制通道核验；完整暂停的退出回执保留在
+工作树 mode 的 `inference-paused.json`，文件名或缺失的进程本身都不等于完成证明。
+仅在原控制 owner 已认证、同一组 Routing/Health 端点就绪后才重新开放 seed。
 非 200 响应和异常原文追加到同目录的私有 `failures.ndjson`，authority 启动错误保存在
 `startup-failures.log`；其中可能含凭据或 SQL，不要输出到日志或终端。
 

@@ -23,7 +23,7 @@ import tempfile
 import traceback
 from pathlib import Path
 from urllib.parse import urlsplit
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy.engine import make_url
 
@@ -212,7 +212,10 @@ def read_owner(directory, resources):
     }
     if (
         not isinstance(record, dict)
-        or set(record) not in (required, required | {"seal_secret"})
+        or set(record) not in (
+            required,
+            required | {"seal_secret", "offline_seal"},
+        )
         or type(record["pid"]) is not int
         or record["pid"] <= 0
         or type(record["start"]) is not int
@@ -282,11 +285,13 @@ def lock_start(directory, *, create):
         raise
 
 
-def connect_owner():
+def connect_owner(*, create):
     resources, directory = owner_paths()
-    descriptor = lock_start(directory, create=True)
+    descriptor = lock_start(directory, create=create)
     try:
         if not os.path.lexists(directory / "owner.json"):
+            if not create:
+                raise SeedSetupRefused("Fixture authority is unavailable for recovery")
             from worktree_env import atomic_json
 
             generation_path = directory / "generation.json"
@@ -345,6 +350,25 @@ def connect_owner():
         os.close(descriptor)
 
 
+def verify_existing_owner():
+    """Verify the original authority and an authenticated read without creating it."""
+    channel, record, pidfd = connect_owner(create=False)
+    try:
+        operation_id = str(uuid4())
+        with channel, channel.makefile("rwb") as stream:
+            stream.write(json.dumps({
+                "token": record["token"], "action": "recover", "operation_id": operation_id,
+            }).encode() + b"\n")
+            stream.flush()
+            line = stream.readline()
+            if not line or json.loads(line) != {
+                "operation_id": operation_id, "state": "unknown",
+            }:
+                raise SeedSetupRefused("Fixture authority verification failed")
+    finally:
+        os.close(pidfd)
+
+
 def finish_authority(record):
     resources, directory = owner_paths()
     descriptor = lock_start(directory, create=False)
@@ -384,6 +408,7 @@ def finish_authority(record):
 async def serve_authority(ready_fd):
     os.environ["DEBUG"] = "false"
     resources, directory = owner_paths()
+    original_environment = dict(os.environ)
     from worktree_env import state_path
 
     guard_path = state_path(Path(resources["root"]), resources["mode"], "fixture-authority.lock")
@@ -426,9 +451,48 @@ async def serve_authority(ready_fd):
     token = secrets.token_urlsafe(32)
     lock = asyncio.Lock()
     stopped = asyncio.Event()
-    state = {"app": None, "engine": None, "sealed": False, "stopping": False}
-    state["seal_secret"] = None
+    state = {"app": None, "engine": None, "offline": None, "stopping": False}
+    operations = {}
+    state["stop_operation"] = None
+    state["stop_preparing"] = None
+    state["journal_failure"] = None
     connections = set()
+
+    def persist_offline():
+        owned = read_owner(directory, resources)
+        offline = state["offline"]
+        owned["seal_secret"] = offline["secret"]
+        owned["offline_seal"] = {key: value for key, value in offline.items() if key != "secret"}
+        atomic_json(directory / "owner.json", owned)
+
+    def check_offline():
+        offline = state["offline"]
+        owned = read_owner(directory, resources)
+        if (
+            offline is None
+            or owned.get("seal_secret") != offline["secret"]
+            or owned.get("offline_seal")
+            != {key: value for key, value in offline.items() if key != "secret"}
+        ):
+            raise SeedSetupRefused("Fixture authority seal changed")
+        runs = state["app"].state.fixture_backends.runs
+        if set(map(str, runs)) != {item["run_id"] for item in offline["providers"]}:
+            raise SeedSetupRefused("Fixture provider set changed")
+        for item in offline["providers"]:
+            provider = runs[UUID(item["run_id"])]
+            if provider.process.pid != item["pid"] or process_start(item["pid"]) != item["start"]:
+                raise SeedSetupRefused("Fixture provider incarnation changed")
+
+    def incomplete_offline(error):
+        state["offline"]["phase"] = "incomplete"
+        try:
+            persist_offline()
+        except BaseException as persist_error:
+            raise builtins.BaseExceptionGroup(
+                "fixture offline operation and receipt persistence failed",
+                [error, persist_error],
+            ) from None
+
 
     def journal_failure(payload, *, response=None, error=None):
         descriptor = open_private_append(directory / "failures.ndjson")
@@ -455,14 +519,91 @@ async def serve_authority(ready_fd):
                 request = json.loads(line)
                 if not hmac.compare_digest(request.get("token", ""), token):
                     break
+                action = request.get("action")
+                operation_id = request.get("operation_id")
+                if (
+                    not isinstance(operation_id, str)
+                    or str(UUID(operation_id)) != operation_id
+                    or action not in {"execute", "recover", "ack"}
+                    or set(request) != (
+                        {"token", "action", "operation_id", "payload"}
+                        if action == "execute"
+                        else {"token", "action", "operation_id"}
+                    )
+                ):
+                    raise SeedSetupRefused("Invalid fixture operation envelope")
+                existing = operations.get(operation_id)
+                if action != "execute":
+                    if existing is None:
+                        response = {"operation_id": operation_id, "state": "unknown"}
+                    elif action == "recover":
+                        response = (
+                            existing["response"] if existing["state"] == "completed"
+                            else {"operation_id": operation_id, "state": "pending"}
+                        )
+                    elif existing["state"] != "completed":
+                        response = {"operation_id": operation_id, "state": "pending"}
+                    else:
+                        existing["acknowledged"] = True
+                        response = {"operation_id": operation_id, "state": "acknowledged"}
+                        if state["stop_operation"] == operation_id:
+                            state["stopping"] = True
+                    try:
+                        writer.write(json.dumps(response).encode() + b"\n")
+                        await writer.drain()
+                    finally:
+                        if state["stopping"]:
+                            stopped.set()
+                    if state["stopping"]:
+                        break
+                    continue
                 payload = request["payload"]
+                if not isinstance(payload, dict):
+                    raise SeedSetupRefused("Invalid fixture operation payload")
+                digest = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest()
+                if existing is not None:
+                    if existing["digest"] != digest:
+                        response = {"operation_id": operation_id, "owner_error": "OperationIdentityConflict"}
+                    elif existing["state"] == "completed":
+                        response = existing["response"]
+                    else:
+                        response = {"operation_id": operation_id, "state": "pending"}
+                    writer.write(json.dumps(response).encode() + b"\n")
+                    await writer.drain()
+                    continue
+                if (
+                    state["stop_operation"] is not None
+                    or state["stop_preparing"] is not None
+                    or state["journal_failure"] is not None
+                    or any(
+                        item["digest"] == digest and not item["acknowledged"]
+                        for item in operations.values()
+                    )
+                ):
+                    writer.write(json.dumps({
+                        "operation_id": operation_id,
+                        "owner_error": "OperationOutcomeUnresolved",
+                    }).encode() + b"\n")
+                    await writer.drain()
+                    continue
+                entry = {
+                    "digest": digest, "state": "pending", "acknowledged": False,
+                    "response": None, "error": None, "journal_error": None,
+                }
+                operations[operation_id] = entry
+                if payload.get("operation") == "owner_shutdown":
+                    state["stop_preparing"] = operation_id
                 async with lock:
                     if state["stopping"]:
                         break
                     try:
                         operation = payload.get("operation")
-                        if state["sealed"] and operation not in {
-                            "owner_offline_resume", "owner_offline_status"
+                        if state["journal_failure"] is not None:
+                            raise SeedSetupRefused("Fixture evidence journal is unavailable")
+                        if state["offline"] is not None and operation not in {
+                            "owner_offline_seal", "owner_offline_resume", "owner_offline_status"
                         }:
                             raise SeedSetupRefused("Fixture authority is sealed")
                         if operation not in {
@@ -472,6 +613,11 @@ async def serve_authority(ready_fd):
                             if current_resources != resources or current_identity != identity:
                                 raise SeedSetupRefused("Fixture authority database changed")
                         if operation == "owner_shutdown":
+                            if any(
+                                key != operation_id and not item["acknowledged"]
+                                for key, item in operations.items()
+                            ):
+                                raise SeedSetupRefused("Fixture operation outcomes remain unacknowledged")
                             app, engine = state["app"], state["engine"]
                             providers = set(app.state.fixture_backends.runs) if app is not None else set()
                             from sqlalchemy import text
@@ -514,51 +660,118 @@ async def serve_authority(ready_fd):
                                     raise SeedSetupRefused("Fixture runs remain owned")
                                 response = {"status": 200, "body": json.dumps({"state": "shared"})}
                             else:
-                                state["stopping"] = True
+                                state["stop_operation"] = operation_id
                                 response = {"status": 200, "body": json.dumps({"state": "stopped"})}
                         elif operation == "owner_offline_seal":
+                            if (
+                                set(payload) - {"operation", "require_fixture_inference"}
+                                or type(payload.get("require_fixture_inference", False)) is not bool
+                            ):
+                                raise SeedSetupRefused("Invalid fixture offline seal request")
                             app, engine = state["app"], state["engine"]
-                            if app is None:
+                            if app is None or engine is None:
                                 raise SeedSetupRefused("Fixture authority is not initialized")
-                            state["sealed"] = True
-                            state["seal_secret"] = secrets.token_urlsafe(32)
-                            owned = read_owner(directory, resources)
-                            owned["seal_secret"] = state["seal_secret"]
-                            atomic_json(directory / "owner.json", owned)
-                            providers = []
-                            for provider in app.state.fixture_backends.runs.values():
-                                await provider.control("offline_seal", None)
-                                pid = provider.process.pid
-                                providers.append({"pid": pid, "start": process_start(pid)})
-                            await engine.dispose()
+                            if state["offline"] is None:
+                                state["offline"] = {
+                                    "phase": "sealing",
+                                    "secret": secrets.token_urlsafe(32),
+                                    "requires_native": payload.get("require_fixture_inference", False),
+                                    "engine_disposed": False,
+                                    "providers": [
+                                        {
+                                            "run_id": str(run_id),
+                                            "pid": provider.process.pid,
+                                            "start": process_start(provider.process.pid),
+                                            "attempted": False,
+                                            "sealed": False,
+                                            "resumed": False,
+                                        }
+                                        for run_id, provider in app.state.fixture_backends.runs.items()
+                                    ],
+                                }
+                                persist_offline()
+                            else:
+                                check_offline()
+                                if state["offline"]["requires_native"] != payload.get(
+                                    "require_fixture_inference", False
+                                ):
+                                    raise SeedSetupRefused("Fixture offline owner requirement changed")
+                                if any(item["resumed"] for item in state["offline"]["providers"]):
+                                    raise SeedSetupRefused("Partial fixture resume must be completed")
+                            offline = state["offline"]
+                            try:
+                                offline["phase"] = "sealing"
+                                persist_offline()
+                                for item in offline["providers"]:
+                                    if item["sealed"]:
+                                        continue
+                                    item["attempted"] = True
+                                    persist_offline()
+                                    await app.state.fixture_backends.runs[UUID(item["run_id"])].control(
+                                        "offline_seal", None
+                                    )
+                                    item["sealed"] = True
+                                    persist_offline()
+                                await engine.dispose()
+                                offline["engine_disposed"] = True
+                                offline["phase"] = "sealed"
+                                persist_offline()
+                            except BaseException as error:
+                                incomplete_offline(error)
+                                raise
                             response = {"status": 200, "body": json.dumps({
                                 "pid": os.getpid(),
                                 "start": process_start(os.getpid()),
                                 "nonce": generation["nonce"],
-                                "seal_secret": state["seal_secret"],
-                                "providers": providers,
+                                "seal_secret": offline["secret"],
+                                "providers": [
+                                    {"pid": item["pid"], "start": item["start"]}
+                                    for item in offline["providers"]
+                                ],
                             })}
                         elif operation == "owner_offline_resume":
-                            if not state["sealed"] or not hmac.compare_digest(
-                                payload.get("seal_secret", ""), state["seal_secret"]
+                            offline = state["offline"]
+                            if offline is None or not hmac.compare_digest(
+                                payload.get("seal_secret", ""), offline["secret"]
                             ):
                                 raise SeedSetupRefused("Fixture authority is not sealed")
-                            for provider in state["app"].state.fixture_backends.runs.values():
-                                await provider.control("offline_resume", None)
-                            owned = read_owner(directory, resources)
-                            if owned.get("seal_secret") != state["seal_secret"]:
-                                raise SeedSetupRefused("Fixture authority seal changed")
-                            del owned["seal_secret"]
-                            atomic_json(directory / "owner.json", owned)
-                            state["sealed"] = False
-                            state["seal_secret"] = None
+                            check_offline()
+                            if offline["requires_native"]:
+                                from fixture_inference_services import verify_existing_serving
+
+                                await asyncio.to_thread(
+                                    verify_existing_serving, resources,
+                                    code_root=root, environment=original_environment,
+                                )
+                            try:
+                                offline["phase"] = "resuming"
+                                persist_offline()
+                                for item in offline["providers"]:
+                                    if item["attempted"] and not item["resumed"]:
+                                        await state["app"].state.fixture_backends.runs[
+                                            UUID(item["run_id"])
+                                        ].control("offline_resume", None)
+                                        item["resumed"] = True
+                                        persist_offline()
+                                owned = read_owner(directory, resources)
+                                del owned["seal_secret"]
+                                del owned["offline_seal"]
+                                atomic_json(directory / "owner.json", owned)
+                            except BaseException as error:
+                                incomplete_offline(error)
+                                raise
+                            state["offline"] = None
                             response = {"status": 200, "body": "{}"}
                         elif operation == "owner_offline_status":
-                            if not state["sealed"]:
-                                raise SeedSetupRefused("Fixture authority is not sealed")
-                            response = {"status": 200, "body": json.dumps({"sealed": True})}
+                            offline = state["offline"]
+                            response = {"status": 200, "body": json.dumps({
+                                "phase": offline["phase"] if offline else "open",
+                                "sealed": bool(offline and offline["phase"] == "sealed"),
+                                "engine_disposed": bool(offline and offline["engine_disposed"]),
+                                "providers": offline["providers"] if offline else [],
+                            })}
                         else:
-                            if state["sealed"]:
+                            if state["offline"] is not None:
                                 raise SeedSetupRefused("Fixture authority is sealed")
                             prepare(payload)
                             if state["app"] is None:
@@ -600,8 +813,7 @@ async def serve_authority(ready_fd):
                                         )
                                     status, body = result.status_code, result.text
                                 response = {"status": status, "body": body}
-                                if status != 200:
-                                    journal_failure(payload, response=response)
+                                entry["operation_response"] = response.copy()
                             except BaseException as error:
                                 operation_failure = error
                                 raise
@@ -616,26 +828,32 @@ async def serve_authority(ready_fd):
                                         ) from None
                                     raise
                     except Exception as error:
+                        entry["error"] = error
                         first = error
                         while isinstance(first, builtins.BaseExceptionGroup):
                             first = first.exceptions[0]
+                        response = {"owner_error": type(first).__name__}
+                    if state["stop_operation"] == operation_id:
+                        response["authority_stopping"] = True
+                    entry["actual_response"] = response.copy()
+                    if entry["error"] is not None or response.get("status", 200) != 200:
                         try:
-                            journal_failure(payload, error=error)
+                            journal_failure(
+                                payload,
+                                response=entry["actual_response"] if entry["error"] is None else None,
+                                error=entry["error"],
+                            )
                         except Exception as journal_error:
-                            response = {
-                                "owner_error": type(first).__name__,
-                                "journal_error": type(journal_error).__name__,
-                            }
-                        else:
-                            response = {"owner_error": type(first).__name__}
-                    try:
-                        writer.write(json.dumps(response).encode() + b"\n")
-                        await writer.drain()
-                    finally:
-                        if state["stopping"]:
-                            stopped.set()
-                    if state["stopping"]:
-                        break
+                            entry["journal_error"] = journal_error
+                            state["journal_failure"] = journal_error
+                            response["journal_error"] = type(journal_error).__name__
+                    if state["stop_preparing"] == operation_id:
+                        state["stop_preparing"] = None
+                    response["operation_id"] = operation_id
+                    entry["response"] = response
+                    entry["state"] = "completed"
+                    writer.write(json.dumps(response).encode() + b"\n")
+                    await writer.drain()
         except (ConnectionError, BrokenPipeError):
             pass
         finally:
@@ -706,31 +924,54 @@ def validate_client_payload(payload):
                 os.environ[key] = value
 
 
+def validate_client_envelope(request):
+    if not isinstance(request, dict):
+        raise SeedSetupRefused("Invalid fixture operation envelope")
+    action = request.get("action")
+    operation_id = request.get("operation_id")
+    if (
+        not isinstance(operation_id, str)
+        or str(UUID(operation_id)) != operation_id
+        or action not in {"execute", "recover", "ack"}
+        or set(request) != (
+            {"action", "operation_id", "payload"}
+            if action == "execute" else {"action", "operation_id"}
+        )
+    ):
+        raise SeedSetupRefused("Invalid fixture operation envelope")
+    if action == "execute":
+        if not isinstance(request["payload"], dict):
+            raise SeedSetupRefused("Invalid fixture operation payload")
+        validate_client_payload(request["payload"])
+
+
 async def main():
     line = await asyncio.to_thread(sys.stdin.buffer.readline)
     if not line:
         return
-    payload = json.loads(line)
-    validate_client_payload(payload)
-    channel, record, pidfd = await asyncio.to_thread(connect_owner)
+    request = json.loads(line)
+    validate_client_envelope(request)
+    channel, record, pidfd = await asyncio.to_thread(
+        connect_owner, create=request["action"] == "execute"
+    )
+    stopping = set()
     try:
         with channel, channel.makefile("rwb") as stream:
             while True:
-                stream.write(json.dumps({"token": record["token"], "payload": payload}).encode() + b"\n")
+                stream.write(json.dumps({**request, "token": record["token"]}).encode() + b"\n")
                 stream.flush()
                 response = await asyncio.to_thread(stream.readline)
                 if not response:
                     raise SeedSetupRefused("Fixture authority disconnected")
                 result = json.loads(response)
-                if "owner_error" in result:
-                    kind = result["owner_error"]
-                    if not isinstance(kind, str) or not kind.isidentifier():
-                        raise SeedSetupRefused("Invalid fixture authority error")
-                    print(f"Fixture setup failed: {kind}", file=sys.stderr)
-                    raise SystemExit(1)
+                if result.get("operation_id") != request["operation_id"]:
+                    raise SeedSetupRefused("Fixture authority response identity changed")
+                if result.get("authority_stopping"):
+                    stopping.add(request["operation_id"])
                 if (
-                    payload.get("operation") == "owner_shutdown"
-                    and json.loads(result["body"])["state"] == "stopped"
+                    request["action"] == "ack"
+                    and request["operation_id"] in stopping
+                    and result.get("state") == "acknowledged"
                 ):
                     poller = select.poll()
                     poller.register(pidfd, select.POLLIN)
@@ -741,8 +982,8 @@ async def main():
                 line = await asyncio.to_thread(sys.stdin.buffer.readline)
                 if not line:
                     break
-                payload = json.loads(line)
-                validate_client_payload(payload)
+                request = json.loads(line)
+                validate_client_envelope(request)
     finally:
         os.close(pidfd)
 

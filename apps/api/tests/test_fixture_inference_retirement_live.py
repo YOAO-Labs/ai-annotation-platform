@@ -91,40 +91,36 @@ class _PreservedSeedOwner(SeedOwner):
         self._buffer = bytearray()
         os.set_blocking(process.stdout.fileno(), False)
 
-    async def _request(self, payload):
-        async with self.lock:
-            if self.failure is not None:
-                raise self.failure
+    async def _exchange(self, envelope):
+        self.process.stdin.write((json.dumps(envelope) + "\n").encode())
+        self.process.stdin.flush()
+        fd = self.process.stdout.fileno()
+        while True:
+            if b"\n" in self._buffer:
+                line, _, rest = self._buffer.partition(b"\n")
+                self._buffer = bytearray(rest)
+                result = json.loads(line)
+                if result.get("operation_id") != envelope["operation_id"]:
+                    raise RuntimeError("Fixture owner returned a different operation identity")
+                return result
             try:
-                self.process.stdin.write((json.dumps(payload) + "\n").encode())
-                self.process.stdin.flush()
-                fd = self.process.stdout.fileno()
-                while True:
-                    if b"\n" in self._buffer:
-                        line, _, rest = self._buffer.partition(b"\n")
-                        self._buffer = bytearray(rest)
-                        return json.loads(line)
-                    try:
-                        chunk = os.read(fd, 65536)
-                    except BlockingIOError:
-                        loop = asyncio.get_running_loop()
-                        ready = loop.create_future()
-                        loop.add_reader(
-                            fd, lambda: None if ready.done() else ready.set_result(None)
-                        )
-                        try:
-                            await ready
-                        finally:
-                            loop.remove_reader(fd)
-                        continue
-                    if not chunk:
-                        raise RuntimeError(
-                            f"Fixture client exited before replying: {self.process.poll()}"
-                        )
-                    self._buffer.extend(chunk)
-            except BaseException as error:
-                self.failure = error
-                raise
+                chunk = os.read(fd, 65536)
+            except BlockingIOError:
+                loop = asyncio.get_running_loop()
+                ready = loop.create_future()
+                loop.add_reader(
+                    fd, lambda: None if ready.done() else ready.set_result(None)
+                )
+                try:
+                    await ready
+                finally:
+                    loop.remove_reader(fd)
+                continue
+            if not chunk:
+                raise RuntimeError(
+                    f"Fixture client exited before replying: {self.process.poll()}"
+                )
+            self._buffer.extend(chunk)
 
 
 async def _eventually(description, probe, *, timeout=120):
@@ -688,8 +684,8 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
         await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
         run_a = suite.new_run("held" + uuid.uuid4().hex[:8])
         run_b = suite.new_run("peer" + uuid.uuid4().hex[:8])
-        fixture_a = await asyncio.wait_for(_build_owned(owner, run_a), 120)
         fixture_b = await asyncio.wait_for(_build_owned(owner, run_b), 120)
+        fixture_a = await asyncio.wait_for(_build_owned(owner, run_a), 120)
         _, handle_a = await _provider_handle(run_a)
         _, handle_b = await _provider_handle(run_b)
         handles.extend((handle_a, handle_b))
@@ -768,6 +764,115 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
 
             entered = await _eventually("held provider entry", entered_a)
             assert "responseStatus" not in entered
+            # Lose the actual response to a committed owned-fixture mutation while
+            # the original provider is physically held.  Reconnect to that same
+            # authority, recover by identity, and refuse ambiguous re-execution.
+            run_c = suite.new_run("loss" + uuid.uuid4().hex[:8])
+            lost_id = str(uuid.uuid4())
+            lost_payload = {
+                "path": "/api/v1/__test/seed/owned",
+                "data": run_c.payload(),
+                "headers": None,
+            }
+            lost_log = tempfile.TemporaryFile()
+            lost = subprocess.Popen(
+                [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
+                cwd=ROOT / "apps/api",
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=lost_log,
+                close_fds=True,
+                bufsize=0,
+            )
+            try:
+                lost.stdin.write((json.dumps({
+                    "action": "execute", "operation_id": lost_id, "payload": lost_payload,
+                }) + "\n").encode())
+                lost.stdin.flush()
+                lost.stdout.close()
+                await asyncio.to_thread(lost.wait, timeout=120)
+                recovered = await owner.recover_operation(lost_id)
+                assert recovered["operation_id"] == lost_id and recovered["status"] == 200
+                refused = await owner._exchange({
+                    "action": "execute",
+                    "operation_id": str(uuid.uuid4()),
+                    "payload": lost_payload,
+                })
+                assert refused["owner_error"] == "OperationOutcomeUnresolved"
+                ack_log = tempfile.TemporaryFile()
+                lost_ack = subprocess.Popen(
+                    [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
+                    cwd=ROOT / "apps/api",
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=ack_log,
+                    close_fds=True,
+                    bufsize=0,
+                )
+                try:
+                    lost_ack.stdin.write((json.dumps({
+                        "action": "recover", "operation_id": lost_id,
+                    }) + "\n").encode())
+                    lost_ack.stdin.flush()
+                    recovered_again = json.loads(await asyncio.wait_for(
+                        asyncio.to_thread(lost_ack.stdout.readline), 120
+                    ))
+                    assert recovered_again == recovered
+                    lost_ack.stdin.write((json.dumps({
+                        "action": "ack", "operation_id": lost_id,
+                    }) + "\n").encode())
+                    lost_ack.stdin.flush()
+                    lost_ack.stdout.close()
+                    await asyncio.to_thread(lost_ack.wait, timeout=120)
+                    assert await owner.recover_operation(lost_id) == recovered
+                    await owner.acknowledge_operation(lost_id)
+                except BaseException:
+                    _RETAINED_UNCERTAIN.append((lost_ack, ack_log))
+                    raise
+                else:
+                    lost_ack.stdin.close()
+                    ack_log.close()
+                fixture_c = json.loads(recovered["body"])
+                assert fixture_c["project_id"] and fixture_c["ml_backend_id"]
+                assert not _exited(handle_a)
+                still_held = await _control(owner, run_a, fixture_a, "requests")
+                original_request = next(
+                    r for r in still_held
+                    if r["receivedAt"] == entered["receivedAt"] and r["tasks"] == entered["tasks"]
+                )
+                assert "responseStatus" not in original_request
+                cleaned_c = await _cleanup_owned(owner, run_c)
+                assert cleaned_c.status_code == 200, cleaned_c.text
+            except BaseException:
+                _RETAINED_UNCERTAIN.append((lost, lost_log))
+                raise
+            else:
+                lost.stdin.close()
+                lost_log.close()
+            # A later busy provider fences admission but cannot prove quiescence;
+            # the earlier provider's real acknowledgement must remain visible.
+            with pytest.raises(RuntimeError, match="Fixture operation failed"):
+                await owner._request({"operation": "owner_offline_seal"})
+            partial = json.loads((await owner._request({
+                "operation": "owner_offline_status",
+            }))["body"])
+            assert partial["phase"] == "incomplete" and not partial["sealed"]
+            assert not partial["engine_disposed"]
+            by_run = {item["run_id"]: item for item in partial["providers"]}
+            assert by_run[str(run_b.run_id)]["sealed"]
+            assert by_run[str(run_a.run_id)]["attempted"]
+            assert not by_run[str(run_a.run_id)]["sealed"]
+            record = json.loads((
+                Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"]) / ".worktree"
+                / os.environ["AAP_WORKTREE_MODE"] / "fixture-authority" / "owner.json"
+            ).read_text())
+            await owner._request({
+                "operation": "owner_offline_resume", "seal_secret": record["seal_secret"],
+            })
+            reopened = json.loads((await owner._request({
+                "operation": "owner_offline_status",
+            }))["body"])
+            assert reopened["phase"] == "open" and not reopened["sealed"]
             held = await _work(test_engine, job_a)
             assert held is not None
             assert (

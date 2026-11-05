@@ -8,9 +8,11 @@ import json
 import os
 from pathlib import Path
 import re
+import select
 import secrets
 import subprocess
 import sys
+import time
 from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
@@ -29,6 +31,7 @@ from tests.test_labeling_module_api_cold import (
 
 
 ROOT = Path(__file__).resolve().parents[3]
+_RETAINED_FIXTURE_CLIENTS = []
 _EMPTY_SELECTOR_PREFIXES = (
     "IDENTITY_AUTH",
     "IDENTITY_KEY",
@@ -978,24 +981,77 @@ class WorkspaceImportCli:
             }
             for run_id in sorted(self.fixture_run_ids, key=str)
         ]
-        result = subprocess.run(
+        process = subprocess.Popen(
             [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
-            input="".join(json.dumps(request) + "\n" for request in requests),
             cwd=ROOT / "apps/api",
             env=environment,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
-            timeout=180,
-            check=False,
         )
-        if result.returncode:
-            raise RuntimeError("Private fixture coordinator refused CLI preparation")
-        replies = [json.loads(line) for line in result.stdout.splitlines()]
-        if len(replies) != len(requests) or any(
-            reply["status"] != 200 or json.loads(reply["body"]) != request["data"]
-            for request, reply in zip(requests, replies, strict=True)
-        ):
-            raise RuntimeError("Private fixture coordinator returned a different scope")
+        deadline = time.monotonic() + 180
+        operation_id = None
+        reply = None
+        try:
+            def exchange(envelope):
+                process.stdin.write(json.dumps(envelope) + "\n")
+                process.stdin.flush()
+                if not select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))[0]:
+                    raise RuntimeError("Private fixture coordinator outcome is unresolved")
+                line = process.stdout.readline()
+                if not line:
+                    raise RuntimeError("Private fixture coordinator exited before replying")
+                reply = json.loads(line)
+                if reply.get("operation_id") != envelope["operation_id"]:
+                    raise RuntimeError("Private fixture coordinator identity changed")
+                return reply
+
+            for request in requests:
+                operation_id = str(uuid.uuid4())
+                reply = None
+                reply = exchange({"action": "execute", "operation_id": operation_id, "payload": request})
+                if reply.get("state") == "pending":
+                    raise RuntimeError("Private fixture coordinator outcome is pending")
+                if reply.get("owner_error") in {"OperationOutcomeUnresolved", "OperationIdentityConflict"}:
+                    raise RuntimeError(f"Private fixture operation refused: {reply['owner_error']}")
+                if any(
+                    key in reply and (
+                        not isinstance(reply[key], str) or not reply[key].isidentifier()
+                    )
+                    for key in ("owner_error", "journal_error")
+                ):
+                    raise RuntimeError("Private fixture coordinator returned an invalid error")
+                if reply.get("owner_error") is None and (
+                    type(reply.get("status")) is not int
+                    or not isinstance(reply.get("body"), str)
+                    or (reply["status"] == 200 and json.loads(reply["body"]) != request["data"])
+                ):
+                    raise RuntimeError("Private fixture coordinator returned a different scope")
+                receipt = exchange({"action": "ack", "operation_id": operation_id})
+                if receipt.get("state") != "acknowledged":
+                    raise RuntimeError("Private fixture coordinator receipt is unresolved")
+                if reply.get("journal_error"):
+                    raise ExceptionGroup("Private fixture operation and evidence failed", [
+                        RuntimeError(f"Fixture operation: {reply.get('owner_error', reply.get('status'))}"),
+                        RuntimeError(f"Fixture evidence journal: {reply['journal_error']}"),
+                    ])
+                if reply.get("owner_error") or reply.get("status") != 200 or json.loads(reply["body"]) != request["data"]:
+                    raise RuntimeError("Private fixture coordinator returned a different scope")
+            process.stdin.close()
+            if process.wait(timeout=max(0, deadline - time.monotonic())):
+                raise RuntimeError("Private fixture coordinator refused CLI preparation")
+            process.stdout.close()
+            process.stderr.close()
+        except BaseException as error:
+            _RETAINED_FIXTURE_CLIENTS.append(process)
+            if reply is not None:
+                error.fixture_response = reply
+                error.add_note("Fixture operation response was received")
+            error.fixture_operation_id = operation_id
+            if operation_id:
+                error.add_note(f"Fixture operation ID: {operation_id}")
+            raise
 
     def _assert_transport(self) -> None:
         if self.host_network:

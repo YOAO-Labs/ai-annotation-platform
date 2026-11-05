@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+import uuid
 from unittest.mock import patch
 
 import raster_fixture_relay
@@ -88,36 +89,44 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         self.failures = []
         command = (
             "import json, os, sys\n"
-            "first = True\n"
+            "bootstrap = len(sys.argv) > 1\n"
             "for line in sys.stdin:\n"
-            " if first: first = False\n"
-            " else:\n"
+            " request = json.loads(line)\n"
+            " if not bootstrap and request['action'] == 'execute':\n"
             f"  os.write({ready_write}, b'1')\n"
             f"  os.read({release_read}, 1)\n"
-            " request = json.loads(line)\n"
-            " reply = {'status':422,'body':json.dumps({'detail':{'code':'fixture_scope_changed','sql':'private-secret-and-sql'}})} if request.get('path','').endswith('/login') else {'status':200,'body':'{}'}\n"
+            " payload = request.get('payload', {})\n"
+            " reply = {'operation_id':request['operation_id']}\n"
+            " if request['action'] == 'ack': reply['state'] = 'acknowledged'\n"
+            " elif payload.get('path','').endswith('/login'): reply.update(status=422,body=json.dumps({'detail':{'code':'fixture_scope_changed','sql':'private-secret-and-sql'}}))\n"
+            " else: reply.update(status=200,body='{}')\n"
             " print(json.dumps(reply), flush=True)\n"
         )
         real_popen = subprocess.Popen
+        launches = 0
 
         def launch(_command, **kwargs):
+            nonlocal launches
+            launches += 1
             kwargs["pass_fds"] = (ready_write, release_read)
-            return real_popen([sys.executable, "-u", "-c", command], **kwargs)
+            return real_popen(
+                [sys.executable, "-u", "-c", command, *(["bootstrap"] if launches == 1 else [])],
+                **kwargs,
+            )
 
-        try:
-            with patch.object(
-                raster_fixture_relay.subprocess, "Popen", side_effect=launch
-            ):
-                self.relay = RasterFixtureRelay(
-                    Path(self.directory.name) / "fixture.sock",
-                    SUITE,
-                    [{"run_id": RUN, "namespace": NAMESPACE, "seed": SEED}],
-                    dict(os.environ),
-                    lambda request, response: self.failures.append((request, response)),
-                )
-        finally:
-            os.close(ready_write)
-            os.close(release_read)
+        patcher = patch.object(raster_fixture_relay.subprocess, "Popen", side_effect=launch)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(os.close, ready_write)
+        self.addCleanup(os.close, release_read)
+        self.relay = RasterFixtureRelay(
+            Path(self.directory.name) / "fixture.sock",
+            SUITE,
+            [{"run_id": RUN, "namespace": NAMESPACE, "seed": SEED}],
+            dict(os.environ),
+            lambda request, response: self.failures.append((request, response)),
+            lambda operation_id: self.assertTrue(operation_id),
+        )
         self.addCleanup(self.stop_seed)
         self.client = socket.socket(socket.AF_UNIX)
         self.addCleanup(self.client.close)
@@ -134,6 +143,18 @@ class RasterFixtureShutdownTests(unittest.TestCase):
                     lambda: len(self.relay.connections) == 1, timeout=2
                 )
             )
+        self.stream = self.client.makefile("rb")
+        self.addCleanup(self.stream.close)
+
+    def execute(self, payload):
+        operation_id = str(uuid.uuid4())
+        envelope = {"action": "execute", "operation_id": operation_id, "payload": payload}
+        self.client.sendall((json.dumps(envelope) + "\n").encode())
+        return operation_id
+
+    def acknowledge(self, operation_id):
+        self.client.sendall((json.dumps({"action": "ack", "operation_id": operation_id}) + "\n").encode())
+        self.assertEqual(json.loads(self.stream.readline())["state"], "acknowledged")
 
     def stop_seed(self):
         if self.relay.seed.poll() is None:
@@ -146,16 +167,18 @@ class RasterFixtureShutdownTests(unittest.TestCase):
 
     def test_non_200_is_recorded_privately_and_response_is_redacted(self):
         request = {"path": PREFIX + "login", "data": {"email": SEED["admin_email"]}}
-        self.client.sendall((json.dumps(request) + "\n").encode())
+        operation_id = self.execute(request)
         self.assertTrue(select.select([self.ready_read], [], [], 2)[0])
         self.assertEqual(os.read(self.ready_read, 1), b"1")
         os.write(self.release_write, b"1")
-        response = json.loads(self.client.makefile("rb").readline())
+        response = json.loads(self.stream.readline())
         self.assertEqual(response["status"], 422)
         self.assertNotIn("private-secret-and-sql", response["body"])
         self.assertEqual(json.loads(response["body"]), {"detail": {"code": "fixture_scope_changed"}})
+        self.acknowledge(operation_id)
         self.assertEqual(self.failures, [
             (request, {
+                "operation_id": operation_id,
                 "status": 422,
                 "body": json.dumps({
                     "detail": {"code": "fixture_scope_changed", "sql": "private-secret-and-sql"}
@@ -175,7 +198,7 @@ class RasterFixtureShutdownTests(unittest.TestCase):
             "operation": "prepare_fixture_suite",
             "data": {"suite_id": SUITE, "family": "owned"},
         }
-        self.client.sendall((json.dumps(request) + "\n").encode())
+        operation_id = self.execute(request)
         self.assertTrue(select.select([self.ready_read], [], [], 2)[0])
         self.assertEqual(os.read(self.ready_read, 1), b"1")
         errors = []
@@ -191,23 +214,56 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         with self.relay.connection_condition:
             self.assertTrue(
                 self.relay.connection_condition.wait_for(
-                    lambda: self.relay.stopping, timeout=2
+                    lambda: self.relay.closing, timeout=2
                 )
             )
             self.assertEqual(self.relay.inflight, 1)
             self.assertEqual(len(self.relay.connections), 1)
         os.write(self.release_write, b"1")
+        self.assertEqual(json.loads(self.stream.readline())["operation_id"], operation_id)
+        self.acknowledge(operation_id)
         closer.join(timeout=3)
         self.assertFalse(closer.is_alive())
         self.assertEqual(errors, [])
         self.assertFalse(self.relay.unsettled)
+
+    def test_lost_reply_remains_recoverable_through_relay(self):
+        operation_id = self.execute({
+            "operation": "prepare_fixture_suite",
+            "data": {"suite_id": SUITE, "family": "owned"},
+        })
+        self.assertTrue(select.select([self.ready_read], [], [], 2)[0])
+        self.assertEqual(os.read(self.ready_read, 1), b"1")
+        self.client.shutdown(socket.SHUT_RDWR)
+        os.write(self.release_write, b"1")
+        with self.relay.connection_condition:
+            self.assertTrue(self.relay.connection_condition.wait_for(
+                lambda: self.relay.inflight == 0, timeout=2
+            ))
+        with self.assertRaisesRegex(ContractError, "raster_fixture_relay_unsettled"):
+            self.relay.close(timeout=0.2)
+        with socket.socket(socket.AF_UNIX) as recovery:
+            recovery.connect(str(Path(self.directory.name) / "fixture.sock"))
+            recovery.sendall((json.dumps({
+                "operation": "bind_fixture_suite", "suite_id": SUITE,
+            }) + "\n").encode())
+            recovery.sendall((json.dumps({
+                "action": "recover", "operation_id": operation_id,
+            }) + "\n").encode())
+            with recovery.makefile("rb") as replies:
+                self.assertEqual(json.loads(replies.readline())["operation_id"], operation_id)
+                recovery.sendall((json.dumps({
+                    "action": "ack", "operation_id": operation_id,
+                }) + "\n").encode())
+                self.assertEqual(json.loads(replies.readline())["state"], "acknowledged")
+        self.relay.close(timeout=2)
 
     def test_inflight_work_is_recorded_before_socket_teardown(self):
         request = {
             "operation": "prepare_fixture_suite",
             "data": {"suite_id": SUITE, "family": "owned"},
         }
-        self.client.sendall((json.dumps(request) + "\n").encode())
+        operation_id = self.execute(request)
         self.assertTrue(select.select([self.ready_read], [], [], 2)[0])
         self.assertEqual(os.read(self.ready_read, 1), b"1")
         recorded = []
@@ -229,15 +285,9 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         self.assertEqual(recorded, [("raster_fixture_relay_unsettled", 1, 1, True)])
         self.assertIsNone(self.relay.seed.poll())
         os.write(self.release_write, b"1")
-        with self.relay.connection_condition:
-            self.assertTrue(
-                self.relay.connection_condition.wait_for(
-                    lambda: not self.relay.connections, timeout=2
-                )
-            )
-        self.relay.seed.stdin.close()
-        self.assertEqual(self.relay.seed.wait(timeout=2), 0)
-        self.relay.seed.stdout.close()
+        self.assertEqual(json.loads(self.stream.readline())["operation_id"], operation_id)
+        self.acknowledge(operation_id)
+        self.relay.close(timeout=2)
 
 
 if __name__ == "__main__":

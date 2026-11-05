@@ -3,6 +3,15 @@ import type { APIRequestContext, APIResponse } from "@playwright/test";
 export type SeedResponse = Pick<APIResponse, "ok" | "status" | "text" | "json">;
 
 export function closeFixtureTransport(): Promise<void>;
+export function recoverFixtureOperation(operationId: string): Promise<{
+  operation_id: string;
+  state?: "unknown" | "pending";
+  status?: number;
+  body?: string;
+  owner_error?: string;
+  journal_error?: string;
+}>;
+export function acknowledgeFixtureOperation(operationId: string): Promise<void>;
 export function shutdownFixtureTransport(suiteId: string): Promise<{ state: "stopped" | "shared" }>;
 export function prepareFixtureSuite(
   suiteId: string,

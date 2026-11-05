@@ -106,33 +106,90 @@ class SeedOwner:
         self.errors = errors
         self.lock = asyncio.Lock()
         self.failure = None
+        self.last_operation_id = None
+
+    async def _exchange(self, envelope):
+        self.process.stdin.write((json.dumps(envelope) + "\n").encode())
+        await self.process.stdin.drain()
+        line = await self.process.stdout.readline()
+        if not line:
+            await self.process.wait()
+            self.errors.seek(0)
+            matches = re.findall(
+                rb"^Fixture setup failed: (\w+)$", self.errors.read(), re.MULTILINE
+            )
+            kind = matches[-1].decode() if matches else f"exit {self.process.returncode}"
+            raise RuntimeError(f"Fixture owner process failed: {kind}")
+        result = json.loads(line)
+        if result.get("operation_id") != envelope["operation_id"]:
+            raise RuntimeError("Fixture owner returned a different operation identity")
+        return result
 
     async def _request(self, payload):
+        operation_id = str(uuid.uuid4())
+        self.last_operation_id = operation_id
         async with self.lock:
             if self.failure is not None:
                 raise self.failure
+            result = None
             try:
-                self.process.stdin.write((json.dumps(payload) + "\n").encode())
-                await self.process.stdin.drain()
-                line = await self.process.stdout.readline()
-                if not line:
-                    await self.process.wait()
-                    self.errors.seek(0)
-                    matches = re.findall(
-                        rb"^Fixture setup failed: (\w+)$",
-                        self.errors.read(),
-                        re.MULTILINE,
-                    )
-                    kind = (
-                        matches[-1].decode()
-                        if matches
-                        else f"exit {self.process.returncode}"
-                    )
-                    raise RuntimeError(f"Fixture owner process failed: {kind}")
-                return json.loads(line)
+                result = await self._exchange({
+                    "action": "execute", "operation_id": operation_id, "payload": payload
+                })
+                if result.get("state") == "pending":
+                    raise RuntimeError("Fixture operation outcome is pending")
+                if (
+                    ("owner_error" in result and (
+                        not isinstance(result["owner_error"], str) or not result["owner_error"].isidentifier()
+                    ))
+                    or ("owner_error" not in result and (
+                        type(result.get("status")) is not int
+                        or not isinstance(result.get("body"), str)
+                    ))
+                    or ("journal_error" in result and (
+                        not isinstance(result["journal_error"], str) or not result["journal_error"].isidentifier()
+                    ))
+                ):
+                    raise RuntimeError("Fixture owner returned an invalid operation result")
+                if result.get("owner_error") not in {
+                    "OperationOutcomeUnresolved", "OperationIdentityConflict"
+                }:
+                    ack = await self._exchange({"action": "ack", "operation_id": operation_id})
+                    if ack.get("state") != "acknowledged":
+                        raise RuntimeError("Fixture operation receipt was not acknowledged")
             except BaseException as error:
+                if result is not None:
+                    error.fixture_response = result
+                    error.add_note("Fixture operation response was received before transport failure")
+                error.fixture_operation_id = operation_id
+                error.add_note(f"Fixture operation ID: {operation_id}")
                 self.failure = error
                 raise
+        causes = []
+        if "owner_error" in result:
+            causes.append(RuntimeError(f"Fixture operation failed: {result['owner_error']}"))
+        elif result.get("journal_error"):
+            causes.append(RuntimeError(f"Fixture operation returned HTTP {result['status']}"))
+        if result.get("journal_error"):
+            causes.append(RuntimeError(f"Fixture evidence journal failed: {result['journal_error']}"))
+        if causes:
+            error = causes[0] if len(causes) == 1 else ExceptionGroup(
+                "Fixture operation and evidence failed", causes
+            )
+            error.add_note(f"Fixture operation ID: {operation_id}")
+            raise error
+        return result
+
+    async def recover_operation(self, operation_id):
+        """Query the original authority without re-executing the operation."""
+        async with self.lock:
+            return await self._exchange({"action": "recover", "operation_id": str(operation_id)})
+
+    async def acknowledge_operation(self, operation_id):
+        async with self.lock:
+            result = await self._exchange({"action": "ack", "operation_id": str(operation_id)})
+            if result.get("state") != "acknowledged":
+                raise RuntimeError("Fixture operation outcome is not completed")
 
     async def prepare_suite(self, suite_id: uuid.UUID, family: str):
         result = await self._request(

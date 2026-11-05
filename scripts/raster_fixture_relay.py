@@ -16,7 +16,7 @@ import socketserver
 import subprocess
 import threading
 import time
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from storage_s3_contract import ContractError, require
 
@@ -46,7 +46,7 @@ def safe_failure_body(body):
 class RasterFixtureRelay:
     """Supervise one private seed client across Playwright worker lifetimes."""
 
-    def __init__(self, socket_path, suite_id, entries, environment, on_seed_failure):
+    def __init__(self, socket_path, suite_id, entries, environment, on_seed_failure, on_seed_intent):
         self.suite_id = suite_id
         self.runs = {}
         self.intents = {}
@@ -57,99 +57,146 @@ class RasterFixtureRelay:
         self.connection_condition = threading.Condition()
         self.inflight = 0
         self.unsettled = False
+        self.closing = False
+        self.operations = {}
+        self.clients = set()
         self.stopping = False
         self.failure = None
         self.on_seed_failure = on_seed_failure
         for entry in entries:
             self._register(entry["run_id"], entry["namespace"], entry["seed"])
-        self.seed = subprocess.Popen(
-            [
-                str(ROOT / "apps/api/.venv/bin/python"),
-                str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
-            ],
-            cwd=ROOT / "apps/api",
-            env=environment,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-        )
+        def start_client():
+            return subprocess.Popen(
+                [
+                    str(ROOT / "apps/api/.venv/bin/python"),
+                    str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
+                ],
+                cwd=ROOT / "apps/api",
+                env=environment,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+            )
+
+        self.seed = start_client()
         relay = self
 
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
-                seed_operation = False
+                client = None
+                executing = False
                 try:
                     binding_line = self.rfile.readline()
                     if not binding_line and relay.stopping:
                         return
                     binding = json.loads(binding_line)
                     require(
-                        binding
-                        == {
-                            "operation": "bind_fixture_suite",
-                            "suite_id": relay.suite_id,
-                        },
+                        binding == {"operation": "bind_fixture_suite", "suite_id": relay.suite_id},
                         "raster_relay_suite_mismatch",
                     )
+                    client = start_client()
+                    with relay.connection_condition:
+                        relay.clients.add(client)
                     while line := self.rfile.readline():
-                        with relay.lock:
-                            with relay.connection_condition:
-                                if relay.stopping:
-                                    return
-                                relay.inflight += 1
-                            try:
-                                request = json.loads(line)
-                                relay._validate(request)
-                                seed_operation = True
-                                relay.seed.stdin.write(line)
-                                relay.seed.stdin.flush()
-                                response_line = relay.seed.stdout.readline()
-                                require(
-                                    bool(response_line), "raster_fixture_process_exited"
-                                )
-                                response = json.loads(response_line)
-                                if response["status"] != 200:
-                                    relay.on_seed_failure(request, response)
-                                if not 200 <= response["status"] < 300:
-                                    response_line = json.dumps({
-                                        "status": response["status"],
-                                        "body": safe_failure_body(response["body"]),
-                                    }).encode() + b"\n"
-                                if (
-                                    request.get("path") == PREFIX + "owned"
-                                    and response.get("status") == 200
-                                ):
-                                    data = request["data"]
-                                    relay._register(
-                                        data["run_id"],
-                                        data["namespace"],
-                                        json.loads(response["body"]),
-                                    )
-                                seed_operation = False
-                            except BaseException as error:
-                                if seed_operation:
-                                    with relay.connection_condition:
+                        request = json.loads(line)
+                        operation_id = request.get("operation_id")
+                        action = request.get("action")
+                        require(relay._valid_uuid(operation_id), "raster_relay_operation_id_invalid")
+                        require(
+                            action in {"execute", "recover", "ack"}
+                            and set(request) == (
+                                {"action", "operation_id", "payload"} if action == "execute"
+                                else {"action", "operation_id"}
+                            ),
+                            "raster_relay_invalid_envelope",
+                        )
+                        with relay.connection_condition:
+                            if relay.stopping:
+                                return
+                            relay.inflight += 1
+                        try:
+                            with relay.lock:
+                                entry = relay.operations.get(operation_id)
+                                if action == "execute":
+                                    payload = request["payload"]
+                                    require(relay.failure is None, "raster_relay_fenced")
+                                    if relay.closing:
+                                        require(
+                                            isinstance(payload, dict)
+                                            and payload.get("path") in {
+                                                PREFIX + "owned-cleanup", PREFIX + "cleanup"
+                                            }
+                                            and not any(
+                                                not item["acknowledged"]
+                                                for item in relay.operations.values()
+                                            ),
+                                            "raster_relay_fenced",
+                                        )
+                                    if entry is None:
+                                        relay._validate(payload)
+                                        entry = {"payload": payload, "acknowledged": False, "registered": False}
+                                        relay.operations[operation_id] = entry
+                                    else:
+                                        require(entry["payload"] == payload, "raster_relay_operation_changed")
+                                else:
+                                    require(entry is not None, "raster_relay_operation_unowned")
+                                payload = entry["payload"]
+                            executing = True
+                            client.stdin.write(line)
+                            client.stdin.flush()
+                            response_line = client.stdout.readline()
+                            require(bool(response_line), "raster_fixture_process_exited")
+                            response = json.loads(response_line)
+                            require(response.get("operation_id") == operation_id, "raster_fixture_response_changed")
+                            with relay.lock:
+                                if response.get("status") is not None and response["status"] != 200:
+                                    try:
+                                        relay.on_seed_failure(payload, response.copy())
+                                    except BaseException as error:
                                         relay.failure = error
-                                        relay.unsettled = True
-                                raise
-                            finally:
-                                with relay.connection_condition:
-                                    if seed_operation:
-                                        relay.unsettled = True
-                                    relay.inflight -= 1
-                                    relay.connection_condition.notify_all()
-                        self.wfile.write(response_line)
-                        self.wfile.flush()
-                except (BrokenPipeError, ConnectionResetError, OSError) as error:
-                    if seed_operation:
-                        relay.failure = error
-                    elif not relay.stopping and not isinstance(
-                        error, (BrokenPipeError, ConnectionResetError)
-                    ):
-                        relay.failure = error
+                                        response["relay_journal_error"] = type(error).__name__
+                                if (
+                                    payload.get("path") == PREFIX + "owned"
+                                    and response.get("status") == 200
+                                    and not entry["registered"]
+                                ):
+                                    data = payload["data"]
+                                    relay._register(data["run_id"], data["namespace"], json.loads(response["body"]))
+                                    entry["registered"] = True
+                                if response.get("owner_error") in {
+                                    "OperationOutcomeUnresolved", "OperationIdentityConflict"
+                                }:
+                                    entry["acknowledged"] = True
+                                if action == "ack" and response.get("state") == "acknowledged":
+                                    entry["acknowledged"] = True
+                            if response.get("status") is not None and not 200 <= response["status"] < 300:
+                                response["body"] = safe_failure_body(response["body"])
+                            executing = False
+                            self.wfile.write(json.dumps(response).encode() + b"\n")
+                            self.wfile.flush()
+                        except BaseException as error:
+                            if executing:
+                                relay.failure = error
+                            raise
+                        finally:
+                            with relay.connection_condition:
+                                relay.inflight -= 1
+                                relay.connection_condition.notify_all()
+                except (BrokenPipeError, ConnectionResetError):
                     return
                 except Exception as error:
                     relay.failure = error
-                    raise
+                finally:
+                    if client is not None and not executing:
+                        try:
+                            client.stdin.close()
+                            client.wait(timeout=4)
+                            client.stdout.close()
+                        except BaseException as error:
+                            relay.failure = error
+                        else:
+                            with relay.connection_condition:
+                                relay.clients.discard(client)
+                                relay.connection_condition.notify_all()
 
         class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
             daemon_threads = True
@@ -176,24 +223,40 @@ class RasterFixtureRelay:
                         relay.connection_condition.notify_all()
 
         try:
-            self.seed.stdin.write(
-                json.dumps(
-                    {
-                        "operation": "prepare_fixture_suite",
-                        "data": {"suite_id": suite_id, "family": "owned"},
-                    }
-                ).encode()
-                + b"\n"
-            )
+            operation_id = str(uuid4())
+            on_seed_intent(operation_id)
+            initial_request = {
+                "action": "execute", "operation_id": operation_id,
+                "payload": {
+                    "operation": "prepare_fixture_suite",
+                    "data": {"suite_id": suite_id, "family": "owned"},
+                },
+            }
+            self.seed.stdin.write(json.dumps(initial_request).encode() + b"\n")
             self.seed.stdin.flush()
             initial = self.seed.stdout.readline()
             require(bool(initial), "raster_fixture_process_exited")
             initial_response = json.loads(initial)
-            if initial_response["status"] != 200:
-                self.on_seed_failure(
-                    {"operation": "prepare_fixture_suite"}, initial_response
-                )
-                raise ContractError("raster_fixture_prepare_failed")
+            require(initial_response.get("operation_id") == operation_id, "raster_fixture_response_changed")
+            if initial_response.get("status") != 200 or initial_response.get("journal_error"):
+                causes = [ContractError(
+                    f"raster_fixture_prepare_{initial_response.get('status', initial_response.get('owner_error'))}"
+                )]
+                if initial_response.get("journal_error"):
+                    causes.append(ContractError(f"raster_seed_journal_{initial_response['journal_error']}"))
+                try:
+                    self.on_seed_failure(initial_request["payload"], initial_response)
+                except BaseException as error:
+                    causes.append(error)
+                if len(causes) > 1:
+                    raise builtins.BaseExceptionGroup("raster prepare and evidence failed", causes)
+                raise causes[0]
+            self.seed.stdin.write(json.dumps({"action": "ack", "operation_id": operation_id}).encode() + b"\n")
+            self.seed.stdin.flush()
+            require(
+                json.loads(self.seed.stdout.readline()).get("state") == "acknowledged",
+                "raster_fixture_prepare_unacknowledged",
+            )
             self.server = Server(str(socket_path), Handler)
             self.thread = threading.Thread(
                 target=self.server.serve_forever,
@@ -357,24 +420,33 @@ class RasterFixtureRelay:
                 )
             raise failures[0]
 
+        def outstanding():
+            with self.lock:
+                return any(not entry["acknowledged"] for entry in self.operations.values())
+
+        with self.connection_condition:
+            self.closing = True
+            self.connection_condition.notify_all()
+            while self.inflight or outstanding():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                self.connection_condition.wait(remaining)
+            self.unsettled = bool(self.inflight or outstanding() or self.failure)
+        if self.unsettled and on_unsettled is not None:
+            try:
+                on_unsettled("raster_fixture_relay_unsettled")
+            except BaseException as error:
+                journal_failure = error
+        if self.unsettled:
+            # Leave the relay and exact seed handles available for explicit recovery.
+            fail_shutdown("raster_fixture_relay_unsettled")
         with self.connection_condition:
             self.stopping = True
             self.connection_condition.notify_all()
         shutdown = threading.Thread(target=self.server.shutdown, daemon=True)
         shutdown.start()
         shutdown.join(max(0, deadline - time.monotonic()))
-        with self.connection_condition:
-            while self.inflight:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    break
-                self.connection_condition.wait(remaining)
-            self.unsettled = self.unsettled or bool(self.inflight)
-        if self.unsettled and on_unsettled is not None:
-            try:
-                on_unsettled("raster_fixture_relay_unsettled")
-            except BaseException as error:
-                journal_failure = error
         self.server.server_close()
         with self.connection_condition:
             for connection in tuple(self.connections):
@@ -382,12 +454,12 @@ class RasterFixtureRelay:
                     connection.shutdown(socket.SHUT_RDWR)
                 except OSError:
                     pass
-            while self.connections:
+            while self.connections or self.clients:
                 remaining = deadline - time.monotonic()
                 if remaining <= 0:
                     break
                 self.connection_condition.wait(remaining)
-            settled = not self.connections
+            settled = not self.connections and not self.clients
         if shutdown.is_alive() or not settled or self.unsettled:
             fail_shutdown("raster_fixture_relay_unsettled")
         self.thread.join(max(0, deadline - time.monotonic()))

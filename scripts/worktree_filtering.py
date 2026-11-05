@@ -22,6 +22,7 @@ from worktree_env import (
 )
 
 MANUAL_NAMESPACE = "manualfilter"
+_RETAINED_CLIENTS = []
 
 
 async def _fixture_request(payload: dict):
@@ -35,7 +36,52 @@ async def _fixture_request(payload: dict):
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, stderr = await process.communicate((json.dumps(payload) + "\n").encode())
+    operation_id = str(uuid4())
+    response = None
+    try:
+        process.stdin.write((json.dumps({
+            "action": "execute", "operation_id": operation_id, "payload": payload,
+        }) + "\n").encode())
+        await process.stdin.drain()
+        line = await process.stdout.readline()
+        if not line:
+            raise WorktreeError("筛选夹具 owner 未返回操作结果")
+        response = json.loads(line)
+        if response.get("operation_id") != operation_id or response.get("state") == "pending":
+            raise WorktreeError("筛选夹具操作结果尚未确定")
+        if (
+            ("owner_error" in response and (
+                not isinstance(response["owner_error"], str) or not response["owner_error"].isidentifier()
+            ))
+            or ("owner_error" not in response and (
+                type(response.get("status")) is not int or not isinstance(response.get("body"), str)
+            ))
+            or ("journal_error" in response and (
+                not isinstance(response["journal_error"], str) or not response["journal_error"].isidentifier()
+            ))
+        ):
+            raise WorktreeError("筛选夹具 owner 返回了无效结果")
+        if response.get("owner_error") not in {
+            "OperationOutcomeUnresolved", "OperationIdentityConflict"
+        }:
+            process.stdin.write((json.dumps({
+                "action": "ack", "operation_id": operation_id,
+            }) + "\n").encode())
+            await process.stdin.drain()
+            receipt = json.loads(await process.stdout.readline())
+            if receipt != {"operation_id": operation_id, "state": "acknowledged"}:
+                raise WorktreeError("筛选夹具操作回执尚未确定")
+        process.stdin.close()
+        stderr = await process.stderr.read()
+        await process.wait()
+    except BaseException as error:
+        _RETAINED_CLIENTS.append(process)
+        if response is not None:
+            error.fixture_response = response
+            error.add_note("Fixture operation response was received before transport failure")
+        error.fixture_operation_id = operation_id
+        error.add_note(f"Fixture operation ID: {operation_id}")
+        raise
     journal = ".worktree/e2e/fixture-authority/failures.ndjson"
     if process.returncode != 0:
         matches = re.findall(rb"^Fixture setup failed: (\w+)$", stderr, re.MULTILINE)
@@ -43,7 +89,17 @@ async def _fixture_request(payload: dict):
         raise WorktreeError(
             f"筛选夹具 owner 进程失败：exit {process.returncode}, {kind}；私有证据：{journal}"
         )
-    response = json.loads(stdout)
+    if response.get("owner_error") or response.get("journal_error"):
+        causes = []
+        if response.get("owner_error"):
+            causes.append(WorktreeError(f"筛选夹具操作失败：{response['owner_error']}"))
+        else:
+            causes.append(WorktreeError(f"筛选夹具准备失败：HTTP {response['status']}"))
+        if response.get("journal_error"):
+            causes.append(WorktreeError(f"私有证据写入失败：{response['journal_error']}"))
+        error = causes[0] if len(causes) == 1 else ExceptionGroup("夹具操作与证据失败", causes)
+        error.add_note(f"Fixture operation ID: {operation_id}")
+        raise error
     if response["status"] != 200:
         code = "unknown"
         try:
