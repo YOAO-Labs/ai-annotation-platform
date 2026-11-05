@@ -11,12 +11,12 @@ from urllib.parse import urlsplit
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
 
 from tests.identity_recording_fixture_helpers import (
     INITIAL_PREFERENCES,
     RECORDER_EMAIL,
     recording_graph,
+    recording_owner_session,
     recording_snapshot,
 )
 from tests.project_guide_asset_owner_helpers import (
@@ -433,6 +433,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
     source_root.mkdir()
     preferences_path = source_root / "preferences.json"
     cli = None
+    fixture_cli = None
     pending_gate = None
     preference_gate = None
 
@@ -455,12 +456,25 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 s3_access_key=access_key,
                 s3_secret_key=secret_key,
             )
+            fixture_cli = WorkspaceImportCli(
+                test_engine,
+                tmp_path,
+                source_root=source_root,
+                buckets=resources["buckets"],
+                minio_authority=f"{authority_host}:{endpoint.port or 9000}",
+                minio_use_ssl=endpoint.scheme == "https",
+                s3_access_key=access_key,
+                s3_secret_key=secret_key,
+                fixture_family="screenshot",
+                fixture_run_ids=frozenset({ids["run_id"]}),
+            )
             await asyncio.to_thread(cli.start)
+            await asyncio.to_thread(fixture_cli.start)
             await _assert_identity_profile(test_engine)
 
             wrong_project = uuid.uuid4()
             bad_job_scope = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "seed",
                 project_id=wrong_project,
                 task_id=ids["ocr_task"],
@@ -474,7 +488,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == base
 
             job_seed = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "seed",
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
@@ -489,7 +503,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 assert job_state[section] == base[section], section
 
             missing_job_user = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "seed",
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
@@ -503,7 +517,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == job_state
 
             bad_job_scope_after_seed = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "seed",
                 project_id=wrong_project,
                 task_id=ids["ocr_task"],
@@ -517,7 +531,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == job_state
 
             repeated_job = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "seed",
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
@@ -529,7 +543,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == job_state
 
             job_cleanup = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "cleanup",
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
@@ -541,7 +555,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == base
 
             repeated_cleanup = await _run_job_fixture(
-                cli,
+                fixture_cli,
                 "cleanup",
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
@@ -555,7 +569,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == base
 
             bad_review_scope = await _run_review_fixture(
-                cli,
+                fixture_cli,
                 "prepare",
                 project_id=ids["image_project"],
                 task_id=ids["ocr_task"],
@@ -569,7 +583,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == base
 
             missing_reviewer = await _run_review_fixture(
-                cli,
+                fixture_cli,
                 "prepare",
                 project_id=ids["image_project"],
                 task_id=ids["image_task"],
@@ -583,7 +597,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == base
 
             review_prepare = await _run_review_fixture(
-                cli,
+                fixture_cli,
                 "prepare",
                 project_id=ids["image_project"],
                 task_id=ids["image_task"],
@@ -605,7 +619,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert review_state["tasks"] != base["tasks"]
 
             repeated_prepare = await _run_review_fixture(
-                cli,
+                fixture_cli,
                 "prepare",
                 project_id=ids["image_project"],
                 task_id=ids["image_task"],
@@ -621,7 +635,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == review_state
 
             review_cleanup = await _run_review_fixture(
-                cli,
+                fixture_cli,
                 "cleanup",
                 project_id=ids["image_project"],
                 task_id=ids["image_task"],
@@ -646,7 +660,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 "unrecognized_top_level": {"kept_verbatim": ["新值", 7]},
             }
             _write_preferences(preferences_path, rich_preferences)
-            preference_write = await _run_preferences_fixture(cli, ids["recorder"])
+            preference_write = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             record_property(
                 "identity_recording_preferences_replace",
                 preference_write.evidence,
@@ -655,7 +671,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             preference_state = await recording_snapshot(test_engine, ids)
             _assert_preferences_only(review_state, preference_state, rich_preferences)
 
-            repeated_preferences = await _run_preferences_fixture(cli, ids["recorder"])
+            repeated_preferences = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             record_property(
                 "identity_recording_preferences_replace_repeat",
                 repeated_preferences.evidence,
@@ -667,7 +685,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == preference_state
 
             _write_preferences(preferences_path, {})
-            empty_preferences = await _run_preferences_fixture(cli, ids["recorder"])
+            empty_preferences = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             record_property(
                 "identity_recording_preferences_empty_object",
                 empty_preferences.evidence,
@@ -677,7 +697,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             _assert_preferences_only(review_state, empty_state, {})
 
             _write_preferences(preferences_path, INITIAL_PREFERENCES)
-            preferences_reset = await _run_preferences_fixture(cli, ids["recorder"])
+            preferences_reset = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             record_property(
                 "identity_recording_preferences_reset",
                 preferences_reset.evidence,
@@ -685,7 +707,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert not preferences_reset.timed_out and preferences_reset.exit_code == 0
             assert await recording_snapshot(test_engine, ids) == review_state
 
-            missing_preferences_user = await _run_preferences_fixture(cli, uuid.uuid4())
+            missing_preferences_user = await _run_preferences_fixture(
+                fixture_cli, uuid.uuid4()
+            )
             record_property(
                 "identity_recording_preferences_missing_user",
                 missing_preferences_user.evidence,
@@ -707,7 +731,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             assert await recording_snapshot(test_engine, ids) == review_state
 
             await _assert_identity_profile(test_engine)
-            recovered_preferences = await _run_preferences_fixture(cli, ids["recorder"])
+            recovered_preferences = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             record_property(
                 "identity_recording_preferences_capability_recovery",
                 recovered_preferences.evidence,
@@ -717,7 +743,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             recovered_state = await recording_snapshot(test_engine, ids)
             _assert_preferences_only(review_state, recovered_state, rich_preferences)
             _write_preferences(preferences_path, INITIAL_PREFERENCES)
-            recovered_reset = await _run_preferences_fixture(cli, ids["recorder"])
+            recovered_reset = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             assert not recovered_reset.timed_out and recovered_reset.exit_code == 0
             assert await recording_snapshot(test_engine, ids) == review_state
 
@@ -727,6 +755,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 "unknown": {"unicode": "取消 🚲", "empty": []},
             }
             _write_preferences(preferences_path, gated_preferences)
+            async with recording_owner_session() as owner:
+                owner_role = await owner.scalar(text("SELECT current_user"))
+            assert owner_role and owner_role != "legacy_runtime"
             preference_gate = await _install_preferences_gate(
                 test_engine,
                 recorder_id=ids["recorder"],
@@ -734,7 +765,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             )
             pending_gate = asyncio.create_task(
                 asyncio.to_thread(
-                    cli.run_command,
+                    fixture_cli.run_command,
                     (
                         "python",
                         "scripts/restore_screenshot_user_preferences.py",
@@ -746,11 +777,8 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                 )
             )
             try:
-                owner_role = make_url(
-                    os.environ["PLAYWRIGHT_E2E_DATABASE_URL"]
-                ).username
                 client_address, activity = await _wait_for_preferences_gate(
-                    test_engine, cli, pending_gate, application_name, owner_role
+                    test_engine, fixture_cli, pending_gate, application_name, owner_role
                 )
                 backend_pid = activity["pid"]
                 assert activity["usename"] == owner_role
@@ -769,7 +797,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                         "native_call": activity["native_call"],
                     },
                 )
-                assert await asyncio.to_thread(cli.stop_current_container) is True
+                assert (
+                    await asyncio.to_thread(fixture_cli.stop_current_container) is True
+                )
                 stopped = await asyncio.wait_for(
                     asyncio.shield(pending_gate), timeout=35
                 )
@@ -788,7 +818,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                     await _drop_preferences_gate(test_engine, preference_gate)
                     preference_gate = None
 
-            recovered_gate_write = await _run_preferences_fixture(cli, ids["recorder"])
+            recovered_gate_write = await _run_preferences_fixture(
+                fixture_cli, ids["recorder"]
+            )
             record_property(
                 "identity_recording_preferences_cancellation_recovery",
                 recovered_gate_write.evidence,
@@ -798,7 +830,7 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
             gated_state = await recording_snapshot(test_engine, ids)
             _assert_preferences_only(review_state, gated_state, gated_preferences)
             _write_preferences(preferences_path, INITIAL_PREFERENCES)
-            final_reset = await _run_preferences_fixture(cli, ids["recorder"])
+            final_reset = await _run_preferences_fixture(fixture_cli, ids["recorder"])
             assert not final_reset.timed_out and final_reset.exit_code == 0
             assert await recording_snapshot(test_engine, ids) == review_state
 
@@ -819,5 +851,9 @@ async def test_installed_recording_consumers_use_fenced_identity_capabilities(
                     if preference_gate is not None:
                         await _drop_preferences_gate(test_engine, preference_gate)
                 finally:
-                    if cli is not None:
-                        await asyncio.to_thread(cli.close)
+                    try:
+                        if fixture_cli is not None:
+                            await asyncio.to_thread(fixture_cli.close)
+                    finally:
+                        if cli is not None:
+                            await asyncio.to_thread(cli.close)
