@@ -17,6 +17,8 @@ import sys
 import time
 from urllib.request import urlopen
 
+from linux_pidfd import open_pidfd, pidfd_send_signal, waitid_pidfd
+
 from worktree_env import (
     WorktreeError,
     application_environment,
@@ -254,8 +256,10 @@ _UNSETTLED_E2E_PIDFDS = []
 
 def establish_e2e_subreaper() -> int:
     """Adopt consumer orphans before the first E2E consumer is launched."""
-    if sys.platform != "linux" or not hasattr(os, "pidfd_open"):
+    if sys.platform != "linux":
         raise WorktreeError("e2e 消费者边界需要 Linux subreaper 与 pidfd")
+    descriptor = open_pidfd(os.getpid())
+    os.close(descriptor)
     libc = ctypes.CDLL(None, use_errno=True)
     previous = ctypes.c_int()
     if libc.prctl(37, ctypes.byref(previous), 0, 0, 0) != 0:
@@ -302,11 +306,11 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
                 if pid in tracked:
                     continue
                 ticks = _process_start_ticks(pid)
-                descriptor = os.pidfd_open(pid)
+                descriptor = open_pidfd(pid)
                 try:
                     if _process_start_ticks(pid) != ticks:
                         raise WorktreeError("e2e 子进程身份变化")
-                    os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    waitid_pidfd(descriptor, os.WEXITED | os.WNOHANG | os.WNOWAIT)
                     identity = {"pid": pid, "start_ticks": ticks, "state": "observed"}
                     boundary["adopted"].append(identity)
                     boundary["unidentified"].remove(pid)
@@ -317,16 +321,20 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
                     if descriptor is not None:
                         os.close(descriptor)
             for pid, (descriptor, identity) in list(tracked.items()):
-                observed = os.waitid(
-                    os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
+                observed = waitid_pidfd(
+                    descriptor, os.WEXITED | os.WNOHANG | os.WNOWAIT
                 )
                 if observed is None:
                     continue
-                reaped, status = os.waitpid(pid, 0)
-                if reaped != pid:
+                reaped = waitid_pidfd(descriptor, os.WEXITED)
+                if (
+                    reaped.si_pid != pid
+                    or reaped.si_code != observed.si_code
+                    or reaped.si_status != observed.si_status
+                ):
                     raise WorktreeError("e2e 子进程退出回执不匹配")
                 identity["state"] = "reaped"
-                identity["exit_code"] = os.waitstatus_to_exitcode(status)
+                identity["exit_code"] = _waitid_exit_code(reaped)
                 os.close(descriptor)
                 del tracked[pid]
                 atomic_json(record_path, record)
@@ -369,7 +377,7 @@ def retain_adopted_evidence(record, record_path, native_owner):
             evidence["unidentified"].append(pid)
             atomic_json(record_path, record)
             ticks = _process_start_ticks(pid)
-            descriptor = os.pidfd_open(pid)
+            descriptor = open_pidfd(pid)
             try:
                 if _process_start_ticks(pid) != ticks:
                     raise WorktreeError("e2e 后代进程身份变化")
@@ -625,6 +633,111 @@ def register_child(record: dict, handle: dict | None, role: str) -> None:
     record["children"].append({**handle, "role": role})
 
 
+def _waitid_exit_code(result):
+    if result.si_code == os.CLD_EXITED:
+        return result.si_status
+    if result.si_code in {os.CLD_KILLED, os.CLD_DUMPED}:
+        return -result.si_status
+    raise WorktreeError("e2e 子进程退出状态无法识别")
+
+
+def _e2e_child_status(child, descriptor=None):
+    """Observe an exact child without reaping or fabricating a missing wait status."""
+    if child.returncode is not None:
+        raise WorktreeError("e2e 子进程已在边界外回收；退出状态无法证明")
+    owned = descriptor is None
+    descriptor = open_pidfd(child.pid) if owned else descriptor
+    try:
+        result = waitid_pidfd(descriptor, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+    except ChildProcessError:
+        raise WorktreeError("e2e 子进程退出状态无法证明") from None
+    finally:
+        if owned:
+            os.close(descriptor)
+    if result is None:
+        return None
+    return _waitid_exit_code(result)
+
+
+def finish_e2e_direct_children(children, record, record_path, *, orderly, request_stop, deadline):
+    """Record exact direct-child exits; only requested, zero-exit workers settle."""
+    entries = {item["pid"]: item for item in record["children"]}
+    requested = set()
+    failures = []
+    descriptors = {}
+
+    def unresolved(reason):
+        if not record.get("unsettled_consumers"):
+            record["unsettled_consumers"] = {"reason": reason}
+        atomic_json(record_path, record)
+
+    try:
+        for child in children:
+            entry = entries.get(child.pid)
+            if entry is None:
+                failures.append(f"unregistered:{child.pid}")
+            descriptor = open_pidfd(child.pid)
+            descriptors[child.pid] = descriptor
+            observed = _e2e_child_status(child, descriptor)
+            if entry is not None and observed is not None:
+                entry["observed_exit_code"] = observed
+            if request_stop and observed is None:
+                try:
+                    pidfd_send_signal(descriptor, signal.SIGTERM)
+                except ProcessLookupError:
+                    failures.append(f"signal_unproved:{child.pid}")
+                else:
+                    requested.add(child.pid)
+            if entry is not None:
+                entry["shutdown_requested"] = child.pid in requested
+        atomic_json(record_path, record)
+
+        for child in children:
+            while True:
+                observed = _e2e_child_status(child, descriptors[child.pid])
+                if observed is not None:
+                    break
+                if time.monotonic() >= deadline:
+                    raise WorktreeError(f"e2e 子进程 {child.pid} 未在期限内退出")
+                time.sleep(0.05)
+            try:
+                receipt = waitid_pidfd(descriptors[child.pid], os.WEXITED)
+            except ChildProcessError:
+                raise WorktreeError(f"e2e 子进程 {child.pid} 退出回执丢失") from None
+            if receipt.si_code == os.CLD_EXITED:
+                result = receipt.si_status
+            elif receipt.si_code in {os.CLD_KILLED, os.CLD_DUMPED}:
+                result = -receipt.si_status
+            else:
+                raise WorktreeError(f"e2e 子进程 {child.pid} 退出回执无效")
+            if receipt.si_pid != child.pid or result != observed:
+                raise WorktreeError(f"e2e 子进程 {child.pid} 退出回执不一致")
+            os.close(descriptors.pop(child.pid))
+            child.returncode = result
+            entry = entries.get(child.pid)
+            if entry is not None:
+                entry["exit_code"] = result
+                entry["exit_observed"] = True
+                role = entry["role"]
+                if role == "supervisor":
+                    if result != 0:
+                        failures.append(f"{role}:{result}")
+                elif role in {"worker", "maintenance_worker"}:
+                    if not orderly or child.pid not in requested or result != 0:
+                        failures.append(f"{role}:{result}")
+                else:
+                    failures.append(f"unexpected_role:{role}")
+            atomic_json(record_path, record)
+        if failures:
+            unresolved("direct_child_exit_unproved")
+            raise WorktreeError("e2e 直接子进程未协作完成：" + ", ".join(failures))
+    except BaseException:
+        unresolved("direct_child_exit_unproved")
+        raise
+    finally:
+        _UNSETTLED_E2E_PIDFDS.extend(descriptors.values())
+
+
 def run_processes(backend, options, *, fixture_inference=None, coordinator_input=None) -> int:
     resources = backend.resources
     root = backend.code_root
@@ -679,16 +792,23 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
         record["unsettled_consumers"]["snapshot"] = snapshot
         atomic_json(record_path, record)
 
+    def child_status(child):
+        return _e2e_child_status(child) if canonical_e2e else child.poll()
+
     def signal_children(sig):
         for child in children:
-            if child.poll() is None:
-                try:
-                    if canonical_e2e:
-                        os.kill(child.pid, sig)
-                    else:
-                        os.killpg(child.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    pass
+            try:
+                if canonical_e2e:
+                    descriptor = open_pidfd(child.pid)
+                    try:
+                        if _e2e_child_status(child, descriptor) is None:
+                            pidfd_send_signal(descriptor, sig)
+                    finally:
+                        os.close(descriptor)
+                elif child.poll() is None:
+                    os.killpg(child.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                pass
 
     def request_stop(sig, _frame):
         nonlocal stopping, stop_signal
@@ -904,7 +1024,7 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                     deadline = time.monotonic() + 60
                     ready = False
                     while (
-                        worker.poll() is None
+                        child_status(worker) is None
                         and not stopping
                         and time.monotonic() < deadline
                     ):
@@ -963,11 +1083,11 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
             child_environment=supervisor_environment,
             private_environment=private_environment,
         )
-        while supervisor.poll() is None and not stopping:
+        while child_status(supervisor) is None and not stopping:
             if selected_inference is not None and not selected_inference.supervision_ready():
                 raise WorktreeError("推理夹具 owner 意外退出；保留资源")
             if any(
-                child.poll() is not None
+                child_status(child) is not None
                 for child in children
                 if child is not supervisor
             ):
@@ -975,7 +1095,7 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                     "本环境 worker 意外退出；停止 API/Web，避免显示虚假的就绪状态"
                 )
             time.sleep(0.1)
-        exit_code = (128 + stop_signal if canonical_e2e else 0) if stopping else supervisor.returncode
+        exit_code = (128 + stop_signal if canonical_e2e else 0) if stopping else child_status(supervisor)
         return exit_code
     finally:
         original = sys.exception()
@@ -986,17 +1106,25 @@ def run_processes(backend, options, *, fixture_inference=None, coordinator_input
                 atomic_json(record_path, record)
             if canonical_e2e and (original is not None or exit_code not in (None, 0)):
                 retain_consumers("command_failed")
-            if not stopping:
-                signal_children(signal.SIGTERM)
             deadline = time.monotonic() + 12
-            for child in children:
-                try:
-                    child.wait(timeout=max(0.1, deadline - time.monotonic()))
-                except subprocess.TimeoutExpired:
-                    if canonical_e2e:
-                        raise WorktreeError("e2e 子进程未退出；保留运行记录")
-                    os.killpg(child.pid, signal.SIGKILL)
-                    child.wait(timeout=5)
+            if canonical_e2e:
+                finish_e2e_direct_children(
+                    children,
+                    record,
+                    record_path,
+                    orderly=original is None and exit_code == 0 and not stopping,
+                    request_stop=not stopping,
+                    deadline=deadline,
+                )
+            else:
+                if not stopping:
+                    signal_children(signal.SIGTERM)
+                for child in children:
+                    try:
+                        child.wait(timeout=max(0.1, deadline - time.monotonic()))
+                    except subprocess.TimeoutExpired:
+                        os.killpg(child.pid, signal.SIGKILL)
+                        child.wait(timeout=5)
             if canonical_e2e and original is None and exit_code == 0 and not stopping:
                 lock = selected_inference._lifecycle_lock if selected_inference else nullcontext()
                 try:

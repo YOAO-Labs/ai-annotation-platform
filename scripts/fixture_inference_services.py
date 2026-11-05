@@ -26,6 +26,8 @@ from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
+from linux_pidfd import open_pidfd, pidfd_alive
+
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, state_path, topology
 from worktree_runtime import (
     process_handle,
@@ -440,9 +442,7 @@ class FixtureInferenceServices:
             self.poisoned = True
             raise WorktreeError("无法核对推理夹具进程；保留记录")
         handle["start_ticks"] = _start_ticks(self.process.pid)
-        if not hasattr(os, "pidfd_open"):
-            raise WorktreeError("无法取得推理夹具 pidfd；保留进程记录")
-        self.pidfd = os.pidfd_open(self.process.pid)
+        self.pidfd = open_pidfd(self.process.pid)
         if (
             not process_matches(handle, str(script))
             or _start_ticks(self.process.pid) != handle["start_ticks"]
@@ -573,12 +573,11 @@ class FixtureInferenceServices:
             raise WorktreeError("无法确认原推理夹具监督进程退出")
         script = str(self.code_root / "scripts/fixture_inference_services.py")
         if (
-            not hasattr(os, "pidfd_open")
-            or not process_matches(marker, script)
+            not process_matches(marker, script)
             or _start_ticks(marker["pid"]) != marker.get("start_ticks")
         ):
             raise WorktreeError("无法核对原推理夹具进程；保留记录")
-        descriptor = os.pidfd_open(marker["pid"])
+        descriptor = open_pidfd(marker["pid"])
         try:
             if (
                 not process_matches(marker, script)
@@ -629,7 +628,7 @@ class FixtureInferenceServices:
     def is_alive(self) -> bool:
         if self.poisoned or self.record is None or self.pidfd is None:
             return False
-        if select.select([self.pidfd], [], [], 0)[0]:
+        if not pidfd_alive(self.pidfd):
             return False
         return bool(
             self.marker_path.exists()
@@ -873,7 +872,7 @@ def verify_existing_serving(resources: dict, *, code_root: Path, environment: di
     selection = owner._selection()
     if any(environment.get(key, "") != value for key, value in selection.items()):
         raise WorktreeError("推理夹具 HTTP 选择与原 authority 不一致")
-    owner.pidfd = os.pidfd_open(marker["pid"])
+    owner.pidfd = open_pidfd(marker["pid"])
     try:
         if not owner.is_alive():
             raise WorktreeError("推理夹具进程身份变化")

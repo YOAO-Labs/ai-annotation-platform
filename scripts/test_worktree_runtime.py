@@ -288,7 +288,7 @@ class CommandTests(unittest.TestCase):
                 runtime.parse_arguments(args)
 
     @unittest.skipUnless(
-        __import__("sys").platform == "linux" and hasattr(__import__("os"), "pidfd_open"),
+        __import__("sys").platform == "linux",
         "requires Linux subreaper and pidfds",
     )
     def test_zero_exiting_wrapper_does_not_settle_detached_consumer(self):
@@ -352,6 +352,101 @@ settle_e2e_descendants({}, pathlib.Path(record), None)
                 release.write_text("release")
                 if runner.poll() is None:
                     runner.communicate(timeout=15)
+
+
+@unittest.skipUnless(__import__("sys").platform == "linux", "requires Linux pidfds")
+class DirectChildBoundaryTests(unittest.TestCase):
+    def test_zero_command_with_crashed_or_cooperatively_stopped_worker(self):
+        import signal
+        import subprocess
+        import sys
+        import time
+
+        import worktree_runtime as runtime
+        from linux_pidfd import open_pidfd, pidfd_send_signal
+        from worktree_env import read_state
+
+        worker_code = """
+import signal, sys
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+print("ready", flush=True)
+if sys.argv[1] == "crash":
+    sys.stdin.buffer.read(1)
+    sys.exit(23)
+while True:
+    signal.pause()
+"""
+        supervisor_code = """
+import sys
+print("ready", flush=True)
+sys.stdin.buffer.read(1)
+sys.exit(0)
+"""
+        for crash in (True, False):
+            with self.subTest(crash=crash), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                worker = subprocess.Popen(
+                    [sys.executable, "-u", "-c", worker_code, "crash" if crash else "normal"],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                supervisor = subprocess.Popen(
+                    [sys.executable, "-u", "-c", supervisor_code],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                children = [worker, supervisor]
+                try:
+                    self.assertEqual(worker.stdout.readline(), b"ready\n")
+                    self.assertEqual(supervisor.stdout.readline(), b"ready\n")
+                    record = {"children": []}
+                    for child, role in ((worker, "worker"), (supervisor, "supervisor")):
+                        runtime.register_child(record, runtime.process_handle(child.pid, str(root)), role)
+                    self.assertIsNone(runtime._e2e_child_status(worker))
+                    if crash:
+                        worker.stdin.write(b"x")
+                        worker.stdin.flush()
+                    supervisor.stdin.write(b"x")
+                    supervisor.stdin.flush()
+                    deadline = time.monotonic() + 8
+                    while runtime._e2e_child_status(supervisor) is None or (
+                        crash and runtime._e2e_child_status(worker) is None
+                    ):
+                        if time.monotonic() >= deadline:
+                            self.fail("direct child did not reach its expected exit")
+                        time.sleep(0.02)
+                    path = root / "run.json"
+                    if crash:
+                        with self.assertRaises(runtime.WorktreeError):
+                            runtime.finish_e2e_direct_children(
+                                children, record, path, orderly=True,
+                                request_stop=True, deadline=time.monotonic() + 8,
+                            )
+                    else:
+                        runtime.finish_e2e_direct_children(
+                            children, record, path, orderly=True,
+                            request_stop=True, deadline=time.monotonic() + 8,
+                        )
+                    saved = read_state(path)
+                    exits = {item["role"]: item for item in saved["children"]}
+                    self.assertEqual(exits["supervisor"]["exit_code"], 0)
+                    self.assertEqual(exits["worker"]["exit_code"], 23 if crash else 0)
+                    self.assertEqual(exits["worker"]["shutdown_requested"], not crash)
+                    self.assertEqual("unsettled_consumers" in saved, crash)
+                    self.assertNotIn("supervisor_reaped", saved)
+                finally:
+                    for child in children:
+                        if child.returncode is None:
+                            try:
+                                descriptor = open_pidfd(child.pid)
+                                try:
+                                    pidfd_send_signal(descriptor, signal.SIGTERM)
+                                finally:
+                                    __import__("os").close(descriptor)
+                            except ProcessLookupError:
+                                pass
+                            child.wait(timeout=10)
+                        for stream in (child.stdin, child.stdout, child.stderr):
+                            if stream is not None:
+                                stream.close()
 
 
 class WorkerQueueTests(unittest.TestCase):
