@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import uuid
 
 import pytest
@@ -61,6 +62,21 @@ def _identity_api_url(test_engine):
         test_engine.url.database,
     )
     assert url.database and url.database.endswith(("_test", "_e2e"))
+    return url
+
+
+async def _fixture_owner_url(test_engine):
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from fixture_suite_coordinator import verified_fixture_owner_url
+
+    url = make_url(await verified_fixture_owner_url())
+    assert (url.username, url.host, url.port, url.database) == (
+        test_engine.url.username,
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    assert url.username != _ROLE
     return url
 
 
@@ -194,7 +210,7 @@ async def _workspace_guard_definition(engine):
         )
 
 
-async def _assert_contract(test_engine):
+async def _assert_contract(test_engine, owner_role):
     frozen = json.loads(_SCHEMA.read_text(encoding="utf-8"))
     installed = json.loads(
         files("yoao_jobs").joinpath("fixture_guard.schema.json").read_text()
@@ -228,13 +244,15 @@ async def _assert_contract(test_engine):
                     "SELECT p.prosecdef,p.proconfig,"
                     "pg_catalog.pg_get_userbyid(p.proowner), "
                     "pg_catalog.has_function_privilege('identity_api_consumer',p.oid,'EXECUTE'), "
+                    "pg_catalog.has_function_privilege(:owner_role,p.oid,'EXECUTE'), "
                     "EXISTS (SELECT FROM pg_catalog.aclexplode(COALESCE(p.proacl, "
                     "pg_catalog.acldefault('f',p.proowner))) acl "
                     "WHERE acl.grantee=0 AND acl.privilege_type='EXECUTE') "
                     "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n "
                     "ON n.oid=p.pronamespace WHERE n.nspname='aap_jobs_v1' "
                     "AND p.proname='delete_fixture_project_jobs'"
-                )
+                ),
+                {"owner_role": owner_role},
             )
         ).one()
     assert row == (
@@ -245,16 +263,18 @@ async def _assert_contract(test_engine):
             "DateStyle=ISO, YMD",
         ],
         "jobs_code",
+        False,
         True,
         False,
     )
 
 
-async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_transactions(
+async def test_fixture_cleanup_owner_login_preserves_scope_and_transactions(
     test_engine, record_property
 ):
     api_url = _identity_api_url(test_engine)
-    await _assert_contract(test_engine)
+    owner_url = await _fixture_owner_url(test_engine)
+    await _assert_contract(test_engine, owner_url.username)
     api_engine = create_async_engine(
         api_url.set(drivername="postgresql+asyncpg"), hide_parameters=True
     )
@@ -283,8 +303,15 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                     False,
                 )
 
+            async with test_engine.connect() as owner:
                 assert (
-                    await api.scalar(
+                    await owner.execute(
+                        text("SELECT session_user::text,current_user::text")
+                    )
+                ).one() == (owner_url.username, owner_url.username)
+
+                assert (
+                    await owner.scalar(
                         text(_CALL),
                         {"ids": []},
                     )
@@ -292,12 +319,12 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                 )
                 for invalid in (None, [None]):
                     with pytest.raises(DBAPIError) as rejected:
-                        await api.scalar(
+                        await owner.scalar(
                             text(_CALL),
                             {"ids": invalid},
                         )
                     assert _sqlstate(rejected.value) == "22023"
-                    await api.rollback()
+                    await owner.rollback()
 
             before = await _job_rows(test_engine, world["all_ids"])
             async with world["sessions"]() as lock_holder:
@@ -306,27 +333,31 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                     text("SELECT id FROM public.projects WHERE id=:id FOR UPDATE"),
                     {"id": world["project_id"]},
                 )
-                async with api_engine.connect() as api:
+                async with test_engine.connect() as owner:
                     with pytest.raises(DBAPIError) as busy:
-                        await api.scalar(
+                        await owner.scalar(
                             text(_CALL),
                             {"ids": [world["project_id"]]},
                         )
                     assert _sqlstate(busy.value) == "55P03"
-                    await api.rollback()
+                    await owner.rollback()
                 await lock_holder.rollback()
             assert await _job_rows(test_engine, world["all_ids"]) == before
 
             environment = os.environ.copy()
             environment.update(
                 {
-                    "JOBS_FIXTURE_CLEANUP_DATABASE_URL": api_url.set(
+                    "JOBS_FIXTURE_CLEANUP_DATABASE_URL": owner_url.set(
                         drivername="postgresql"
                     ).render_as_string(hide_password=False),
-                    "JOBS_FIXTURE_CLEANUP_EXPECTED_ROLE": _ROLE,
-                    "JOBS_FIXTURE_CLEANUP_EXPECTED_DATABASE": api_url.database,
-                    "JOBS_FIXTURE_CLEANUP_EXPECTED_HOST": api_url.host,
-                    "JOBS_FIXTURE_CLEANUP_EXPECTED_PORT": str(api_url.port or 5432),
+                    "JOBS_FIXTURE_CLEANUP_EXPECTED_ROLE": owner_url.username,
+                    "JOBS_FIXTURE_CLEANUP_EXPECTED_DATABASE": owner_url.database,
+                    "JOBS_FIXTURE_CLEANUP_EXPECTED_HOST": owner_url.host,
+                    "JOBS_FIXTURE_CLEANUP_EXPECTED_PORT": str(owner_url.port or 5432),
+                    "JOBS_FIXTURE_CLEANUP_API_DATABASE_URL": api_url.set(
+                        drivername="postgresql"
+                    ).render_as_string(hide_password=False),
+                    "JOBS_FIXTURE_CLEANUP_API_EXPECTED_ROLE": _ROLE,
                     "JOBS_FIXTURE_CLEANUP_PROJECT_ID": str(world["project_id"]),
                     "JOBS_FIXTURE_CLEANUP_TARGET_IDS": json.dumps(
                         [str(item) for item in world["target_ids"]]
@@ -351,7 +382,6 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                 timeout=45,
             )
             assert node.returncode == 0, node.stdout + node.stderr
-            assert "Jobs fixture-cleanup Node acceptance passed" in node.stdout
             rows = await _job_rows(test_engine, world["all_ids"])
             assert rows == before
             record_property(
@@ -359,6 +389,8 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
                 json.dumps(
                     {
                         "actual_api_login": True,
+                        "actual_owner_login": True,
+                        "ordinary_api_fixture_denied": True,
                         "unsettled_rows_preserved": True,
                         "node_int8_and_savepoint_abi": True,
                         "private_delete_denied": True,
@@ -401,16 +433,18 @@ async def test_fixture_cleanup_contract_and_actual_api_login_preserve_scope_and_
 async def test_fixture_cleanup_rejects_malformed_workspace_guard_replies_rollback_only(
     test_engine, reply, record_property
 ):
-    _identity_api_url(test_engine)
+    owner_url = await _fixture_owner_url(test_engine)
     before_definition = await _workspace_guard_definition(test_engine)
     async with _cleanup_world(test_engine) as world:
         before_rows = await _job_rows(test_engine, world["all_ids"])
         async with test_engine.connect() as owner:
             transaction = await owner.begin()
             try:
-                assert await owner.scalar(text("SELECT session_user::text")) == (
-                    test_engine.url.username
-                )
+                assert (
+                    await owner.execute(
+                        text("SELECT session_user::text,current_user::text")
+                    )
+                ).one() == (owner_url.username, owner_url.username)
                 encoded = json.dumps(reply, ensure_ascii=False).replace("'", "''")
                 await owner.execute(
                     text(
@@ -422,8 +456,6 @@ async def test_fixture_cleanup_rejects_malformed_workspace_guard_replies_rollbac
                         f"AS $function$ SELECT '{encoded}'::pg_catalog.jsonb $function$"
                     )
                 )
-                await owner.execute(text("SET LOCAL ROLE identity_api_consumer"))
-                assert await owner.scalar(text("SELECT current_user::text")) == _ROLE
                 savepoint = await owner.begin_nested()
                 with pytest.raises(DBAPIError) as rejected:
                     await owner.scalar(text(_CALL), {"ids": [world["project_id"]]})
@@ -485,10 +517,15 @@ async def _video_fixture_snapshot(connection, fixture):
 async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
     test_engine, record_property
 ):
-    _identity_api_url(test_engine)
+    owner_url = await _fixture_owner_url(test_engine)
     async with test_engine.connect() as owner:
         transaction = await owner.begin()
         try:
+            assert (
+                await owner.execute(
+                    text("SELECT session_user::text,current_user::text")
+                )
+            ).one() == (owner_url.username, owner_url.username)
             async with AsyncSession(
                 bind=owner,
                 expire_on_commit=False,
@@ -499,14 +536,11 @@ async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
             before = await _video_fixture_snapshot(owner, fixture)
             assert before["tracker_job"] and before["input_scope"] and before["journal"]
             assert before["journal"][0]["execution_retired"] is False
-            await owner.execute(text("SET LOCAL ROLE identity_api_consumer"))
-            assert await owner.scalar(text("SELECT current_user::text")) == _ROLE
             savepoint = await owner.begin_nested()
             with pytest.raises(DBAPIError) as rejected:
                 await owner.scalar(text(_CALL), {"ids": [fixture["project_id"]]})
             assert _sqlstate(rejected.value) == "23514"
             await savepoint.rollback()
-            await owner.execute(text("RESET ROLE"))
             assert await _video_fixture_snapshot(owner, fixture) == before
         finally:
             # Bound legacy execution cannot be retired without real route proof.
@@ -517,7 +551,7 @@ async def test_fixture_cleanup_rejects_unretired_video_without_changing_rows(
         "jobs_fixture_cleanup_unretired_video",
         json.dumps(
             {
-                "actual_api_invoker": True,
+                "actual_owner_invoker": True,
                 "sqlstate": "23514",
                 "all_rows_preserved_on_rejection": True,
                 "owner_fixture_transaction_rolled_back": True,

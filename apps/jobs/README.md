@@ -67,6 +67,11 @@ function's arguments, result, volatility and parallel safety against PostgreSQL.
 Historical SQL stays unchanged; reclaim classification advances through
 `0437_fixture_reclaim_job_scope.sql`, not a rewrite of the `0432` input.
 
+Native cleanup acceptance connects through the verified private fixture owner,
+including the Node bigint and transaction checks. A separate ordinary API LOGIN
+must remain denied both direct Jobs deletion and private fixture cleanup; a
+test database suffix does not grant that caller authority.
+
 ## Filtering fixture outcomes
 
 `aap-jobs-filter-fixtures/v1` provides the fixed
@@ -77,12 +82,13 @@ status/progress/error. Both retain all other fields, including null lifecycle
 timestamps and the failed result. Updates keep the mapper's ascending UUID
 order, original `UPDATE OF` masks and `updated_at=now()` behavior.
 
-Only actual `_test`/`_e2e` databases receive the runtime grant, and the definer
-checks the database name again. Null or duplicate IDs return `22023`; a missing
-row returns `P0002` and rolls back the entire function statement. The API keeps
-its preceding invitation flush, original final full flush, audit and commit
-order; it synchronizes the cached fields and expires `updated_at`. No general
-record-edit capability, runtime role or credential selector was added.
+The verified private fixture owner invokes this test-only capability; ordinary
+API and worker identities remain denied even on `_test`/`_e2e` databases. The
+definer also checks the database name. Null or duplicate IDs return `22023`; a
+missing row returns `P0002` and rolls back the entire function statement.
+Private fixture setup retains its invitation flush, final full flush, audit
+and commit order, synchronizes cached fields and expires `updated_at`. No
+general record-edit capability or ordinary-runtime credential was added.
 
 ## Transactional row locks and refreshes
 
