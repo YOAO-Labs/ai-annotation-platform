@@ -2,7 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { browserEnvironment } from "./e2e/helpers/browser-environment";
+import { browserEnvironment } from "./e2e/helpers/browser-environment.mjs";
 
 // One run identity survives worker restarts but never aliases another invocation.
 if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1" && !process.env.PLAYWRIGHT_FIXTURE_RUN_ID) {

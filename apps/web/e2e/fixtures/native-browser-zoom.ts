@@ -2,7 +2,7 @@ import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { browserEnvironment } from "../helpers/browser-environment";
+import { browserEnvironment } from "../helpers/browser-environment.mjs";
 
 /**
  * Chromium creates its POSIX singleton socket at

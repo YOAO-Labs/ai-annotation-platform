@@ -1,5 +1,5 @@
 // Browser processes do not need API, database, storage, or fixture authority.
-const allowed: Record<string, true> = {
+const allowed = {
   PATH: true,
   HOME: true,
   USER: true,
@@ -20,16 +20,17 @@ const allowed: Record<string, true> = {
   DISPLAY: true,
 };
 
-export function browserEnvironment({ dropForwardedDisplay = false } = {}): Record<string, string> {
+/** @returns {Record<string, string>} */
+export function browserEnvironment({ dropForwardedDisplay = false } = {}) {
   return Object.fromEntries(
     Object.entries(process.env).filter(
-      (entry): entry is [string, string] =>
-        entry[1] !== undefined &&
-        allowed[entry[0]] === true &&
+      ([key, value]) =>
+        value !== undefined &&
+        Object.hasOwn(allowed, key) &&
         !(
           dropForwardedDisplay &&
-          entry[0] === "DISPLAY" &&
-          /^localhost:\d+(?:\.\d+)?$/.test(entry[1])
+          key === "DISPLAY" &&
+          /^localhost:\d+(?:\.\d+)?$/.test(value)
         ),
     ),
   );

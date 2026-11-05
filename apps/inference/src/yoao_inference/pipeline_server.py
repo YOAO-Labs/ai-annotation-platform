@@ -350,7 +350,9 @@ class PipelineHttpServer:
         # Let already accepted callbacks register before checking the handler set.
         await asyncio.sleep(0)
         while self._handlers:
-            await asyncio.gather(*tuple(self._handlers), return_exceptions=True)
+            batch = tuple(self._handlers)
+            await asyncio.gather(*batch, return_exceptions=True)
+            self._handlers.difference_update(batch)
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter

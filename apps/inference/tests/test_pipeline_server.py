@@ -101,30 +101,34 @@ async def test_close_waits_for_disconnected_handler_after_waiter_cancel():
         port = listener.getsockname()[1]
     server = ObservedServer(_Manager(), HeldData(), "control-token", port=port)
     await server.start()
-    _, writer = await asyncio.open_connection("127.0.0.1", port)
-    writer.write(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
-    await writer.drain()
-    await asyncio.wait_for(entered.wait(), 5)
-    writer.get_extra_info("socket").setsockopt(
-        socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
-    )
-    writer.transport.abort()
     try:
-        assert await asyncio.wait_for(server.accepted_reader.read(1), 5) == b""
-    except ConnectionResetError:
-        pass
-    first = asyncio.create_task(server.close())
-    await asyncio.sleep(0)
-    assert not first.done()
-    first.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await first
-    second = asyncio.create_task(server.close())
-    await asyncio.sleep(0)
-    assert not second.done()
-    release.set()
-    # The handler, not the disconnected transport, owns the outstanding work.
-    await asyncio.wait_for(second, 5)
+        _, writer = await asyncio.open_connection("127.0.0.1", port)
+        writer.write(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        await writer.drain()
+        await asyncio.wait_for(entered.wait(), 5)
+        writer.get_extra_info("socket").setsockopt(
+            socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+        )
+        writer.transport.abort()
+        try:
+            assert await asyncio.wait_for(server.accepted_reader.read(1), 5) == b""
+        except ConnectionResetError:
+            pass
+        first = asyncio.create_task(server.close())
+        await asyncio.sleep(0)
+        assert not first.done()
+        first.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await first
+        second = asyncio.create_task(server.close())
+        await asyncio.sleep(0)
+        assert not second.done()
+        release.set()
+        # The handler, not the disconnected transport, owns the outstanding work.
+        await asyncio.wait_for(second, 5)
+    finally:
+        release.set()
+        await asyncio.wait_for(server.close(), 5)
 
 
 @pytest.mark.asyncio
@@ -141,13 +145,28 @@ async def test_close_waits_for_rejected_connection_cleanup():
     server._active = server.max_concurrency
     writer = HeldWriter()
     server._accept(None, writer)
-    await asyncio.wait_for(entered.wait(), 5)
-    closing = asyncio.create_task(server.close())
-    await asyncio.sleep(0)
-    assert not closing.done()
-    release.set()
-    await asyncio.wait_for(closing, 5)
-    assert writer.closed
+    try:
+        await asyncio.wait_for(entered.wait(), 5)
+        closing = asyncio.create_task(server.close())
+        await asyncio.sleep(0)
+        assert not closing.done()
+        release.set()
+        await asyncio.wait_for(closing, 5)
+        assert writer.closed
+    finally:
+        release.set()
+        await asyncio.wait_for(server.close(), 5)
+
+
+@pytest.mark.asyncio
+async def test_close_finishes_after_fast_rejected_connections():
+    server = PipelineHttpServer(_Manager(), _Data(True), "control-token")
+    server._active = server.max_concurrency
+    writers = [_Writer() for _ in range(8)]
+    for writer in writers:
+        server._accept(None, writer)
+    await asyncio.wait_for(server.close(), 5)
+    assert all(writer.closed for writer in writers)
 
 
 @pytest.mark.asyncio

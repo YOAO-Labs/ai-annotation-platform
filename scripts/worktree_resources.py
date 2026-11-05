@@ -1956,6 +1956,158 @@ class LocalResources:
             await engine.dispose()
         self._fixture_inference_prepared = True
 
+    async def reattach_fixture_store(self, environment: dict) -> dict:
+        """Read the original published store and verify its exact durable identity."""
+        import uuid
+
+        from cryptography.fernet import Fernet
+        from sqlalchemy import select
+        from sqlalchemy.ext.asyncio import async_sessionmaker
+        from yoao_assets_source.connectors.crypto import decrypt_secret
+        from yoao_assets_source.connectors.host_guard import assert_host_allowed, normalize_allowlist
+        from app.db.models.dataset_asset import StorageLocation
+        from app.db.models.fixture_run import FixtureOriginalTarget, FixtureRun
+        from app.db.models.storage_connection import StorageConnection
+        from app.services.managed_original_retirement import managed_storage_identity
+        from app.services.storage_location import connector_location_id
+        from fixture_store import _private_bytes, reader_credentials, verified_store
+        from fixture_suite_coordinator import (
+            _fixture_target_id,
+            _scale_only,
+            _settled_thread,
+            _verified_database,
+        )
+        from verify_storage_candidates import Owner
+
+        owner_url, resources, identity = await _verified_database(environment)
+        if resources != self.resources:
+            raise WorktreeError("原件夹具数据库拓扑不一致")
+        manifest = state_path(self.root, resources["mode"], "fixture-store-owner.json")
+        key_path = state_path(self.root, resources["mode"], "fixture-connector-key.json")
+        lock_path = state_path(self.root, resources["mode"], "fixture-store.lock")
+        descriptor = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW)
+        try:
+            info = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+            ):
+                raise WorktreeError("原件夹具锁身份不一致")
+            fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+            if not manifest.exists() or manifest.is_symlink():
+                raise WorktreeError("原件夹具记录缺失")
+            owner = Owner(manifest)
+            if owner.data["cleaned"] or "fixture_teardown" in owner.data:
+                raise WorktreeError("原件夹具已进入清理状态")
+            store, account = await _settled_thread(verified_store, owner, identity)
+            if store["state"] != "published" or owner.data["fixture_intent"]["state"] != "published":
+                raise WorktreeError("原件夹具尚未发布")
+            configured_key = self.settings.connector_encryption_key or ""
+            key = configured_key
+            if key_path.exists():
+                saved = json.loads(_private_bytes(key_path))
+                if (
+                    set(saved) != {"owner", "database_oid", "key"}
+                    or saved["owner"] != resources["owner"]
+                    or saved["database_oid"] != identity["database_oid"]
+                    or not isinstance(saved["key"], str)
+                    or (configured_key and configured_key != saved["key"])
+                ):
+                    raise WorktreeError("原件夹具连接器密钥身份不一致")
+                key = saved["key"]
+            try:
+                Fernet(key.encode("ascii"))
+            except (ValueError, TypeError, UnicodeError):
+                raise WorktreeError("原件夹具连接器密钥无法验证") from None
+            allowlist = normalize_allowlist(
+                [*self.settings.connector_host_allowlist, store["bridge_address"]]
+            )
+            connection_id = uuid.uuid5(
+                uuid.NAMESPACE_URL, "fixture-connection:" + owner.data["nonce"]
+            )
+            location_id = connector_location_id(connection_id)
+            target_id = _fixture_target_id(owner.data["nonce"])
+            provisioning_id = uuid.UUID(owner.data["fixture_intent"]["provisioning_run_id"])
+            storage_identity = managed_storage_identity(store["endpoint"], store["bucket"])
+            config = {
+                "endpoint": store["endpoint"],
+                "bucket": store["bucket"],
+                "base_prefix": "",
+                "use_ssl": False,
+            }
+            engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
+            try:
+                sessions = async_sessionmaker(engine, expire_on_commit=False)
+                async with sessions() as db:
+                    connection = await db.get(StorageConnection, connection_id)
+                    location = await db.get(StorageLocation, location_id)
+                    target = await db.get(FixtureOriginalTarget, target_id)
+                    roots = list(await db.scalars(select(FixtureRun).where(FixtureRun.parent_run_id.is_(None))))
+                    provisioning = next((item for item in roots if item.id == provisioning_id), None)
+                    override = await db.scalar(
+                        text("SELECT value_json FROM public.system_settings WHERE key='connector_host_allowlist'")
+                    )
+                    if override is not None and not isinstance(override, list):
+                        raise WorktreeError("原件夹具连接器 allowlist 无效")
+                    effective = normalize_allowlist(override) if override is not None else allowlist
+                    assert_host_allowed(store["endpoint"], effective)
+                    try:
+                        writer_matches = (
+                            connection is not None
+                            and decrypt_secret(connection.secret_enc, key) == account
+                        )
+                    except Exception:
+                        raise WorktreeError("原件夹具连接器密钥无法解密原账号") from None
+                    if not (
+                        writer_matches
+                        and connection.kind == "s3"
+                        and connection.scope == "global"
+                        and connection.project_id is None
+                        and connection.revision == 1
+                        and connection.config == config
+                        and location is not None
+                        and location.enabled
+                        and location.kind == "s3"
+                        and location.config_revision == 1
+                        and location.connection_id == connection_id
+                        and target is not None
+                        and target.location_id == location_id
+                        and target.bucket == store["bucket"]
+                        and target.generation == 1
+                        and target.storage_identity == storage_identity
+                        and target.store_receipt_sha256 == store["receipt_sha256"]
+                        and provisioning is not None
+                        and provisioning.family == "owned"
+                        and provisioning.state == "retired"
+                        and provisioning.scope_key is None
+                        and provisioning.sealed_at is not None
+                        and provisioning.retired_at is not None
+                        and all(
+                            _scale_only(item)
+                            or (
+                                item.original_target_id == target_id
+                                and item.original_storage_identity == storage_identity
+                                and item.original_store_receipt_sha256 == store["receipt_sha256"]
+                            )
+                            for item in roots
+                        )
+                    ):
+                        raise WorktreeError("原件夹具登记身份或回执不一致")
+            finally:
+                await engine.dispose()
+            reader = reader_credentials(owner, store)
+            return {
+                "CONNECTOR_ENCRYPTION_KEY": key,
+                "CONNECTOR_HOST_ALLOWLIST": json.dumps(allowlist),
+                "AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT": store["endpoint"],
+                "AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET": store["bucket"],
+                "AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY": reader["access_key"],
+                "AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY": reader["secret_key"],
+            }
+        finally:
+            os.close(descriptor)
+
     def prepare(self, *, skip_migrations: bool = False) -> None:
         self._prepared = False
         self._fixture_inference_prepared = False

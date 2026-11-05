@@ -207,6 +207,42 @@ class CommandTests(unittest.TestCase):
             with self.subTest(args=args), self.assertRaises(SystemExit):
                 runtime.parse_arguments(args)
 
+    def test_prelaunch_recovery_preserves_only_a_proven_predecessor(self):
+        from types import SimpleNamespace
+        import worktree_runtime as runtime
+        from worktree_env import atomic_json, load_identity, state_path, topology
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = SimpleNamespace(resources=resources, code_root=root)
+            path = state_path(root, "e2e", "run.json")
+            predecessor = {
+                "owner": resources["owner"],
+                "children": [],
+                "phase": "completed",
+                "supervisor_reaped": True,
+                "descendant_boundary": {"state": "settled"},
+            }
+            attempt = {
+                "owner": resources["owner"],
+                "children": [],
+                "phase": "prelaunch",
+                "predecessor": predecessor,
+                "prelaunch_failures": ["WorktreeError"],
+            }
+            atomic_json(path, attempt)
+            runtime.reject_orphans(backend, allow_inference=True)
+            for phase in ("verifying", "admitting", "admitted"):
+                with self.subTest(phase=phase):
+                    atomic_json(path, {**attempt, "phase": phase})
+                    with self.assertRaises(runtime.WorktreeError):
+                        runtime.reject_orphans(backend, allow_inference=True)
+            predecessor["descendant_boundary"]["state"] = "draining"
+            atomic_json(path, attempt)
+            with self.assertRaises(runtime.WorktreeError):
+                runtime.reject_orphans(backend, allow_inference=True)
+
     def test_process_identity_rejects_pid_reuse_and_other_checkouts(self):
         import worktree_runtime as runtime
 
@@ -250,6 +286,72 @@ class CommandTests(unittest.TestCase):
         ):
             with self.subTest(args=args), self.assertRaises(SystemExit):
                 runtime.parse_arguments(args)
+
+    @unittest.skipUnless(
+        __import__("sys").platform == "linux" and hasattr(__import__("os"), "pidfd_open"),
+        "requires Linux subreaper and pidfds",
+    )
+    def test_zero_exiting_wrapper_does_not_settle_detached_consumer(self):
+        import json
+        import subprocess
+        import sys
+        import time
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            ready = directory / "ready"
+            wrapper_done = directory / "wrapper-done"
+            release = directory / "release"
+            record = directory / "record.json"
+            grandchild = """
+import pathlib, sys, time
+ready, release = map(pathlib.Path, sys.argv[1:])
+ready.write_text("ready")
+deadline = time.monotonic() + 10
+while not release.exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+sys.exit(0 if release.exists() else 9)
+"""
+            wrapper = """
+import subprocess, sys
+subprocess.Popen([sys.executable, "-c", sys.argv[1], *sys.argv[2:]], start_new_session=True)
+"""
+            runner_code = """
+import pathlib, subprocess, sys
+sys.path.insert(0, sys.argv[1])
+from worktree_runtime import establish_e2e_subreaper, settle_e2e_descendants
+establish_e2e_subreaper()
+wrapper, grandchild, ready, release, wrapper_done, record = sys.argv[2:]
+child = subprocess.Popen([sys.executable, "-c", wrapper, grandchild, ready, release])
+assert child.wait() == 0
+pathlib.Path(wrapper_done).write_text("done")
+settle_e2e_descendants({}, pathlib.Path(record), None)
+"""
+            runner = subprocess.Popen(
+                [
+                    sys.executable, "-c", runner_code, str(Path(__file__).parent),
+                    wrapper, grandchild, str(ready), str(release), str(wrapper_done), str(record),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                deadline = time.monotonic() + 8
+                while not (ready.exists() and wrapper_done.exists() and record.exists()):
+                    if runner.poll() is not None or time.monotonic() >= deadline:
+                        self.fail("detached consumer did not reach the held state")
+                    time.sleep(0.02)
+                self.assertIsNone(runner.poll(), "zero wrapper exit closed the boundary")
+                release.write_text("release")
+                stdout, stderr = runner.communicate(timeout=15)
+                self.assertEqual(runner.returncode, 0, (stdout, stderr))
+                boundary = json.loads(record.read_text())["descendant_boundary"]
+                self.assertEqual(boundary["state"], "settled")
+                self.assertTrue(any(item["state"] == "reaped" for item in boundary["adopted"]))
+            finally:
+                release.write_text("release")
+                if runner.poll() is None:
+                    runner.communicate(timeout=15)
 
 
 class WorkerQueueTests(unittest.TestCase):

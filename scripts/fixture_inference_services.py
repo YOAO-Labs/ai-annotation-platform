@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import hmac
 import json
 import os
@@ -12,18 +13,20 @@ import secrets
 import select
 import socket
 import stat
+import struct
 import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 from urllib.request import ProxyHandler, build_opener
 
 from sqlalchemy import text
-from sqlalchemy.engine import URL
+from sqlalchemy.engine import URL, make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from worktree_env import WorktreeError, atomic_json, read_state, state_path
+from worktree_env import WorktreeError, atomic_json, load_identity, read_state, state_path, topology
 from worktree_runtime import (
     process_handle,
     process_matches,
@@ -78,6 +81,7 @@ class FixtureInferenceServices:
         self.code_root = backend.code_root
         root = Path(self.resources["root"])
         self.credentials_path = state_path(root, "e2e", "inference-credentials.json")
+        self.pause_receipt_path = state_path(root, "e2e", "inference-paused.json")
         self.marker_path = state_path(root, "e2e", "inference-owner.json")
         self.control_path = None
         self.process = None
@@ -151,7 +155,72 @@ class FixtureInferenceServices:
             raise WorktreeError("推理夹具凭据与资源身份不一致；拒绝接管")
         return value
 
-    async def _roles(self, action: str):
+    def _credential_digest(self):
+        return hashlib.sha256(
+            json.dumps(self._credentials, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+
+    def _paused_receipt(self):
+        descriptor = os.open(self.pause_receipt_path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor) as stream:
+            info = os.fstat(stream.fileno())
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+            ):
+                raise WorktreeError("推理夹具暂停回执权限无效")
+            receipt = json.load(stream)
+        marker = receipt.get("marker")
+        if (
+            receipt.get("schema") != 1
+            or receipt.get("state") not in {"paused", "consumed"}
+            or receipt.get("owner") != self.resources["owner"]
+            or receipt.get("database") != self.resources["database"]
+            or receipt.get("credentials_digest") != self._credential_digest()
+            or not isinstance(marker, dict)
+            or marker.get("owner") != self.resources["owner"]
+            or marker.get("phase") != "running"
+            or not isinstance(marker.get("pid"), int)
+            or not isinstance(marker.get("start_ticks"), int)
+            or receipt.get("drain") != {"nonce": marker.get("nonce"), "status": "drained"}
+            or receipt.get("pidfd_exit") is not True
+            or receipt.get("control_removed") is not True
+        ):
+            raise WorktreeError("推理夹具暂停回执与原 owner 不一致")
+        return receipt
+
+    def has_completed_pause(self):
+        if not self.pause_receipt_path.exists():
+            return False
+        self._credentials = self._load_credentials()
+        if self._credentials is None:
+            raise WorktreeError("推理夹具暂停回执缺少凭据")
+        receipt = self._paused_receipt()
+        if receipt["state"] == "consumed":
+            if not self.marker_path.exists():
+                raise WorktreeError("推理夹具重启结果不明；保留回执")
+            return False
+        return not self.marker_path.exists() or read_state(self.marker_path) == receipt["marker"]
+
+    def recover_paused(self):
+        with self._lifecycle_lock:
+            if self.record is not None or self.poisoned:
+                raise WorktreeError("推理夹具 owner 状态无法恢复")
+            self._credentials = self._load_credentials()
+            if self._credentials is None or not self.pause_receipt_path.exists():
+                raise WorktreeError("缺少原推理夹具暂停回执；保留资源")
+            receipt = self._paused_receipt()
+            if receipt["state"] != "paused":
+                raise WorktreeError("推理夹具暂停回执已用于重启")
+            if self.marker_path.exists():
+                if read_state(self.marker_path) != receipt["marker"]:
+                    raise WorktreeError("推理夹具暂停回执与运行记录不一致")
+                self.marker_path.unlink()
+            self._phase = "paused"
+            return self._selection()
+
+    async def _roles(self, action: str, *, require_existing: bool = False):
         credentials = self._load_credentials(create=action == "create")
         observed_db = await self.backend.database()
         if action == "create" and not require_owner(
@@ -202,6 +271,8 @@ class FixtureInferenceServices:
                         self.backend._validate_runtime_role(observed, credentials)
                         if observed["sessions"]:
                             raise WorktreeError("推理夹具账号仍有连接；保留资源")
+                    if action == "create" and observed is None and require_existing:
+                        raise WorktreeError("原推理夹具账号缺失；拒绝替换")
                     if action == "create" and observed is None:
                         if not (operator["rolsuper"] or operator["rolcreaterole"]):
                             raise WorktreeError("迁移账号需要 CREATEROLE 创建推理夹具账号")
@@ -258,6 +329,14 @@ class FixtureInferenceServices:
             if marker.get("owner") != self.resources["owner"]:
                 raise WorktreeError("推理夹具进程记录归属不一致；拒绝接管")
             raise WorktreeError("推理夹具进程尚未证明退出；保留记录与资源")
+        if self.pause_receipt_path.exists() and not self.credentials_path.exists():
+            raise WorktreeError("推理夹具暂停回执缺少凭据；保留资源")
+        if self.credentials_path.exists():
+            self._credentials = self._load_credentials()
+            if not self.pause_receipt_path.exists():
+                raise WorktreeError("缺少推理夹具退出回执；保留资源")
+            if self._paused_receipt()["state"] != "paused":
+                raise WorktreeError("推理夹具重启结果不明；保留资源")
 
     def check_destroy(self):
         self.assert_stopped()
@@ -267,6 +346,7 @@ class FixtureInferenceServices:
         self.assert_stopped()
         asyncio.run(self._roles("drop"))
         self.credentials_path.unlink(missing_ok=True)
+        self.pause_receipt_path.unlink(missing_ok=True)
 
     def start(self):
         with self._lifecycle_lock:
@@ -286,9 +366,19 @@ class FixtureInferenceServices:
             return self._selection()
         if self.marker_path.exists():
             return self._reattach()
+        pause_receipt = None
+        if self.credentials_path.exists():
+            self._credentials = self._load_credentials()
+            if not self.pause_receipt_path.exists():
+                raise WorktreeError("缺少推理夹具暂停回执；拒绝替换 owner")
+            pause_receipt = self._paused_receipt()
+            if pause_receipt["state"] != "paused":
+                raise WorktreeError("推理夹具重启结果不明；拒绝替换 owner")
         self.assert_stopped()
         self._credentials = self._load_credentials(create=True)
-        asyncio.run(self._roles("create"))
+        asyncio.run(self._roles("create", require_existing=pause_receipt is not None))
+        if pause_receipt is not None:
+            atomic_json(self.pause_receipt_path, {**pause_receipt, "state": "consumed"})
         try:
             return self._start_owned()
         except BaseException:
@@ -443,6 +533,11 @@ class FixtureInferenceServices:
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
             connection.settimeout(max(0.001, deadline - time.monotonic()))
             connection.connect(str(self.control_path))
+            peer_pid, peer_uid, _ = struct.unpack(
+                "3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            )
+            if peer_pid != self.record["pid"] or peer_uid != os.geteuid():
+                raise WorktreeError("推理夹具控制 socket 对端身份不一致")
             connection.sendall(
                 (json.dumps({"command": command, "nonce": self.record["nonce"]}) + "\n").encode()
             )
@@ -553,6 +648,7 @@ class FixtureInferenceServices:
                     and self.record is None
                     and self.pidfd is None
                     and not self.marker_path.exists()
+                    and self.has_completed_pause()
                 )
             return self._phase == "serving" and self.is_alive()
 
@@ -564,6 +660,7 @@ class FixtureInferenceServices:
                 and self.record is None
                 and self.pidfd is None
                 and not self.marker_path.exists()
+                and self.has_completed_pause()
             ):
                 return []
             if self._phase != "serving" or not self.is_alive():
@@ -663,6 +760,20 @@ class FixtureInferenceServices:
                 or read_state(self.marker_path) != self.record
             ):
                 raise WorktreeError("推理夹具退出后记录归属变化；保留资源")
+            atomic_json(
+                self.pause_receipt_path,
+                {
+                    "schema": 1,
+                    "state": "paused",
+                    "owner": self.resources["owner"],
+                    "database": self.resources["database"],
+                    "credentials_digest": self._credential_digest(),
+                    "marker": self.record,
+                    "drain": receipt,
+                    "pidfd_exit": True,
+                    "control_removed": True,
+                },
+            )
             if self.process is not None:
                 self.process.stdin.close()
                 self.process.stdout.close()
@@ -727,6 +838,57 @@ class FixtureInferenceServices:
             if self._credentials is not None and not asyncio.run(self._fixture_settled()):
                 raise WorktreeError("夹具责任尚未结算；保留推理 owner")
             self.pause()
+
+
+def verify_existing_serving(resources: dict, *, code_root: Path, environment: dict) -> None:
+    """Read-only verification of the original selected native HTTP owner."""
+    root = Path(resources["root"])
+    if resources != topology(root, load_identity(root), "e2e"):
+        raise WorktreeError("推理夹具资源身份不一致")
+    url = make_url(environment["PLAYWRIGHT_E2E_DATABASE_URL"])
+    if (
+        url.drivername != "postgresql+asyncpg"
+        or url.host not in {"localhost", "127.0.0.1", "::1"}
+        or url.query
+        or url.database != resources["database"]
+    ):
+        raise WorktreeError("推理夹具数据库身份不一致")
+    backend = SimpleNamespace(resources=resources, code_root=Path(code_root).resolve(), url=url)
+    owner = FixtureInferenceServices(backend, code_root=code_root)
+    marker = read_state(owner.marker_path)
+    require_owner("inference-owner", marker, resources["owner"])
+    if marker.get("phase") != "running":
+        raise WorktreeError("推理夹具 owner 未处于服务状态")
+    directory = Path(marker.get("control_directory", ""))
+    if (
+        directory.parent != Path("/tmp").resolve()
+        or not re.fullmatch(rf"aap-inference-{os.geteuid()}-[a-f0-9]{{32}}", directory.name)
+    ):
+        raise WorktreeError("推理夹具控制目录路径无效")
+    owner.record = marker
+    owner.control_path = directory / "control.sock"
+    owner._credentials = owner._load_credentials()
+    if owner._credentials is None:
+        raise WorktreeError("推理夹具凭据缺失")
+    selection = owner._selection()
+    if any(environment.get(key, "") != value for key, value in selection.items()):
+        raise WorktreeError("推理夹具 HTTP 选择与原 authority 不一致")
+    owner.pidfd = os.pidfd_open(marker["pid"])
+    try:
+        if not owner.is_alive():
+            raise WorktreeError("推理夹具进程身份变化")
+        if owner._control("inspect", time.monotonic() + 5) != {
+            "nonce": marker["nonce"], "status": "serving"
+        }:
+            raise WorktreeError("推理夹具控制状态不一致")
+        opener = build_opener(ProxyHandler({}))
+        with opener.open(f"{selection['INFERENCE_ROUTING_URL']}/health", timeout=5) as response:
+            if response.status != 200 or json.load(response) != {"status": "ready"}:
+                raise WorktreeError("推理夹具未就绪")
+        if not owner.is_alive():
+            raise WorktreeError("推理夹具进程身份变化")
+    finally:
+        os.close(owner.pidfd)
 
 
 async def _serve(payload):

@@ -139,6 +139,11 @@ test("Playwright keeps owner credentials in setup and runtime credentials in the
       fileURLToPath(new URL("../apps/web/node_modules", import.meta.url)),
       join(directory, "node_modules"),
     );
+    await mkdir(join(directory, "e2e"), { recursive: true });
+    await symlink(
+      fileURLToPath(new URL("../apps/web/e2e/helpers", import.meta.url)),
+      join(directory, "e2e/helpers"),
+    );
     const owner = "postgresql+asyncpg://owner:fixture@localhost/aap_fixture_e2e";
     const runtime = owner.replace("owner:", "runtime:");
     const result = spawnSync(
