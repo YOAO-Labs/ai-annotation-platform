@@ -79,6 +79,21 @@ async def test_seed_router_uses_configured_test_database(
     assert response.status_code == 200, response.text
 
 
+@pytest.mark.parametrize(
+    ("environment", "enabled"),
+    [("development", False), ("production", True)],
+)
+async def test_seed_router_denies_http_when_disabled(
+    owner_fault_http, monkeypatch, environment, enabled
+):
+    from app.services.test_seed_access import settings
+
+    monkeypatch.setattr(settings, "environment", environment)
+    monkeypatch.setattr(settings, "e2e_seed_enabled", enabled)
+    response = await owner_fault_http.get("/api/v1/__test/seed/peek")
+    assert response.status_code == 403
+
+
 async def test_seed_owned_returns_fixture_payload(fixture_and_fenced_http):
     await scenarios.seed_owned_returns_fixture_payload(fixture_and_fenced_http)
 

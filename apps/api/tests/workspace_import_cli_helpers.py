@@ -11,13 +11,18 @@ import re
 import secrets
 import subprocess
 import sys
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
 
 from sqlalchemy.engine import URL, make_url
 
-from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_asset_storage_cleanup_runtime import (
+    _verified_resource_manifest,
+    _verify_postgres,
+)
 from tests.test_identity_sessions_live import _verify_redis
+from tests.test_labeling_module_api_cold import _minio_dependency, _verify_minio_identity
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -159,10 +164,10 @@ class WorkspaceImportCli:
             or parsed_minio.fragment
         ):
             raise ValueError("Verifier supplied an invalid MinIO authority")
+        if parsed_minio.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("Owned MinIO must have a loopback host endpoint")
         self.minio_authority = (
-            parsed_minio.netloc
-            if self.host_network
-            else self._docker_authority(parsed_minio)
+            parsed_minio.netloc if self.host_network else "workspace-import-minio:9000"
         )
         self.minio_use_ssl = minio_use_ssl
         self.buckets = dict(buckets)
@@ -195,6 +200,27 @@ class WorkspaceImportCli:
             raise RuntimeError("nuScenes CLI requires the disposable test database")
         _verify_postgres(test_engine.url)
         self.redis_owner_url = _verify_redis()
+        self.minio = None
+        if not self.host_network:
+            resource_url = make_url(self._required("AAP_MODULE_DATA_ASSET_CLEANUP_URL"))
+            if (resource_url.host, resource_url.port) != (
+                test_engine.url.host,
+                test_engine.url.port,
+            ):
+                raise RuntimeError("CLI database and owned store use different verifiers")
+            resources = _verified_resource_manifest(
+                SimpleNamespace(url=resource_url), resource_url
+            )
+            if resources["buckets"] != self.buckets:
+                raise RuntimeError(
+                    "CLI buckets differ from the verified resource manifest"
+                )
+            self.minio = _minio_dependency(resources)
+            if (parsed_minio.port, minio_use_ssl) != (
+                self.minio["host_port"],
+                self.minio["ssl"],
+            ):
+                raise RuntimeError("CLI MinIO endpoint differs from the verified store")
         self.database_name = database_name
         self.database_url = self._runtime_database_url(runtime_database_url)
         self.identity_auth_database_url = ""
@@ -270,10 +296,20 @@ class WorkspaceImportCli:
             self.network_id,
             self.redis_container,
         )
+        _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
+        self._docker(
+            "network",
+            "connect",
+            "--alias",
+            "workspace-import-minio",
+            self.network_id,
+            self.minio["id"],
+        )
         self.assert_private_network(
             {
                 self._peer_id(self.postgres_container),
                 self._peer_id(self.redis_container),
+                self.minio["id"],
             }
         )
 
@@ -535,9 +571,14 @@ class WorkspaceImportCli:
         if self.network_id is not None:
             _verify_postgres(self.test_engine.url)
             _verify_redis()
+            _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
             network = self._inspect_network()
             peers = network.get("Containers") or {}
-            for peer in (self.postgres_container, self.redis_container):
+            for peer in (
+                self.postgres_container,
+                self.redis_container,
+                self.minio["id"],
+            ):
                 peer_id = self._peer_id(peer)
                 if peer_id in peers:
                     self._docker("network", "disconnect", self.network_id, peer)
@@ -967,9 +1008,11 @@ class WorkspaceImportCli:
             ):
                 raise RuntimeError("CLI host transport is not prepared")
             return
+        _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
         expected = {
             self._peer_id(self.postgres_container),
             self._peer_id(self.redis_container),
+            self.minio["id"],
         }
         if self.container_id is not None:
             record = self._inspect(self.container_id)
@@ -1029,12 +1072,6 @@ class WorkspaceImportCli:
             raise RuntimeError("Owned nuScenes Docker operation failed")
         return result.stdout.strip()
 
-    @staticmethod
-    def _docker_authority(parsed) -> str:
-        if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError("Owned MinIO must have a loopback host endpoint")
-        port = parsed.port or 9000
-        return f"host.docker.internal:{port}"
 
     @staticmethod
     def _docker_redis_url(value: URL) -> str:

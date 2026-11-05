@@ -57,7 +57,7 @@ class IdentityE2EFixtures:
         self.db = db
 
     def _profile_select(self):
-        return select(_FixtureAccount)
+        return select(_FixtureAccount).execution_options(populate_existing=True)
 
     async def find(self, email: str):
         result = await self.db.execute(

@@ -13,10 +13,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from app.api.v1 import _test_seed as routes
 from app.core.security import decode_access_token
 from app.db.models.password_reset_token import PasswordResetToken
-from app.db.models.user_invitation import UserInvitation
+from yoao_identity.e2e_fixture_contract import FixtureInvitation
 from app.services import fixture_run_ownership as ownership
 from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-from tests.factory import create_user
+from tests.factory import create_project, create_user
 from tests.identity_e2e_support import (
     IDS,
     STAMP,
@@ -122,8 +122,7 @@ async def test_owner_cleanup_identity_dependencies_and_scope(
                         namespace=run.namespace,
                     )
                     admission = await ownership.admit(db, run.run_id, "identity_replay")
-                    user = await create_user(
-                        db,
+                    user = await IdentityE2EFixtures(db).create_user(
                         "super_admin",
                         f"identity-{run.run_id.hex}@e2e.test",
                         "Owned",
@@ -134,37 +133,27 @@ async def test_owner_cleanup_identity_dependencies_and_scope(
                         run.run_id,
                         "user",
                         user.id,
-                        logical_key="admin",
+                        logical_key="workbench-admin",
                         published=True,
                     )
                     if run is runs[0]:
-                        db.add_all(
-                            [
-                                PasswordResetToken(
-                                    id=reset_id,
-                                    user_id=user.id,
-                                    token_hash=uuid.uuid4().hex * 2,
-                                    issued_email=user.email,
-                                    expires_at=STAMP,
-                                ),
-                                UserInvitation(
-                                    id=invitation_id,
-                                    email=f"invite-{run.run_id.hex}@e2e.test",
-                                    role="reviewer",
-                                    token=uuid.uuid4().hex,
-                                    expires_at=STAMP,
-                                    invited_by=user.id,
-                                ),
-                            ]
-                        )
-                        await db.flush()
+                        project = await create_project(db, owner_id=user.id)
                         await ownership.reserve(
                             db,
                             run.run_id,
-                            "invitation",
-                            invitation_id,
-                            logical_key="invitation",
+                            "project",
+                            project.id,
+                            logical_key="workbench",
                             published=True,
+                        )
+                        db.add(
+                            PasswordResetToken(
+                                id=reset_id,
+                                user_id=user.id,
+                                token_hash=uuid.uuid4().hex * 2,
+                                issued_email=user.email,
+                                expires_at=STAMP,
+                            )
                         )
                     await ownership.settle(db, run.run_id, admission)
                 keeper = await create_user(
@@ -172,6 +161,44 @@ async def test_owner_cleanup_identity_dependencies_and_scope(
                 )
                 keeper_id = keeper.id
                 await db.commit()
+
+            intent_id = uuid.uuid4()
+            invitation_email = runs[0].scope().takeover_email
+            response = await suite.owner.post(
+                "/api/v1/__test/seed/invitation-intent",
+                json={
+                    "run_id": str(runs[0].run_id),
+                    "intent_id": str(intent_id),
+                    "project_id": str(project.id),
+                    "inviter_id": str(ids[0]),
+                    "email": invitation_email,
+                },
+            )
+            assert response.status_code == 200, response.text
+            async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+                assert await IdentityE2EFixtures(db).create_invitations(
+                    [
+                        FixtureInvitation(
+                            id=invitation_id,
+                            email=invitation_email,
+                            role="employee",
+                            project_role="reviewer",
+                            project_id=project.id,
+                            token=uuid.uuid4().hex,
+                            expires_at=STAMP,
+                            invited_by=ids[0],
+                        )
+                    ]
+                ) == 1
+                await db.commit()
+            response = await suite.owner.post(
+                "/api/v1/__test/seed/invitation-finish",
+                json={"run_id": str(runs[0].run_id), "intent_id": str(intent_id)},
+            )
+            assert response.status_code == 200, response.text
+            before = await snapshot(test_engine)
+            assert reset_id in {row["id"] for row in before["reset_tokens"]}
+            assert invitation_id in {row["id"] for row in before["invitations"]}
 
             if scope == "suite":
                 path = "/api/v1/__test/seed/cleanup"
