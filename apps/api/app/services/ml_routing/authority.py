@@ -85,6 +85,8 @@ class RoutingAuthority:
         required_instance_id=None,
         approved_registry_ids=None,
         execution=None,
+        prediction_execution=None,
+        prediction_test=None,
     ):
         body = {
             "pool_id": str(pool_id) if pool_id else None,
@@ -103,6 +105,12 @@ class RoutingAuthority:
             ]
         if execution is not None:
             body["execution"] = execution
+        if prediction_execution is not None:
+            body["prediction_execution"] = prediction_execution.model_dump(mode="json")
+        if prediction_test is not None:
+            body["prediction_test"] = {
+                key: str(value) for key, value in prediction_test.items()
+            }
         return await self.execute(
             "video_acquire" if execution is not None else "acquire",
             body,

@@ -107,12 +107,17 @@ class _RecordingRetryDispatcher:
         self.job_items: list[tuple[uuid.UUID, uuid.UUID]] = []
 
     def dispatch_prediction_retry(
-        self, failed_id: uuid.UUID, actor_id: uuid.UUID, *, execution_queue: str
+        self,
+        failed_id: uuid.UUID,
+        actor_id: uuid.UUID,
+        *,
+        execution_queue: str,
+        job_id: uuid.UUID,
     ) -> None:
         self.prediction.append((failed_id, actor_id, execution_queue))
 
     def dispatch_job_item_retry(
-        self, failed_id: uuid.UUID, actor_id: uuid.UUID
+        self, failed_id: uuid.UUID, actor_id: uuid.UUID, *, job_id: uuid.UUID
     ) -> None:
         self.job_items.append((failed_id, actor_id))
 

@@ -1,0 +1,20 @@
+{
+  "$id": "aap-jobs-fixture-prediction-retirement/v1",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Prediction execution output and fixture retirement",
+  "type": "object",
+  "functions": {
+    "aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid)": "Commit one exact current Job lease, generation and result ordinal before generated-Mask production.",
+    "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid)": "Bind an exact allocated Mask owner under the current generation; reject stale admission.",
+    "aap_jobs_v1.finish_prediction_mask_producer(uuid)": "Settle the producer only after its prepared result is sealed and its caller has completed physical work.",
+    "aap_jobs_v1.prediction_mask_object_retained(uuid)": "Retain an exact object while any bound producer remains pending.",
+    "aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])": "Prove exact fixture original identities and the absence of retained original-read operations after fixture sealing.",
+    "aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid)": "Return true only for a birth-bound terminal prediction Job with terminal native execution and retry receipts, completed managed scopes, qualified input and settled output owners; false or error blocks.",
+    "aap_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid)": "Lock the project Job and failure scope and require each related retry attempt and delivery to have the exact retirement proof."
+  },
+  "invariants": [
+    "Pending or uncertain producer intents and allocated object identities survive worker loss and block cleanup.",
+    "Fixture Job birth identities prevent resurrection after deletion; Job deletion atomically snapshots dispatch intents without claiming broker drain.",
+    "Retry attempts, delivery receipts, execution facts and completed managed scope retirements remain independent tombstones."
+  ]
+}

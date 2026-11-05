@@ -14,11 +14,11 @@ class BatchPredictionRequest:
     """JSON-safe facts passed by the HTTP/Celery boundary into the use case.
 
     ``task_ids=None`` means select from the project/batch scope; ``[]`` means
-    select no tasks. ``pipeline_stages=None`` or ``[]`` selects the legacy
-    single-stage configuration. ``async_job_id=None`` asks the application to
-    create its job. A missing or null frozen reference means no frozen identity;
-    a supplied snapshot is retained. ``execution_scope`` defaults to ``bulk``
-    only when omitted and otherwise passes through unchanged, including ``None``.
+    select no tasks. ``pipeline_stages=None`` or ``[]`` selects the single-stage
+    configuration. Execution requires an admitted ``async_job_id``. A missing or
+    null frozen reference means no frozen identity; a supplied snapshot is retained.
+    ``execution_scope`` defaults to ``bulk`` only when omitted and otherwise
+    passes through unchanged, including ``None``.
     Nested JSON retains its existing representation to avoid copying model configs.
     """
 

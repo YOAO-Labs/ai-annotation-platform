@@ -53,8 +53,9 @@ def _batch_prediction_task_payload(
     }
     if request.task_type is not None:
         kwargs["task_type"] = request.task_type
-    if request.async_job_id is not None:
-        kwargs["async_job_id"] = request.async_job_id
+    if request.async_job_id is None:
+        raise ValueError("batch prediction requires an admitted Job")
+    kwargs["async_job_id"] = request.async_job_id
     if request.frozen_model_ref is not None:
         kwargs["frozen_model_ref"] = request.frozen_model_ref
     if request.accepted_inputs_protocol is not None:
@@ -291,7 +292,9 @@ class JobsQueueBatchPredictionDispatcher:
         queue: str,
         soft_time_limit: int | None = None,
     ) -> str:
-        execution_id = request.async_job_id or str(uuid.uuid4())
+        if request.async_job_id is None:
+            raise ValueError("batch prediction requires an admitted Job")
+        execution_id = request.async_job_id
         args, kwargs = _batch_prediction_task_payload(request)
         options = {"queue": queue}
         if soft_time_limit is not None:
@@ -314,10 +317,10 @@ class JobsQueuePredictionRetryDispatcher:
         actor_id: uuid.UUID,
         *,
         execution_queue: str,
-        job_id: uuid.UUID | None = None,
+        job_id: uuid.UUID,
     ) -> None:
-        execution_id = str(job_id or uuid.uuid4())
-        kwargs = {"job_id": str(job_id)} if job_id is not None else None
+        execution_id = str(job_id)
+        kwargs = {"job_id": execution_id}
         dispatch_job_sync(
             task_name=_PREDICTION_RETRY_TASK,
             execution_id=execution_id,
@@ -331,10 +334,10 @@ class JobsQueuePredictionRetryDispatcher:
         failed_id: uuid.UUID,
         actor_id: uuid.UUID,
         *,
-        job_id: uuid.UUID | None = None,
+        job_id: uuid.UUID,
     ) -> None:
-        execution_id = str(job_id or uuid.uuid4())
-        kwargs = {"job_id": str(job_id)} if job_id is not None else None
+        execution_id = str(job_id)
+        kwargs = {"job_id": execution_id}
         dispatch_job_sync(
             task_name=_PREDICTION_RETRY_TASK,
             execution_id=execution_id,

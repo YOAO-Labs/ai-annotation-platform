@@ -41,6 +41,20 @@ The Native migration resources and schemas ship in the package. Install matching
 
 Durable routing binds scopes, attempts, control operations and retirement to exact backend continuity. Video acquisition includes the current Jobs execution proof. Cancellation, late results and restored execution remain fenced by Jobs/Labeling and routing state; a timeout or expired lease is not proof that backend work stopped.
 
+Image batch and retry route acquisition carries the current Jobs result-execution
+generation, request digest and lease. The native owner binds each admitted scope
+to that proof and checks the current Job and generation again at managed model
+dispatch start. A superseded lease or terminal Job cannot start a new send.
+Synchronous fixture `predict-test` scopes bind to their actual project, task and
+fixture run; sealing the run fences new acquisition and dispatch.
+
+Fixture retirement enumerates those exact scopes and uses the existing managed
+backend scope-retirement protocol. It also requires the Assets original-read
+owner and the generation-bound generated-Mask producer anchors to be settled.
+Pending or indeterminate producers and untracked, unmanaged or mismatched
+scopes block cleanup; terminal Job status, broker revocation and lease expiry
+are not physical drain. Scope retirement does not establish GPU capacity.
+
 The `yoao-video-restore` CLI consumes a function-only LOGIN through `--database-url-file`; choose `--inspect`, `--command-file` or `--status`. Its fixed protocol binds the backup digest and external fencing facts, observes the actual controller incarnation and rotates restored authority. It does not stop external processes or revoke S3 credentials merely by accepting a digest. Object-store disaster recovery and physical GPU capacity require separate evidence.
 
 Local implementation, installed-artifact qualification, real consumers, restore and daily adoption are tracked separately in the [deployment ledger](../../docs-site/dev/concepts/module-deployment.md). CPU fixtures and signed lifecycle protocol checks do not establish NVIDIA admission capacity, another-language replacement or production SLOs.

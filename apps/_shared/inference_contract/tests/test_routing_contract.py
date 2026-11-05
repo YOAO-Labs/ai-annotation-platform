@@ -183,6 +183,64 @@ def test_video_acquire_requires_exact_job_subject_and_keeps_legacy_wire_unchange
     )
 
 
+@pytest.mark.parametrize("operation", ["image_batch_predict", "prediction_retry"])
+def test_prediction_acquire_requires_exact_current_execution_proof(operation):
+    project_id, job_id = uuid.uuid4(), uuid.uuid4()
+    proof = {
+        "job_id": job_id,
+        "actor_id": uuid.uuid4(),
+        "project_id": project_id,
+        "request_digest": "a" * 64,
+        "generation": 1,
+        "lease_token": uuid.uuid4(),
+    }
+    body = {
+        **_body("acquire"),
+        "project_id": project_id,
+        "owner": f"{'batch' if operation == 'image_batch_predict' else 'retry'}:{job_id}:stage:0",
+        "operation": operation,
+        "prediction_execution": proof,
+    }
+    command = make_routing_command("acquire", body)
+    assert routing_command_bytes(
+        decode_routing_command(routing_command_bytes(command))
+    ) == routing_command_bytes(command)
+    assert str(proof["lease_token"]) not in repr(command)
+    with pytest.raises(RoutingUnavailable):
+        make_routing_command("acquire", {**body, "prediction_execution": None})
+    with pytest.raises(RoutingUnavailable):
+        make_routing_command("acquire", {**body, "project_id": uuid.uuid4()})
+    with pytest.raises(RoutingUnavailable):
+        make_routing_command(
+            "acquire", {**body, "owner": f"retry:{uuid.uuid4()}:stage:0"}
+        )
+    for generation in (0, True, "1"):
+        with pytest.raises(RoutingUnavailable):
+            make_routing_command(
+                "acquire",
+                {**body, "prediction_execution": {**proof, "generation": generation}},
+            )
+
+
+def test_predict_test_acquire_requires_exact_task_owner():
+    project_id, task_id = uuid.uuid4(), uuid.uuid4()
+    body = {
+        **_body("acquire"),
+        "project_id": project_id,
+        "owner": f"api:predict-test:{task_id}",
+        "operation": "predict_test",
+        "prediction_test": {"project_id": project_id, "task_id": task_id},
+    }
+    command = make_routing_command("acquire", body)
+    assert decode_routing_command(routing_command_bytes(command)) == command
+    with pytest.raises(RoutingUnavailable):
+        make_routing_command(
+            "acquire", {**body, "owner": f"api:predict-test:{uuid.uuid4()}"}
+        )
+    with pytest.raises(RoutingUnavailable):
+        make_routing_command("acquire", {**body, "prediction_test": None})
+
+
 def _scope() -> dict:
     return {
         "id": _SCOPE_ID,

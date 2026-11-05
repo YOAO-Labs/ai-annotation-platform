@@ -54,6 +54,8 @@ packages = ["src/yoao_jobs"]
 "src/yoao_jobs/sql/0432_jobs_fixture_guard.sql" = "yoao_jobs/sql/0432_jobs_fixture_guard.sql"
 "src/yoao_jobs/sql/0432_jobs_fixture_dataset_guard.sql" = "yoao_jobs/sql/0432_jobs_fixture_dataset_guard.sql"
 "src/yoao_jobs/sql/0432_jobs_fixture_presentation.sql" = "yoao_jobs/sql/0432_jobs_fixture_presentation.sql"
+"src/yoao_jobs/sql/0434_prediction_output_ownership.sql" = "yoao_jobs/sql/0434_prediction_output_ownership.sql"
+"src/yoao_jobs/prediction_retirement.schema.json" = "yoao_jobs/prediction_retirement.schema.json"
 
 "src/yoao_jobs/fixture_filter.schema.json" = "yoao_jobs/fixture_filter.schema.json"
 "src/yoao_jobs/sql/0331_jobs_filter_fixtures.sql" = "yoao_jobs/sql/0331_jobs_filter_fixtures.sql"

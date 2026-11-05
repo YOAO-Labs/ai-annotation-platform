@@ -379,6 +379,7 @@ async def run_durable_batch(
     from yoao_inference.gpu.contracts import gpu_arbiter_failure_record
     from app.services import prediction_progress
     from app.services.async_job_notify import notify_job_terminal
+    from app.application.prediction_mask_producers import prediction_mask_producer
     from app.services.batch_result_masks import normalize_batch_prediction_masks
 
     await freeze_batch_members(
@@ -519,13 +520,13 @@ async def run_durable_batch(
                 _raw_result, requests = await execution.load(
                     member.ordinal, stage="raw"
                 )
-                requests = await normalize_batch_prediction_masks(db, requests)
-                # Only producer epoch/grace facts are pending here. Prediction
-                # rows do not exist until the ready snapshot is durably sealed.
-                await db.commit()
-                await execution.capture(
-                    member.ordinal, requests, stage="prepared", context=context
-                )
+                async with prediction_mask_producer(execution, member.ordinal):
+                    requests = await normalize_batch_prediction_masks(db, requests)
+                    # Producer epoch/grace precedes the prepared result seal.
+                    await db.commit()
+                    await execution.capture(
+                        member.ordinal, requests, stage="prepared", context=context
+                    )
             elif result.state != "ready":
                 await execution.seal(member.ordinal, stage="prepared")
             result, requests = await execution.load(member.ordinal, stage="prepared")

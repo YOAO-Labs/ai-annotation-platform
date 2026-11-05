@@ -33,6 +33,8 @@ _POLICY_SQL = f"SELECT {_SCHEMA}.routing_policy()"
 _STEP_SQL = f"SELECT {_SCHEMA}.routing_step($1::text,$2::text)"
 _SUPERSEDE_SQL = f"SELECT {_SCHEMA}.supersede_unbegun_scope($1::text)"
 _MODEL_DISPATCH_SQL = f"SELECT {_SCHEMA}.model_dispatch_step($1::text)"
+_PREDICTION_SCOPE_SQL = f"SELECT {_SCHEMA}.prediction_scope_reserve($1::text)"
+_PREDICTION_TEST_SCOPE_SQL = f"SELECT {_SCHEMA}.prediction_test_scope_reserve($1::text)"
 _RETIREMENT_STEP_SQL = f"SELECT {_SCHEMA}.scope_retirement_step($1::text,$2::text)"
 _VIDEO_STEP_SQL = f"SELECT {_SCHEMA}.video_execution_scope_step($1::text,$2::text)"
 _BIND_TRANSACTION_SQL = "SELECT pg_catalog.pg_current_xact_id()::text"
@@ -43,6 +45,8 @@ _FUNCTIONS = {
     ("routing_step", "text, text"),
     ("scope_retirement_step", "text, text"),
     ("supersede_unbegun_scope", "text"),
+    ("prediction_scope_reserve", "text"),
+    ("prediction_test_scope_reserve", "text"),
     ("video_execution_scope_step", "text, text"),
 }
 
@@ -183,7 +187,13 @@ class RoutingPostgresData:
             type(action) is not str
             or (
                 action not in ROUTING_NATIVE_ACTIONS
-                and action not in {"supersede_unbegun_scope", "model_dispatch_step"}
+                and action
+                not in {
+                    "supersede_unbegun_scope",
+                    "model_dispatch_step",
+                    "prediction_scope_reserve",
+                    "prediction_test_scope_reserve",
+                }
             )
             or not isinstance(arguments, Mapping)
             or any(type(key) is not str for key in arguments)
@@ -196,6 +206,14 @@ class RoutingPostgresData:
                 raw = await self._connection.fetchval(_SUPERSEDE_SQL, request_json)
             elif action == "model_dispatch_step":
                 raw = await self._connection.fetchval(_MODEL_DISPATCH_SQL, request_json)
+            elif action == "prediction_scope_reserve":
+                raw = await self._connection.fetchval(
+                    _PREDICTION_SCOPE_SQL, request_json
+                )
+            elif action == "prediction_test_scope_reserve":
+                raw = await self._connection.fetchval(
+                    _PREDICTION_TEST_SCOPE_SQL, request_json
+                )
             else:
                 raw = await self._connection.fetchval(_STEP_SQL, action, request_json)
             reply = _json_object(raw, max_bytes=ROUTING_REPLY_MAX_BYTES)

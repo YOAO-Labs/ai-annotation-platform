@@ -204,6 +204,10 @@ def _request_body(command: RoutingCommand) -> dict[str, Any]:
         raise RoutingUnavailable() from None
     if type(value) is not dict:
         raise RoutingUnavailable()
+    if value.get("prediction_execution") is None:
+        value.pop("prediction_execution", None)
+    if value.get("prediction_test") is None:
+        value.pop("prediction_test", None)
     return value
 
 
@@ -611,6 +615,22 @@ class RoutingManager:
                     raise _Rejected("management_busy") from None
                 raise _Rejected("scope_unavailable") from None
             return _public_json(reserved["scope"])
+        if body.get("prediction_execution") is not None:
+            reserved = await _native_step(
+                data,
+                "prediction_scope_reserve",
+                {"proof": body["prediction_execution"], "reservation": reservation},
+                keys={"scope"},
+            )
+            return _json_object(reserved["scope"])
+        if body.get("prediction_test") is not None:
+            reserved = await _native_step(
+                data,
+                "prediction_test_scope_reserve",
+                {"proof": body["prediction_test"], "reservation": reservation},
+                keys={"scope"},
+            )
+            return _json_object(reserved["scope"])
         reserved = await _native_step(
             data,
             "reserve_scope",

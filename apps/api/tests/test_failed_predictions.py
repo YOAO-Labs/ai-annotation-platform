@@ -418,6 +418,24 @@ def _passthrough_session_factory(db_session: AsyncSession):
     return async_sessionmaker(db_session.bind, expire_on_commit=False)
 
 
+async def _admit_native_retry(db, failed_id, actor_id):
+    from app.application.durable_prediction_retry import call_retry
+    from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
+
+    job_id = uuid.uuid4()
+    await call_retry(
+        SqlAlchemyPredictionRetryData(db, writer=True),
+        "admit_prediction_retry",
+        job_id=job_id,
+        failed_prediction_id=failed_id,
+        actor_id=actor_id,
+        execution_queue="ml.cpu",
+        legacy_delivery=False,
+    )
+    await db.commit()
+    return str(job_id)
+
+
 @pytest.mark.parametrize("controlled", [False, True])
 async def test_retry_worker_tracks_success_in_async_jobs(
     db_session, super_admin, monkeypatch, controlled
@@ -472,8 +490,9 @@ async def test_retry_worker_tracks_success_in_async_jobs(
 
     patch_retry_execution(monkeypatch, fake_execute)
 
+    job_id = await _admit_native_retry(db_session, fp.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        session_factory, str(fp.id), str(user.id)
+        session_factory, str(fp.id), str(user.id), job_id=job_id
     )
 
     assert result["status"] == "succeeded", result
@@ -637,8 +656,12 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
         ),
     )
 
+    job_id = await _admit_native_retry(db_session, failed.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(failed.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(failed.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     assert result["status"] == "succeeded", result
@@ -745,8 +768,12 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
         ),
     )
 
+    job_id = await _admit_native_retry(db_session, failed.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(failed.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(failed.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     assert result["status"] == (
@@ -795,8 +822,12 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
 
     patch_retry_execution(monkeypatch, fake_execute)
 
+    job_id = await _admit_native_retry(db_session, fp.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(fp.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(fp.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     assert result["status"] == "failed"
@@ -867,8 +898,12 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
 
     patch_retry_execution(monkeypatch, fake_execute)
 
+    job_id = await _admit_native_retry(db_session, fp.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(fp.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(fp.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     expected = {

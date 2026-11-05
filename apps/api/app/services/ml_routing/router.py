@@ -78,6 +78,8 @@ class MLBackendRouter:
         registry_id: uuid.UUID | None = None,
         approved_registry_ids: list[uuid.UUID] | None = None,
         execution: dict | None = None,
+        prediction_execution=None,
+        prediction_test=None,
     ) -> RouteSelection:
         """Reserve durable execution ownership using current committed topology."""
         from yoao_inference_contract.routing import RoutingUnavailable
@@ -95,6 +97,16 @@ class MLBackendRouter:
                 **(
                     {"approved_registry_ids": approved_registry_ids}
                     if approved_registry_ids is not None
+                    else {}
+                ),
+                **(
+                    {"prediction_execution": prediction_execution}
+                    if prediction_execution is not None
+                    else {}
+                ),
+                **(
+                    {"prediction_test": prediction_test}
+                    if prediction_test is not None
                     else {}
                 ),
                 **({"execution": execution} if execution is not None else {}),

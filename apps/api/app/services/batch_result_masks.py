@@ -57,6 +57,13 @@ async def _store_rle(
     rle: dict[str, Any],
     references: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
+    from app.application.prediction_mask_producers import (
+        current_prediction_mask_producer,
+    )
+
+    if current_prediction_mask_producer() is None:
+        raise RuntimeError("prediction mask producer admission is required")
+
     expected = build_rle_reference(rle)
     object_key = str(expected["object_key"])
     await validate_mask_geometry_for_task(

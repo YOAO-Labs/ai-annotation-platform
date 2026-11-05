@@ -11,9 +11,7 @@ import warnings
 
 from fastapi import HTTPException
 import pytest
-from sqlalchemy import delete, inspect, text
-
-from app.db.models.prediction import FailedPrediction
+from sqlalchemy import inspect, text
 from app.db.models.project import Project
 from app.db.models.task import Task
 from app.services.project_access import get_workspace_project
@@ -265,33 +263,3 @@ async def test_actorless_read_node_peer_has_no_python_proxy(test_engine):
             if process.returncode is None:
                 process.kill()
                 await process.wait()
-
-
-async def test_actual_actorless_retry_relay_reads_project_metadata(test_engine):
-    from app.workers.predictions_retry import _retry_job_metadata
-
-    async with _world(test_engine) as (owner, api, world, _url):
-        failed_id = uuid.uuid4()
-        async with owner.begin() as seed:
-            seed.add(
-                FailedPrediction(
-                    id=failed_id,
-                    project_id=world["project_id"],
-                    error_type="test",
-                    message="relay",
-                    extra={},
-                )
-            )
-        try:
-            async with api() as db:
-                await db.execute(text("SET TRANSACTION READ ONLY"))
-                await _assert_private_denied(db)
-                project_id, payload = await _retry_job_metadata(db, failed_id)
-                assert project_id == world["project_id"]
-                assert payload["project_display_id"] and payload["project_name"]
-                assert "actor_id" not in payload
-        finally:
-            async with owner.begin() as cleanup:
-                await cleanup.execute(
-                    delete(FailedPrediction).where(FailedPrediction.id == failed_id)
-                )

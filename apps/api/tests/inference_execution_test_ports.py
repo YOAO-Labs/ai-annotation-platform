@@ -329,11 +329,27 @@ async def run_batch_request(**kwargs):
     kwargs.pop("worker_node_id", None)
     engine = create_async_engine(settings.database_url, echo=False)
     try:
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        if kwargs.get("async_job_id") is None:
+            import uuid
+
+            from app.services import async_job as jobs
+
+            async with sessions() as db:
+                job = await jobs.create_job(
+                    db,
+                    kind="batch_predict",
+                    user_id=uuid.UUID(kwargs["user_id"]),
+                    project_id=uuid.UUID(kwargs["project_id"]),
+                    celery_task_id=execution_id,
+                )
+                kwargs["async_job_id"] = str(job.id)
+                await db.commit()
         return await _execute_preannotation(
             BatchPredictionRequest(**kwargs),
             execution_id=execution_id,
             frame_dispatcher=frame_dispatcher,
-            SessionLocal=async_sessionmaker(engine, expire_on_commit=False),
+            SessionLocal=sessions,
         )
     finally:
         await engine.dispose()

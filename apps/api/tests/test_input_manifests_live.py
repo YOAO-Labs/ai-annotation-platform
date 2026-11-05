@@ -627,8 +627,18 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
                 {"task": tasks[1].id},
             )
         fail_model["enabled"] = False
+        from tests.test_failed_predictions import _admit_native_retry
+
+        async with runtime.owner_sessions() as owner:
+            retained_job_id = await _admit_native_retry(
+                owner, retained_failure, actor_id
+            )
+            missing_job_id = await _admit_native_retry(owner, missing_failure, actor_id)
         retried = await _do_retry_with_factory(
-            runtime.owner_sessions, str(retained_failure), str(actor_id)
+            runtime.owner_sessions,
+            str(retained_failure),
+            str(actor_id),
+            job_id=retained_job_id,
         )
         assert retried["status"] == "succeeded", retried
         async with runtime.owner_sessions() as owner:
@@ -647,7 +657,10 @@ async def test_bulk_consumer_retains_original_inputs_for_roi_partial_failure_and
             ).one()
             assert metadata.extra["accepted_input"]["input_id"] == retained["input_id"]
         not_retryable = await _do_retry_with_factory(
-            runtime.owner_sessions, str(missing_failure), str(actor_id)
+            runtime.owner_sessions,
+            str(missing_failure),
+            str(actor_id),
+            job_id=missing_job_id,
         )
         assert not_retryable["status"] == "failed"
         assert len(model_calls) == 3 and not legacy_urls

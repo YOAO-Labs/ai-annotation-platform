@@ -12,11 +12,13 @@ class CeleryPredictionRetryDispatcher:
         actor_id: uuid.UUID,
         *,
         execution_queue: str,
-        job_id: uuid.UUID | None = None,
+        job_id: uuid.UUID,
     ) -> None:
-        options = {"queue": execution_queue}
-        if job_id is not None:
-            options.update(task_id=str(job_id), kwargs={"job_id": str(job_id)})
+        options = {
+            "queue": execution_queue,
+            "task_id": str(job_id),
+            "kwargs": {"job_id": str(job_id)},
+        }
         retry_failed_prediction.apply_async(
             args=[str(failed_id), str(actor_id)], **options
         )
@@ -26,13 +28,10 @@ class CeleryPredictionRetryDispatcher:
         failed_id: uuid.UUID,
         actor_id: uuid.UUID,
         *,
-        job_id: uuid.UUID | None = None,
+        job_id: uuid.UUID,
     ) -> None:
-        if job_id is None:
-            retry_failed_prediction.delay(str(failed_id), str(actor_id))
-        else:
-            retry_failed_prediction.apply_async(
-                args=[str(failed_id), str(actor_id)],
-                kwargs={"job_id": str(job_id)},
-                task_id=str(job_id),
-            )
+        retry_failed_prediction.apply_async(
+            args=[str(failed_id), str(actor_id)],
+            kwargs={"job_id": str(job_id)},
+            task_id=str(job_id),
+        )

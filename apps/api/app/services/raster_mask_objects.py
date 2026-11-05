@@ -248,6 +248,21 @@ async def _require_guard(db, guard):
         _reject()
 
 
+async def _bind_prediction_producer(db, object_id):
+    from app.application.prediction_mask_producers import (
+        current_prediction_mask_producer,
+    )
+
+    producer_id = current_prediction_mask_producer()
+    if producer_id is not None:
+        admitted = await db.scalar(
+            text("SELECT aap_jobs_v1.bind_prediction_mask_object(:producer, :object)"),
+            {"producer": producer_id, "object": object_id},
+        )
+        if admitted is not True:
+            _reject("prediction_mask_producer_not_current")
+
+
 async def _initial(db, facts, guarded):
     async with _session(db) as session:
         await _publish_lock(session, facts["logical_key"])
@@ -270,6 +285,7 @@ async def _initial(db, facts, guarded):
         if candidate:
             session.add(row)
             await session.flush()
+        await _bind_prediction_producer(session, receipt.id)
         guard = await _add_guard(
             session, receipt, revision, guarded, read_route=read_route
         )
@@ -368,6 +384,7 @@ async def _publish(db, receipt, revision, guard, guarded, storage):
             await _commit(session)
             return receipt, guard
         winner_receipt = physical.snapshot(winner)
+        await _bind_prediction_producer(session, winner_receipt.id)
         _matching_facts(winner, {name: getattr(receipt, name) for name in _CANONICAL})
         winner_revision, winner_route = await _read_plan(session, winner_receipt)
         await _commit(session)
@@ -568,6 +585,11 @@ async def _is_referenced(db, key):
 
 async def _guarded(db, receipt, *, exclude_operation=None):
     if await db.scalar(select(exists().where(Publication.object_id == receipt.id))):
+        return True
+    if await db.scalar(
+        text("SELECT aap_jobs_v1.prediction_mask_object_retained(:object)"),
+        {"object": receipt.id},
+    ):
         return True
     conditions = [
         or_(

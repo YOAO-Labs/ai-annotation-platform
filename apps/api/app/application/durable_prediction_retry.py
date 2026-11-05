@@ -68,11 +68,11 @@ def retry_scope(attempt):
     }
 
 
-def _model_execution_port(db):
+def _model_execution_port(db, *, prediction_execution):
     """Use the parent-composed, route/GPU-authorized execution owner."""
     from app.services.inference_model_execution import model_execution_port
 
-    return model_execution_port(db)
+    return model_execution_port(db, prediction_execution=prediction_execution)
 
 
 async def call_retry(database, operation, **values):
@@ -422,7 +422,9 @@ async def _infer(execution, attempt, prepared, session_factory):
                 if prepared.accepted_input is not None
                 else None
             )
-            model_port = _model_execution_port(db)
+            model_port = _model_execution_port(
+                db, prediction_execution=execution._values()
+            )
             try:
                 output = await execute_task_pipeline(
                     str(task_id),
@@ -516,6 +518,7 @@ async def _infer(execution, attempt, prepared, session_factory):
 
 async def _prepare_snapshot(execution, session_factory):
     from dataclasses import replace
+    from app.application.prediction_mask_producers import prediction_mask_producer
     from app.services.batch_result_masks import normalize_batch_prediction_masks
     from app.services.prediction import to_video_bbox_result
 
@@ -535,10 +538,13 @@ async def _prepare_snapshot(execution, session_factory):
             else request
             for request in requests
         )
-        async with session_factory() as db:
-            requests = await normalize_batch_prediction_masks(db, requests)
-            await db.commit()
-        await execution.capture(1, requests, stage="prepared", context=saved.context)
+        async with prediction_mask_producer(execution, 1):
+            async with session_factory() as db:
+                requests = await normalize_batch_prediction_masks(db, requests)
+                await db.commit()
+            await execution.capture(
+                1, requests, stage="prepared", context=saved.context
+            )
     elif saved.state != "ready":
         await execution.seal(1, stage="prepared")
     return await execution.load(1, stage="prepared")
