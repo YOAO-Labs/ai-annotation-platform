@@ -322,10 +322,21 @@ async def _invalidate(db, artifact_id, output_id):
     await db.commit()
 
 
+def _cache_reusable(receipt, previous=None):
+    """Fixture deliveries own their deadline and never share a cache entry."""
+    return receipt.fixture_run_id is None and (
+        previous is None
+        or (
+            previous.fixture_run_id is None
+            and previous.expires_at <= receipt.expires_at
+        )
+    )
+
+
 async def _lookup(db, receipt, key, *, guard):
     """Verify ZIP and every copy outside SQL locks; never extend signed deadlines."""
     adapter = for_snapshot(receipt._input_snapshot)
-    if receipt._input_snapshot.get("references"):
+    if not _cache_reusable(receipt) or receipt._input_snapshot.get("references"):
         return None
     artifact = await db.scalar(
         select(ExportArtifact)
@@ -361,7 +372,7 @@ async def _lookup(db, receipt, key, *, guard):
         or previous.expires_at != candidate.expires_at
     ):
         reject(adapter.error("cache_changed"))
-    if previous.expires_at > receipt.expires_at:
+    if not _cache_reusable(receipt, previous):
         return None
     data = previous.input_snapshot
     mapping = bundles.source_objects(previous, adapter.logical_sources(data))
@@ -861,7 +872,9 @@ async def run_owned(
         await adapter.inputs.check(db, receipt._input_snapshot, lock=True)
         output = await export_outputs.publish(db, candidate, revision)
         await bundles.publish(db, receipt)
-        if not receipt._input_snapshot.get("references"):
+        if receipt.fixture_run_id is None and not receipt._input_snapshot.get(
+            "references"
+        ):
             await cache.record(
                 db,
                 cache_key=key,

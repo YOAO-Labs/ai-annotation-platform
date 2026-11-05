@@ -153,6 +153,18 @@ def _instant(value):
     return value.astimezone(timezone.utc)
 
 
+async def fixture_native_lifetime(db, job_id, project_id):
+    return (
+        await db.execute(
+            text(
+                "SELECT run_id, created_at, expires_at "
+                "FROM public.fixture_native_export_lifetime(:job_id, :project_id)"
+            ),
+            {"job_id": _identifier(job_id), "project_id": _identifier(project_id)},
+        )
+    ).one_or_none()
+
+
 def _creation_valid(
     bundle, *, bundle_id, identifier, project_id, job_id, media, started, expires
 ):
@@ -213,6 +225,15 @@ async def create(
         )
         if bundle is None or bundle.id != media_bundle_id:
             reject()
+    native = (
+        await fixture_native_lifetime(db, job_id, project_id)
+        if bundle is None
+        else None
+    )
+    if native is not None:
+        if created_at is not None or expires_at is not None:
+            reject("export_storage_invalid_receipt")
+        created_at, expires_at = native.created_at, native.expires_at
     identifier = (
         _identifier(output_id)
         if output_id is not None
@@ -412,6 +433,17 @@ async def verify_cache(db, artifact):
         reject("export_cache_output_mismatch")
     if row.expires_at <= now():
         return None
+    if receipt.media_bundle_id is None:
+        if await fixture_native_lifetime(db, receipt.job_id, receipt.project_id):
+            return None
+    else:
+        bundle = await db.get(
+            ExportMediaBundle, receipt.media_bundle_id, populate_existing=True
+        )
+        if bundle is None:
+            reject("export_cache_output_mismatch")
+        if bundle.fixture_run_id is not None:
+            return None
     owner = export_storage.resolve(receipt)
     route = await _read_route(db, receipt)
     target = None if route is not None else await export_storage.io_target(db, receipt)
@@ -667,6 +699,20 @@ async def _cleanup_one(db, identifier, counters):
     if row is None:
         await db.commit()
         return False
+    native = (
+        await fixture_native_lifetime(db, row.job_id, row.project_id)
+        if bundle is None
+        else None
+    )
+    native_eligible = native is not None and bool(
+        await db.scalar(
+            text("SELECT public.fixture_native_export_cleanup_eligible(:output_id)"),
+            {"output_id": identifier},
+        )
+    )
+    if native is not None and not native_eligible:
+        await db.commit()
+        return False
     linked_ended = bundle is not None and await export_media_retirement.zip_eligible(
         db, bundle, row
     )
@@ -674,6 +720,7 @@ async def _cleanup_one(db, identifier, counters):
         (bundle is not None and not linked_ended)
         or (
             row.state == "pending"
+            and not native_eligible
             and (not linked_ended or bundle.published_at is not None)
         )
         or (
@@ -785,6 +832,12 @@ async def _cleanup_one(db, identifier, counters):
                     "size_bytes": current.size_bytes,
                 },
             )
+        if native is not None and not await db.scalar(
+            text("SELECT public.retire_fixture_native_export_output(:output_id)"),
+            {"output_id": current.id},
+        ):
+            await db.commit()
+            return False
         await db.delete(current)
         await db.commit()
         return True

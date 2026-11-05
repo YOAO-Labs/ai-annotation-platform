@@ -14,14 +14,15 @@ from app.db.models.fixture_run import (
     FixtureRun,
     FixtureRunResource,
 )
-from app.services import async_job
+from app.services import async_job, export_outputs
+from app.services.exporting import lidar_jobs
 from tests import test_export_media_bundle_models as bundle_models
 from tests.factory import create_project, create_user
 
 pytestmark = pytest.mark.asyncio
 
 
-async def test_private_owner_deadline_and_neighbor_authority(db_session):
+async def test_private_owner_deadline_and_neighbor_authority(db_session, tmp_path):
     run_id, target_id, location_id = (uuid.uuid4() for _ in range(3))
     actor = await create_user(
         db_session, "super_admin", f"{uuid.uuid4()}@test.invalid", "Actor"
@@ -31,6 +32,11 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session):
     )
     project = await create_project(db_session, owner_id=actor.id)
     ordinary_project = await create_project(db_session, owner_id=neighbor.id)
+    lidar_project = await create_project(
+        db_session, owner_id=actor.id, type_key="lidar-detection"
+    )
+    lidar_project.data_type = "lidar"
+    await db_session.flush()
     db_session.add(
         StorageLocation(id=location_id, name=str(location_id), kind="s3", config={})
     )
@@ -66,6 +72,13 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session):
             ),
             FixtureRunResource(
                 run_id=run_id,
+                kind="project",
+                resource_id=lidar_project.id,
+                logical_key="lidar-project",
+                state="published",
+            ),
+            FixtureRunResource(
+                run_id=run_id,
                 kind="user",
                 resource_id=actor.id,
                 logical_key="actor",
@@ -85,6 +98,95 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session):
     )
     closed = await async_job.create_job(
         db_session, kind="export", user_id=actor.id, project_id=project.id
+    )
+    native_job = await async_job.create_job(
+        db_session,
+        kind="export",
+        user_id=actor.id,
+        project_id=lidar_project.id,
+        payload={"targets": ["native_json"]},
+    )
+    repeated_native_job = await async_job.create_job(
+        db_session,
+        kind="export",
+        user_id=actor.id,
+        project_id=lidar_project.id,
+        payload={"targets": ["native_json"]},
+    )
+    neighbor_native_job = await async_job.create_job(
+        db_session,
+        kind="export",
+        user_id=neighbor.id,
+        project_id=lidar_project.id,
+        payload={"targets": ["native_json"]},
+    )
+    assert (
+        await lidar_jobs.capture_job(
+            db_session,
+            native_job,
+            lidar_project,
+            batch_id=None,
+            targets=["native_json"],
+            opts={},
+        )
+        is None
+    )
+    lifetime = await export_outputs.fixture_native_lifetime(
+        db_session, native_job.id, lidar_project.id
+    )
+    repeated_lifetime = await export_outputs.fixture_native_lifetime(
+        db_session, repeated_native_job.id, lidar_project.id
+    )
+    assert lifetime.run_id == repeated_lifetime.run_id == run_id
+    assert lifetime.expires_at - lifetime.created_at == timedelta(minutes=15)
+    assert repeated_lifetime.expires_at - repeated_lifetime.created_at == timedelta(
+        minutes=15
+    )
+    assert (
+        await export_outputs.fixture_native_lifetime(
+            db_session, neighbor_native_job.id, lidar_project.id
+        )
+        is None
+    )
+    native_execution = {
+        "job": native_job.id,
+        "project": lidar_project.id,
+        "token": uuid.uuid4(),
+    }
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT public.begin_fixture_export_execution(:job, :project, :token)"
+            ),
+            native_execution,
+        )
+        == "started"
+    )
+    path = tmp_path / "native.zip"
+    path.write_bytes(b"native fixture output")
+    native_output = await export_outputs.create(
+        db_session,
+        project_id=lidar_project.id,
+        job_id=native_job.id,
+        media="image",
+        format="native_json",
+        file_count=1,
+        path=str(path),
+    )
+    assert native_output.media_bundle_id is None
+    assert native_output.created_at == lifetime.created_at
+    assert native_output.expires_at == lifetime.expires_at
+    ordinary_output = await export_outputs.create(
+        db_session,
+        project_id=lidar_project.id,
+        job_id=neighbor_native_job.id,
+        media="image",
+        format="native_json",
+        file_count=1,
+        path=str(path),
+    )
+    assert ordinary_output.expires_at - ordinary_output.created_at == timedelta(
+        hours=168
     )
 
     async def allocate(job):
@@ -134,6 +236,27 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session):
     run = await db_session.get(FixtureRun, run_id)
     run.state, run.sealed_at = "sealing", datetime.now(timezone.utc)
     await db_session.flush()
+    native_job.status = "failed"
+    await db_session.flush()
+    native_scope = {"run": run_id, "project": lidar_project.id, "job": native_job.id}
+    assert not await db_session.scalar(
+        text("SELECT public.retire_fixture_export_execution(:run, :project, :job)"),
+        native_scope,
+    )
+    assert await db_session.scalar(
+        text("SELECT public.finish_fixture_export_execution(:job, :token)"),
+        native_execution,
+    )
+    assert await db_session.scalar(
+        text("SELECT public.retire_fixture_export_execution(:run, :project, :job)"),
+        native_scope,
+    )
+    assert not await db_session.scalar(
+        text("SELECT public.fixture_export_retired(:run, :project, :job)"), native_scope
+    )
+    assert not await export_outputs._cleanup_one(
+        db_session, native_output.id, {"removed": 0}
+    )
     own.status = "failed"
     await db_session.flush()
     scope = {"run": run_id, "project": project.id, "job": own.id}

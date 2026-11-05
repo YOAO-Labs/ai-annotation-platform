@@ -453,9 +453,16 @@ async def retire_fixture_export(db, *, run_id, project_id, job_id):
             .order_by(Bundle.id)
         )
     ).all()
-    if not owners or any(
-        owner.fixture_run_id != run_id or owner.project_id != project_id
-        for owner in owners
+    native = await export_outputs.fixture_native_lifetime(db, job_id, project_id)
+    if (not owners and (native is None or native.run_id != run_id)) or (
+        owners
+        and (
+            native is not None
+            or any(
+                owner.fixture_run_id != run_id or owner.project_id != project_id
+                for owner in owners
+            )
+        )
     ):
         raise ContentError("fixture_export_owner_changed")
     identifiers = [owner.id for owner in owners]
@@ -469,6 +476,26 @@ async def retire_fixture_export(db, *, run_id, project_id, job_id):
         await db.commit()
         return False
     await db.commit()
+    if native is not None:
+        if native.expires_at > now():
+            return False
+        outputs = list(
+            await db.scalars(
+                select(ExportOutput.id)
+                .where(ExportOutput.job_id == job_id)
+                .order_by(ExportOutput.id)
+            )
+        )
+        await db.commit()
+        for output_id in outputs:
+            if not await export_outputs._cleanup_one(db, output_id, {"removed": 0}):
+                return False
+        proof = await db.scalar(
+            text("SELECT public.fixture_export_retired(:run_id, :project_id, :job_id)"),
+            {"run_id": run_id, "project_id": project_id, "job_id": job_id},
+        )
+        await db.commit()
+        return proof is True
     for identifier in identifiers:
         owner = await db.get(Bundle, identifier, populate_existing=True)
         if owner is None or owner.expires_at > now():

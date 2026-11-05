@@ -918,10 +918,10 @@ async def _run_export(
 
                 hit = (
                     None
-                    if reference_media
+                    if reference_media or execution.fixture_token is not None
                     else await export_cache.lookup(db, cache_key)
                 )
-                if hit is None:
+                if hit is None and execution.fixture_token is None:
                     lock_key = f"export-build:{cache_key}"
                     lock_owner = secrets.token_hex(32)
                     lock_client = aioredis.from_url(
@@ -1024,12 +1024,13 @@ async def _run_export(
                 if reference_media:
                     await reference_media.validate(final=True)
                 output = await export_outputs.publish(db, candidate, revision)
-                await export_cache.record(
-                    db,
-                    cache_key=cache_key,
-                    output=output,
-                    batch_id=batch_uuid,
-                )
+                if execution.fixture_token is None:
+                    await export_cache.record(
+                        db,
+                        cache_key=cache_key,
+                        output=output,
+                        batch_id=batch_uuid,
+                    )
                 # Shared row locks prevent credential edits, but time can pass
                 # while the output/cache locks wait. Recheck expiry at signing.
                 await execution.assert_owned()

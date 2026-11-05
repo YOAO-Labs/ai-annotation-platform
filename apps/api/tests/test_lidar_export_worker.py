@@ -5,11 +5,13 @@ this fixture keeps SQL migrations, frozen serialization and cache coupling real.
 """
 
 from contextlib import nullcontext
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 import uuid
 import zipfile
 
@@ -200,6 +202,28 @@ async def request(db, project, *, targets=None, axis_frame=None):
 async def state(db, model, identifier):
     await db.rollback()
     return await db.get(model, identifier, populate_existing=True)
+
+
+def test_cache_reuse_respects_fixture_lifetimes():
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ordinary_old = SimpleNamespace(
+        fixture_run_id=None, expires_at=created + timedelta(days=7)
+    )
+    ordinary_new = SimpleNamespace(
+        fixture_run_id=None, expires_at=created + timedelta(days=8)
+    )
+    fixture_first = SimpleNamespace(
+        fixture_run_id=uuid.uuid4(), expires_at=created + timedelta(minutes=15)
+    )
+    fixture_repeat = SimpleNamespace(
+        fixture_run_id=fixture_first.fixture_run_id,
+        expires_at=created + timedelta(minutes=16),
+    )
+    assert worker._cache_reusable(ordinary_new, ordinary_old)
+    assert not worker._cache_reusable(ordinary_old, ordinary_new)
+    assert not worker._cache_reusable(fixture_first, ordinary_old)
+    assert not worker._cache_reusable(ordinary_new, fixture_first)
+    assert not worker._cache_reusable(fixture_repeat, fixture_first)
 
 
 async def test_real_zip_publication_then_verified_cache_preserves_original_deadline(
