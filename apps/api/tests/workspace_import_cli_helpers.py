@@ -969,7 +969,6 @@ class WorkspaceImportCli:
                 "PLAYWRIGHT_E2E_DATABASE_URL": self.test_engine.url.render_as_string(
                     hide_password=False
                 ),
-                "SECRET_KEY": self.secret_key,
             }
         )
         requests = [

@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import json
 import os
+import re
 from pathlib import Path
 import sys
 from urllib.parse import urlencode
@@ -34,13 +35,27 @@ async def _fixture_request(payload: dict):
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
-    stdout, _stderr = await process.communicate((json.dumps(payload) + "\n").encode())
+    stdout, stderr = await process.communicate((json.dumps(payload) + "\n").encode())
+    journal = ".worktree/e2e/fixture-authority/failures.ndjson"
     if process.returncode != 0:
-        raise WorktreeError(f"筛选夹具 owner 进程失败：exit {process.returncode}")
+        matches = re.findall(rb"^Fixture setup failed: (\w+)$", stderr, re.MULTILINE)
+        kind = matches[-1].decode() if matches else "unknown"
+        raise WorktreeError(
+            f"筛选夹具 owner 进程失败：exit {process.returncode}, {kind}；私有证据：{journal}"
+        )
     response = json.loads(stdout)
     if response["status"] != 200:
+        code = "unknown"
+        try:
+            detail = json.loads(response["body"]).get("detail")
+            if isinstance(detail, dict):
+                value = detail.get("code", detail.get("reason"))
+                if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value):
+                    code = value
+        except (ValueError, AttributeError):
+            pass
         raise WorktreeError(
-            f"筛选夹具准备失败：HTTP {response['status']} {response['body']}"
+            f"筛选夹具准备失败：HTTP {response['status']}, {code}；私有证据：{journal}"
         )
     return json.loads(response["body"])
 
@@ -317,6 +332,11 @@ async def cleanup_filtering(resources: dict, manifest_path: Path) -> None:
             "data": {"suite_id": str(suite_id)},
         }
     )
+    result = await _fixture_request(
+        {"operation": "owner_shutdown", "suite_id": str(suite_id)}
+    )
+    if result.get("state") not in {"stopped", "shared"}:
+        raise WorktreeError("筛选夹具 owner 关闭结果不明；保留记录")
     manifest_path.unlink()
 
 

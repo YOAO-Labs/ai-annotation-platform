@@ -1,7 +1,11 @@
 /// <reference lib="es2021.promise" />
 
 import type { FullConfig } from "@playwright/test";
-import { closeFixtureTransport, postFixture } from "./helpers/seed-owner-transport.mjs";
+import {
+  closeFixtureTransport,
+  postFixture,
+  shutdownFixtureTransport,
+} from "./helpers/seed-owner-transport.mjs";
 
 export default async function globalTeardown(_config: FullConfig): Promise<void> {
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
@@ -16,6 +20,9 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
     });
     if (!response.ok()) {
       throw new Error(`seed/cleanup failed: ${response.status()} ${await response.text()}`);
+    }
+    if (process.env.PLAYWRIGHT_RASTER_OFFLINE !== "1") {
+      await shutdownFixtureTransport(suiteId);
     }
   } catch (error) {
     failed = true;

@@ -19,6 +19,31 @@ import uvicorn
 from yoao_protocol_v2.routing_runtime import install_backend_routing_controller
 
 
+class FixtureOfflineFence:
+    """Fence HTTP admission before sampling all provider work."""
+
+    def __init__(self, app, runtime):
+        self.app = app
+        self.runtime = runtime
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] not in {"http", "websocket"}:
+            await self.app(scope, receive, send)
+            return
+        if self.runtime.offline_sealed:
+            if scope["type"] == "http":
+                await send({"type": "http.response.start", "status": 503, "headers": []})
+                await send({"type": "http.response.body", "body": b""})
+            else:
+                await send({"type": "websocket.close", "code": 1013})
+            return
+        self.runtime.offline_active += 1
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self.runtime.offline_active -= 1
+
+
 class FixtureBackendRuntime:
     """A deterministic test provider, not a qualified model or GPU runtime."""
 
@@ -35,10 +60,13 @@ class FixtureBackendRuntime:
         self.task = None
         self.listener = None
         self.url = ""
+        self.offline_sealed = False
+        self.offline_active = 0
         app = FastAPI()
         self.controller = install_backend_routing_controller(
             app, environ={"AAP_ROUTE_CONTROL_TOKEN": self.token}
         )
+        app.add_middleware(FixtureOfflineFence, runtime=self)
 
         def authorize(request: Request) -> None:
             if not hmac.compare_digest(
@@ -241,8 +269,7 @@ class FixtureBackendRuntime:
         return self
 
     async def close(self):
-        if self.gate is not None:
-            self.gate.set()
+        # EOF and shutdown are not permission to release a held execution.
         if self.server is not None:
             self.server.should_exit = True
         if self.task is not None:
@@ -259,6 +286,12 @@ class FixtureBackendRuntime:
             ):
                 raise HTTPException(409, "Fixture provider registry already bound")
             self.controller.registry_id = registry_id
+        elif action == "offline_seal":
+            self.offline_sealed = True
+            if self.offline_active or self.controller.active_requests:
+                raise HTTPException(409, "Fixture provider still executing")
+        elif action == "offline_resume":
+            self.offline_sealed = False
         elif action == "attach":
             if self.attached:
                 raise HTTPException(409, "Fixture provider already attached")
@@ -319,31 +352,37 @@ class FixtureBackendProcess:
 
     async def control(self, action: str, value):
         async with self.lock:
-            if self.process is None or self.process.returncode is not None:
-                raise HTTPException(
-                    409, detail={"code": "fixture_backend_owner_unavailable"}
-                )
-            self.process.stdin.write(
-                (json.dumps({"action": action, "value": value}) + "\n").encode()
+            return await self._control(action, value)
+
+    async def _control(self, action: str, value):
+        if self.process is None or self.process.returncode is not None:
+            raise HTTPException(
+                409, detail={"code": "fixture_backend_owner_unavailable"}
             )
-            await self.process.stdin.drain()
-            line = await self.process.stdout.readline()
-            if not line:
-                raise HTTPException(
-                    409, detail={"code": "fixture_backend_owner_unavailable"}
-                )
-            result = json.loads(line)
-            if "error" in result:
-                raise HTTPException(result["error"], result["detail"])
-            return result
+        self.process.stdin.write(
+            (json.dumps({"action": action, "value": value}) + "\n").encode()
+        )
+        await self.process.stdin.drain()
+        line = await self.process.stdout.readline()
+        if not line:
+            raise HTTPException(
+                409, detail={"code": "fixture_backend_owner_unavailable"}
+            )
+        result = json.loads(line)
+        if "error" in result:
+            raise HTTPException(result["error"], result["detail"])
+        return result
 
     async def close(self):
-        if self.process is not None:
-            if self.process.returncode is None:
-                self.process.stdin.close()
-            await self.process.wait()
-            if self.process.returncode:
-                raise RuntimeError("Fixture provider exited unsuccessfully")
+        async with self.lock:
+            if self.process is not None:
+                if self.process.returncode is None:
+                    # Fence admission without losing control of unfinished work.
+                    await self._control("offline_seal", None)
+                    self.process.stdin.close()
+                await self.process.wait()
+                if self.process.returncode:
+                    raise RuntimeError("Fixture provider exited unsuccessfully")
 
 
 class FixtureBackends:

@@ -251,5 +251,6 @@ async def test_native_fixture_retires_only_its_verified_zip_version(
                 "/api/v1/__test/seed/screenshot-cleanup", json={"run_id": str(suite_id)}
             )
             assert response.status_code == 200, response.text
+            await coordinator.shutdown_authority(suite_id)
         finally:
             await engine.dispose()

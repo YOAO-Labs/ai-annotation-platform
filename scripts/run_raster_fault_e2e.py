@@ -251,6 +251,7 @@ def request_fixtures(owner, environment, suite, attempts):
             owner.data["raster"]["seed_failure"] = {
                 "operation": payload.get("operation", payload.get("path")),
                 "status": reply["status"],
+                "body": reply["body"],
             }
             owner.save()
             raise ContractError(f"raster_seed_http_{reply['status']}")
@@ -261,6 +262,7 @@ def request_fixtures(owner, environment, suite, attempts):
         {"state": "suite_creation_intent", "suite_id": suite, "cases": []}
     )
     owner.save()
+    failure = None
     try:
         post(
             {
@@ -329,12 +331,23 @@ def request_fixtures(owner, environment, suite, attempts):
                     }
                 )
                 references.append((masks[0]["mask"], masks[1]["mask"]))
+        fenced = post({"operation": "owner_offline_seal"})
+    except BaseException as error:
+        failure = error
+        raise
     finally:
-        process.stdin.close()
-        status = process.wait()
-        process.stdout.close()
-        require(status == 0, "raster_seed_process_failed")
-    return cases, references
+        try:
+            process.stdin.close()
+            status = process.wait()
+            process.stdout.close()
+            require(status == 0, "raster_seed_process_failed")
+        except BaseException as error:
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "raster seed and client shutdown failed", [failure, error]
+                ) from None
+            raise
+    return cases, references, fenced
 
 
 async def inspect_records(environment, references, suite, prepared_cases):
@@ -636,6 +649,61 @@ def require_no_children():
         require(pid != 0, "raster_consumer_descendants_still_running")
 
 
+def require_only_fixture_owner(fenced):
+    """Prove the only surviving descendants are the sealed original owners."""
+    record_path = state_path(ROOT, "e2e", "fixture-authority", "owner.json")
+    descriptor = os.open(record_path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        current = record_path.lstat()
+        require(
+            stat.S_ISREG(info.st_mode)
+            and info.st_uid == os.getuid()
+            and stat.S_IMODE(info.st_mode) == 0o600
+            and info.st_nlink == 1
+            and (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino),
+            "raster_fixture_owner_record_invalid",
+        )
+        with os.fdopen(descriptor) as stream:
+            descriptor = -1
+            record = json.load(stream)
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+
+    def start_time(pid):
+        text = Path(f"/proc/{pid}/stat").read_text()
+        return int(text[text.rfind(")") + 2 :].split()[19])
+
+    def children(pid):
+        result = set()
+        for task in Path(f"/proc/{pid}/task").iterdir():
+            result.update(int(value) for value in (task / "children").read_text().split())
+        return result
+
+    owner_pid = record["pid"]
+    providers = fenced["providers"]
+    require(
+        record["resources"] == topology(ROOT, load_identity(ROOT), "e2e")
+        and record["code_root"] == str(ROOT)
+        and owner_pid == fenced["pid"]
+        and record["start"] == fenced["start"]
+        and record["nonce"] == fenced["nonce"]
+        and record.get("seal_secret") == fenced["seal_secret"]
+        and start_time(owner_pid) == record["start"],
+        "raster_fixture_owner_identity_changed",
+    )
+    expected = {entry["pid"] for entry in providers}
+    require(len(expected) == len(providers), "raster_fixture_provider_identity_changed")
+    require(children(os.getpid()) == {owner_pid}, "raster_unknown_descendants")
+    require(children(owner_pid) == expected, "raster_unknown_fixture_descendants")
+    for entry in providers:
+        require(
+            start_time(entry["pid"]) == entry["start"] and not children(entry["pid"]),
+            "raster_fixture_provider_identity_changed",
+        )
+
+
 def configured_attempts(arguments):
     retries = 1 if os.environ.get("CI") else 0
     for index, argument in enumerate(arguments):
@@ -649,10 +717,42 @@ def configured_attempts(arguments):
 
 
 def inside(path, arguments):
-    # Adopt every orphaned descendant so a successful exit proves the browser,
-    # servers and fixture transports have actually stopped before destruction.
+    # Adopt every orphaned descendant before launching any owned process.
     libc = ctypes.CDLL(None, use_errno=True)
     require(libc.prctl(36, 1, 0, 0, 0) == 0, "raster_subreaper_unavailable")
+    from app.config import settings
+    from fixture_inference_services import FixtureInferenceServices
+    from worktree_resources import LocalResources
+
+    identity = load_identity(ROOT, create=False)
+    resources = topology(ROOT, identity, "e2e")
+    require(
+        os.environ.get("AAP_WORKTREE_RESOURCE_ROOT") == str(ROOT)
+        and os.environ.get("AAP_WORKTREE_MODE") == "e2e"
+        and Owner(path).data["raster"]["resources"] == resources,
+        "raster_worktree_identity_changed",
+    )
+    backend = LocalResources(resources, settings, code_root=ROOT)
+    inference = FixtureInferenceServices(backend, code_root=ROOT)
+    failure = None
+    try:
+        os.environ.update(inference.start())
+        return inside_with_inference(path, arguments, inference)
+    except BaseException as error:
+        failure = error
+        raise
+    finally:
+        try:
+            inference.close()
+        except BaseException as error:
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "raster operation and inference shutdown failed", [failure, error]
+                ) from None
+            raise
+
+
+def inside_with_inference(path, arguments, inference):
     owner = Owner(path)
     require(owner.data["raster"]["state"] == "born", "raster_owner_state_changed")
     credentials = json.loads((owner.private / "runtime.json").read_text())
@@ -677,11 +777,31 @@ def inside(path, arguments):
         }
     )
     suite = str(uuid.uuid4())
-    cases, references = request_fixtures(
+    cases, references, fenced = request_fixtures(
         owner, restricted, suite, configured_attempts(arguments)
     )
-    require_no_children()
+    inference.pause()
+    require_only_fixture_owner(fenced)
     exercise_faults(owner, os.environ, references, suite)
+    resume = subprocess.run(
+        [str(ROOT / "apps/api/.venv/bin/python"), str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
+        cwd=ROOT / "apps/api",
+        env=restricted,
+        input=json.dumps({
+            "operation": "owner_offline_resume",
+            "seal_secret": fenced["seal_secret"],
+        }) + "\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    require(
+        resume.returncode == 0 and json.loads(resume.stdout)["status"] == 200,
+        "raster_fixture_resume_unconfirmed",
+    )
+    selection = inference.start()
+    os.environ.update(selection)
+    restricted.update(selection)
     manifest = state_path(ROOT, "e2e", "data", f"raster-fault-{suite}.json")
     private_write(
         manifest,
@@ -730,7 +850,18 @@ def inside(path, arguments):
     owner.data["raster"]["relay_socket"] = str(socket_path)
     owner.save()
     browser_environment["PLAYWRIGHT_RASTER_FIXTURE_SOCKET"] = str(socket_path)
-    relay = RasterFixtureRelay(str(socket_path), suite, entries, restricted)
+    def record_seed_failure(request, response):
+        recorded = Owner(path)
+        recorded.data["raster"].setdefault("seed_failures", []).append({
+            "operation": request.get("operation", request.get("path")),
+            "status": response["status"],
+            "body": response["body"],
+        })
+        recorded.save()
+
+    relay = RasterFixtureRelay(
+        str(socket_path), suite, entries, restricted, record_seed_failure
+    )
     api = None
     result = None
     failure = None
@@ -825,13 +956,41 @@ def inside(path, arguments):
             "raster consumer and shutdown failures", shutdown_failures
         )
     try:
+        shutdown = subprocess.run(
+            [str(ROOT / "apps/api/.venv/bin/python"), str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
+            cwd=ROOT / "apps/api",
+            env=restricted,
+            input=json.dumps({"operation": "owner_shutdown"}) + "\n",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        require(
+            shutdown.returncode == 0 and json.loads(shutdown.stdout)["status"] == 200,
+            "raster_fixture_shutdown_unconfirmed",
+        )
+        inference.pause()
+    except BaseException as error:
+        retain_unsettled("raster_owner_shutdown_unsettled")
+        errors = [error, *shutdown_failures]
+        if result:
+            errors.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
+        if len(errors) > 1:
+            raise builtins.BaseExceptionGroup(
+                "raster consumer and owner shutdown failed", errors
+            ) from None
+        raise
+    try:
         require_no_children()
     except BaseException as error:
         retain_unsettled("raster_consumer_descendants_still_running")
-        if shutdown_failures:
+        errors = [error, *shutdown_failures]
+        if result:
+            errors.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
+        if len(errors) > 1:
             raise builtins.BaseExceptionGroup(
-                "raster descendant and journal failures", [error, *shutdown_failures]
-            )
+                "raster descendant and journal failures", errors
+            ) from None
         raise
     if result:
         return result
@@ -979,7 +1138,7 @@ def outer(arguments):
                     *arguments,
                 ]
             )
-            result = run_processes(backend, options)
+            result = run_processes(backend, options, manage_fixture_inference=False)
             owner = Owner(manifest)
             owner.data["raster"]["consumer_exit"] = result
             owner.save()

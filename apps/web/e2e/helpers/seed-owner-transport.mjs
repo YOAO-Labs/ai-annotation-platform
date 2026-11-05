@@ -95,6 +95,12 @@ export async function closeFixtureTransport() {
   transport = undefined;
   await active?.close();
 }
+export async function shutdownFixtureTransport(suiteId) {
+  transport ??= startOwner();
+  const response = await transport.post({ operation: "owner_shutdown", suite_id: suiteId }, 30_000);
+  if (response.status !== 200) throw new Error(`Fixture owner shutdown failed: ${response.status}`);
+  return JSON.parse(response.body);
+}
 
 export async function prepareFixtureSuite(suiteId, family) {
   transport ??= startOwner();
@@ -115,6 +121,21 @@ export async function runMaskSliceLifecycle(data) {
   return JSON.parse(response.body);
 }
 
+function safeFailureBody(body) {
+  try {
+    const detail = JSON.parse(body)?.detail;
+    for (const key of ["code", "reason"]) {
+      const value = detail?.[key];
+      if (typeof value === "string" && /^[a-z][a-z0-9_]{0,79}$/.test(value)) {
+        return JSON.stringify({ detail: { [key]: value } });
+      }
+    }
+  } catch {
+    // The complete original body remains in the private owner journal.
+  }
+  return JSON.stringify({ detail: "Fixture operation failed; see the private owner journal" });
+}
+
 async function requestFixture(url, method, options) {
   const target = new URL(url);
   if (!target.pathname.startsWith("/api/v1/__test/seed/")) {
@@ -130,11 +151,15 @@ async function requestFixture(url, method, options) {
     },
     options?.timeout ?? 30_000,
   );
+  const body =
+    response.status >= 200 && response.status < 300
+      ? response.body
+      : safeFailureBody(response.body);
   return {
     ok: () => response.status >= 200 && response.status < 300,
     status: () => response.status,
-    text: async () => response.body,
-    json: async () => JSON.parse(response.body),
+    text: async () => body,
+    json: async () => JSON.parse(body),
   };
 }
 

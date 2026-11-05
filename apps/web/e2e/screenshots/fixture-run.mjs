@@ -1,4 +1,8 @@
-import { closeFixtureTransport, postFixture } from "../helpers/seed-owner-transport.mjs";
+import {
+  closeFixtureTransport,
+  postFixture,
+  shutdownFixtureTransport,
+} from "../helpers/seed-owner-transport.mjs";
 
 export async function cleanupScreenshotRun(runId, { allowMissing = false } = {}) {
   let failure;
@@ -12,6 +16,7 @@ export async function cleanupScreenshotRun(runId, { allowMissing = false } = {})
     if (!response.ok() && !(allowMissing && response.status() === 404)) {
       throw new Error(`Screenshot cleanup failed: ${response.status()} ${await response.text()}`);
     }
+    await shutdownFixtureTransport(runId);
   } catch (error) {
     failure = error;
   }

@@ -21,6 +21,7 @@ from sqlalchemy import text
 
 
 _ROOT = Path(__file__).resolve().parents[3]
+_RETAINED_SEED_CLIENTS = []
 
 
 def fixture_original_reader():
@@ -104,27 +105,34 @@ class SeedOwner:
         self.process = process
         self.errors = errors
         self.lock = asyncio.Lock()
+        self.failure = None
 
     async def _request(self, payload):
         async with self.lock:
-            self.process.stdin.write((json.dumps(payload) + "\n").encode())
-            await self.process.stdin.drain()
-            line = await self.process.stdout.readline()
-            if not line:
-                await self.process.wait()
-                self.errors.seek(0)
-                matches = re.findall(
-                    rb"^Fixture setup failed: (\w+)$",
-                    self.errors.read(),
-                    re.MULTILINE,
-                )
-                kind = (
-                    matches[-1].decode()
-                    if matches
-                    else f"exit {self.process.returncode}"
-                )
-                raise RuntimeError(f"Fixture owner process failed: {kind}")
-            return json.loads(line)
+            if self.failure is not None:
+                raise self.failure
+            try:
+                self.process.stdin.write((json.dumps(payload) + "\n").encode())
+                await self.process.stdin.drain()
+                line = await self.process.stdout.readline()
+                if not line:
+                    await self.process.wait()
+                    self.errors.seek(0)
+                    matches = re.findall(
+                        rb"^Fixture setup failed: (\w+)$",
+                        self.errors.read(),
+                        re.MULTILINE,
+                    )
+                    kind = (
+                        matches[-1].decode()
+                        if matches
+                        else f"exit {self.process.returncode}"
+                    )
+                    raise RuntimeError(f"Fixture owner process failed: {kind}")
+                return json.loads(line)
+            except BaseException as error:
+                self.failure = error
+                raise
 
     async def prepare_suite(self, suite_id: uuid.UUID, family: str):
         result = await self._request(
@@ -138,6 +146,18 @@ class SeedOwner:
             "suite_id": str(suite_id),
             "family": family,
         }
+
+    async def shutdown_authority(self, suite_id: uuid.UUID | None = None) -> str:
+        payload = {"operation": "owner_shutdown"}
+        if suite_id is not None:
+            payload["suite_id"] = str(suite_id)
+        result = await self._request(payload)
+        if result["status"] != 200:
+            raise RuntimeError(f"Fixture authority shutdown failed: {result['status']}")
+        state = json.loads(result["body"])["state"]
+        if state not in {"stopped", "shared"}:
+            raise RuntimeError("Fixture authority returned an invalid shutdown state")
+        return state
 
     async def post(self, path: str, *, json: dict | None = None, headers=None):
         result = await self._request({"path": path, "data": json, "headers": headers})
@@ -166,7 +186,8 @@ class OwnedSuite:
 @asynccontextmanager
 async def private_seed_owner():
     """Launch the private owner process without passing its DSN to product HTTP."""
-    with tempfile.TemporaryFile() as errors:
+    errors = tempfile.TemporaryFile()
+    try:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             str(_ROOT / "apps/web/e2e/fixtures/seed-request.py"),
@@ -176,14 +197,22 @@ async def private_seed_owner():
             stderr=errors,
             limit=16 * 1024 * 1024,
         )
-        owner = SeedOwner(process, errors)
-        failure = None
-        try:
-            yield owner
-        except BaseException as exc:
-            failure = exc
-            raise
-        finally:
+    except BaseException:
+        errors.close()
+        raise
+    owner = SeedOwner(process, errors)
+    failure = None
+    try:
+        yield owner
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if owner.failure is not None and process.returncode is None:
+            # A pending response is not physical settlement; retain this client
+            # and use a different client to recover the same authority.
+            _RETAINED_SEED_CLIENTS.append(owner)
+        else:
             try:
                 if process.returncode is None:
                     process.stdin.close()
@@ -199,6 +228,8 @@ async def private_seed_owner():
                         [failure, shutdown_failure],
                     ) from None
                 raise
+            finally:
+                errors.close()
 
 
 @asynccontextmanager
@@ -214,12 +245,17 @@ async def private_owned_suite():
             failure = exc
             raise
         finally:
-            try:
-                await suite.finish()
-            except BaseException as cleanup_failure:
-                if failure is not None:
-                    raise BaseExceptionGroup(
-                        "Fixture operation and suite cleanup failed",
-                        [failure, cleanup_failure],
-                    ) from None
-                raise
+            if owner.failure is not None:
+                if failure is None:
+                    raise owner.failure
+            else:
+                try:
+                    await suite.finish()
+                    await owner.shutdown_authority(suite.suite_id)
+                except BaseException as cleanup_failure:
+                    if failure is not None:
+                        raise BaseExceptionGroup(
+                            "Fixture operation and suite cleanup failed",
+                            [failure, cleanup_failure],
+                        ) from None
+                    raise

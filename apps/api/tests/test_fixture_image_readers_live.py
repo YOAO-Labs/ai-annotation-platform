@@ -48,7 +48,6 @@ from tests.test_assets_media_live import (
 )
 from tests.test_fixture_inference_retirement_live import (
     _PreservedSeedOwner,
-    _keep_owner_pipes,
     _ownership_evidence,
     _start_media_runtime,
     _stop_known_process,
@@ -244,7 +243,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
         "run only in the canonical disposable verifier"
     )
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    media = owner = suite = keeper = owner_log = None
+    media = owner = suite = owner_log = None
     workers = []
     run_a = run_b = None
     completed = False
@@ -269,7 +268,6 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             start_new_session=True,
             bufsize=0,
         )
-        keeper = _keep_owner_pipes(process)
         owner = _PreservedSeedOwner(process, owner_log)
         suite = OwnedSuite(owner, uuid.uuid4())
         await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
@@ -479,7 +477,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
         completed = True
     finally:
         if completed:
-            await _stop_known_process(keeper)
+            await owner.shutdown_authority(suite.suite_id)
             owner.process.stdin.close()
             await asyncio.to_thread(owner.process.wait, timeout=30)
             assert owner.process.returncode == 0
@@ -490,13 +488,13 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             await routing.__aexit__(None, None, None)
         else:
             _RETAINED_UNCERTAIN.append(
-                (owner, suite, keeper, owner_log, media, workers, routing)
+                (owner, suite, owner_log, media, workers, routing)
             )
             print(
                 f"Retained uncertain Images acceptance: suite={suite.suite_id if suite else None} "
                 f"runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} "
-                f"owner_pid={owner.process.pid if owner else None} "
-                f"keeper_pid={keeper.pid if keeper else None} "
+                f"client_pid={owner.process.pid if owner else None} "
+                f"authority_record=.worktree/{os.environ.get('AAP_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
                 f"worker_pids={[p.pid for p, _ in workers]}; no forced cleanup",
                 flush=True,
             )

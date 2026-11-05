@@ -3,6 +3,7 @@ import type { APIRequestContext, APIResponse } from "@playwright/test";
 export type SeedResponse = Pick<APIResponse, "ok" | "status" | "text" | "json">;
 
 export function closeFixtureTransport(): Promise<void>;
+export function shutdownFixtureTransport(suiteId: string): Promise<{ state: "stopped" | "shared" }>;
 export function prepareFixtureSuite(
   suiteId: string,
   family: "owned" | "screenshot" | "scale",

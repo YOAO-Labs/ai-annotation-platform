@@ -79,8 +79,7 @@ pytestmark = [
 ]
 ROOT = Path(__file__).resolve().parents[3]
 
-# Keep pipes/process handles open after an indeterminate failure: closing the
-# private owner's stdin would otherwise stop its live per-run providers.
+# Keep all exact process and pipe handles after indeterminate native work.
 _RETAINED_UNCERTAIN = []
 
 
@@ -94,46 +93,38 @@ class _PreservedSeedOwner(SeedOwner):
 
     async def _request(self, payload):
         async with self.lock:
-            self.process.stdin.write((json.dumps(payload) + "\n").encode())
-            self.process.stdin.flush()
-            fd = self.process.stdout.fileno()
-            while True:
-                if b"\n" in self._buffer:
-                    line, _, rest = self._buffer.partition(b"\n")
-                    self._buffer = bytearray(rest)
-                    return json.loads(line)
-                try:
-                    chunk = os.read(fd, 65536)
-                except BlockingIOError:
-                    loop = asyncio.get_running_loop()
-                    ready = loop.create_future()
-                    loop.add_reader(
-                        fd, lambda: None if ready.done() else ready.set_result(None)
-                    )
+            if self.failure is not None:
+                raise self.failure
+            try:
+                self.process.stdin.write((json.dumps(payload) + "\n").encode())
+                self.process.stdin.flush()
+                fd = self.process.stdout.fileno()
+                while True:
+                    if b"\n" in self._buffer:
+                        line, _, rest = self._buffer.partition(b"\n")
+                        self._buffer = bytearray(rest)
+                        return json.loads(line)
                     try:
-                        await ready
-                    finally:
-                        loop.remove_reader(fd)
-                    continue
-                if not chunk:
-                    raise RuntimeError(
-                        f"Fixture owner exited before replying: {self.process.poll()}"
-                    )
-                self._buffer.extend(chunk)
-
-
-def _keep_owner_pipes(process):
-    # The private owner closes live providers on stdin EOF. Keep both ends
-    # available after pytest exits, including when its response is pending.
-    return subprocess.Popen(
-        [sys.executable, "-c", "import signal\nwhile True: signal.pause()"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        pass_fds=(process.stdin.fileno(), process.stdout.fileno()),
-        close_fds=True,
-        start_new_session=True,
-    )
+                        chunk = os.read(fd, 65536)
+                    except BlockingIOError:
+                        loop = asyncio.get_running_loop()
+                        ready = loop.create_future()
+                        loop.add_reader(
+                            fd, lambda: None if ready.done() else ready.set_result(None)
+                        )
+                        try:
+                            await ready
+                        finally:
+                            loop.remove_reader(fd)
+                        continue
+                    if not chunk:
+                        raise RuntimeError(
+                            f"Fixture client exited before replying: {self.process.poll()}"
+                        )
+                    self._buffer.extend(chunk)
+            except BaseException as error:
+                self.failure = error
+                raise
 
 
 async def _eventually(description, probe, *, timeout=120):
@@ -180,11 +171,15 @@ def _process_handle(pid):
     return int(descriptor)
 
 
-async def _provider_handle(owner, run):
+async def _provider_handle(run):
     async def find():
-        child_file = Path(
-            f"/proc/{owner.process.pid}/task/{owner.process.pid}/children"
-        )
+        root = Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"])
+        mode = os.environ["AAP_WORKTREE_MODE"]
+        record = json.loads((root / ".worktree" / mode / "fixture-authority" / "owner.json").read_text())
+        authority_pid = record["pid"]
+        process_stat = Path(f"/proc/{authority_pid}/stat").read_text()
+        assert int(process_stat[process_stat.rfind(")") + 2 :].split()[19]) == record["start"]
+        child_file = Path(f"/proc/{authority_pid}/task/{authority_pid}/children")
         for child in child_file.read_text().split():
             try:
                 command = Path(f"/proc/{child}/cmdline").read_bytes().split(b"\0")
@@ -653,7 +648,7 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
     monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing_context = fixture_routing_owner(test_engine, monkeypatch)
     media = None
-    owner = suite = execution_process = celery_worker = sender = keeper = None
+    owner = suite = execution_process = celery_worker = sender = None
     owner_errors = worker_log = execution_log = None
     handles = []
     jobs_started = False
@@ -688,7 +683,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
             start_new_session=True,
             bufsize=0,
         )
-        keeper = _keep_owner_pipes(process)
         owner = _PreservedSeedOwner(process, owner_errors)
         suite = OwnedSuite(owner, uuid.uuid4())
         await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
@@ -696,8 +690,8 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
         run_b = suite.new_run("peer" + uuid.uuid4().hex[:8])
         fixture_a = await asyncio.wait_for(_build_owned(owner, run_a), 120)
         fixture_b = await asyncio.wait_for(_build_owned(owner, run_b), 120)
-        _, handle_a = await _provider_handle(owner, run_a)
-        _, handle_b = await _provider_handle(owner, run_b)
+        _, handle_a = await _provider_handle(run_a)
+        _, handle_b = await _provider_handle(run_b)
         handles.extend((handle_a, handle_b))
         assert not _exited(handle_a) and not _exited(handle_b)
         headers_a, headers_b = (
@@ -906,7 +900,7 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
         completed = True
     finally:
         if completed:
-            await _stop_known_process(keeper)
+            await owner.shutdown_authority(suite.suite_id)
             owner.process.stdin.close()
             await asyncio.to_thread(owner.process.wait, timeout=30)
             assert owner.process.returncode == 0
@@ -929,7 +923,6 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                 (
                     owner,
                     suite,
-                    keeper,
                     execution_process,
                     celery_worker,
                     sender,
@@ -945,8 +938,8 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
                 "Retained uncertain fixture inference resources: "
                 f"suite={suite.suite_id if suite else None} "
                 f"runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} "
-                f"owner_pid={owner.process.pid if owner else None} "
-                f"pipe_keeper_pid={keeper.pid if keeper else None} "
+                f"client_pid={owner.process.pid if owner else None} "
+                f"authority_record=.worktree/{os.environ.get('AAP_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
                 f"jobs={job_a},{job_b} queue={queue} "
                 f"celery_pid={celery_worker.pid if celery_worker else None} "
                 f"execution_pid={execution_process.pid if execution_process else None} "

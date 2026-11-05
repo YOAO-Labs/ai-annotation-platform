@@ -1,10 +1,15 @@
 #!/usr/bin/env node
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runPreciseFrameMeasurements } from "./precise-frame-runner.mjs";
-import { closeFixtureTransport, postFixture } from "../../e2e/helpers/seed-owner-transport.mjs";
+import {
+  closeFixtureTransport,
+  postFixture,
+  prepareFixtureSuite,
+  shutdownFixtureTransport,
+} from "../../e2e/helpers/seed-owner-transport.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "../../../..");
@@ -74,11 +79,12 @@ async function seedRequest(baseUrl, path, body) {
   return response.json();
 }
 
-async function seedPreciseFrameTasks(precise, args, namespace) {
-  const data = await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned", { namespace });
+async function seedPreciseFrameTasks(precise, args, scope) {
+  const data = await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned", scope);
   const taskUrls = {};
   for (const resolution of precise.resolutions) {
     const fixture = await seedRequest(args.baseUrl, "/api/v1/__test/seed/video-webcodecs", {
+      ...scope,
       project_id: data.project_id,
       fixture: resolution.id,
       chunk_status: "ready",
@@ -256,25 +262,33 @@ async function runPreciseFrame(config, args, runId) {
     throw new Error("--seed cannot be combined with VIDEO_BENCH_TASK_*_URL values");
   }
   const namespace = args.seed ? randomBytes(6).toString("hex") : null;
+  const scope = namespace
+    ? { namespace, suite_id: randomUUID(), run_id: randomUUID() }
+    : null;
   const errors = [];
   let measurement;
   try {
+    if (scope) await prepareFixtureSuite(scope.suite_id, "owned");
     const measurementArgs = args.seed
-      ? { ...args, ...(await seedPreciseFrameTasks(precise, args, namespace)) }
+      ? { ...args, ...(await seedPreciseFrameTasks(precise, args, scope)) }
       : args;
     measurement = await runPreciseFrameMeasurements(precise, measurementArgs);
   } catch (error) {
     errors.push(error);
   } finally {
     if (namespace) {
-      // Setup can terminate its owner process; cleanup needs an independent owner.
+      // Reconnect to the same authority if the client transport failed.
       try {
         await closeFixtureTransport();
       } catch (error) {
         if (!errors.includes(error)) errors.push(error);
       }
       try {
-        await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned-cleanup", { namespace });
+        await seedRequest(args.baseUrl, "/api/v1/__test/seed/owned-cleanup", scope);
+        await seedRequest(args.baseUrl, "/api/v1/__test/seed/cleanup", {
+          suite_id: scope.suite_id,
+        });
+        await shutdownFixtureTransport(scope.suite_id);
       } catch (error) {
         errors.push(error);
       }

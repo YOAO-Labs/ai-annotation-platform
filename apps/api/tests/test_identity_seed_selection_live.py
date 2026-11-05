@@ -608,6 +608,10 @@ async def _cleanup_scale_runs(cli: WorkspaceImportCli, test_engine, run_ids):
         )
         if any(run.state != "retired" for run in runs):
             raise RuntimeError("A scale fixture run is not retired")
+        from tests.seed_owner_support import private_seed_owner
+
+        async with private_seed_owner() as owner:
+            await owner.shutdown_authority(run_ids[-1])
         await db.execute(
             delete(FixtureRunResource).where(FixtureRunResource.run_id.in_(run_ids))
         )

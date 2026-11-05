@@ -49,7 +49,6 @@ from tests.test_fixture_inference_retirement_live import (
     ROOT,
     _PreservedSeedOwner,
     _eventually,
-    _keep_owner_pipes,
     _ownership_evidence,
     _start_media_runtime,
     _stop_known_process,
@@ -284,7 +283,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     assert os.environ.get("AAP_FIXTURE_MEDIA_READERS_LIVE") == "1"
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    owner = suite = keeper = media = owner_log = None
+    owner = suite = media = owner_log = None
     processes, streams = [], []
     run_a = run_b = None
     completed = False
@@ -315,7 +314,6 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             start_new_session=True,
             bufsize=0,
         )
-        keeper = _keep_owner_pipes(owner_process)
         owner = _PreservedSeedOwner(owner_process, owner_log)
         suite = OwnedSuite(owner, uuid.uuid4())
         await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
@@ -487,7 +485,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
         completed = True
     finally:
         if completed:
-            await _stop_known_process(keeper)
+            await owner.shutdown_authority(suite.suite_id)
             owner.process.stdin.close()
             await asyncio.to_thread(owner.process.wait, timeout=30)
             assert owner.process.returncode == 0
@@ -501,10 +499,15 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             await routing.__aexit__(None, None, None)
         else:
             _RETAINED_UNCERTAIN.append(
-                (routing, media, owner, suite, keeper, owner_log, processes, streams)
+                (routing, media, owner, suite, owner_log, processes, streams)
             )
             print(
-                f"Retained uncertain Media reader resources: suite={suite.suite_id if suite else None} runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} owner_pid={owner.process.pid if owner else None} keeper_pid={keeper.pid if keeper else None} media_pid={media.control_process.pid if media else None} workers={[p.pid for p in processes]}; no forced cleanup",
+                f"Retained uncertain Media reader resources: suite={suite.suite_id if suite else None} "
+                f"runs={run_a.run_id if run_a else None},{run_b.run_id if run_b else None} "
+                f"client_pid={owner.process.pid if owner else None} "
+                f"authority_record=.worktree/{os.environ.get('AAP_WORKTREE_MODE', 'unknown')}/fixture-authority/owner.json "
+                f"media_pid={media.control_process.pid if media else None} "
+                f"workers={[p.pid for p in processes]}; no forced cleanup",
                 flush=True,
             )
 

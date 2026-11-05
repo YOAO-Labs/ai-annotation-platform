@@ -958,6 +958,8 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
             async with sessions() as db:
                 if await db.get(FixtureRun, run_id) is not None:
                     await seed_scale._purge(db, run_id)
+        async with private_seed_owner() as fixture_owner:
+            await fixture_owner.shutdown_authority(second)
         # Remove only this test's retired ledger entries and support actors.
         async with sessions.begin() as db:
             await db.execute(

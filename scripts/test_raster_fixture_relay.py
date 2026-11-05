@@ -85,6 +85,7 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         release_read, self.release_write = os.pipe()
         self.addCleanup(os.close, self.ready_read)
         self.addCleanup(os.close, self.release_write)
+        self.failures = []
         command = (
             "import json, os, sys\n"
             "first = True\n"
@@ -93,7 +94,9 @@ class RasterFixtureShutdownTests(unittest.TestCase):
             " else:\n"
             f"  os.write({ready_write}, b'1')\n"
             f"  os.read({release_read}, 1)\n"
-            " print(json.dumps({'status':200,'body':'{}'}), flush=True)\n"
+            " request = json.loads(line)\n"
+            " reply = {'status':422,'body':json.dumps({'detail':{'code':'fixture_scope_changed','sql':'private-secret-and-sql'}})} if request.get('path','').endswith('/login') else {'status':200,'body':'{}'}\n"
+            " print(json.dumps(reply), flush=True)\n"
         )
         real_popen = subprocess.Popen
 
@@ -108,8 +111,9 @@ class RasterFixtureShutdownTests(unittest.TestCase):
                 self.relay = RasterFixtureRelay(
                     Path(self.directory.name) / "fixture.sock",
                     SUITE,
-                    [],
+                    [{"run_id": RUN, "namespace": NAMESPACE, "seed": SEED}],
                     dict(os.environ),
+                    lambda request, response: self.failures.append((request, response)),
                 )
         finally:
             os.close(ready_write)
@@ -139,6 +143,26 @@ class RasterFixtureShutdownTests(unittest.TestCase):
                 pass
             self.relay.seed.terminate()
             self.relay.seed.wait(timeout=2)
+
+    def test_non_200_is_recorded_privately_and_response_is_redacted(self):
+        request = {"path": PREFIX + "login", "data": {"email": SEED["admin_email"]}}
+        self.client.sendall((json.dumps(request) + "\n").encode())
+        self.assertTrue(select.select([self.ready_read], [], [], 2)[0])
+        self.assertEqual(os.read(self.ready_read, 1), b"1")
+        os.write(self.release_write, b"1")
+        response = json.loads(self.client.makefile("rb").readline())
+        self.assertEqual(response["status"], 422)
+        self.assertNotIn("private-secret-and-sql", response["body"])
+        self.assertEqual(json.loads(response["body"]), {"detail": {"code": "fixture_scope_changed"}})
+        self.assertEqual(self.failures, [
+            (request, {
+                "status": 422,
+                "body": json.dumps({
+                    "detail": {"code": "fixture_scope_changed", "sql": "private-secret-and-sql"}
+                }),
+            })
+        ])
+        self.relay.close(timeout=1)
 
     def test_idle_open_socket_is_closed_without_hanging(self):
         started = time.monotonic()

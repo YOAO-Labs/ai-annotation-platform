@@ -404,6 +404,7 @@ async def recording_graph(engine):
                     json={"run_id": str(run_id)},
                 )
                 assert response.status_code == 200, response.text
+                await owner.shutdown_authority(run_id)
             except BaseException as cleanup_failure:
                 if failure is not None:
                     raise BaseExceptionGroup(

@@ -1,8 +1,8 @@
 """Run-bound relay for the existing Mask fixture subprocess protocol.
 
-The socket only carries fixture requests and responses; credentials stay in the
-launcher-owned seed process.  Its private directory is not an OS security
-boundary against another process running as the same user.
+The socket carries only fixture requests and responses. The launcher-owned seed
+client reconnects to the same private authority that prepared the fixtures.
+Neither socket is a security boundary against another process with the same UID.
 """
 
 from __future__ import annotations
@@ -30,10 +30,23 @@ RUN_SCOPED = {
 TASK_SCOPED = {"advance_task", "inject-prediction"}
 
 
-class RasterFixtureRelay:
-    """Supervise one private seed process across Playwright worker lifetimes."""
+def safe_failure_body(body):
+    try:
+        detail = json.loads(body).get("detail")
+        if isinstance(detail, dict):
+            for key in ("code", "reason"):
+                value = detail.get(key)
+                if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value):
+                    return json.dumps({"detail": {key: value}})
+    except (ValueError, AttributeError):
+        pass
+    return json.dumps({"detail": "Fixture operation failed; see private owner journal"})
 
-    def __init__(self, socket_path, suite_id, entries, environment):
+
+class RasterFixtureRelay:
+    """Supervise one private seed client across Playwright worker lifetimes."""
+
+    def __init__(self, socket_path, suite_id, entries, environment, on_seed_failure):
         self.suite_id = suite_id
         self.runs = {}
         self.intents = {}
@@ -46,6 +59,7 @@ class RasterFixtureRelay:
         self.unsettled = False
         self.stopping = False
         self.failure = None
+        self.on_seed_failure = on_seed_failure
         for entry in entries:
             self._register(entry["run_id"], entry["namespace"], entry["seed"])
         self.seed = subprocess.Popen(
@@ -93,6 +107,13 @@ class RasterFixtureRelay:
                                     bool(response_line), "raster_fixture_process_exited"
                                 )
                                 response = json.loads(response_line)
+                                if response["status"] != 200:
+                                    relay.on_seed_failure(request, response)
+                                if not 200 <= response["status"] < 300:
+                                    response_line = json.dumps({
+                                        "status": response["status"],
+                                        "body": safe_failure_body(response["body"]),
+                                    }).encode() + b"\n"
                                 if (
                                     request.get("path") == PREFIX + "owned"
                                     and response.get("status") == 200
@@ -166,10 +187,13 @@ class RasterFixtureRelay:
             )
             self.seed.stdin.flush()
             initial = self.seed.stdout.readline()
-            require(
-                bool(initial) and json.loads(initial)["status"] == 200,
-                "raster_fixture_prepare_failed",
-            )
+            require(bool(initial), "raster_fixture_process_exited")
+            initial_response = json.loads(initial)
+            if initial_response["status"] != 200:
+                self.on_seed_failure(
+                    {"operation": "prepare_fixture_suite"}, initial_response
+                )
+                raise ContractError("raster_fixture_prepare_failed")
             self.server = Server(str(socket_path), Handler)
             self.thread = threading.Thread(
                 target=self.server.serve_forever,
