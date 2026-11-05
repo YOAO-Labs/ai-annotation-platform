@@ -1868,6 +1868,87 @@ class LocalResources:
         finally:
             await engine.dispose()
 
+    async def prepare_fixture_inference_database(self) -> None:
+        """Fence PUBLIC TEMP in the verified disposable E2E database only."""
+        if self.resources["mode"] != "e2e":
+            raise WorktreeError("推理夹具数据库权限只能用于 e2e 模式")
+        runtime_role = self.runtime_url().username
+        observed = await self.database()
+        if not require_owner(
+            self.resources["database"], observed, self.resources["owner"]
+        ):
+            raise WorktreeError("推理夹具数据库尚未准备")
+        engine = create_async_engine(
+            self.url, poolclass=NullPool, hide_parameters=True
+        )
+        try:
+            async with engine.begin() as connection:
+                # database() verified both configured logins on the postgres database;
+                # advisory locks are database-scoped and cannot be compared here.
+                database = (
+                    await connection.execute(
+                        text(
+                            "SELECT datname, shobj_description(oid, 'pg_database') AS owner "
+                            "FROM pg_database WHERE datname = current_database()"
+                        )
+                    )
+                ).mappings().one()
+                if database["datname"] != self.resources["database"]:
+                    raise WorktreeError("推理夹具数据库与工作树资源不一致")
+                require_owner(database["datname"], database, self.resources["owner"])
+                public_temp = await connection.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_database d, "
+                        "LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a "
+                        "WHERE d.datname=current_database() AND a.grantee=0 "
+                        "AND a.privilege_type='TEMPORARY')"
+                    )
+                )
+                if not public_temp:
+                    return
+                sessions = await connection.scalar(
+                    text(
+                        "SELECT count(*) FROM pg_stat_activity "
+                        "WHERE datname=current_database() AND pid<>pg_backend_pid() "
+                        "AND backend_type IS DISTINCT FROM 'autovacuum worker'"
+                    )
+                )
+                if sessions:
+                    raise WorktreeError("e2e 数据库仍有其他连接；不会更改 PUBLIC 权限")
+                previous_temp = await connection.scalar(
+                    text("SELECT has_database_privilege(:role, current_database(), 'TEMP')"),
+                    {"role": runtime_role},
+                )
+                quoted_database = engine.dialect.identifier_preparer.quote_identifier(
+                    database["datname"]
+                )
+                quoted_role = engine.dialect.identifier_preparer.quote_identifier(
+                    runtime_role
+                )
+                if previous_temp:
+                    await connection.exec_driver_sql(
+                        f"GRANT TEMPORARY ON DATABASE {quoted_database} TO {quoted_role}"
+                    )
+                await connection.exec_driver_sql(
+                    f"REVOKE TEMPORARY ON DATABASE {quoted_database} FROM PUBLIC"
+                )
+                current_temp = await connection.scalar(
+                    text("SELECT has_database_privilege(:role, current_database(), 'TEMP')"),
+                    {"role": runtime_role},
+                )
+                public_temp = await connection.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_database d, "
+                        "LATERAL aclexplode(COALESCE(d.datacl, acldefault('d', d.datdba))) a "
+                        "WHERE d.datname=current_database() AND a.grantee=0 "
+                        "AND a.privilege_type='TEMPORARY')"
+                    )
+                )
+                if current_temp != previous_temp or public_temp:
+                    raise WorktreeError("无法核对推理夹具数据库 TEMP 权限")
+        finally:
+            await engine.dispose()
+
     def prepare(self, *, skip_migrations: bool = False) -> None:
         revisions, heads = migration_graph(self.code_root)
         inventory = self.inspect()

@@ -427,6 +427,8 @@ def run_processes(backend, options) -> int:
         backend.prepare(skip_migrations=options.skip_migrations)
         if stopping:
             return 0
+        if resources["mode"] == "e2e" and options.command == "exec":
+            asyncio.run(backend.prepare_fixture_inference_database())
         environment = backend.environment()
         if options.scenario:
             # Keep the manual guide readable and avoid SQL/S3 debug credential logs.

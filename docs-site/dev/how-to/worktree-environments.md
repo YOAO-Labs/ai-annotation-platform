@@ -134,6 +134,9 @@ pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
 
+`exec --mode e2e` 在核验工作树数据库归属后撤销该库 `PUBLIC` 的临时表权限，
+并保留普通运行账号原本已有的临时表权限；其他数据库不受影响。专用函数账号不能继承该权限。
+
 运行级原件夹具通过独立的 `seed-request.py` owner 进程准备和清理。该进程先核对同一个可销毁数据库及 owner 身份，再显式启用托管原件维护协议；不改变普通 API／worker 或生产环境的默认开关。清理仍须满足准确根回执、对象版本、location 维护门和读者责任的结算要求，启用开关不等于已证明物理 I/O 排空。
 
 夹具 Audit 清理使用原生 `(id, created_at)` 复合回执，而不是按 namespace 或单独的整数 ID 删除。实际认证会话必须属于夹具 owner，叶运行已经封闭且所有准入责任已结算；共享原始 namespace 的两个运行仍各自保留准确归属。旧 UUID 回执不会自动转换或补造时间戳。
