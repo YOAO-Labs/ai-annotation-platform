@@ -23,6 +23,9 @@ pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --headed
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e --ui
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
 pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
+
+# Mask native 独占入口自行准备并监督 e2e 环境，不要嵌套 dev:worktree exec
+pnpm --filter web test:e2e:mask-native
 ```
 
 首次运行需要 `pnpm exec playwright install chromium` 装浏览器。
@@ -41,6 +44,11 @@ Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
 产品，再用 `playwright.mask-product.config.ts` 验证真实 API 和 `vite preview`；
 源码 Worker 由 `playwright.browser-integration.config.ts` 单独启动 Vite、独立报告，
 不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
+该入口在启动 API、浏览器前准备专用版本化存储及故障夹具。测试进程仅持有本次
+suite 的本地夹具通道和公开 manifest 路径；数据库 owner、连接器密钥与存储写入
+凭据只进入启动器、受限 API 和私有夹具进程。通道限制为本 suite 的固定夹具
+操作，不提供通用 HTTP 或 SQL；它不是同一系统用户或拥有 Docker 权限的进程之间
+的操作系统沙箱。失败或归属无法确认时保留精确资源和日志，不自动清扫。
 
 损坏内容诊断和重试两例仍包含在所选 Mask 矩阵中，但必须先由隔离环境协调器在产品 API、worker 和浏览器启动前，使用专属数据库与版本化存储准备真实缺失对象和健康邻居。协调器通过 `PLAYWRIGHT_RASTER_FAULT_MANIFEST` 提供每个用例及重试各自的 run 与精确标注；缺少或不匹配的清单会直接失败，不会在线破坏共享内容或跳过用例。该串行夹具不代表共享数据库／存储的并发隔离已经通过验收。
 

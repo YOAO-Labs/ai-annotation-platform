@@ -18,6 +18,8 @@ import os
 from pathlib import Path
 import secrets
 import subprocess
+import tempfile
+import time
 import sys
 import urllib.parse
 import uuid
@@ -448,20 +450,8 @@ async def inspect_records(environment, references, suite, prepared_cases):
         await engine.dispose()
 
 
-def exercise_faults(owner, environment, references, suite):
-    from botocore.exceptions import ClientError
-    from app.services import raster_object_storage as physical
-    import redis
-
-    resources, identity, records = asyncio.run(
-        inspect_records(environment, references, suite, owner.data["raster"]["cases"])
-    )
+def verify_store_physical(owner):
     store = owner.data["raster"]
-    require(
-        resources == store["resources"]
-        and environment["MINIO_ENDPOINT"] == store["endpoint"],
-        "raster_store_identity_changed",
-    )
     require(
         {(item["kind"], item["id"]) for item in owner.data["resources"]}
         == {
@@ -498,6 +488,23 @@ def exercise_faults(owner, environment, references, suite):
         and store["endpoint"] == f"127.0.0.1:{host_port(owner, container, 9000)}",
         "raster_store_physical_identity_changed",
     )
+
+
+def exercise_faults(owner, environment, references, suite):
+    from botocore.exceptions import ClientError
+    from app.services import raster_object_storage as physical
+    import redis
+
+    resources, identity, records = asyncio.run(
+        inspect_records(environment, references, suite, owner.data["raster"]["cases"])
+    )
+    store = owner.data["raster"]
+    require(
+        resources == store["resources"]
+        and environment["MINIO_ENDPOINT"] == store["endpoint"],
+        "raster_store_identity_changed",
+    )
+    verify_store_physical(owner)
     with redis.Redis.from_url(environment["REDIS_URL"], socket_timeout=2) as queue:
         require(queue.dbsize() == 0, "raster_queue_not_empty")
     with closing(
@@ -638,6 +645,30 @@ def configured_attempts(arguments):
     return retries + 1
 
 
+def run_product(command, environment, api, relay):
+    child = subprocess.Popen(command, cwd=ROOT / "apps/web", env=environment)
+    try:
+        while True:
+            try:
+                result = child.wait(timeout=0.2)
+                require(api.poll() is None, "raster_api_exited")
+                require(
+                    relay.seed.poll() is None and relay.failure is None,
+                    "raster_fixture_relay_exited",
+                )
+                return result
+            except subprocess.TimeoutExpired:
+                require(api.poll() is None, "raster_api_exited")
+                require(
+                    relay.seed.poll() is None and relay.failure is None,
+                    "raster_fixture_relay_exited",
+                )
+    finally:
+        if child.poll() is None:
+            child.terminate()
+            child.wait()
+
+
 def inside(path, arguments):
     # Adopt every orphaned descendant so a successful exit proves the browser,
     # servers and fixture transports have actually stopped before destruction.
@@ -672,48 +703,104 @@ def inside(path, arguments):
     )
     require_no_children()
     exercise_faults(owner, os.environ, references, suite)
-    manifest = owner.private / "raster-fault-manifest.json"
+    manifest = state_path(ROOT, "e2e", "data", f"raster-fault-{suite}.json")
     private_write(
         manifest,
         json.dumps(
             {"schema": "aap-e2e-raster-fault/v1", "suite_id": suite, "cases": cases}
         ).encode(),
     )
-    restricted.update(
-        {
-            "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
-            "PLAYWRIGHT_RASTER_FAULT_MANIFEST": str(manifest),
-            "PLAYWRIGHT_RASTER_MASK_MATRIX": "native",
-        }
-    )
-    command_line = [
-        "pnpm",
-        "exec",
-        "playwright",
-        "test",
-        "--config=playwright.mask-product.config.ts",
-        "e2e/tests/raster-mask-native.spec.ts",
-        "e2e/tests/mask-advanced-operations.spec.ts",
-        "e2e/tests/mask-editor.spec.ts",
-        "--project=chromium",
-        *arguments,
-    ]
-    result = subprocess.run(command_line, cwd=ROOT / "apps/web", env=restricted)
-    require_no_children()
-    if result.returncode:
-        return result.returncode
-    from worktree_env import frontend_environment
+    from raster_fixture_relay import RasterFixtureRelay
+    from worktree_env import application_environment, frontend_environment
+    from worktree_runtime import http_ready
 
     browser_environment = frontend_environment(restricted)
     for key in (
+        "PLAYWRIGHT_ISOLATED_API_PORT",
         "PLAYWRIGHT_ISOLATED_WEB_PORT",
         "PLAYWRIGHT_BROWSERS_PATH",
+        "PLAYWRIGHT_CHROMIUM_CHANNEL",
         "GITHUB_ACTIONS",
         "GITHUB_STEP_SUMMARY",
         "DISPLAY",
     ):
         if key in restricted:
             browser_environment[key] = restricted[key]
+    browser_environment.update(
+        {
+            "AAP_WORKTREE_MODE": "e2e",
+            "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
+            "PLAYWRIGHT_RASTER_FAULT_MANIFEST": str(manifest),
+            "PLAYWRIGHT_RASTER_MASK_MATRIX": "native",
+            "PLAYWRIGHT_RASTER_OFFLINE": "1",
+        }
+    )
+    api_port = int(restricted["PLAYWRIGHT_ISOLATED_API_PORT"])
+    require(1 <= api_port <= 65535, "raster_api_port_invalid")
+    api_environment = application_environment(restricted)
+    api_environment.update(
+        {
+            "RASTER_MASK_READ_ENABLED": "true",
+            "RASTER_MASK_CREATE_ENABLED": "true",
+        }
+    )
+    entries = [entry for group in cases.values() for entry in group]
+    with tempfile.TemporaryDirectory(prefix="aap-raster-", dir="/tmp") as socket_dir:
+        socket_path = str(Path(socket_dir) / "fixture.sock")
+        browser_environment["PLAYWRIGHT_RASTER_FIXTURE_SOCKET"] = socket_path
+        relay = RasterFixtureRelay(socket_path, suite, entries, restricted)
+        api = None
+        try:
+            api = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-m",
+                    "uvicorn",
+                    "app.main:app",
+                    "--host",
+                    "127.0.0.1",
+                    "--port",
+                    str(api_port),
+                ],
+                cwd=ROOT / "apps/api",
+                env=api_environment,
+            )
+            deadline = time.monotonic() + 120
+            while not http_ready(api_port, "/health/db"):
+                require(
+                    api.poll() is None and relay.seed.poll() is None,
+                    "raster_api_start_failed",
+                )
+                require(time.monotonic() < deadline, "raster_api_start_timeout")
+                time.sleep(0.1)
+            result = run_product(
+                [
+                    "pnpm",
+                    "exec",
+                    "playwright",
+                    "test",
+                    "--config=playwright.mask-product.config.ts",
+                    "e2e/tests/raster-mask-native.spec.ts",
+                    "e2e/tests/mask-advanced-operations.spec.ts",
+                    "e2e/tests/mask-editor.spec.ts",
+                    "--project=chromium",
+                    *arguments,
+                ],
+                browser_environment,
+                api,
+                relay,
+            )
+        finally:
+            try:
+                relay.close()
+            finally:
+                if api is not None and api.poll() is None:
+                    api.terminate()
+                    api.wait(timeout=12)
+    require_no_children()
+    if result:
+        return result
+    browser_environment.pop("PLAYWRIGHT_RASTER_FIXTURE_SOCKET")
     result = subprocess.run(
         [
             "pnpm",
@@ -726,13 +813,13 @@ def inside(path, arguments):
         ],
         cwd=ROOT / "apps/web",
         env=browser_environment,
-    )
+    ).returncode
     require_no_children()
-    if result.returncode == 0:
+    if result == 0:
         owner = Owner(path)
         owner.data["raster"]["state"] = "consumers_stopped"
         owner.save()
-    return result.returncode
+    return result
 
 
 def outer(arguments):
@@ -830,6 +917,7 @@ def outer(arguments):
             owner.save()
             if result != 0 or owner.data["raster"]["state"] != "consumers_stopped":
                 return result or 1
+            verify_store_physical(owner)
             backend.destroy(resources["confirmation"])
             owner.data["raster"]["state"] = "worktree_destroyed"
             owner.save()

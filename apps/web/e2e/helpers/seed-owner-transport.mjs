@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
+import { createConnection } from "node:net";
 import { fileURLToPath } from "node:url";
 
 const apiRoot = fileURLToPath(new URL("../../../api/", import.meta.url));
@@ -8,7 +9,17 @@ const script = fileURLToPath(new URL("../fixtures/seed-request.py", import.meta.
 let transport;
 
 function startOwner() {
-  const child = spawn(python, [script], { cwd: apiRoot });
+  const offline = process.env.PLAYWRIGHT_RASTER_OFFLINE === "1";
+  const socketPath = offline ? process.env.PLAYWRIGHT_RASTER_FIXTURE_SOCKET : undefined;
+  const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
+  if (offline && (!socketPath || !suiteId)) {
+    throw new Error("Raster fixture relay requires a socket and suite identity");
+  }
+  const child = socketPath
+    ? createConnection(socketPath)
+    : spawn(python, [script], { cwd: apiRoot });
+  const input = socketPath ? child : child.stdin;
+  const output = socketPath ? child : child.stdout;
   const pending = [];
   const closed = Promise.withResolvers();
   let failure;
@@ -21,12 +32,15 @@ function startOwner() {
       request.reject(error);
     }
     pending.length = 0;
-    child.kill();
+    if (socketPath) child.destroy();
+    else child.kill();
   };
-  createInterface({ input: child.stderr }).on("line", (line) => {
-    failureKind = line.match(/^Fixture setup failed: (\w+)$/)?.[1] ?? failureKind;
-  });
-  createInterface({ input: child.stdout }).on("line", (line) => {
+  if (!socketPath) {
+    createInterface({ input: child.stderr }).on("line", (line) => {
+      failureKind = line.match(/^Fixture setup failed: (\w+)$/)?.[1] ?? failureKind;
+    });
+  }
+  createInterface({ input: output }).on("line", (line) => {
     const request = pending.shift();
     if (!request) {
       fail(new Error("Fixture owner returned an unsolicited response"));
@@ -44,15 +58,18 @@ function startOwner() {
   child.on("error", (error) => {
     fail(new Error(`Fixture setup failed: ${error.code}`));
   });
-  child.stdin.on("error", (error) => {
+  input.on("error", (error) => {
     fail(new Error(`Fixture setup failed: ${error.code}`));
   });
   child.once("close", (code) => {
-    if (code !== 0 || pending.length) {
+    if ((socketPath ? code : code !== 0) || pending.length) {
       fail(new Error(`Fixture setup failed: ${failureKind ?? `process exit ${code}`}`));
     }
     closed.resolve();
   });
+  if (socketPath) {
+    input.write(`${JSON.stringify({ operation: "bind_fixture_suite", suite_id: suiteId })}\n`);
+  }
   return {
     post(payload, timeout) {
       if (failure) return Promise.reject(failure);
@@ -62,11 +79,11 @@ function startOwner() {
           ? setTimeout(() => fail(new Error("Fixture owner request timed out")), timeout)
           : undefined;
       pending.push({ resolve, reject, timer });
-      child.stdin.write(`${JSON.stringify(payload)}\n`);
+      input.write(`${JSON.stringify(payload)}\n`);
       return promise;
     },
     async close() {
-      child.stdin.end();
+      input.end();
       await closed.promise;
       if (failure) throw failure;
     },

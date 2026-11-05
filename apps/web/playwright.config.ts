@@ -4,6 +4,9 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 // One run identity survives worker restarts but never aliases another invocation.
+if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1" && !process.env.PLAYWRIGHT_FIXTURE_RUN_ID) {
+  throw new Error("离线 Mask 测试必须使用启动器准备的 suite");
+}
 process.env.PLAYWRIGHT_FIXTURE_RUN_ID ??= randomUUID();
 
 const worktreeMode = process.env.AAP_WORKTREE_MODE;
@@ -12,10 +15,30 @@ if (worktreeMode === "dev") {
     "开发模式不能运行 E2E；请使用 pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e",
   );
 }
-if (worktreeMode && (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL)) {
+const rasterMaskMatrix = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX;
+const rasterOffline = process.env.PLAYWRIGHT_RASTER_OFFLINE === "1";
+if (
+  rasterOffline &&
+  (worktreeMode !== "e2e" ||
+    rasterMaskMatrix !== "native" ||
+    !process.env.PLAYWRIGHT_RASTER_FAULT_MANIFEST ||
+    !process.env.PLAYWRIGHT_FIXTURE_RUN_ID ||
+    !process.env.PLAYWRIGHT_RASTER_FIXTURE_SOCKET)
+) {
+  throw new Error("离线 Mask 测试缺少已准备的工作树、suite、manifest 或夹具通道");
+}
+if (
+  rasterOffline &&
+  Object.entries(process.env).some(([key, value]) =>
+    Boolean(value) &&
+    /^(?:DATABASE_URL|MIGRATION_DATABASE_URL|TEST_DATABASE_URL|PLAYWRIGHT_E2E_DATABASE_URL|FIXTURE_RUNTIME_DATABASE_URL|CONNECTOR_ENCRYPTION_KEY|MINIO_ACCESS_KEY|MINIO_SECRET_KEY|MINIO_ROOT_USER|MINIO_ROOT_PASSWORD|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN)$/i.test(key),
+  )
+) {
+  throw new Error("离线 Mask 测试进程不能持有数据库或存储凭据");
+}
+if (worktreeMode && !rasterOffline && (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL)) {
   throw new Error("独立工作树缺少测试数据库配置；请通过 dev:worktree exec 启动");
 }
-const rasterMaskMatrix = process.env.PLAYWRIGHT_RASTER_MASK_MATRIX;
 const rasterMaskCreateEnabled = rasterMaskMatrix === "native";
 const chromiumChannel = process.env.PLAYWRIGHT_CHROMIUM_CHANNEL;
 const excludedTags = ["@visual", "@stress"];
@@ -48,16 +71,17 @@ const defaultBaseURL = useIsolatedServers
   ? `http://127.0.0.1:${isolatedWebPort}`
   : "http://127.0.0.1:3000";
 process.env.PLAYWRIGHT_BASE_URL ??= defaultBaseURL;
-const e2eDatabaseURL = worktreeMode
-  ? process.env.PLAYWRIGHT_E2E_DATABASE_URL!
-  : isCI
-    ? (process.env.DATABASE_URL ?? "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_test")
-    : (process.env.PLAYWRIGHT_E2E_DATABASE_URL ??
-      "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_e2e");
-// Python ledger fixtures run as child processes and need the same disposable
-// database URL as the API, including in CI where the URL is derived from DATABASE_URL.
-process.env.PLAYWRIGHT_E2E_DATABASE_URL ??= e2eDatabaseURL;
-const e2eRuntimeDatabaseURL = worktreeMode ? process.env.DATABASE_URL! : e2eDatabaseURL;
+const e2eDatabaseURL = rasterOffline
+  ? undefined
+  : worktreeMode
+    ? process.env.PLAYWRIGHT_E2E_DATABASE_URL!
+    : isCI
+      ? (process.env.DATABASE_URL ?? "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_test")
+      : (process.env.PLAYWRIGHT_E2E_DATABASE_URL ??
+        "postgresql+asyncpg://user:pass@127.0.0.1:5432/annotation_e2e");
+// The offline Mask consumer never receives either database credential.
+if (e2eDatabaseURL !== undefined) process.env.PLAYWRIGHT_E2E_DATABASE_URL ??= e2eDatabaseURL;
+const e2eRuntimeDatabaseURL = worktreeMode ? process.env.DATABASE_URL : e2eDatabaseURL;
 
 const isolatedApiCommand = [
   ...(isCI
@@ -146,25 +170,27 @@ export default defineConfig({
 
   webServer: useIsolatedServers
     ? [
-        {
-          command: isolatedApiCommand,
-          cwd: resolve(configDir, "../api"),
-          env: {
-            DATABASE_URL: e2eRuntimeDatabaseURL,
-            MIGRATION_DATABASE_URL: e2eDatabaseURL,
-            ENVIRONMENT: "development",
-            E2E_SEED_ENABLED: "true",
-            ...(rasterMaskMatrix
-              ? {
-                  RASTER_MASK_READ_ENABLED: "true",
-                  RASTER_MASK_CREATE_ENABLED: rasterMaskCreateEnabled ? "true" : "false",
-                }
-              : {}),
-          },
-          url: `http://127.0.0.1:${isolatedApiPort}/health/db`,
-          reuseExistingServer: false,
-          timeout: 120_000,
-        },
+        ...(rasterOffline
+          ? []
+          : [{
+              command: isolatedApiCommand,
+              cwd: resolve(configDir, "../api"),
+              env: {
+                DATABASE_URL: e2eRuntimeDatabaseURL!,
+                MIGRATION_DATABASE_URL: e2eDatabaseURL!,
+                ENVIRONMENT: "development",
+                E2E_SEED_ENABLED: "true",
+                ...(rasterMaskMatrix
+                  ? {
+                      RASTER_MASK_READ_ENABLED: "true",
+                      RASTER_MASK_CREATE_ENABLED: rasterMaskCreateEnabled ? "true" : "false",
+                    }
+                  : {}),
+              },
+              url: `http://127.0.0.1:${isolatedApiPort}/health/db`,
+              reuseExistingServer: false,
+              timeout: 120_000,
+            }]),
         {
           command:
             isCI && !rasterMaskMatrix

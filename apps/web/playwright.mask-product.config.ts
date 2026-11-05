@@ -1,21 +1,26 @@
 import { defineConfig } from "@playwright/test";
 import base from "./playwright.config";
 
-if (!process.env.PLAYWRIGHT_RASTER_FAULT_MANIFEST || !process.env.PLAYWRIGHT_FIXTURE_RUN_ID) {
-  throw new Error("Mask product E2E requires the prepared offline raster fault manifest");
+if (process.env.PLAYWRIGHT_RASTER_OFFLINE !== "1") {
+  throw new Error("Mask product E2E requires the offline raster fixture launcher");
+}
+if (!Array.isArray(base.webServer) || base.webServer.length !== 1) {
+  throw new Error("Mask product E2E requires the supervised API and isolated Web server");
 }
 
-if (!Array.isArray(base.webServer) || base.webServer.length !== 2) {
-  throw new Error("Mask product E2E requires the isolated API and Web servers");
-}
-
-const [api, web] = base.webServer;
+const [web] = base.webServer;
 const port = process.env.PLAYWRIGHT_ISOLATED_WEB_PORT ?? "3001";
+const browserEnv = Object.fromEntries(
+  Object.entries(process.env).filter(
+    (entry): entry is [string, string] =>
+      entry[0] !== "PLAYWRIGHT_RASTER_FIXTURE_SOCKET" && entry[1] !== undefined,
+  ),
+);
 
 export default defineConfig({
   ...base,
+  use: { ...base.use, launchOptions: { ...base.use?.launchOptions, env: browserEnv } },
   webServer: [
-    api,
     {
       ...web,
       command: `pnpm preview --host 127.0.0.1 --port ${port} --strictPort`,
@@ -30,6 +35,7 @@ export default defineConfig({
         MINIO_SECRET_KEY: "",
         AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY: "",
         AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY: "",
+        PLAYWRIGHT_RASTER_FIXTURE_SOCKET: "",
       },
     },
   ],
