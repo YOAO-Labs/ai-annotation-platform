@@ -1293,7 +1293,7 @@ test.describe("video Issue persisted context", () => {
   }) => {
     const legacy = await createIssue(request, fixture, 33, [0.46, 0.54]);
     const future = await createIssue(request, fixture, 143, [0.49, 0.51]);
-    const historical = await seed.videoIssueContextHistory(future.id);
+    const historical = await seed.videoIssueContextHistory(fixture.data.project_id, future.id);
     expect(historical.anchor_position).toMatchObject({
       x: 0.49,
       y: 0.51,

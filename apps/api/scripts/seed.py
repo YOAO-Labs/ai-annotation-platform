@@ -278,14 +278,13 @@ async def _seed_session(run_id: uuid.UUID | None):
             yield db, None
         return
 
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
-    from fixture_suite_coordinator import (
-        prepare_fixture_suite,
-        verified_fixture_owner_url,
-    )
+    from scripts.fixture_tools import configure_fixture_tools_path
+
+    configure_fixture_tools_path()
+    from fixture_suite_coordinator import verified_fixture_owner_url
+    from app.db.models.fixture_run import FixtureRun
     from app.services import fixture_run_ownership as ownership, storage_access
 
-    await prepare_fixture_suite(str(run_id), "screenshot")
     owner_engine = create_async_engine(
         await verified_fixture_owner_url(), hide_parameters=True
     )
@@ -295,6 +294,13 @@ async def _seed_session(run_id: uuid.UUID | None):
     first_failure = None
     try:
         async with sessions() as db:
+            run = await db.get(FixtureRun, run_id)
+            if (
+                run is None
+                or run.family != "screenshot"
+                or run.parent_run_id is not None
+            ):
+                raise RuntimeError("screenshot fixture run is not registered")
             admission_id = await ownership.admit(db, run_id, "screenshot_seed")
             await db.commit()
 

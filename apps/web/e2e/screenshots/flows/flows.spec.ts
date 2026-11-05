@@ -198,11 +198,6 @@ const secondaryInferenceCleanupRecords: SecondaryInferenceCleanupRecord[] = [];
 const candidateReviewCleanupRecords: CandidateReviewCleanupRecord[] = [];
 const pipelineApplyCleanupRecords: PipelineApplyCleanupRecord[] = [];
 const jobsRetryCleanupRecords: Array<{ projectId: string; taskId: string }> = [];
-const backgroundExportCleanupRecords: Array<{
-  projectId: string;
-  taskId: string;
-  jobId?: string;
-}> = [];
 
 const FLOW_SOURCE_BY_ASSET: Record<string, string> = {
   "project-onboarding": "project-onboarding.ts",
@@ -307,9 +302,6 @@ function flowWatchPaths(assetId: string): string[] {
   if (assetId === "review-reject") {
     paths.push("apps/api/scripts/screenshot_review_reject_fixture.py");
   }
-  if (assetId === "background-export-download") {
-    paths.push("apps/api/scripts/screenshot_background_export_fixture.py");
-  }
   if (assetId === "storage-connector-create-test") {
     paths.push(
       "apps/web/src/components/connections/StorageConnectionsPanel.tsx",
@@ -407,9 +399,6 @@ async function cleanupRecordingRecords(): Promise<void> {
   await drainRecordingCleanup(pipelineApplyCleanupRecords, cleanupPipelineApply);
   await drainRecordingCleanup(jobsRetryCleanupRecords, (record) => {
     manageJobsRetryFixture("cleanup", record);
-  });
-  await drainRecordingCleanup(backgroundExportCleanupRecords, (record) => {
-    manageBackgroundExportFixture("cleanup", record);
   });
 }
 
@@ -716,33 +705,6 @@ function manageReviewRejectFixture(
       stdio: "inherit",
     },
   );
-}
-
-function manageBackgroundExportFixture(
-  action: "run" | "cleanup",
-  record: { projectId: string; taskId: string; jobId?: string },
-): Record<string, unknown> {
-  const output = execFileSync(
-    path.join(REPO_ROOT, "apps/api/.venv/bin/python"),
-    [
-      "scripts/screenshot_background_export_fixture.py",
-      action,
-      "--project-id",
-      record.projectId,
-      "--task-id",
-      record.taskId,
-      ...(record.jobId ? ["--job-id", record.jobId] : []),
-    ],
-    {
-      cwd: path.join(REPO_ROOT, "apps/api"),
-      env: screenshotDatabaseEnv(),
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "inherit"],
-    },
-  );
-  const lastLine = output.trim().split("\n").at(-1);
-  if (!lastLine) throw new Error(`[background-export-download] ${action} 未返回夹具结果`);
-  return JSON.parse(lastLine) as Record<string, unknown>;
 }
 
 type GifOptions = {
@@ -1169,6 +1131,8 @@ test.describe("flow recordings", () => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     setFlowTimeout(300_000);
     const project = cached.projects.image_demo;
+    const runId = process.env.SCREENSHOT_FIXTURE_RUN_ID;
+    if (!runId) throw new Error("Screenshot fixture run identity is required");
     const task = project.tasks.annotating;
     const cleanup: CandidateReviewCleanupRecord = {
       projectId: project.id,
@@ -1178,8 +1142,9 @@ test.describe("flow recordings", () => {
     };
     candidateReviewCleanupRecords.push(cleanup);
     try {
-      await seed.configureRasterMask(project.id, true);
+      await seed.configureRasterMask(project.id, true, runId);
       const source = await seed.injectRasterMask({
+        runId,
         taskId: task.id,
         userEmail: cached.users.admin.email,
         variant: "smart_scribble_source",
@@ -2331,47 +2296,12 @@ test.describe("flow recordings", () => {
   test("background-export-download — 后台多格式导出与 ZIP 下载", async ({ page, seed }) => {
     if (!cached) throw new Error("screenshot seed catalog 未完成");
     setFlowTimeout(150_000);
-    const project = cached.projects.image_demo;
-    const task = project.tasks.clean;
-    const record: { projectId: string; taskId: string; jobId?: string } = {
-      projectId: project.id,
-      taskId: task.id,
-    };
     const t0 = Date.now();
-    backgroundExportCleanupRecords.push(record);
-
-    let recordingFailed = false;
-    let recordingFailure: unknown;
-    try {
-      manageBackgroundExportFixture("cleanup", record);
-      await installScreenshotEnvironment(page);
-      await seed.injectToken(page, cached.users.admin.email);
-      await applyScreenshotTheme(page, "dark");
-      const win = await runBackgroundExportDownload(
-        page,
-        cached,
-        (jobId) => manageBackgroundExportFixture("run", { ...record, jobId }),
-        (jobId) => {
-          record.jobId = jobId;
-        },
-      );
-      await finalize(page, "background-export-download", undefined, drawTrim(win, t0));
-    } catch (error) {
-      recordingFailed = true;
-      recordingFailure = error;
-    }
-    try {
-      manageBackgroundExportFixture("cleanup", record);
-    } catch (cleanupFailure) {
-      recordingFailure = recordingFailed
-        ? new AggregateError(
-            [recordingFailure, cleanupFailure],
-            "Export recording and cleanup failed",
-          )
-        : cleanupFailure;
-      recordingFailed = true;
-    }
-    if (recordingFailed) throw recordingFailure;
+    await installScreenshotEnvironment(page);
+    await seed.injectToken(page, cached.users.admin.email);
+    await applyScreenshotTheme(page, "dark");
+    const win = await runBackgroundExportDownload(page, cached);
+    await finalize(page, "background-export-download", undefined, drawTrim(win, t0));
   });
 
   test("project-onboarding — 登录、创建项目并进入工作台", async ({ page, seed }) => {

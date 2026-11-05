@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-from pathlib import Path
-import sys
 import uuid
 
 from sqlalchemy import select
@@ -18,7 +16,9 @@ async def screenshot_owner():
     run_id = uuid.UUID(raw)
     if str(run_id) != raw:
         raise RuntimeError("screenshot run ID must be a canonical UUID")
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+    from scripts.fixture_tools import configure_fixture_tools_path
+
+    configure_fixture_tools_path()
     from fixture_suite_coordinator import verified_fixture_owner_url
 
     return run_id, await verified_fixture_owner_url()

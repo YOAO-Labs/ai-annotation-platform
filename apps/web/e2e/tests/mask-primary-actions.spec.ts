@@ -438,7 +438,7 @@ test.describe("Mask phase primary actions", () => {
         window as typeof window & { __E2E_MASK_TILE_MAX_BYTES__?: number }
       ).__E2E_MASK_TILE_MAX_BYTES__ = 327776;
     });
-    const data = await seed.owned();
+    const data = await seed.owned(undefined, { imageCanvas: "8k" });
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -448,6 +448,10 @@ test.describe("Mask phase primary actions", () => {
     const token = await seed.accessToken(data.annotator_email);
     const before = await content(request, fixture.annotation_id, token);
     await openImage(page, seed, data, taskId);
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute(
+      "data-image-identity",
+      /\/pyramid/,
+    );
     await beginEdit(page, fixture.annotation_id);
     const point = await paintImage(page, 2816, 4864, [8192, 8192]);
     await closeMaskSettings(page);

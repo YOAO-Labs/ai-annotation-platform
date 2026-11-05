@@ -14,7 +14,8 @@ DECLARE
 BEGIN
     SELECT resource.* INTO v_resource
     FROM yoao_fixture_v1.fixture_run_resources AS resource
-    WHERE resource.kind = 'creation' AND resource.creation_id = p_creation_id;
+    WHERE (resource.kind = 'creation' AND resource.creation_id = p_creation_id)
+       OR (resource.kind = 'auxiliary' AND resource.resource_id = p_creation_id);
     IF NOT FOUND THEN RETURN 'ordinary'; END IF;
     SELECT run.* INTO v_run FROM yoao_fixture_v1.fixture_runs AS run
     WHERE run.id = v_resource.run_id;
@@ -32,7 +33,8 @@ BEGIN
     END IF;
     SELECT resource.* INTO v_resource
     FROM yoao_fixture_v1.fixture_run_resources AS resource
-    WHERE resource.kind = 'creation' AND resource.creation_id = p_creation_id
+    WHERE (resource.kind = 'creation' AND resource.creation_id = p_creation_id)
+       OR (resource.kind = 'auxiliary' AND resource.resource_id = p_creation_id)
     FOR SHARE;
     IF NOT FOUND OR v_resource.run_id <> v_run.id OR v_resource.state <> 'published' THEN
         RETURN 'blocked';
@@ -44,6 +46,39 @@ BEGIN
         WHERE dataset.run_id = v_run.id AND dataset.kind = 'dataset'
           AND dataset.resource_id = v_dataset_id AND dataset.state = 'published'
           AND dataset.storage_identity = p_storage_identity
+    ) THEN
+        RETURN 'blocked';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1
+        FROM yoao_fixture_v1.fixture_original_targets AS target
+        JOIN public.managed_original_creations AS creation ON creation.id = p_creation_id
+        WHERE target.id = v_root.original_target_id
+          AND target.storage_identity = v_root.original_storage_identity
+          AND target.store_receipt_sha256 = v_root.original_store_receipt_sha256
+          AND target.location_id = creation.location_id AND target.bucket = creation.bucket
+          AND creation.storage_identity = target.storage_identity
+          AND creation.configuration #>> '{fixture_original_target,id}' = target.id::text
+          AND creation.configuration #>> '{fixture_original_target,generation}' = target.generation::text
+          AND creation.configuration #>> '{fixture_original_target,store_receipt_sha256}' = target.store_receipt_sha256
+          AND creation.configuration #>> '{original_ref,binding_generation}' = target.generation::text
+    ) THEN
+        RETURN 'blocked';
+    END IF;
+    IF v_resource.kind = 'auxiliary' AND NOT EXISTS (
+        SELECT 1
+        FROM yoao_fixture_v1.fixture_auxiliary_intents AS intent
+        JOIN yoao_fixture_v1.fixture_run_admissions AS admission
+          ON admission.id = intent.admission_id AND admission.run_id = intent.run_id
+        JOIN public.managed_original_creations AS creation
+          ON creation.id = intent.creation_id
+        WHERE intent.creation_id = p_creation_id AND intent.run_id = v_run.id
+          AND intent.dataset_id = v_dataset_id AND admission.state = 'settled'
+          AND creation.owner_kind = 'dataset_auxiliary'
+          AND creation.authority -> 'auxiliary' = pg_catalog.jsonb_build_object(
+              'kind', intent.kind, 'source_contract', intent.source_contract
+          )
+          AND creation.sha256 = intent.sha256 AND creation.size_bytes = intent.size_bytes
     ) THEN
         RETURN 'blocked';
     END IF;

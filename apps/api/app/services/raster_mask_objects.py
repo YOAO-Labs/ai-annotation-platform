@@ -67,8 +67,12 @@ async def _settled(awaitable):
         try:
             await storage_access.finish(task)
         except BaseException as exc:
-            if getattr(exc, "storage_operation_unsettled", False):
-                storage_access.mark_unsettled(cancelled)
+            combined = BaseExceptionGroup(
+                "Raster owner operation and cancellation failed", [cancelled, exc]
+            )
+            if storage_access.failure_unsettled(exc):
+                storage_access.mark_unsettled(combined)
+            raise combined from None
         raise
 
 

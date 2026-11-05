@@ -28,6 +28,7 @@ import {
   type TestInfo,
 } from "@playwright/test";
 import { createHash, randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { screenshotCatalogPath } from "../screenshots/recording-plan.mjs";
 import {
   closeFixtureTransport,
@@ -265,7 +266,7 @@ export type RasterMaskFixtureVariant =
   | "diagonal_two"
   | "island"
   | "smart_scribble_source"
-  | "corrupt";
+  | "fault_source";
 export type RasterMaskFixtureCanvas = "default" | "media" | "5k" | "8k";
 
 export interface SeedRasterMaskData {
@@ -279,6 +280,89 @@ export interface SeedRasterMaskData {
     runs: number;
     bytes: number;
   };
+}
+
+type RasterFaultCase = "diagnosis" | "retry";
+type PreparedRasterFaultEntry = {
+  namespace: string;
+  run_id: string;
+  seed: SeedData;
+  task_id: string;
+  healthy_annotation_id: string;
+  corrupt_annotation_id: string;
+};
+type PreparedRasterFaultManifest = {
+  schema: "aap-e2e-raster-fault/v1";
+  suite_id: string;
+  cases: Record<RasterFaultCase, PreparedRasterFaultEntry[]>;
+};
+
+function preparedRasterFaultEntry(
+  caseName: RasterFaultCase,
+  attempt: number,
+): PreparedRasterFaultEntry {
+  const path = process.env.PLAYWRIGHT_RASTER_FAULT_MANIFEST;
+  const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
+  if (!path || !suiteId || !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+    throw new Error(
+      "Raster fault cases require an independently prepared isolated fixture manifest",
+    );
+  }
+  const value = JSON.parse(readFileSync(path, "utf8")) as PreparedRasterFaultManifest;
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    value.schema !== "aap-e2e-raster-fault/v1" ||
+    value.suite_id !== suiteId ||
+    typeof value.cases !== "object" ||
+    value.cases === null ||
+    !Array.isArray(value.cases.diagnosis) ||
+    !Array.isArray(value.cases.retry)
+  ) {
+    throw new Error("Raster fault manifest has an invalid suite or schema");
+  }
+  const seen = new Set<string>();
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  for (const item of [...value.cases.diagnosis, ...value.cases.retry]) {
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      typeof item.seed !== "object" ||
+      item.seed === null
+    )
+      throw new Error("Invalid raster fault entry");
+    const data = item.seed;
+    const identities = [
+      item.run_id,
+      data.project_id,
+      item.task_id,
+      item.healthy_annotation_id,
+      item.corrupt_annotation_id,
+    ];
+    if (
+      typeof item.namespace !== "string" ||
+      !/^[a-z0-9]{4,12}$/.test(item.namespace) ||
+      identities.some((identity) => typeof identity !== "string" || !uuid.test(identity)) ||
+      typeof data.admin_email !== "string" ||
+      typeof data.annotator_email !== "string" ||
+      typeof data.reviewer_email !== "string" ||
+      typeof data.ml_backend_id !== "string" ||
+      !uuid.test(data.ml_backend_id) ||
+      !Array.isArray(data.task_ids) ||
+      data.task_ids.some((id) => typeof id !== "string" || !uuid.test(id)) ||
+      !data.task_ids.includes(item.task_id)
+    ) {
+      throw new Error("Invalid raster fault entry");
+    }
+    for (const identity of [item.namespace, ...identities]) {
+      const key = String(identity);
+      if (seen.has(key)) throw new Error("Raster fault runs must use distinct resources");
+      seen.add(key);
+    }
+  }
+  const entry = value.cases[caseName][attempt];
+  if (!entry) throw new Error("Raster fault manifest has no independently prepared retry");
+  return entry;
 }
 
 export interface SeedRasterPredictionData {
@@ -363,6 +447,7 @@ export class SeedAPI {
   private retiredRunIds = new Map<string, string>();
   private workbenchBuilt = new Set<string>();
   private projectNamespaces = new Map<string, string>();
+  private taskRunIds = new Map<string, string>();
   /** Pages this test bound through `injectToken`; retired before cleanup. */
   private boundPages = new Set<Page>();
 
@@ -563,7 +648,10 @@ export class SeedAPI {
    * `cleanupOwnedFixtures()` removes every registered namespace in the
    * seed-fixture teardown after the test.
    */
-  async owned(namespace?: string): Promise<SeedData> {
+  async owned(
+    namespace?: string,
+    options?: { imageCanvas?: "default" | "720p" | "5k" | "8k" },
+  ): Promise<SeedData> {
     const token = this.ownedNamespace(namespace);
     if (this.workbenchBuilt.has(token)) {
       await this.cleanupOwned(token);
@@ -572,7 +660,7 @@ export class SeedAPI {
       this.ownedNamespaces.push(token);
     }
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned`, {
-      data: this.ownedScope(token),
+      data: { ...this.ownedScope(token), image_canvas: options?.imageCanvas ?? "default" },
       timeout: 60_000,
     });
     if (!res.ok()) {
@@ -581,7 +669,51 @@ export class SeedAPI {
     this.workbenchBuilt.add(token);
     const data = (await res.json()) as SeedData;
     this.projectNamespaces.set(data.project_id, token);
+    const { run_id: runId } = this.ownedScope(token);
+    for (const taskId of data.task_ids) this.taskRunIds.set(taskId, runId);
     return data;
+  }
+
+  /** Adopt one coordinator-prepared offline fault run after exact owner verification. */
+  async preparedRasterFault(caseName: RasterFaultCase): Promise<{
+    data: SeedData;
+    taskId: string;
+    healthy: { annotation_id: string };
+    corrupt: { annotation_id: string };
+  }> {
+    if (!this.testInfo) throw new Error("Raster fault fixtures require a Playwright test");
+    const entry = preparedRasterFaultEntry(caseName, this.testInfo.retry);
+    const response = await postFixture(`${API_BASE}/api/v1/__test/seed/raster-fault-verify`, {
+      data: {
+        namespace: entry.namespace,
+        suite_id: process.env.PLAYWRIGHT_FIXTURE_RUN_ID,
+        run_id: entry.run_id,
+        project_id: entry.seed.project_id,
+        task_id: entry.task_id,
+        user_email: entry.seed.annotator_email,
+        healthy_annotation_id: entry.healthy_annotation_id,
+        corrupt_annotation_id: entry.corrupt_annotation_id,
+      },
+    });
+    if (!response.ok()) {
+      throw new Error(
+        `Raster fault scope verification failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    if (this.ownedRunIds.has(entry.namespace)) {
+      throw new Error("Raster fault namespace is already registered");
+    }
+    this.ownedNamespaces.push(entry.namespace);
+    this.ownedRunIds.set(entry.namespace, entry.run_id);
+    this.workbenchBuilt.add(entry.namespace);
+    this.projectNamespaces.set(entry.seed.project_id, entry.namespace);
+    for (const taskId of entry.seed.task_ids) this.taskRunIds.set(taskId, entry.run_id);
+    return {
+      data: entry.seed,
+      taskId: entry.task_id,
+      healthy: { annotation_id: entry.healthy_annotation_id },
+      corrupt: { annotation_id: entry.corrupt_annotation_id },
+    };
   }
 
   /** Delete exactly one namespace's fixture; idempotent and neighbour-safe. */
@@ -798,9 +930,10 @@ export class SeedAPI {
   }
 
   /** 只切项目 opt-in；部署级 read/create 总闸由 API 进程环境决定。 */
-  async configureRasterMask(projectId: string, enabled: boolean): Promise<void> {
+  async configureRasterMask(projectId: string, enabled: boolean, runId?: string): Promise<void> {
+    const ownedRunId = runId ?? this.projectScope(projectId).run_id;
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/configure-raster-mask`, {
-      data: { project_id: projectId, enabled },
+      data: { run_id: ownedRunId, project_id: projectId, enabled },
     });
     if (!res.ok()) {
       throw new Error(`seed/configure-raster-mask failed: ${res.status()} ${await res.text()}`);
@@ -820,7 +953,9 @@ export class SeedAPI {
     if (!res.ok()) {
       throw new Error(`seed/video-task failed: ${res.status()} ${await res.text()}`);
     }
-    return (await res.json()) as { task_id: string };
+    const result = (await res.json()) as { task_id: string };
+    this.taskRunIds.set(result.task_id, this.projectScope(projectId).run_id);
+    return result;
   }
 
   /** v0.23.15 · 造确定性 H.264 WebCodecs fixture 任务 + 单 chunk(precise-frame E2E)。 */
@@ -850,22 +985,27 @@ export class SeedAPI {
     if (!res.ok()) {
       throw new Error(`seed/video-webcodecs failed: ${res.status()} ${await res.text()}`);
     }
-    return (await res.json()) as {
+    const result = (await res.json()) as {
       task_id: string;
       dataset_item_id: string;
       chunk_id: number;
       chunk_size_frames: number;
       frame_expectations: Record<string, unknown>;
     };
+    this.taskRunIds.set(result.task_id, this.projectScope(projectId).run_id);
+    return result;
   }
 
   /** Simulate one unknown nested video context version without relaxing public writes. */
-  async videoIssueContextHistory(feedbackId: string): Promise<{
+  async videoIssueContextHistory(
+    projectId: string,
+    feedbackId: string,
+  ): Promise<{
     feedback_id: string;
     anchor_position: Record<string, unknown>;
   }> {
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/video-issue-context-history`, {
-      data: { feedback_id: feedbackId },
+      data: { ...this.projectScope(projectId), feedback_id: feedbackId },
     });
     if (!res.ok()) {
       throw new Error(
@@ -915,8 +1055,11 @@ export class SeedAPI {
       };
     },
   ): Promise<SeedNativeMaskCandidateData> {
+    const runId = this.taskRunIds.get(taskId);
+    if (!runId) throw new Error("Native mask task has no fixture run");
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/native-mask-candidate`, {
       data: {
+        run_id: runId,
         task_id: taskId,
         variant: options?.variant ?? "default",
         prompt_family: options?.promptFamily ?? "point",
@@ -939,14 +1082,18 @@ export class SeedAPI {
   /** 构造已有 raster annotation，用于只读、损坏内容与锁定矩阵。 */
   async injectRasterMask(opts: {
     taskId: string;
+    runId?: string;
     userEmail: string;
     variant?: RasterMaskFixtureVariant;
     label?: string;
     locked?: boolean;
     canvas?: RasterMaskFixtureCanvas;
   }): Promise<SeedRasterMaskData> {
+    const runId = opts.runId ?? this.taskRunIds.get(opts.taskId);
+    if (!runId) throw new Error("Raster task has no fixture run");
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/inject-raster-mask`, {
       data: {
+        run_id: runId,
         task_id: opts.taskId,
         user_email: opts.userEmail,
         variant: opts.variant ?? "single",
@@ -967,8 +1114,11 @@ export class SeedAPI {
     userEmail: string;
     label?: string;
   }): Promise<SeedRasterPredictionData> {
+    const runId = this.taskRunIds.get(opts.taskId);
+    if (!runId) throw new Error("Raster task has no fixture run");
     const res = await postFixture(`${API_BASE}/api/v1/__test/seed/inject-raster-prediction`, {
       data: {
+        run_id: runId,
         task_id: opts.taskId,
         user_email: opts.userEmail,
         variant: "single",

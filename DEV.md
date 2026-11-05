@@ -2119,8 +2119,15 @@ CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask�
 `scripts/plan-e2e-suites.mjs` 追加独立视觉与压力套件；main 始终运行全部九套件，
 `E2E extended` 每晚和手动运行两个扩展套件。默认配置排除 `@visual` / `@stress`，
 但六种布局上下文的 14 次短流程及全部恢复断言仍属于每个 PR 的功能回归。
-每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；同一数据库
-只用一个 Playwright worker，因为全局 seed cleanup 和 teardown 会清理共享数据。
+每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；未完成隔离验收的
+夹具仍只用一个 Playwright worker。Raster 故障用例还要求协调器在产品服务启动前准备专属
+数据库、版本化存储和 `PLAYWRIGHT_RASTER_FAULT_MANIFEST`，不允许在线破坏共享对象。
+
+私有截图与 scale 命令要求协调器提供 `AAP_FIXTURE_TOOLS_ROOT` 绝对目录：主机为仓库
+`scripts` 目录，安装镜像为 `/opt/yoao-fixture-tools`。截图和 scale 的 run 均须由主机
+协调器先在隔离测试环境注册；截图消费者和 `seed_scale.py --run-id UUID` / `--purge`
+只处理该精确 run，不再隐式创建它。不要把原始存储写入凭据或源码挂载交给已安装的普通消费进程。
+
 默认、视觉和压力套件使用构建产物，Mask 任务由 Playwright 启动隔离 API 和 Vite dev。
 功能用例最多重试一次；扩展用例中视觉基线不重试、压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、

@@ -40,13 +40,18 @@ closure or runtime recovery.
 
 ## Test project fixture cleanup
 
-The current `aap-jobs-fixture-guard/v1` contract exposes
-`aap_jobs_v1.guard_fixture_project_jobs(uuid[])`, which locks and validates the exact
-Workspace project scope and refuses cleanup if any current or retained Jobs row
-still refers to it. A terminal status alone is not proof that physical work has
-stopped. `aap_jobs_v1.delete_fixture_project_jobs(uuid[])` invokes the same
-guard before deletion; unproved Jobs remain as anchors instead of being removed.
-The guard is a test-database-only owner capability, not a product API.
+The `aap-jobs-fixture-guard/v1` contract exposes
+`aap_jobs_v1.guard_fixture_project_jobs(uuid[])` and
+`aap_jobs_v1.delete_fixture_project_jobs(uuid[])`. They lock the exact sealed
+fixture projects and their Jobs, retain the Workspace video guard, and require
+the native prediction or Export retirement proofs before deleting a real Job.
+Undelivered presentation Jobs require their own birth proof; unmatched Jobs,
+retry ledgers or active execution remain blockers. A terminal Job status alone
+does not prove physical work stopped. Retry attempts and delivery tombstones
+remain independent of the deleted Job. Before an exact retired Export Job is
+deleted, Jobs preserves each complete dispatch intent as a private receipt so
+the Job's foreign-key cascade cannot erase its envelope or acknowledgement.
+These are test-database-only owner capabilities, not product APIs.
 
 NULL scopes or malformed Workspace replies return `22023`, project NOWAIT
 contention returns `55P03`, and an unretired video or unproved Jobs row returns

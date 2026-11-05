@@ -283,6 +283,24 @@ async def test_presentation_jobs_are_nondispatchable_and_retire_only_the_sealed_
                 {"id": jobs[2]},
             )
     assert mutate.value.orig.sqlstate == "23514"
+    with pytest.raises(DBAPIError) as partial:
+        async with db_session.begin_nested():
+            await db_session.scalar(
+                text(
+                    "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+                ),
+                {"ids": [projects[0].id]},
+            )
+    assert partial.value.orig.sqlstate == "23514"
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM public.async_jobs WHERE id = ANY(CAST(:ids AS uuid[]))"
+            ),
+            {"ids": jobs},
+        )
+        == 4
+    )
     assert (
         await db_session.scalar(
             text(
@@ -366,12 +384,17 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
         await db_session.flush()
         await db_session.execute(
             text(
-                "INSERT INTO public.async_jobs (id,kind,project_id,status,progress_pct,payload,result) "
-                "VALUES (:job,'batch_predict',:project,'failed',100,'{}'::jsonb,"
+                "INSERT INTO public.async_jobs (id,kind,project_id,user_id,status,progress_pct,payload,result) "
+                "VALUES (:job,'batch_predict',:project,:actor,'failed',100,'{}'::jsonb,"
                 "pg_catalog.jsonb_build_object('failed_prediction_ids',"
                 "pg_catalog.jsonb_build_array(CAST(:failure AS text))))"
             ),
-            {"job": job_id, "project": project.id, "failure": failure_id},
+            {
+                "job": job_id,
+                "project": project.id,
+                "actor": owner.id,
+                "failure": failure_id,
+            },
         )
 
     async def retire(index):
@@ -414,7 +437,78 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
         )
         await attempt.rollback()
 
+    guard = text("SELECT aap_jobs_v1.guard_fixture_prediction_ledgers(:run,:project)")
+    cleanup = text(
+        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+    )
+    params = {"run": runs[0], "project": projects[0].id}
+    async with db_session.begin_nested() as inconsistent:
+        await db_session.execute(
+            text(
+                "UPDATE yoao_fixture_v1.fixture_presentation_jobs SET state='retired' "
+                "WHERE job_id=:id"
+            ),
+            {"id": jobs[0]},
+        )
+        assert await ownership.seal(db_session, runs[0], family="screenshot") == ()
+        assert await db_session.scalar(guard, params) is False
+        with pytest.raises(DBAPIError, match="fixture_job_execution_unsettled"):
+            async with db_session.begin_nested():
+                await db_session.scalar(cleanup, {"ids": [projects[0].id]})
+        assert (
+            await db_session.scalar(
+                text(
+                    "SELECT count(*) FROM public.async_jobs WHERE id=ANY(CAST(:ids AS uuid[]))"
+                ),
+                {"ids": jobs},
+            )
+            == 2
+        )
+        await inconsistent.rollback()
+
     assert await retire(0) == 1
+    assert (
+        await db_session.scalar(
+            text("SELECT count(*) FROM public.async_jobs WHERE id=:id"), {"id": jobs[1]}
+        )
+        == 1
+    )
+    assert await db_session.get(FailedPrediction, failures[0]) is not None
+
+    async with db_session.begin_nested() as inconsistent:
+        await db_session.execute(
+            text(
+                "INSERT INTO public.prediction_retry_attempts "
+                "(job_id,failed_prediction_id,actor_id,project_id,source_extra,"
+                "retry_count_at_admission,request_digest,state) "
+                "VALUES (:id,:failure,:actor,:project,'{}'::jsonb,0,:digest,'accepted')"
+            ),
+            {
+                "id": jobs[0],
+                "failure": failures[0],
+                "actor": owner.id,
+                "project": projects[0].id,
+                "digest": "b" * 64,
+            },
+        )
+        assert await ownership.seal(db_session, runs[0], family="screenshot") == ()
+        assert await db_session.scalar(guard, params) is False
+        with pytest.raises(DBAPIError, match="fixture_job_execution_unsettled"):
+            async with db_session.begin_nested():
+                await db_session.scalar(cleanup, {"ids": [projects[0].id]})
+        assert await db_session.get(FailedPrediction, failures[0]) is not None
+        assert (
+            await db_session.scalar(
+                text("SELECT count(*) FROM public.async_jobs WHERE id=:id"),
+                {"id": jobs[1]},
+            )
+            == 1
+        )
+        await inconsistent.rollback()
+
+    assert await ownership.seal(db_session, runs[0], family="screenshot") == ()
+    assert await db_session.scalar(guard, params) is True
+    assert await db_session.scalar(cleanup, {"ids": [projects[0].id]}) == 0
     assert (
         await db_session.scalar(
             text("SELECT count(*) FROM public.async_jobs WHERE id=:id"), {"id": jobs[1]}

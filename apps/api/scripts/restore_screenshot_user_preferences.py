@@ -12,7 +12,6 @@ import argparse
 import asyncio
 import json
 import os
-import sys
 from pathlib import Path
 from uuid import UUID
 
@@ -32,7 +31,9 @@ async def restore(user_id: UUID, preferences_file: Path) -> None:
     if not raw_run_id:
         raise RuntimeError("SCREENSHOT_FIXTURE_RUN_ID is required")
     run_id = UUID(raw_run_id)
-    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / "scripts"))
+    from scripts.fixture_tools import configure_fixture_tools_path
+
+    configure_fixture_tools_path()
     from fixture_suite_coordinator import verified_fixture_owner_url
 
     database_url = await verified_fixture_owner_url()

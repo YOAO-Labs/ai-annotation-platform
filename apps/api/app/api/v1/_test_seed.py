@@ -1065,19 +1065,35 @@ async def _owned_resource_ids(db, run_id, kind):
     )
 
 
-async def _guard_fixture_export_anchors(db, project_ids):
+async def _guard_fixture_export_anchors(db, run_id, project_ids):
     """Keep independent export evidence until its real owner retires it."""
     from app.db.models.export_artifact import ExportArtifact
     from app.db.models.export_media_bundle import ExportMediaBundle
     from app.db.models.export_output import ExportOutput
 
-    for owner in (ExportArtifact, ExportMediaBundle, ExportOutput):
+    for owner in (ExportArtifact, ExportOutput):
         if (
             await db.scalar(
                 select(owner.id).where(owner.project_id.in_(project_ids)).limit(1)
             )
             is not None
         ):
+            raise HTTPException(
+                409, detail={"code": "fixture_export_retirement_unsettled"}
+            )
+    bundles = (
+        await db.execute(
+            select(ExportMediaBundle.project_id, ExportMediaBundle.job_id)
+            .where(ExportMediaBundle.project_id.in_(project_ids))
+            .distinct()
+        )
+    ).all()
+    for project_id, job_id in bundles:
+        retired = await db.scalar(
+            text("SELECT public.fixture_export_retired(:run_id, :project_id, :job_id)"),
+            {"run_id": run_id, "project_id": project_id, "job_id": job_id},
+        )
+        if retired is not True:
             raise HTTPException(
                 409, detail={"code": "fixture_export_retirement_unsettled"}
             )
@@ -1603,7 +1619,13 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
     """Seal and reclaim one exact run through the existing fixture cleanup owners."""
     from app.api.v1 import _test_seed_attachments as attachments
     from app.api.v1 import _test_seed_guide_assets as guides
+    from app.application.fixture_prediction_retirement import (
+        FixturePredictionRetirementBlocked,
+        retire_fixture_prediction_work,
+    )
+    from app.db.models.async_job import AsyncJob
     from app.db.models.fixture_run import (
+        FixturePresentationJob,
         FixtureMaintenanceWindow,
         FixtureRun,
         FixtureRunResource,
@@ -1614,6 +1636,7 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
         ManagedOriginalReclaimClaim,
     )
     from app.db.models.user import User
+    from app.services import export_media_retirement
     from app.services import fixture_run_ownership as ownership, storage_access
     from app.services.original_binary import AuthorizedOriginal, Resource
     from app.services.original_playback import PlaybackContext
@@ -1650,6 +1673,64 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
                 )
             return
         scope = await resolve(db)
+        await db.rollback()
+        try:
+            await retire_fixture_prediction_work(
+                run_id=run_id,
+                project_ids=scope.project_ids,
+                task_ids=scope.task_ids,
+            )
+        except FixturePredictionRetirementBlocked as exc:
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "fixture_prediction_retirement_blocked",
+                    "reason": exc.reason,
+                },
+            ) from exc
+        if await resolve(db) != scope:
+            attachments.reject()
+        export_jobs = list(
+            (
+                await db.execute(
+                    select(AsyncJob.id, AsyncJob.project_id)
+                    .where(
+                        AsyncJob.project_id.in_(scope.project_ids),
+                        AsyncJob.kind == "export",
+                        ~select(FixturePresentationJob.job_id)
+                        .where(
+                            FixturePresentationJob.job_id == AsyncJob.id,
+                            FixturePresentationJob.run_id == run_id,
+                            FixturePresentationJob.project_id == AsyncJob.project_id,
+                            FixturePresentationJob.kind == AsyncJob.kind,
+                            FixturePresentationJob.state == "admitted",
+                        )
+                        .exists(),
+                    )
+                    .order_by(AsyncJob.id)
+                )
+            ).all()
+        )
+        await db.rollback()
+        for job_id, project_id in export_jobs:
+            if not await export_media_retirement.retire_fixture_export(
+                db, run_id=run_id, project_id=project_id, job_id=job_id
+            ):
+                raise HTTPException(
+                    409,
+                    detail={
+                        "code": "fixture_export_retirement_unsettled",
+                        "job_id": str(job_id),
+                    },
+                )
+        if await resolve(db) != scope:
+            attachments.reject()
+        active_window = await db.scalar(
+            select(FixtureMaintenanceWindow).where(
+                FixtureMaintenanceWindow.run_id == run_id,
+                FixtureMaintenanceWindow.state != "resumed",
+            )
+        )
         async with db.begin_nested() as preflight:
             try:
                 await attachments.fence(db, scope)
@@ -1660,7 +1741,7 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
             await guard_fixture_project_cleanup(db, list(scope.project_ids))
             await ownership.guard_project_jobs(db, list(scope.project_ids))
             await ownership.guard_dataset_jobs(db, list(scope.dataset_ids))
-            await _guard_fixture_export_anchors(db, scope.project_ids)
+            await _guard_fixture_export_anchors(db, run_id, scope.project_ids)
             await preflight.rollback()
         await guides.preflight(db, scope)
 
@@ -1761,13 +1842,22 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
                 await _finalize_fixture_video_cleanup(db, video_plan, resolve)
 
             await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
-            await _guard_fixture_export_anchors(db, scope.project_ids)
+            await _guard_fixture_export_anchors(db, run_id, scope.project_ids)
             if family == "scale":
                 await _delete_scale_project_data(db, scope, run_id)
             else:
                 await ownership.recover_verified_originals(db, run_id)
                 await ownership.recover_verified_auxiliary_originals(db, run_id)
                 await _delete_owned_project_data(db, scope, run_id)
+            for project_id in scope.project_ids:
+                resource = await db.get(
+                    FixtureRunResource, (run_id, "project", project_id)
+                )
+                if resource is None or resource.state != "published":
+                    raise HTTPException(
+                        409, detail={"code": "fixture_run_scope_changed"}
+                    )
+                resource.state = "retired"
             await attachments.assert_empty(db, plan)
             await db.commit()
             if verified:
@@ -2363,6 +2453,97 @@ class _ImageWorkbenchFixture:
     task_display_prefix: str
     registry_name: str
     registry_url: str
+    image_canvas: Literal["default", "720p", "5k", "8k"]
+
+
+async def _prepare_fixture_image_pyramid(
+    db, ids, dataset_id, item_id, actor_id, dimensions
+):
+    """Keep the fixture admission until the real image owner completes this pyramid."""
+    from app.db.models.fixture_run import FixtureImageWorkIntent
+    from app.services.assets_images import image_gateway, image_policy
+    from scripts.image_media_backfill import accept_image_backfill
+    from yoao_assets_images.contract import (
+        ImageBackfillSelection,
+        ImageSourceSelector,
+        ReadImageSummariesRequest,
+        ReadInternalImageWorkRequest,
+    )
+
+    intent = FixtureImageWorkIntent(
+        operation_id=uuid4(),
+        run_id=ids.run_id,
+        admission_id=ids.admission_id,
+        dataset_id=dataset_id,
+        state="prepared",
+    )
+    db.add(intent)
+    await db.commit()
+    accepted = await accept_image_backfill(
+        ImageBackfillSelection(
+            owner_kind="dataset_item",
+            owner_ids=[item_id],
+            purpose="pyramid",
+            only_missing=True,
+            accepted_before=datetime.now(timezone.utc),
+        ),
+        operation_id=intent.operation_id,
+        policy=image_policy(),
+    )
+    intent.job_id = accepted.work.job_id
+    intent.generation = accepted.work.generation
+    intent.state = "admitted"
+    await db.commit()
+    deadline = asyncio.get_running_loop().time() + 45
+    while True:
+        async with image_gateway() as owner:
+            status = await owner.call(
+                "read_internal_image_work",
+                ReadInternalImageWorkRequest(job_id=intent.job_id),
+            )
+        if status.work.generation != intent.generation:
+            raise RuntimeError("Fixture image pyramid generation changed")
+        if status.work.status in {"failed", "canceled"}:
+            raise RuntimeError(
+                f"Fixture image pyramid {status.work.status}: {status.error_code}"
+            )
+        if status.work.status == "ready":
+            async with image_gateway() as owner:
+                summaries = await owner.call(
+                    "read_image_summaries",
+                    ReadImageSummariesRequest(
+                        actor_id=actor_id,
+                        selectors=[ImageSourceSelector(dataset_item_id=item_id)],
+                        profile_version=image_policy().profile_version,
+                    ),
+                )
+            if len(summaries.items) != 1:
+                raise RuntimeError(
+                    "Fixture image pyramid source is not uniquely resolved"
+                )
+            summary = summaries.items[0]
+            if (
+                summary.source.owner.id != item_id
+                or summary.source.source_drifted
+                or (summary.source.width, summary.source.height) != dimensions
+            ):
+                raise RuntimeError("Fixture image pyramid source changed")
+            if summary.pyramid.status == "ready":
+                if (
+                    summary.pyramid.width,
+                    summary.pyramid.height,
+                ) != dimensions or summary.pyramid.generation is None:
+                    raise RuntimeError("Fixture image pyramid identity changed")
+                break
+            if summary.pyramid.status == "failed":
+                raise RuntimeError(
+                    f"Fixture image pyramid failed: {summary.pyramid.error_code}"
+                )
+        if asyncio.get_running_loop().time() >= deadline:
+            raise RuntimeError("Fixture image pyramid owner work is not ready")
+        await asyncio.sleep(1)
+    intent.state = "settled"
+    await db.commit()
 
 
 async def _build_image_workbench_fixture(
@@ -2464,7 +2645,17 @@ async def _build_image_workbench_fixture(
             db, ids.run_id, "item", item_id, logical_key=f"workbench-{index + 1}"
         )
         await db.commit()
-        raster = _raster_image_bytes(index)
+        width, height = (
+            {
+                "default": (64, 48),
+                "720p": (1280, 720),
+                "5k": (5120, 2880),
+                "8k": (8192, 8192),
+            }[ids.image_canvas]
+            if index == 0
+            else (64, 48)
+        )
+        raster = _raster_image_bytes(index, width=width, height=height)
         item = DatasetItem(
             id=item_id,
             dataset_id=image_dataset.id,
@@ -2472,8 +2663,8 @@ async def _build_image_workbench_fixture(
             file_path="",
             file_type="image",
             file_size=len(raster),
-            width=64,
-            height=48,
+            width=width,
+            height=height,
         )
         allocation, original = await ownership.create_original(
             db,
@@ -2541,6 +2732,10 @@ async def _build_image_workbench_fixture(
     project.ai_enabled = True
     project.ml_backend_pool_id = mock_pool.id
     await db.commit()
+    if ids.image_canvas == "8k":
+        await _prepare_fixture_image_pyramid(
+            db, ids, image_dataset.id, tasks[0].dataset_item_id, admin.id, (8192, 8192)
+        )
 
     return SeedOwned(
         admin_email=admin.email,
@@ -2556,6 +2751,10 @@ class SeedOwnedRequest(BaseModel):
     namespace: str
     suite_id: UUID
     run_id: UUID
+
+
+class SeedWorkbenchRequest(SeedOwnedRequest):
+    image_canvas: Literal["default", "720p", "5k", "8k"] = "default"
 
 
 def _request_owned_scope(payload: SeedOwnedRequest) -> _OwnedFixtureScope:
@@ -2601,6 +2800,39 @@ async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build):
     return result
 
 
+async def _run_existing_fixture_seed(db, run_id: UUID, kind: str, build):
+    """Admit one mutation of already published run resources before physical I/O."""
+    from app.services import fixture_run_ownership as ownership
+    from app.services.storage_access import failure_unsettled, finish
+
+    await ownership.lock_original_scope(db, run_id)
+    admission_id = await ownership.admit(db, run_id, kind)
+    await db.commit()
+    scope = _OwnedFixtureScope(namespace="", run_id=run_id)
+    try:
+        result = await build(scope, admission_id)
+    except BaseException as failure:
+        unsettled = failure_unsettled(failure)
+
+        async def settle_failed() -> None:
+            await db.rollback()
+            if not unsettled:
+                await ownership.settle(db, run_id, admission_id)
+                await db.commit()
+
+        try:
+            await finish(asyncio.create_task(settle_failed()))
+        except BaseException as settlement_failure:
+            raise builtins.BaseExceptionGroup(
+                "Fixture mutation and admission settlement failed",
+                [failure, settlement_failure],
+            ) from None
+        raise
+    await ownership.settle(db, run_id, admission_id)
+    await db.commit()
+    return result
+
+
 @router.post(
     "/seed/owned",
     response_model=SeedOwned,
@@ -2608,7 +2840,7 @@ async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build):
     include_in_schema=False,
 )
 async def seed_owned(
-    payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
+    payload: SeedWorkbenchRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedOwned:
     """Create one independently identified workbench fixture."""
 
@@ -2628,6 +2860,7 @@ async def seed_owned(
                 task_display_prefix=scope.task_display_prefix,
                 registry_name=scope.registry_name,
                 registry_url=scope.registry_url,
+                image_canvas=payload.image_canvas,
             ),
         )
 
@@ -3920,7 +4153,8 @@ async def seed_inject_prediction(
 
 
 class ConfigureRasterMaskRequest(BaseModel):
-    project_id: str
+    run_id: UUID
+    project_id: UUID
     enabled: bool
 
 
@@ -3943,17 +4177,28 @@ async def seed_configure_raster_mask(
     部署级 read/create 总闸仍由当前 API 进程的环境变量决定，
     本辅助端点只改项目级灰度开关。
     """
-    from uuid import UUID
 
-    project = await get_workspace_project(db, project_id=UUID(payload.project_id))
-    if project is None:
-        raise HTTPException(status_code=404, detail="project not found")
-    register_seed_project_projection(db, project.id)
-    project.raster_mask_native_editing_enabled = payload.enabled
-    await db.commit()
-    return ConfigureRasterMaskResponse(
-        project_id=str(project.id),
-        enabled=project.raster_mask_native_editing_enabled,
+    async def build(scope, admission_id):
+        from app.db.models.fixture_run import FixtureRunResource
+
+        project = await get_workspace_project(db, project_id=payload.project_id)
+        if project is None:
+            raise HTTPException(status_code=404, detail="project not found")
+        owned_project = await db.get(
+            FixtureRunResource, (payload.run_id, "project", project.id)
+        )
+        if owned_project is None or owned_project.state != "published":
+            raise HTTPException(422, detail="expected run-owned project")
+        register_seed_project_projection(db, project.id)
+        project.raster_mask_native_editing_enabled = payload.enabled
+        await db.commit()
+        return ConfigureRasterMaskResponse(
+            project_id=str(project.id),
+            enabled=project.raster_mask_native_editing_enabled,
+        )
+
+    return await _run_existing_fixture_seed(
+        db, payload.run_id, "raster_configure", build
     )
 
 
@@ -4499,7 +4744,7 @@ async def _build_video_webcodecs(db, payload, scope, admission_id):
     )
 
 
-class SeedVideoIssueContextHistoryRequest(BaseModel):
+class SeedVideoIssueContextHistoryRequest(SeedOwnedRequest):
     """Only simulate a future context version on an existing E2E video Issue."""
 
     model_config = {"extra": "forbid"}
@@ -4521,61 +4766,94 @@ async def seed_video_issue_context_history(
     payload: SeedVideoIssueContextHistoryRequest,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoIssueContextHistoryResponse:
-    from sqlalchemy import select
+    async def build(scope, admission_id):
+        from app.db.models.dataset import DatasetItem
+        from app.db.models.fixture_run import FixtureRunResource
+        from app.services.labeling_core_read_relations import execute_core_read
+        from app.services.labeling_discussion_relations import annotation_feedback_facts
 
-    from app.services.labeling_core_read_relations import execute_core_read
-    from app.services.labeling_discussion_relations import annotation_feedback_facts
-
-    feedback_result = await execute_core_read(
-        db,
-        select(annotation_feedback_facts)
-        .where(annotation_feedback_facts.id == payload.feedback_id)
-        .execution_options(populate_existing=True),
-    )
-    feedback = feedback_result.scalar_one_or_none()
-    if feedback is None:
-        raise HTTPException(status_code=404, detail="feedback fixture not found")
-    task = (
-        await get_core_row(db, task_row, feedback.task_id) if feedback.task_id else None
-    )
-    project = await get_workspace_project(db, project_id=feedback.project_id)
-    anchor = feedback.anchor_position
-    if (
-        project is None
-        or not (
-            project.name == "E2E Demo Project"
-            or str(project.display_id).startswith("P-E2E-")
+        feedback_result = await execute_core_read(
+            db,
+            select(annotation_feedback_facts)
+            .where(annotation_feedback_facts.id == payload.feedback_id)
+            .execution_options(populate_existing=True),
         )
-        or task is None
-        or task.project_id != feedback.project_id
-        or task.file_type != "video"
-        or feedback.kind != "issue"
-        or feedback.anchor_type != "pixel"
-        or not feedback.is_active
-        or not isinstance(anchor, dict)
-        or not {"x", "y", "frame"} <= anchor.keys()
-    ):
-        raise HTTPException(status_code=422, detail="expected E2E video pixel Issue")
-    # Preserve the old anchor and every other feedback field. The public write schema
-    # remains strict; a reader must ignore this unsupported nested version wholesale.
-    anchor_position = {
-        **anchor,
-        "video_context": {
-            "schema_version": 999,
-            "viewport": {"future_camera": "unsupported"},
-            "frame_range": {"from_frame": 900, "to_frame": 901},
-        },
-    }
-    anchor_position = await LabelingE2EFixtureWrites(db).patch_feedback_anchor(
-        project_id=feedback.project_id,
-        task_id=feedback.task_id,
-        feedback_id=feedback.id,
-        anchor_position=anchor_position,
-    )
-    await db.commit()
-    return SeedVideoIssueContextHistoryResponse(
-        feedback_id=feedback.id, anchor_position=anchor_position
-    )
+        feedback = feedback_result.scalar_one_or_none()
+        if feedback is None:
+            raise HTTPException(status_code=404, detail="feedback fixture not found")
+        task = (
+            await get_core_row(db, task_row, feedback.task_id)
+            if feedback.task_id
+            else None
+        )
+        resolved = await _resolve_fixture_scope(db, scope)
+        project_resource = await db.get(
+            FixtureRunResource, (payload.run_id, "project", feedback.project_id)
+        )
+        anchor = feedback.anchor_position
+        if (
+            feedback.project_id not in resolved.project_ids
+            or project_resource is None
+            or project_resource.state != "published"
+            or task is None
+            or task.id not in resolved.task_ids
+            or task.project_id != feedback.project_id
+            or task.file_type != "video"
+            or feedback.kind != "issue"
+            or feedback.anchor_type != "pixel"
+            or not feedback.is_active
+            or not isinstance(anchor, dict)
+            or not {"x", "y", "frame"} <= anchor.keys()
+        ):
+            raise HTTPException(
+                status_code=422, detail="expected E2E video pixel Issue"
+            )
+        item = (
+            await db.get(DatasetItem, task.dataset_item_id)
+            if task.dataset_item_id
+            else None
+        )
+        item_owned = item is not None and await db.scalar(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == payload.run_id,
+                FixtureRunResource.kind == "item",
+                FixtureRunResource.resource_id == item.id,
+                FixtureRunResource.state == "published",
+            )
+        )
+        if not item_owned or item.dataset_id not in resolved.dataset_ids:
+            raise HTTPException(
+                status_code=422, detail="expected E2E video pixel Issue"
+            )
+        try:
+            await _require_fixture_video_item(db, item)
+        except HTTPException as exc:
+            if exc.status_code != 422:
+                raise
+            raise HTTPException(
+                status_code=422, detail="expected E2E video pixel Issue"
+            ) from exc
+        # Preserve the anchor; the public reader must ignore unsupported versions.
+        anchor_position = {
+            **anchor,
+            "video_context": {
+                "schema_version": 999,
+                "viewport": {"future_camera": "unsupported"},
+                "frame_range": {"from_frame": 900, "to_frame": 901},
+            },
+        }
+        anchor_position = await LabelingE2EFixtureWrites(db).patch_feedback_anchor(
+            project_id=feedback.project_id,
+            task_id=feedback.task_id,
+            feedback_id=feedback.id,
+            anchor_position=anchor_position,
+        )
+        await db.commit()
+        return SeedVideoIssueContextHistoryResponse(
+            feedback_id=feedback.id, anchor_position=anchor_position
+        )
+
+    return await _run_owned_seed(db, payload, "video_issue_history", build)
 
 
 class SeedVideoWebCodecsTransitionRequest(BaseModel):
@@ -4745,7 +5023,8 @@ class SeedNativeMaskPromptSource(BaseModel):
 
 
 class SeedNativeMaskCandidateRequest(BaseModel):
-    task_id: str
+    run_id: UUID
+    task_id: UUID
     variant: Literal[
         "default",
         "negative_scribble",
@@ -4773,8 +5052,17 @@ async def seed_native_mask_candidate(
     db: AsyncSession = Depends(get_db),
 ) -> SeedNativeMaskCandidateResponse:
     """Issue a real signed receipt for a deterministic transient Mask candidate."""
+
+    async def build(scope, admission_id):
+        return await _seed_native_mask_candidate(db, payload, scope)
+
+    return await _run_existing_fixture_seed(
+        db, payload.run_id, "native_mask_candidate", build
+    )
+
+
+async def _seed_native_mask_candidate(db, payload, scope):
     import hashlib
-    from uuid import UUID
 
     from yoao_protocol_v2 import (
         CocoRlePayload,
@@ -4782,15 +5070,13 @@ async def seed_native_mask_candidate(
         native_mask_candidate_id,
     )
 
-    from app.db.models.dataset import DatasetItem
     from app.services.inference_topology_data import InferenceTopologyData
     from app.services.ai_mask_receipt import issue_ai_mask_receipt
     from app.utils.raster_mask_rle import coco_rle_bbox_norm, encode_coco_rle
 
-    task = await get_core_row(db, task_row, UUID(payload.task_id))
-    if task is None or task.dataset_item_id is None:
-        raise HTTPException(status_code=404, detail="task fixture not found")
-    item = await db.get(DatasetItem, task.dataset_item_id)
+    task, _user, item = await _fixture_raster_task(
+        db, scope, payload.run_id, payload.task_id
+    )
     project = await get_workspace_project(db, project_id=task.project_id)
     if item is None or project is None or item.width is None or item.height is None:
         raise HTTPException(status_code=404, detail="media fixture not found")
@@ -5031,13 +5317,14 @@ RasterMaskFixtureVariant = Literal[
     "diagonal_two",
     "island",
     "smart_scribble_source",
-    "corrupt",
+    "fault_source",
 ]
 RasterMaskFixtureCanvas = Literal["default", "media", "5k", "8k"]
 
 
 class InjectRasterMaskRequest(BaseModel):
-    task_id: str
+    run_id: UUID
+    task_id: UUID
     user_email: str
     variant: RasterMaskFixtureVariant = "single"
     label: str = "car"
@@ -5054,6 +5341,14 @@ class InjectRasterMaskResponse(BaseModel):
 class InjectRasterPredictionResponse(BaseModel):
     prediction_id: str
     mask: dict
+
+
+class PreparedRasterFaultRequest(SeedOwnedRequest):
+    project_id: UUID
+    task_id: UUID
+    user_email: str
+    healthy_annotation_id: UUID
+    corrupt_annotation_id: UUID
 
 
 _SMART_SCRIBBLE_SOURCE_OUTLINE = (
@@ -5152,14 +5447,10 @@ def _make_test_raster_mask(
     elif variant == "smart_scribble_source":
         return list(_make_smart_scribble_mask(width, height))
     else:
-        # 损坏 fixture 必须拥有独有内容：保留标记矩形，并在首行写入 64 位随机
-        # 位图，使每次注入的 RLE 摘要唯一。这样它建立的是自己的存储归属，随后
-        # 删除物理对象只影响本夹具，绝不会波及共享或未知的同内容行。
+        # Distinct initial content prevents the two fault cases from sharing
+        # a logical reference; exclusivity is proved by the offline coordinator.
         if len(pixels) < 64:
-            raise HTTPException(
-                status_code=422,
-                detail="corrupt mask fixture needs 64 pixels for unique content",
-            )
+            raise HTTPException(422, detail="fault source requires at least 64 pixels")
         _rect(6, 30, 18, 42)
         for offset, byte in enumerate(secrets.token_bytes(8)):
             for bit in range(8):
@@ -5187,46 +5478,148 @@ def _make_sparse_test_rle(width: int, height: int) -> dict:
     }
 
 
-async def _delete_owned_raster_mask_object(db, reference) -> None:
-    """Remove the physical bytes this fixture just published for itself.
+async def _fixture_raster_task(db, scope, run_id, task_id, user_email=None):
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.dataset_asset import DatasetAsset, DatasetAssetLocation
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
+    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 
-    The ready owner row is left untouched, so the annotation still points at a
-    pinned saved object; only its bytes are gone. Every corrupt fixture writes
-    unique content, therefore this deletes exactly one object it owns and never
-    an object shared with healthy rows.
-    """
-    from sqlalchemy import select
-    from sqlalchemy.ext.asyncio import AsyncSession
-
-    from app.db.models.raster_mask_object import RasterMaskObject
-    from app.services import raster_object_storage as physical, storage_access
-    from app.services.storage import storage_service
-
-    async with AsyncSession(
-        bind=storage_access.engine(db), expire_on_commit=False
-    ) as owned:
-        try:
-            row = await owned.scalar(
-                select(RasterMaskObject).where(
-                    RasterMaskObject.logical_key == reference["object_key"],
-                    RasterMaskObject.state == "ready",
-                )
-            )
-            if row is None:
-                raise HTTPException(
-                    status_code=409, detail="corrupt fixture owner missing"
-                )
-            receipt = physical.snapshot(row)
-        finally:
-            await owned.rollback()
-    deletion = asyncio.create_task(
-        asyncio.to_thread(physical.delete, storage_service.client, receipt)
+    task = await get_core_row(db, task_row, task_id)
+    user = (
+        await IdentityE2EFixtures(db).find(user_email)
+        if user_email is not None
+        else None
     )
-    try:
-        await asyncio.shield(deletion)
-    except asyncio.CancelledError:
-        await storage_access.finish(deletion)
-        raise
+    if task is None or (user_email is not None and user is None):
+        raise HTTPException(404, detail="task or user not found")
+    resolved = await _resolve_fixture_scope(db, scope)
+    item = (
+        await db.get(DatasetItem, task.dataset_item_id)
+        if task.dataset_item_id
+        else None
+    )
+    if (
+        task.project_id not in resolved.project_ids
+        or task.id not in resolved.task_ids
+        or (user is not None and user.id not in resolved.user_ids)
+        or item is None
+        or item.dataset_id not in resolved.dataset_ids
+        or task.file_type != "image"
+        or task.file_path != item.file_path
+    ):
+        raise HTTPException(422, detail="expected run-owned raster task and user")
+    resources = [
+        ("project", task.project_id),
+        ("dataset", item.dataset_id),
+        ("item", item.id),
+    ]
+    if user is not None:
+        resources.append(("user", user.id))
+    for kind, identifier in resources:
+        resource = await db.get(FixtureRunResource, (run_id, kind, identifier))
+        if resource is None or resource.state != "published":
+            raise HTTPException(422, detail="expected run-owned raster resources")
+    verified = await db.scalar(
+        select(ManagedOriginalCreation.id)
+        .join(
+            FixtureRunResource,
+            FixtureRunResource.creation_id == ManagedOriginalCreation.id,
+        )
+        .join(
+            DatasetAssetLocation,
+            DatasetAssetLocation.creation_id == ManagedOriginalCreation.id,
+        )
+        .join(DatasetAsset, DatasetAsset.id == DatasetAssetLocation.asset_id)
+        .where(
+            FixtureRunResource.run_id == run_id,
+            FixtureRunResource.kind == "creation",
+            FixtureRunResource.item_id == item.id,
+            FixtureRunResource.state == "published",
+            DatasetAsset.dataset_item_id == item.id,
+            DatasetAsset.verification_state == "verified",
+            DatasetAsset.checksum_value == ManagedOriginalCreation.sha256,
+            DatasetAsset.size_bytes == ManagedOriginalCreation.size_bytes,
+            ManagedOriginalCreation.status == "verified",
+            ManagedOriginalCreation.settled_at.is_not(None),
+            ManagedOriginalCreation.version_id.is_not(None),
+            ManagedOriginalCreation.version_id != "null",
+            ManagedOriginalCreation.dataset_id == item.dataset_id,
+            ManagedOriginalCreation.object_key == item.file_path,
+            DatasetAssetLocation.role == "managed_original",
+            DatasetAssetLocation.reference_state == "present",
+            DatasetAssetLocation.location_id == ManagedOriginalCreation.location_id,
+            DatasetAssetLocation.bucket == ManagedOriginalCreation.bucket,
+            DatasetAssetLocation.object_key == item.file_path,
+        )
+    )
+    if verified is None:
+        raise HTTPException(422, detail="expected run-owned raster original")
+    return task, user, item
+
+
+@router.post(
+    "/seed/raster-fault-verify", response_model=SeedCleanup, include_in_schema=False
+)
+async def verify_prepared_raster_fault(
+    payload: PreparedRasterFaultRequest, db: AsyncSession = Depends(get_db)
+) -> SeedCleanup:
+    """Verify exact precreated fixture references without probing or mutating storage."""
+    from app.db.models.fixture_run import FixtureRun, FixtureRunResource
+    from app.services.labeling_core_read_relations import annotation_row
+
+    async def build(scope, admission_id):
+        run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
+        if (
+            run is None
+            or run.family != "owned"
+            or run.parent_run_id != payload.suite_id
+            or run.scope_key != payload.namespace
+        ):
+            raise HTTPException(422, detail="expected owned raster fault run")
+        task, user, _item = await _fixture_raster_task(
+            db, scope, payload.run_id, payload.task_id, payload.user_email
+        )
+        identifiers = (payload.healthy_annotation_id, payload.corrupt_annotation_id)
+        if task.project_id != payload.project_id or identifiers[0] == identifiers[1]:
+            raise HTTPException(422, detail="expected owned raster fault annotations")
+        keys = []
+        for identifier in identifiers:
+            resource = await db.get(
+                FixtureRunResource, (payload.run_id, "annotation", identifier)
+            )
+            annotation = await get_core_row(db, annotation_row, identifier)
+            if (
+                resource is None
+                or resource.state != "published"
+                or annotation is None
+                or annotation.project_id != task.project_id
+                or annotation.task_id != task.id
+                or annotation.user_id != user.id
+                or annotation.annotation_type != "raster_mask"
+                or not annotation.is_active
+                or not isinstance(annotation.geometry, dict)
+            ):
+                raise HTTPException(
+                    422, detail="expected owned raster fault annotations"
+                )
+            mask = annotation.geometry.get("mask")
+            if not isinstance(mask, dict) or not isinstance(
+                mask.get("object_key"), str
+            ):
+                raise HTTPException(
+                    422, detail="expected owned raster fault annotations"
+                )
+            keys.append(mask["object_key"])
+        if keys[0] == keys[1]:
+            raise HTTPException(
+                422, detail="raster fault annotations must not share content"
+            )
+        return SeedCleanup()
+
+    return await _run_existing_fixture_seed(
+        db, payload.run_id, "raster_fault_verify", build
+    )
 
 
 @router.post(
@@ -5243,32 +5636,30 @@ async def seed_inject_raster_mask(
     端点只在隔离 E2E / 测试数据库挂载，刻意绕过 create gate，以便在
     ``read=true/create=false`` 矩阵中构造“已有内容可读”的真实基线。
     """
-    from uuid import UUID
 
+    async def build(scope, admission_id):
+        return await _seed_inject_raster_mask(db, payload, scope)
+
+    return await _run_existing_fixture_seed(db, payload.run_id, "raster_mask", build)
+
+
+async def _seed_inject_raster_mask(db, payload, scope):
     from app.db.models.annotation import Annotation
-    from app.db.models.dataset import DatasetItem
-    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
     from app.services.raster_mask_storage import (
         store_coco_rle,
         lock_raster_mask_references,
     )
     from app.utils.raster_mask_rle import encode_coco_rle
 
-    task = await get_core_row(db, task_row, UUID(payload.task_id))
-    user = await IdentityE2EFixtures(db).find(payload.user_email)
-    if task is None or user is None:
-        raise HTTPException(status_code=404, detail="task or user not found")
+    task, user, item = await _fixture_raster_task(
+        db, scope, payload.run_id, payload.task_id, payload.user_email
+    )
 
     if payload.canvas in {"5k", "8k"} and payload.variant != "single":
         raise HTTPException(
             status_code=422,
             detail="large-canvas raster fixture only supports the single variant",
         )
-    item = (
-        await db.get(DatasetItem, task.dataset_item_id)
-        if task.dataset_item_id is not None
-        else None
-    )
     if payload.canvas == "media":
         if item is None or item.width is None or item.height is None:
             raise HTTPException(status_code=404, detail="media fixture not found")
@@ -5286,17 +5677,9 @@ async def seed_inject_raster_mask(
         )
     else:
         rle = _make_sparse_test_rle(width, height)
-    if item is not None and payload.canvas != "media":
-        item.width = width
-        item.height = height
-    if payload.variant == "corrupt":
-        # Store the fixture's own content, then remove exactly the saved object.
-        # The owner row stays pinned and ready, so readers diagnose genuine
-        # missing masks content instead of an unknown/unpinned reference.
-        reference = await store_coco_rle(rle, db=db)
-        await _delete_owned_raster_mask_object(db, reference)
-    else:
-        reference = await store_coco_rle(rle, db=db)
+    if (item.width, item.height) != (width, height):
+        raise HTTPException(422, detail="raster canvas does not match its original")
+    reference = await store_coco_rle(rle, db=db)
 
     annotation = Annotation(
         task_id=task.id,
@@ -5313,12 +5696,21 @@ async def seed_inject_raster_mask(
     annotation = (await LabelingE2EFixtureWrites(db).insert_annotations([annotation]))[
         0
     ]
+    from app.services import fixture_run_ownership as ownership
+
+    await ownership.reserve(
+        db,
+        payload.run_id,
+        "annotation",
+        annotation.id,
+        logical_key=f"raster-{annotation.id.hex}",
+        published=True,
+    )
     await LabelingE2EFixtureWrites(db).patch_task(
         task, total_annotations=int(task.total_annotations or 0) + 1
     )
     annotation_id = str(annotation.id)
-    if payload.variant != "corrupt":
-        await lock_raster_mask_references(db, reference)
+    await lock_raster_mask_references(db, reference)
     await db.commit()
     return InjectRasterMaskResponse(
         annotation_id=annotation_id,
@@ -5337,6 +5729,16 @@ async def seed_inject_raster_prediction(
     db: AsyncSession = Depends(get_db),
 ) -> InjectRasterPredictionResponse:
     """Create a raw raster candidate fixture for the accept write-gate E2E."""
+
+    async def build(scope, admission_id):
+        return await _seed_inject_raster_prediction(db, payload, scope)
+
+    return await _run_existing_fixture_seed(
+        db, payload.run_id, "raster_prediction", build
+    )
+
+
+async def _seed_inject_raster_prediction(db, payload, scope):
     from app.services.labeling_write_scope import capture_labeling_write_scope
     from app.services.prediction import PredictionService
     from app.services.raster_mask_storage import (
@@ -5345,11 +5747,13 @@ async def seed_inject_raster_prediction(
     )
     from app.utils.raster_mask_rle import encode_coco_rle
 
-    task = await get_core_row(db, task_row, UUID(payload.task_id))
-    if task is None:
-        raise HTTPException(status_code=404, detail="task not found")
+    task, _user, item = await _fixture_raster_task(
+        db, scope, payload.run_id, payload.task_id, payload.user_email
+    )
+    if (item.width, item.height) != (64, 48):
+        raise HTTPException(422, detail="raster prediction requires a 64x48 original")
     rle = encode_coco_rle(_make_test_raster_mask("single"), 64, 48)
-    reference = await store_coco_rle(rle)
+    reference = await store_coco_rle(rle, db=db)
     write_scope = capture_labeling_write_scope(
         task,
         actor_id=None,

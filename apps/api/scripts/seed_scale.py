@@ -3,8 +3,9 @@
 Usage: python scripts/seed_scale.py --run-id UUID [N [M [K]]]
        python scripts/seed_scale.py --run-id UUID --purge
 
-The run ledger owns the exact project and dataset IDs. An interrupted admission
-remains a blocker; it is never treated as proof that the creator stopped.
+The host coordinator must register the run before this command starts. The run
+ledger owns the exact project and dataset IDs. An interrupted admission remains
+a blocker; it is never treated as proof that the creator stopped.
 """
 
 import argparse
@@ -147,12 +148,13 @@ async def _main() -> None:
     args = parser.parse_args()
     owner_engine = None
     try:
+        from scripts.fixture_tools import configure_fixture_tools_path
+
+        configure_fixture_tools_path()
+        from fixture_suite_coordinator import verified_fixture_owner_url
+
         async with Session() as db:
             await assert_isolated_test_seed_database(db)
-        from fixture_suite_coordinator import (
-            prepare_fixture_suite,
-            verified_fixture_owner_url,
-        )
 
         owner_engine = create_async_engine(
             await verified_fixture_owner_url(), echo=False, hide_parameters=True
@@ -165,7 +167,6 @@ async def _main() -> None:
                 await _purge(db, args.run_id)
             print(f"[seed_scale] purged run {args.run_id}")
         else:
-            await prepare_fixture_suite(str(args.run_id), "scale")
             await seed(args.n, args.m, args.k, run_id=args.run_id)
     finally:
         if owner_engine is not None:

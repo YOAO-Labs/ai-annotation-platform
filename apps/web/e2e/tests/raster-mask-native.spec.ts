@@ -516,14 +516,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     page,
     seed,
   }) => {
-    const data = await seed.owned();
-    const taskId = data.task_ids[0];
-    const healthy = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
-    const corrupt = await seed.injectRasterMask({
-      taskId,
-      userEmail: data.annotator_email,
-      variant: "corrupt",
-    });
+    const { data, taskId, healthy, corrupt } = await seed.preparedRasterFault("diagnosis");
     await openTask(page, seed, data, taskId);
 
     await expect(page.getByTestId(`box-list-item-${healthy.annotation_id}`)).toContainText("px", {
@@ -567,14 +560,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     page,
     seed,
   }) => {
-    const data = await seed.owned();
-    const taskId = data.task_ids[0];
-    const healthy = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
-    const corrupt = await seed.injectRasterMask({
-      taskId,
-      userEmail: data.annotator_email,
-      variant: "corrupt",
-    });
+    const { data, taskId, healthy, corrupt } = await seed.preparedRasterFault("retry");
     const reads = new Map<string, number>();
     page.on("request", (request) => {
       for (const id of [healthy.annotation_id, corrupt.annotation_id]) {
@@ -603,7 +589,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     request,
     seed,
   }) => {
-    const data = await seed.owned();
+    const data = await seed.owned(undefined, { imageCanvas: "8k" });
     const taskId = data.task_ids[0];
     const fixture = await seed.injectRasterMask({
       taskId,
@@ -611,6 +597,11 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
       canvas: "8k",
     });
     await openTask(page, seed, data, taskId);
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute(
+      "data-image-identity",
+      /\/pyramid/,
+    );
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
     const token = await seed.accessToken(data.annotator_email);
     const before = await getMaskContent(request, fixture.annotation_id, token);
     expect(before.size).toEqual([8192, 8192]);
