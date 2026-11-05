@@ -8,8 +8,8 @@ import logging
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any
-from uuid import UUID
 from urllib.parse import unquote, urlsplit
+from uuid import UUID
 
 from yoao_inference_contract.routing import (
     RoutingCommand,

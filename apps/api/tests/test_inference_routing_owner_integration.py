@@ -1058,7 +1058,7 @@ async def test_scoped_inference_logins_enforce_identity_and_capabilities(test_en
     await assert_owned_test_database(test_engine)
     owner = await asyncpg.connect(_owner_dsn(test_engine))
     roles = []
-    password = uuid.uuid4().hex
+    passwords = []
     suffix = uuid.uuid4().hex
     try:
         for capability, schema, functions in (
@@ -1066,20 +1066,22 @@ async def test_scoped_inference_logins_enforce_identity_and_capabilities(test_en
             ("health", "aap_inference_health_observation_v1", health_functions),
         ):
             role = f"fixture_{capability}_{suffix}"
+            password = uuid.uuid4().hex
             await owner.execute(
                 f'CREATE ROLE "{role}" LOGIN NOINHERIT PASSWORD \'{password}\''
             )
             roles.append(role)
+            passwords.append(password)
             await owner.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
             for name, arguments in functions:
                 await owner.execute(
                     f'GRANT EXECUTE ON FUNCTION "{schema}"."{name}"({arguments}) TO "{role}"'
                 )
         routing_url = test_engine.url.set(
-            drivername="postgresql", username=roles[0], password=password
+            drivername="postgresql", username=roles[0], password=passwords[0]
         ).render_as_string(hide_password=False)
         health_url = test_engine.url.set(
-            drivername="postgresql", username=roles[1], password=password
+            drivername="postgresql", username=roles[1], password=passwords[1]
         ).render_as_string(hide_password=False)
         routing = RoutingRuntime(routing_url)
         health = BackendHealthObservationPostgresData(health_url)
