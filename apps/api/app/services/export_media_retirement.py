@@ -54,6 +54,21 @@ def now():
     return datetime.now(timezone.utc)
 
 
+async def fixture_owner_session(db):
+    """Check the authenticated owner, not a caller-controlled current role."""
+    return bool(
+        await db.scalar(
+            text(
+                "SELECT pg_catalog.pg_has_role(SESSION_USER, "
+                "pg_catalog.pg_get_userbyid(c.relowner), 'MEMBER') "
+                "FROM pg_catalog.pg_class AS c "
+                "WHERE c.oid = CAST("
+                "'public.fixture_export_zip_retirements' AS pg_catalog.regclass)"
+            )
+        )
+    )
+
+
 def reject():
     raise ContentError("export_media_retirement_changed")
 
@@ -329,6 +344,8 @@ async def _guard(db, receipt, permit, *, zip_output=None):
 
 
 async def _physical_delete(db, receipt, *, zip_output=None):
+    if receipt.fixture_run_id is not None and not await fixture_owner_session(db):
+        raise ContentError("fixture_export_owner_required")
     ref = zip_output.storage_ref if zip_output is not None else receipt.storage_ref
     permit = await transfer._acquire(db, receipt, uuid.UUID(ref["location_id"]))
     failure, accounting = None, None
@@ -394,6 +411,9 @@ async def _cleanup_one(db, identifier):
     if row is None or row.state == "deleted":
         await db.commit()
         return False
+    if row.fixture_run_id is not None and not await fixture_owner_session(db):
+        await db.commit()
+        return False
     row.last_attempted_at = now()
     if await has_operations(db, row) or not await attempt_ended(db, row):
         await db.commit()
@@ -420,6 +440,8 @@ async def _cleanup_one(db, identifier):
 
 async def retire_fixture_export(db, *, run_id, project_id, job_id):
     """Retire one sealed fixture Job's exact independently owned delivery."""
+    if not await fixture_owner_session(db):
+        raise ContentError("fixture_export_owner_required")
     from app.db.models.export_output import ExportOutput
     from app.db.models.fixture_run import FixtureRun, FixtureRunResource
     from app.services import export_outputs
@@ -564,7 +586,7 @@ async def cleanup(db, *, limit=100):
     identifiers = list(
         await db.scalars(
             select(Bundle.id)
-            .where(candidate_predicate(now()))
+            .where(candidate_predicate(now()), Bundle.fixture_run_id.is_(None))
             .order_by(
                 Bundle.last_attempted_at.asc().nulls_first(),
                 Bundle.created_at,

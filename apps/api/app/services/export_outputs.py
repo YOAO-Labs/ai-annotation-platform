@@ -704,6 +704,11 @@ async def _cleanup_one(db, identifier, counters):
         if bundle is None
         else None
     )
+    if (
+        (bundle is not None and bundle.fixture_run_id is not None) or native is not None
+    ) and not await export_media_retirement.fixture_owner_session(db):
+        await db.commit()
+        return False
     native_eligible = native is not None and bool(
         await db.scalar(
             text("SELECT public.fixture_native_export_cleanup_eligible(:output_id)"),
@@ -888,6 +893,16 @@ async def cleanup(db, *, limit=100):
                     & export_media_retirement.pending_zip_predicate(current),
                 ),
                 ~export_media_retirement.zip_operations_predicate(),
+                ~select(ExportMediaBundle.id)
+                .where(
+                    ExportMediaBundle.id == ExportOutput.media_bundle_id,
+                    ExportMediaBundle.fixture_run_id.is_not(None),
+                )
+                .exists(),
+                text(
+                    "NOT EXISTS (SELECT 1 FROM public.fixture_native_export_lifetime("
+                    "export_outputs.job_id, export_outputs.project_id))"
+                ),
             )
             .order_by(
                 ExportOutput.last_attempted_at.asc().nulls_first(),
