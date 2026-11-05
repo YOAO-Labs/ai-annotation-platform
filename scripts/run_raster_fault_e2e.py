@@ -10,6 +10,7 @@ An interrupted or failed run retains its owner journal and resources.
 from __future__ import annotations
 
 import asyncio
+import builtins
 from contextlib import closing
 import ctypes
 import hashlib
@@ -17,6 +18,7 @@ import json
 import os
 from pathlib import Path
 import secrets
+import stat
 import subprocess
 import tempfile
 import time
@@ -35,6 +37,7 @@ from fixture_store import (  # noqa: E402
     until_ready,
     verify_prerequisites,
 )
+from raster_consumer_process import run_product  # noqa: E402
 from storage_s3_contract import ContractError, require  # noqa: E402
 from verify_storage_candidates import Owner, command, host_port, private_write  # noqa: E402
 from worktree_env import load_identity, state_path, topology  # noqa: E402
@@ -645,30 +648,6 @@ def configured_attempts(arguments):
     return retries + 1
 
 
-def run_product(command, environment, api, relay):
-    child = subprocess.Popen(command, cwd=ROOT / "apps/web", env=environment)
-    try:
-        while True:
-            try:
-                result = child.wait(timeout=0.2)
-                require(api.poll() is None, "raster_api_exited")
-                require(
-                    relay.seed.poll() is None and relay.failure is None,
-                    "raster_fixture_relay_exited",
-                )
-                return result
-            except subprocess.TimeoutExpired:
-                require(api.poll() is None, "raster_api_exited")
-                require(
-                    relay.seed.poll() is None and relay.failure is None,
-                    "raster_fixture_relay_exited",
-                )
-    finally:
-        if child.poll() is None:
-            child.terminate()
-            child.wait()
-
-
 def inside(path, arguments):
     # Adopt every orphaned descendant so a successful exit proves the browser,
     # servers and fixture transports have actually stopped before destruction.
@@ -745,63 +724,129 @@ def inside(path, arguments):
         }
     )
     entries = [entry for group in cases.values() for entry in group]
-    with tempfile.TemporaryDirectory(prefix="aap-raster-", dir="/tmp") as socket_dir:
-        socket_path = str(Path(socket_dir) / "fixture.sock")
-        browser_environment["PLAYWRIGHT_RASTER_FIXTURE_SOCKET"] = socket_path
-        relay = RasterFixtureRelay(socket_path, suite, entries, restricted)
-        api = None
+    socket_dir = Path(tempfile.mkdtemp(prefix="aap-raster-", dir="/tmp"))
+    directory_identity = socket_dir.stat()
+    socket_path = socket_dir / "fixture.sock"
+    owner.data["raster"]["relay_socket"] = str(socket_path)
+    owner.save()
+    browser_environment["PLAYWRIGHT_RASTER_FIXTURE_SOCKET"] = str(socket_path)
+    relay = RasterFixtureRelay(str(socket_path), suite, entries, restricted)
+    api = None
+    result = None
+    failure = None
+    shutdown_failures = []
+
+    def record_unsettled(reason):
+        recorded = Owner(path)
+        recorded.data["raster_shutdown"] = {"state": "unsettled", "reason": reason}
+        recorded.save()
+
+    def retain_unsettled(reason):
         try:
-            api = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "uvicorn",
-                    "app.main:app",
-                    "--host",
-                    "127.0.0.1",
-                    "--port",
-                    str(api_port),
-                ],
-                cwd=ROOT / "apps/api",
-                env=api_environment,
+            record_unsettled(reason)
+        except BaseException as error:
+            shutdown_failures.append(error)
+
+    try:
+        api = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(api_port),
+            ],
+            cwd=ROOT / "apps/api",
+            env=api_environment,
+        )
+        deadline = time.monotonic() + 120
+        while not http_ready(api_port, "/health/db"):
+            require(
+                api.poll() is None and relay.seed.poll() is None,
+                "raster_api_start_failed",
             )
-            deadline = time.monotonic() + 120
-            while not http_ready(api_port, "/health/db"):
-                require(
-                    api.poll() is None and relay.seed.poll() is None,
-                    "raster_api_start_failed",
-                )
-                require(time.monotonic() < deadline, "raster_api_start_timeout")
-                time.sleep(0.1)
-            result = run_product(
-                [
-                    "pnpm",
-                    "exec",
-                    "playwright",
-                    "test",
-                    "--config=playwright.mask-product.config.ts",
-                    "e2e/tests/raster-mask-native.spec.ts",
-                    "e2e/tests/mask-advanced-operations.spec.ts",
-                    "e2e/tests/mask-editor.spec.ts",
-                    "--project=chromium",
-                    *arguments,
-                ],
-                browser_environment,
-                api,
-                relay,
+            require(time.monotonic() < deadline, "raster_api_start_timeout")
+            time.sleep(0.1)
+        result = run_product(
+            [
+                "pnpm",
+                "exec",
+                "playwright",
+                "test",
+                "--config=playwright.mask-product.config.ts",
+                "e2e/tests/raster-mask-native.spec.ts",
+                "e2e/tests/mask-advanced-operations.spec.ts",
+                "e2e/tests/mask-editor.spec.ts",
+                "--project=chromium",
+                *arguments,
+            ],
+            browser_environment,
+            api,
+            relay,
+            cwd=ROOT / "apps/web",
+        )
+    except BaseException as error:
+        failure = error
+        retain_unsettled("raster_consumer_shutdown_failed")
+    if api is not None and api.poll() is None:
+        try:
+            api.terminate()
+        except ProcessLookupError:
+            pass
+        except BaseException as error:
+            shutdown_failures.append(error)
+            retain_unsettled("raster_api_shutdown_failed")
+    try:
+        relay.close(on_unsettled=record_unsettled)
+    except BaseException as error:
+        shutdown_failures.append(error)
+        if not relay.unsettled:
+            retain_unsettled("raster_fixture_shutdown_failed")
+    if api is not None:
+        try:
+            api.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            shutdown_failures.append(ContractError("raster_api_shutdown_unsettled"))
+            retain_unsettled("raster_api_shutdown_unsettled")
+        except BaseException as error:
+            shutdown_failures.append(error)
+            retain_unsettled("raster_api_shutdown_failed")
+    if failure is not None:
+        shutdown_failures.insert(0, failure)
+    elif result and shutdown_failures:
+        shutdown_failures.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
+    if shutdown_failures:
+        if len(shutdown_failures) == 1:
+            raise shutdown_failures[0]
+        raise builtins.BaseExceptionGroup(
+            "raster consumer and shutdown failures", shutdown_failures
+        )
+    try:
+        require_no_children()
+    except BaseException as error:
+        retain_unsettled("raster_consumer_descendants_still_running")
+        if shutdown_failures:
+            raise builtins.BaseExceptionGroup(
+                "raster descendant and journal failures", [error, *shutdown_failures]
             )
-        finally:
-            try:
-                relay.close()
-            finally:
-                if api is not None and api.poll() is None:
-                    api.terminate()
-                    api.wait(timeout=12)
-    require_no_children()
+        raise
     if result:
         return result
+    observed = socket_dir.lstat()
+    require(
+        stat.S_ISDIR(observed.st_mode)
+        and (observed.st_dev, observed.st_ino)
+        == (directory_identity.st_dev, directory_identity.st_ino)
+        and stat.S_ISSOCK(socket_path.lstat().st_mode),
+        "raster_relay_socket_identity_changed",
+    )
+    socket_path.unlink()
+    socket_dir.rmdir()
     browser_environment.pop("PLAYWRIGHT_RASTER_FIXTURE_SOCKET")
-    result = subprocess.run(
+    result = run_product(
         [
             "pnpm",
             "exec",
@@ -811,15 +856,38 @@ def inside(path, arguments):
             "--project=chromium",
             *arguments,
         ],
+        browser_environment,
+        None,
+        None,
         cwd=ROOT / "apps/web",
-        env=browser_environment,
-    ).returncode
+    )
     require_no_children()
     if result == 0:
         owner = Owner(path)
         owner.data["raster"]["state"] = "consumers_stopped"
         owner.save()
     return result
+
+
+def failure_evidence(error):
+    """Retain causal identities without exposing arbitrary exception text."""
+    value = {"type": type(error).__name__}
+    if isinstance(error, builtins.BaseExceptionGroup):
+        value["errors"] = [failure_evidence(item) for item in error.exceptions]
+    elif isinstance(error, (ContractError, InterruptedError)):
+        value["code"] = str(error)
+    elif isinstance(error, RuntimeError):
+        text = str(error)
+        if (
+            text.startswith("raster_consumer_exit_")
+            and text.removeprefix("raster_consumer_exit_").lstrip("-").isdigit()
+        ):
+            value["code"] = text
+    if isinstance(error, OSError) and error.errno is not None:
+        value["errno"] = error.errno
+    if error.__cause__ is not None:
+        value["cause"] = failure_evidence(error.__cause__)
+    return value
 
 
 def outer(arguments):
@@ -925,7 +993,7 @@ def outer(arguments):
             return 0
         except BaseException as exc:
             owner = Owner(manifest)
-            owner.data["raster_failure"] = type(exc).__name__
+            owner.data["raster_failure"] = failure_evidence(exc)
             owner.save()
             raise
 
@@ -936,9 +1004,7 @@ if __name__ == "__main__":
             raise SystemExit(inside(sys.argv[2], sys.argv[3:]))
         raise SystemExit(outer(sys.argv[1:]))
     except Exception as error:
-        detail = (
-            str(error) if isinstance(error, ContractError) else type(error).__name__
-        )
+        detail = failure_evidence(error)
         if len(sys.argv) >= 3 and sys.argv[1] == "--inside":
             try:
                 owner = Owner(sys.argv[2])
@@ -948,5 +1014,5 @@ if __name__ == "__main__":
                 print(
                     "Raster fault failure journal could not be updated", file=sys.stderr
                 )
-        print(f"Raster fault launcher failed: {detail}", file=sys.stderr)
+        print(f"Raster fault launcher failed: {json.dumps(detail)}", file=sys.stderr)
         raise SystemExit(1) from None
