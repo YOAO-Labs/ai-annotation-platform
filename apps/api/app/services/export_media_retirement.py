@@ -11,7 +11,7 @@ import logging
 import re
 import uuid
 
-from sqlalchemy import Text, and_, cast, func, literal, or_, select
+from sqlalchemy import Text, and_, cast, func, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import aliased, load_only
 
@@ -33,6 +33,7 @@ _FIELDS = (
     "project_id",
     "job_id",
     "zip_output_id",
+    "fixture_run_id",
     "input_digest",
     "input_schema",
     "object_count",
@@ -415,6 +416,105 @@ async def _cleanup_one(db, identifier):
     current.state = "deleted"
     await db.commit()
     return True
+
+
+async def retire_fixture_export(db, *, run_id, project_id, job_id):
+    """Retire one sealed fixture Job's exact independently owned delivery."""
+    from app.db.models.export_output import ExportOutput
+    from app.db.models.fixture_run import FixtureRun, FixtureRunResource
+    from app.services import export_outputs
+
+    scope = await db.scalar(
+        select(FixtureRun.id)
+        .join(FixtureRunResource, FixtureRunResource.run_id == FixtureRun.id)
+        .where(
+            FixtureRun.id == run_id,
+            FixtureRun.state == "sealing",
+            FixtureRunResource.kind == "project",
+            FixtureRunResource.resource_id == project_id,
+            FixtureRunResource.state == "published",
+        )
+    )
+    job = await db.get(AsyncJob, job_id, populate_existing=True)
+    if (
+        scope is None
+        or job is None
+        or job.kind != "export"
+        or job.project_id != project_id
+    ):
+        raise ContentError("fixture_export_owner_changed")
+    if job.status not in _TERMINAL:
+        await db.commit()
+        return False
+    owners = (
+        await db.execute(
+            select(Bundle.id, Bundle.fixture_run_id, Bundle.project_id)
+            .where(Bundle.job_id == job_id)
+            .order_by(Bundle.id)
+        )
+    ).all()
+    if not owners or any(
+        owner.fixture_run_id != run_id or owner.project_id != project_id
+        for owner in owners
+    ):
+        raise ContentError("fixture_export_owner_changed")
+    identifiers = [owner.id for owner in owners]
+    await db.commit()
+    for identifier in identifiers:
+        owner = await db.get(Bundle, identifier, populate_existing=True)
+        if owner is None or owner.expires_at > now():
+            await db.commit()
+            return False
+        output_id = owner.zip_output_id
+        output = await db.get(ExportOutput, output_id, populate_existing=True)
+        if output is not None and output.media_bundle_id != identifier:
+            raise ContentError("fixture_export_owner_changed")
+        await db.commit()
+        if output is not None:
+            if not await export_outputs._cleanup_one(db, output_id, {"removed": 0}):
+                return False
+        owner = await db.get(Bundle, identifier, populate_existing=True)
+        if owner is None:
+            raise ContentError("fixture_export_owner_changed")
+        if owner.state != "deleted":
+            await db.commit()
+            if not await _cleanup_one(db, identifier):
+                return False
+        owner = await db.get(Bundle, identifier, populate_existing=True)
+        output = await db.get(ExportOutput, output_id, populate_existing=True)
+        if output is not None:
+            await db.commit()
+            if not await export_outputs._cleanup_one(db, output_id, {"removed": 0}):
+                return False
+            owner = await db.get(Bundle, identifier, populate_existing=True)
+        if owner is None or owner.state != "deleted" or await has_operations(db, owner):
+            await db.commit()
+            return False
+        if owner.fixture_zip_created:
+            recorded = await db.scalar(
+                text(
+                    "SELECT EXISTS (SELECT 1 FROM public.fixture_export_zip_retirements "
+                    "WHERE bundle_id=:bundle_id AND output_id=:output_id "
+                    "AND fixture_run_id=:run_id AND project_id=:project_id AND job_id=:job_id)"
+                ),
+                {
+                    "bundle_id": identifier,
+                    "output_id": output_id,
+                    "run_id": run_id,
+                    "project_id": project_id,
+                    "job_id": job_id,
+                },
+            )
+            if not recorded:
+                await db.commit()
+                return False
+        await db.commit()
+    retired = await db.scalar(
+        text("SELECT public.fixture_export_retired(:run_id, :project_id, :job_id)"),
+        {"run_id": run_id, "project_id": project_id, "job_id": job_id},
+    )
+    await db.commit()
+    return retired is True
 
 
 async def cleanup(db, *, limit=100):

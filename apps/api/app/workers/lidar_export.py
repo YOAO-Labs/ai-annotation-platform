@@ -361,6 +361,8 @@ async def _lookup(db, receipt, key, *, guard):
         or previous.expires_at != candidate.expires_at
     ):
         reject(adapter.error("cache_changed"))
+    if previous.expires_at > receipt.expires_at:
+        return None
     data = previous.input_snapshot
     mapping = bundles.source_objects(previous, adapter.logical_sources(data))
     bindings = {}

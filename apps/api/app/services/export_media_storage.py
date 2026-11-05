@@ -793,10 +793,15 @@ def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
     key, _expected_receipt = _expected(record, owner, relative)
     current = _instant(now or datetime.now(timezone.utc))
     seconds = int((_instant(_field(record, "expires_at")) - current).total_seconds())
+    fixture_window = _instant(_field(record, "expires_at")) - _instant(
+        _field(record, "created_at")
+    ) == timedelta(minutes=15)
+    if fixture_window:
+        seconds -= 1
     if seconds <= 0:
         _reject("expired")
     try:
-        return storage_presigning.generate_url(
+        url = storage_presigning.generate_url(
             client,
             "get_object",
             params={"Bucket": owner.bucket, "Key": key},
@@ -807,6 +812,11 @@ def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
         )
     except Exception as exc:
         raise _translate(exc) from None
+    if fixture_window and _instant(now or datetime.now(timezone.utc)) + timedelta(
+        seconds=seconds
+    ) > _instant(_field(record, "expires_at")):
+        _reject("expired")
+    return url
 
 
 def _versions(client, owner, expected, deadline, *, maximum):

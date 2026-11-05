@@ -68,6 +68,7 @@ _SCALARS = (
     "project_id",
     "job_id",
     "zip_output_id",
+    "fixture_run_id",
     "input_digest",
     "input_schema",
     "object_count",
@@ -556,6 +557,7 @@ class BundleFence:
     project_id: uuid.UUID
     job_id: uuid.UUID
     zip_output_id: uuid.UUID
+    fixture_run_id: uuid.UUID | None
     input_digest: str
     input_schema: int
     object_count: int
@@ -610,6 +612,8 @@ def _fence(row):
     facts["input_schema"] = physical.input_schema(row)
     for name in ("id", "project_id", "job_id", "zip_output_id"):
         facts[name] = _uuid(facts[name])
+    if facts["fixture_run_id"] is not None:
+        facts["fixture_run_id"] = _uuid(facts["fixture_run_id"])
     _sha(facts["input_digest"])
     for name, limit in (
         (
@@ -628,7 +632,10 @@ def _fence(row):
         if type(facts[name]) is not int or not 0 <= facts[name] <= limit:
             reject("invalid")
     created, expires = (_instant(facts[name]) for name in ("created_at", "expires_at"))
-    if expires != created + timedelta(hours=168) or facts["state"] not in {
+    duration = (
+        timedelta(minutes=15) if facts["fixture_run_id"] else timedelta(hours=168)
+    )
+    if expires != created + duration or facts["state"] not in {
         "building",
         "ready",
         "retiring",
@@ -809,11 +816,13 @@ async def allocate(
         published_at=None,
         retired_at=None,
     )
-    result = snapshot(row)
-    source_objects(result, logical_sources)
+    source_objects(snapshot(row), logical_sources)
     db.add(row)
     await db.flush()
-    return result
+    await db.refresh(
+        row, attribute_names=["created_at", "expires_at", "fixture_run_id"]
+    )
+    return snapshot(row)
 
 
 @asynccontextmanager

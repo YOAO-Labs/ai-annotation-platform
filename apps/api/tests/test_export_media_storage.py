@@ -529,6 +529,21 @@ def test_signing_uses_only_remaining_fixed_deadline_and_saved_bucket(monkeypatch
     assert failure.value.code.endswith("expired")
 
 
+def test_fixture_media_url_stays_inside_short_delivery_deadline(monkeypatch):
+    created = datetime.now(timezone.utc)
+    row = record(created_at=created, expires_at=created + timedelta(minutes=15))
+    client = Client()
+    monkeypatch.setattr(physical.settings, "minio_public_url", "")
+    current = row.expires_at - timedelta(seconds=12)
+    physical.signed_url(client, row, RELATIVE, now=current)
+    _, params = client.calls[-1]
+    assert params["ExpiresIn"] == 11
+    with pytest.raises(physical.ExportMediaStorageError):
+        physical.signed_url(
+            client, row, RELATIVE, now=row.expires_at - timedelta(seconds=1)
+        )
+
+
 @pytest.mark.parametrize("versioned", [True, False])
 def test_gc_removes_only_saved_known_subset_and_all_versions_even_after_expiry(
     versioned,

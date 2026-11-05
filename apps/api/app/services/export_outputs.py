@@ -11,7 +11,7 @@ from functools import partial
 import logging
 import uuid
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, text
 
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -768,6 +768,23 @@ async def _cleanup_one(db, identifier, counters):
         and not await _has_index(db, identifier)
         and not await _has_read(db, receipt)
     ):
+        if current_bundle is not None and current_bundle.fixture_run_id is not None:
+            await db.execute(
+                text(
+                    "INSERT INTO public.fixture_export_zip_retirements "
+                    "(bundle_id, output_id, fixture_run_id, project_id, job_id, sha256, size_bytes) "
+                    "VALUES (:bundle_id, :output_id, :run_id, :project_id, :job_id, :sha256, :size_bytes)"
+                ),
+                {
+                    "bundle_id": current_bundle.id,
+                    "output_id": current.id,
+                    "run_id": current_bundle.fixture_run_id,
+                    "project_id": current.project_id,
+                    "job_id": current.job_id,
+                    "sha256": current.sha256,
+                    "size_bytes": current.size_bytes,
+                },
+            )
         await db.delete(current)
         await db.commit()
         return True

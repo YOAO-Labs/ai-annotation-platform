@@ -5,6 +5,7 @@ import uuid
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
     DateTime,
     Index,
@@ -136,7 +137,8 @@ class ExportMediaBundle(Base):
             name="ck_export_media_state",
         ),
         CheckConstraint(
-            "expires_at = created_at + INTERVAL '168 hours'",
+            "(fixture_run_id IS NULL AND expires_at = created_at + INTERVAL '168 hours') "
+            "OR (fixture_run_id IS NOT NULL AND expires_at = created_at + INTERVAL '15 minutes')",
             name="ck_export_media_expiry",
         ),
         CheckConstraint(
@@ -169,6 +171,10 @@ class ExportMediaBundle(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     job_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     zip_output_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    fixture_run_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    fixture_zip_created: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     input_snapshot: Mapped[dict] = mapped_column(
         JSONB(none_as_null=True), nullable=False
     )

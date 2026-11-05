@@ -32,6 +32,7 @@ def owner(**changes):
     values = model_tests._values()
     values.update(
         lease_token=None,
+        fixture_run_id=None,
         lease_expires_at=None,
         published_at=None,
         retired_at=None,
