@@ -103,6 +103,22 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session):
         row = await allocate(job)
         assert row.fixture_run_id is None
         assert row.expires_at - row.created_at == timedelta(hours=168)
+    execution = {"job": own.id, "project": project.id, "token": uuid.uuid4()}
+    assert await db_session.scalar(
+        text(
+            "SELECT pg_try_advisory_xact_lock("
+            "hashtextextended('aap-export:job:' || CAST(:job AS text), 0))"
+        ),
+        execution,
+    )
+    admit = text("SELECT public.fixture_export_execution_admitted(:job)")
+    begin = text("SELECT public.begin_fixture_export_execution(:job, :project, :token)")
+    finish = text("SELECT public.finish_fixture_export_execution(:job, :token)")
+    assert await db_session.scalar(admit, execution)
+    assert await db_session.scalar(begin, execution) == "started"
+    assert not await db_session.scalar(admit, execution)
+    assert await db_session.scalar(begin, execution) == "blocked"
+    assert not await db_session.scalar(finish, {**execution, "token": uuid.uuid4()})
 
     await bundle_models._reject_update(db_session, short, fixture_run_id=None)
     await bundle_models._reject_update(
@@ -118,6 +134,29 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session):
     run = await db_session.get(FixtureRun, run_id)
     run.state, run.sealed_at = "sealing", datetime.now(timezone.utc)
     await db_session.flush()
+    own.status = "failed"
+    await db_session.flush()
+    scope = {"run": run_id, "project": project.id, "job": own.id}
+    retire_execution = text(
+        "SELECT public.retire_fixture_export_execution(:run, :project, :job)"
+    )
+    execution_proof = text(
+        "SELECT public.fixture_export_execution_retired(:run, :project, :job)"
+    )
+    assert not await db_session.scalar(retire_execution, scope)
+    assert not await db_session.scalar(execution_proof, scope)
+    assert await db_session.scalar(finish, execution)
+    assert not await db_session.scalar(retire_execution, {**scope, "run": uuid.uuid4()})
+    assert await db_session.scalar(retire_execution, scope)
+    assert await db_session.scalar(execution_proof, scope)
+    assert not await db_session.scalar(admit, execution)
+    with pytest.raises(
+        IntegrityError, match="fixture export Job identity cannot be reused"
+    ):
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text("INSERT INTO public.async_jobs (id) VALUES (:job)"), execution
+            )
     proof = text("SELECT public.fixture_export_retired(:run, :project, :job)")
     assert not await db_session.scalar(
         proof, {"run": run_id, "project": project.id, "job": own.id}

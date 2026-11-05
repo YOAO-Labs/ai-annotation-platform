@@ -459,6 +459,15 @@ async def retire_fixture_export(db, *, run_id, project_id, job_id):
     ):
         raise ContentError("fixture_export_owner_changed")
     identifiers = [owner.id for owner in owners]
+    fenced = await db.scalar(
+        text(
+            "SELECT public.retire_fixture_export_execution(:run_id, :project_id, :job_id)"
+        ),
+        {"run_id": run_id, "project_id": project_id, "job_id": job_id},
+    )
+    if not fenced:
+        await db.commit()
+        return False
     await db.commit()
     for identifier in identifiers:
         owner = await db.get(Bundle, identifier, populate_existing=True)
@@ -513,8 +522,14 @@ async def retire_fixture_export(db, *, run_id, project_id, job_id):
         text("SELECT public.fixture_export_retired(:run_id, :project_id, :job_id)"),
         {"run_id": run_id, "project_id": project_id, "job_id": job_id},
     )
+    execution_retired = await db.scalar(
+        text(
+            "SELECT public.fixture_export_execution_retired(:run_id, :project_id, :job_id)"
+        ),
+        {"run_id": run_id, "project_id": project_id, "job_id": job_id},
+    )
     await db.commit()
-    return retired is True
+    return retired is True and execution_retired is True
 
 
 async def cleanup(db, *, limit=100):

@@ -149,6 +149,11 @@ pnpm dev:worktree -- exec --mode e2e --with-worker -- sh -c \
 相同 run ID 可对账已经登记的完整资源；有未确认物理操作时保留 admission、原错误和收据，
 不得扫桶或删除真实作业来伪造清理通过。
 
+由已验证私有截图 run 创建的新导出保留 15 分钟；普通导出仍保留 168 小时。
+清理必须等待交付期限到期、导出读写和物理删除完成，并保留独立的作业执行退役证据。
+已接受但失联或物理状态不明的执行会阻止清理，不能用终态、超时或撤销消息代替排空。
+已退役作业的持久身份围栏会拒绝清理后才送达的导出消息，不能复用该作业 ID。
+
 截图 seed 在夹具提交后同步初始化真实 DuckDB 分析视图，不依赖定时任务或 `cleanup` 队列。
 连接 PostgreSQL `_test` / `_e2e` 库且未显式配置 `DUCKDB_PATH` 时，seed 与 API 按当前 checkout、
 数据库主机、端口和库名派生同一个 `.artifacts/analytics/<hash>.duckdb` 私有文件。

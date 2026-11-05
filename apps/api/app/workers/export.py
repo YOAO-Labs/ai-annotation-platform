@@ -7,11 +7,12 @@ import logging
 import os
 import re
 import secrets
+import sys
 import uuid
 from datetime import datetime, timezone
 
 import redis.asyncio as aioredis
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -78,6 +79,8 @@ class _ExportExecution:
         self.connection = connection
         self.backend_pid: int | None = None
         self.lost = False
+        self.fixture_token: uuid.UUID | None = None
+        self.unsettled = False
 
     async def assert_owned(self) -> None:
         if self.lost or self.connection.invalidated:
@@ -113,6 +116,43 @@ class _ExportExecution:
             raise
         if not acquired:
             raise ExportBuildInProgress("another worker owns this export execution")
+
+    async def admit_fixture(self, job_id: uuid.UUID) -> bool:
+        return bool(
+            await self.db.scalar(
+                text("SELECT public.fixture_export_execution_admitted(:job_id)"),
+                {"job_id": job_id},
+            )
+        )
+
+    async def begin_fixture(self, job_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        token = uuid.uuid4()
+        state = await self.db.scalar(
+            text(
+                "SELECT public.begin_fixture_export_execution(:job_id, :project_id, :token)"
+            ),
+            {"job_id": job_id, "project_id": project_id, "token": token},
+        )
+        if state == "ordinary":
+            return
+        if state != "started":
+            raise ExportBuildInProgress(
+                "fixture export execution is retired or unsettled"
+            )
+        # A lost or ambiguous commit leaves the persisted running generation
+        # blocked; work only starts after the commit has been acknowledged.
+        await self.db.commit()
+        self.fixture_token = token
+
+    async def finish_fixture(self, job_id: uuid.UUID) -> None:
+        await self.assert_owned()
+        settled = await self.db.scalar(
+            text("SELECT public.finish_fixture_export_execution(:job_id, :token)"),
+            {"job_id": job_id, "token": self.fixture_token},
+        )
+        if not settled:
+            raise ExportExecutionLost("fixture export execution could not be settled")
+        await self.db.commit()
 
 
 async def _update_export_progress(db, job_uuid, pct):
@@ -685,6 +725,8 @@ async def _run_export(
         async with engine.connect() as connection, SessionLocal(bind=connection) as db:
             execution = _ExportExecution(db, connection)
             await execution.acquire(f"job:{job_uuid}")
+            if not await execution.admit_fixture(job_uuid):
+                return
             try:
                 job_row = (
                     await db.execute(job_lock_statement(job_uuid, mode="update"))
@@ -701,6 +743,7 @@ async def _run_export(
                     # A duplicate delivery for the same durable job must not
                     # build or publish a second artifact.
                     return
+                await execution.begin_fixture(job_uuid, proj_uuid)
                 project = await get_workspace_project(db, project_id=proj_uuid)
                 if (project is not None and project.data_type == "video") or (
                     "video_media" in (job_row.payload or {})
@@ -1032,6 +1075,9 @@ async def _run_export(
                     size_bytes,
                 )
             except Exception as exc:  # noqa: BLE001
+                execution.unsettled = bool(
+                    getattr(exc, "storage_operation_unsettled", False)
+                )
                 await db.rollback()
                 execution.lost = execution.lost or connection.invalidated
                 if execution.lost:
@@ -1087,6 +1133,22 @@ async def _run_export(
                 except Exception:
                     await db.rollback()
                 raise
+            finally:
+                if execution.fixture_token is not None:
+                    original = sys.exc_info()[1]
+                    try:
+                        if execution.unsettled or getattr(
+                            original, "storage_operation_unsettled", False
+                        ):
+                            raise ExportExecutionLost(
+                                "fixture export physical work is unsettled"
+                            )
+                        await db.rollback()
+                        await execution.finish_fixture(job_uuid)
+                    except BaseException:
+                        if original is None:
+                            raise
+                        log.exception("fixture export execution remains unsettled")
     finally:
         if lock_client is not None:
             if lock_acquired and lock_key and lock_owner:
