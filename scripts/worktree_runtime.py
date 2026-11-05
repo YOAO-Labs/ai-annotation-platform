@@ -208,8 +208,10 @@ def session_record(resources: dict) -> dict | None:
     return record
 
 
-def safe_error(exc: Exception) -> str:
+def safe_error(exc: BaseException) -> str:
     # Resource/validation messages are controlled; third-party errors may expose URLs.
+    if isinstance(exc, BaseExceptionGroup):
+        return f"{exc.message}: " + "；".join(safe_error(item) for item in exc.exceptions)
     return (
         str(exc)
         if isinstance(exc, WorktreeError)
@@ -309,6 +311,24 @@ def diagnose(backend) -> dict:
     report["state"] = "stopped"
     report["worker"] = "not requested"
     report["maintenance_worker"] = "not requested"
+    if resources["mode"] == "e2e":
+        marker_path = state_path(Path(resources["root"]), "e2e", "inference-owner.json")
+        if marker_path.exists():
+            def inference_status():
+                marker = read_state(marker_path)
+                require_owner("inference-owner", marker, resources["owner"])
+                return {
+                    "phase": marker.get("phase"),
+                    "alive": process_matches(
+                        marker,
+                        str(backend.code_root / "scripts/fixture_inference_services.py"),
+                    ),
+                }
+
+            check("inference_owner", inference_status)
+            status = checks.get("inference_owner")
+            if not status or not status["alive"] or not report["running"]:
+                report["errors"].append("推理夹具 owner 尚未确认结算；保留记录")
     if report["running"]:
         report["state"] = "running"
         report["processes"] = [
@@ -370,6 +390,10 @@ def stop_environment(backend) -> None:
             for child in record.get("children", [])
         ):
             raise WorktreeError("发现遗留子进程；请先检查 doctor，不会将它们视为已停止")
+        if resources["mode"] == "e2e":
+            from fixture_inference_services import FixtureInferenceServices
+
+            FixtureInferenceServices(backend, code_root=backend.code_root).assert_stopped()
         backend.stop_redis()
     print("[dev:worktree] 本环境已停止，数据库和对象数据保留")
 
@@ -381,6 +405,10 @@ def reject_orphans(backend) -> None:
         for child in previous.get("children", [])
     ):
         raise WorktreeError("存在本环境遗留子进程；先诊断和停止，拒绝修改资源")
+    if backend.resources["mode"] == "e2e":
+        from fixture_inference_services import FixtureInferenceServices
+
+        FixtureInferenceServices(backend, code_root=backend.code_root).assert_stopped()
 
 
 def register_child(record: dict, handle: dict | None, role: str) -> None:
@@ -392,12 +420,15 @@ def register_child(record: dict, handle: dict | None, role: str) -> None:
     record["children"].append({**handle, "role": role})
 
 
-def run_processes(backend, options) -> int:
+def run_processes(backend, options, *, manage_fixture_inference=True) -> int:
     resources = backend.resources
     root = backend.code_root
     record_path = state_path(Path(resources["root"]), resources["mode"], "run.json")
     children = []
     stopping = False
+    inference = None
+    exit_code = None
+    canonical_e2e = resources["mode"] == "e2e" and options.command == "exec"
     identity = process_handle(os.getpid(), str(root / "scripts/worktree_runtime.py"))
     if not identity:
         raise WorktreeError("无法核对运行进程身份；拒绝启动")
@@ -416,7 +447,10 @@ def run_processes(backend, options) -> int:
         for child in children:
             if child.poll() is None:
                 try:
-                    os.killpg(child.pid, signal.SIGTERM)
+                    if canonical_e2e:
+                        os.kill(child.pid, signal.SIGTERM)
+                    else:
+                        os.killpg(child.pid, signal.SIGTERM)
                 except ProcessLookupError:
                     pass
 
@@ -427,9 +461,14 @@ def run_processes(backend, options) -> int:
         backend.prepare(skip_migrations=options.skip_migrations)
         if stopping:
             return 0
-        if resources["mode"] == "e2e" and options.command == "exec":
+        if canonical_e2e:
             asyncio.run(backend.prepare_fixture_inference_database())
         environment = backend.environment()
+        if canonical_e2e and manage_fixture_inference:
+            from fixture_inference_services import FixtureInferenceServices
+
+            inference = FixtureInferenceServices(backend, code_root=root)
+            environment.update(inference.start())
         if options.scenario:
             # Keep the manual guide readable and avoid SQL/S3 debug credential logs.
             environment = {
@@ -603,6 +642,8 @@ def run_processes(backend, options) -> int:
             private_environment=private_environment,
         )
         while supervisor.poll() is None and not stopping:
+            if inference is not None and inference.process.poll() is not None:
+                raise WorktreeError("推理夹具 owner 意外退出；保留资源")
             if any(
                 child.poll() is not None
                 for child in children
@@ -612,19 +653,45 @@ def run_processes(backend, options) -> int:
                     "本环境 worker 意外退出；停止 API/Web，避免显示虚假的就绪状态"
                 )
             time.sleep(0.1)
-        return 0 if stopping else supervisor.returncode
+        exit_code = 0 if stopping else supervisor.returncode
+        return exit_code
     finally:
-        request_stop(signal.SIGTERM, None)
-        deadline = time.monotonic() + 12
-        for child in children:
-            try:
-                child.wait(timeout=max(0.1, deadline - time.monotonic()))
-            except subprocess.TimeoutExpired:
-                os.killpg(child.pid, signal.SIGKILL)
-                child.wait(timeout=5)
-        for sig, handler in old_signals.items():
-            signal.signal(sig, handler)
-        record_path.unlink(missing_ok=True)
+        original = sys.exception()
+        cleanup_error = None
+        try:
+            request_stop(signal.SIGTERM, None)
+            deadline = time.monotonic() + 12
+            for child in children:
+                try:
+                    child.wait(timeout=max(0.1, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired:
+                    if canonical_e2e:
+                        raise WorktreeError("e2e 子进程未退出；保留运行记录")
+                    os.killpg(child.pid, signal.SIGKILL)
+                    child.wait(timeout=5)
+            if inference is not None:
+                inference.close()
+        except BaseException as error:
+            cleanup_error = error
+        finally:
+            for sig, handler in old_signals.items():
+                signal.signal(sig, handler)
+            marker = state_path(
+                Path(resources["root"]), resources["mode"], "inference-owner.json"
+            )
+            if cleanup_error is None and not marker.exists():
+                record_path.unlink(missing_ok=True)
+        if cleanup_error is not None:
+            if original is not None:
+                raise BaseExceptionGroup(
+                    "e2e 执行与 owner 清理均失败", [original, cleanup_error]
+                ) from None
+            if exit_code not in (None, 0):
+                raise BaseExceptionGroup(
+                    "e2e 命令失败且 owner 清理未完成",
+                    [WorktreeError(f"e2e 命令退出码 {exit_code}"), cleanup_error],
+                ) from None
+            raise cleanup_error
 
 
 def main(argv: list[str] | None = None) -> int:

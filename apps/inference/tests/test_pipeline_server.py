@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import socket
+import struct
 
 import pytest
 
@@ -76,6 +78,76 @@ def test_health_reports_unconfigured_owner_as_not_ready():
 
     assert status == 503
     assert json.loads(body) == {"status": "not_ready"}
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_disconnected_handler_after_waiter_cancel():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class HeldData:
+        async def readiness(self):
+            entered.set()
+            await release.wait()
+            return True
+
+    class ObservedServer(PipelineHttpServer):
+        async def _handle(self, reader, writer):
+            self.accepted_reader = reader
+            await super()._handle(reader, writer)
+
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0))
+        port = listener.getsockname()[1]
+    server = ObservedServer(_Manager(), HeldData(), "control-token", port=port)
+    await server.start()
+    _, writer = await asyncio.open_connection("127.0.0.1", port)
+    writer.write(b"GET /health HTTP/1.1\r\nHost: localhost\r\n\r\n")
+    await writer.drain()
+    await asyncio.wait_for(entered.wait(), 5)
+    writer.get_extra_info("socket").setsockopt(
+        socket.SOL_SOCKET, socket.SO_LINGER, struct.pack("ii", 1, 0)
+    )
+    writer.transport.abort()
+    try:
+        assert await asyncio.wait_for(server.accepted_reader.read(1), 5) == b""
+    except ConnectionResetError:
+        pass
+    first = asyncio.create_task(server.close())
+    await asyncio.sleep(0)
+    assert not first.done()
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    second = asyncio.create_task(server.close())
+    await asyncio.sleep(0)
+    assert not second.done()
+    release.set()
+    # The handler, not the disconnected transport, owns the outstanding work.
+    await asyncio.wait_for(second, 5)
+
+
+@pytest.mark.asyncio
+async def test_close_waits_for_rejected_connection_cleanup():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    class HeldWriter(_Writer):
+        async def wait_closed(self):
+            entered.set()
+            await release.wait()
+
+    server = PipelineHttpServer(_Manager(), _Data(True), "control-token")
+    server._active = server.max_concurrency
+    writer = HeldWriter()
+    server._accept(None, writer)
+    await asyncio.wait_for(entered.wait(), 5)
+    closing = asyncio.create_task(server.close())
+    await asyncio.sleep(0)
+    assert not closing.done()
+    release.set()
+    await asyncio.wait_for(closing, 5)
+    assert writer.closed
 
 
 @pytest.mark.asyncio

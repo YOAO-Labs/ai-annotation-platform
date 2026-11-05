@@ -254,6 +254,26 @@ def isolated_environment(
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }
+    if resources["mode"] == "e2e":
+        overrides.update(
+            {
+                f"INFERENCE_{owner}_{suffix}": ""
+                for owner in ("ROUTING", "HEALTH_OBSERVATION")
+                for suffix in (
+                    "URL",
+                    "TOKEN",
+                    "TOKEN_FILE",
+                    "DATABASE_URL",
+                    "DATABASE_URL_FILE",
+                )
+            }
+        )
+        overrides.update(
+            {
+                f"AAP_MODULE_DATA_INFERENCE_{owner}_URL": ""
+                for owner in ("ROUTING", "HEALTH_OBSERVATION")
+            }
+        )
     fixture_target_keys = (
         FIXTURE_ORIGINAL_ENV_KEYS if resources["mode"] in {"test", "e2e"} else ()
     )
@@ -306,6 +326,10 @@ def application_environment(environment: dict) -> dict:
         for owner in ("ROUTING", "HEALTH_OBSERVATION")
         for suffix in ("", "_FILE")
     }
+    owner_dsn_keys.update(
+        f"AAP_MODULE_DATA_INFERENCE_{owner}_URL"
+        for owner in ("ROUTING", "HEALTH_OBSERVATION")
+    )
     return {
         **{
             key: value

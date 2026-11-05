@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import ast
 import asyncio
+from contextlib import contextmanager
+import fcntl
 import json
 import os
 from pathlib import Path
@@ -746,7 +748,7 @@ class LocalResources:
             password=credentials["password"],
         )
 
-    async def _runtime_role_record(self, connection, operator_oid):
+    async def _runtime_role_record(self, connection, operator_oid, *, role=None):
         result = (
             (
                 await connection.execute(
@@ -770,7 +772,7 @@ class LocalResources:
                         "FROM pg_roles r WHERE r.rolname=:role"
                     ),
                     {
-                        "role": self._runtime_credential_identity()["role"],
+                        "role": role or self._runtime_credential_identity()["role"],
                         "operator": operator_oid,
                         "database": self.resources["database"],
                     },
@@ -2192,7 +2194,73 @@ class LocalResources:
             if verified and verified["running"]:
                 raise WorktreeError("独立 Redis 停止未能验证")
 
+    @contextmanager
+    def fixture_authority_fence(self):
+        if self.resources["mode"] not in {"test", "e2e"}:
+            yield
+            return
+        path = state_path(self.root, self.resources["mode"], "fixture-authority.lock")
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        descriptor = os.open(path, os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW, 0o600)
+        try:
+            info = os.fstat(descriptor)
+            current = path.lstat()
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o600
+                or info.st_nlink != 1
+                or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)
+            ):
+                raise WorktreeError("夹具 authority 锁的身份或权限无效；保留资源")
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                raise WorktreeError("夹具 authority 仍在运行；保留资源") from None
+            current = path.lstat()
+            if (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino):
+                raise WorktreeError("夹具 authority 锁身份变化；保留资源")
+            owner_path = state_path(
+                self.root, self.resources["mode"], "fixture-authority", "owner.json"
+            )
+            generation_path = state_path(
+                self.root, self.resources["mode"], "fixture-authority", "generation.json"
+            )
+            if owner_path.exists():
+                raise WorktreeError("夹具 authority 所有者记录仍存在；保留资源")
+            if generation_path.exists():
+                generation_fd = os.open(generation_path, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(generation_fd) as generation_stream:
+                    generation_info = os.fstat(generation_stream.fileno())
+                    if (
+                        not stat.S_ISREG(generation_info.st_mode)
+                        or generation_info.st_uid != os.geteuid()
+                        or stat.S_IMODE(generation_info.st_mode) != 0o600
+                        or generation_info.st_nlink != 1
+                    ):
+                        raise WorktreeError("夹具 authority 代次记录权限无效；保留资源")
+                    try:
+                        generation = json.load(generation_stream)
+                    except (ValueError, UnicodeError):
+                        raise WorktreeError("夹具 authority 代次记录损坏；保留资源") from None
+                if (
+                    not isinstance(generation, dict)
+                    or set(generation) != {"resources", "nonce", "state"}
+                    or generation["resources"] != self.resources
+                    or not isinstance(generation["nonce"], str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", generation["nonce"])
+                    or generation["state"] != "closed"
+                ):
+                    raise WorktreeError("夹具 authority 代次未确认关闭；保留资源")
+            yield
+        finally:
+            os.close(descriptor)
+
     def destroy(self, confirmation: str | None) -> None:
+        with self.fixture_authority_fence():
+            self._destroy_owned(confirmation)
+
+    def _destroy_owned(self, confirmation: str | None) -> None:
         input_journal = state_path(
             self.root, self.resources["mode"], "inputs-bucket-upgrade.json"
         )
@@ -2207,6 +2275,12 @@ class LocalResources:
         inventory = self.inspect()
         validate_destruction(self.resources, inventory, confirmation)
         asyncio.run(self.owned_runtime_role("check_drop"))
+        inference = None
+        if self.resources["mode"] == "e2e":
+            from fixture_inference_services import FixtureInferenceServices
+
+            inference = FixtureInferenceServices(self, code_root=self.code_root)
+            inference.check_destroy()
         fixture_owner = None
         fixture_lock = None
         try:
@@ -2230,6 +2304,8 @@ class LocalResources:
         finally:
             if fixture_lock is not None:
                 os.close(fixture_lock)
+        if inference is not None:
+            inference.finish_destroy()
         asyncio.run(self.owned_runtime_role("drop"))
         if require_owner(
             self.resources["redis_name"], self.redis_info(), self.resources["owner"]

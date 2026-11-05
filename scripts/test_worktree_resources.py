@@ -1,6 +1,8 @@
 """Additive accepted-input bucket upgrades preserve exact worktree ownership."""
 
+import fcntl
 import json
+import os
 import re
 import unittest
 from pathlib import Path
@@ -571,6 +573,71 @@ class BucketUpgradeTests(unittest.TestCase):
         ):
             with self.subTest(required_guard=required):
                 self.assertIn(required, sql)
+
+
+class FixtureInferenceIdentityTests(unittest.TestCase):
+    def test_credentials_are_private_and_bound_to_database_owner(self):
+        from sqlalchemy.engine import make_url
+
+        from fixture_inference_services import FixtureInferenceServices
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = SimpleNamespace(
+                resources=resources,
+                code_root=root,
+                url=make_url(
+                    f"postgresql+asyncpg://owner:secret@localhost/{resources['database']}"
+                ),
+            )
+            service = FixtureInferenceServices(backend, code_root=root)
+            credentials = service._load_credentials(create=True)
+            self.assertEqual(service.credentials_path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(service._load_credentials(), credentials)
+            self.assertNotEqual(
+                credentials["routing_password"], credentials["health_password"]
+            )
+            other = SimpleNamespace(
+                resources=resources,
+                code_root=root,
+                url=backend.url.set(username="other_owner"),
+            )
+            with self.assertRaises(WorktreeError):
+                FixtureInferenceServices(other, code_root=root)._load_credentials()
+
+    def test_authority_fence_requires_closed_generation_and_no_owner(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = LocalResources.__new__(LocalResources)
+            backend.root = root
+            backend.resources = resources
+            lock = root / ".worktree/e2e/fixture-authority.lock"
+            lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH)
+                with self.assertRaises(WorktreeError):
+                    with backend.fixture_authority_fence():
+                        self.fail("a live authority must block destruction")
+            finally:
+                os.close(descriptor)
+            generation = root / ".worktree/e2e/fixture-authority/generation.json"
+            record = {"resources": resources, "nonce": "a" * 64, "state": "running"}
+            atomic_json(generation, record)
+            with self.assertRaises(WorktreeError):
+                with backend.fixture_authority_fence():
+                    self.fail("an unsettled generation must block destruction")
+            atomic_json(generation, {**record, "state": "closed"})
+            with backend.fixture_authority_fence():
+                self.assertTrue(generation.exists())
+            owner = generation.with_name("owner.json")
+            atomic_json(owner, {"owner": resources["owner"]})
+            with self.assertRaises(WorktreeError):
+                with backend.fixture_authority_fence():
+                    self.fail("an owner record must block destruction")
+            self.assertTrue(owner.exists())
 
 
 if __name__ == "__main__":

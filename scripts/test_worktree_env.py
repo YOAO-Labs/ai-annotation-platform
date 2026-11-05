@@ -292,6 +292,8 @@ class EnvironmentTests(unittest.TestCase):
             "inference_routing_database_url_file": "/private/routing",
             "INFERENCE_HEALTH_OBSERVATION_DATABASE_URL": "private-health-dsn",
             "inference_health_observation_database_url_file": "/private/health",
+            "aap_module_data_inference_routing_url": "private-routing-dsn",
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL": "private-health-dsn",
             "INFERENCE_ROUTING_URL": "http://127.0.0.1:8123",
             "INFERENCE_ROUTING_TOKEN": "caller-token",
         }
@@ -300,7 +302,9 @@ class EnvironmentTests(unittest.TestCase):
             frontend_environment(environment),
         ):
             for key in environment:
-                if "_DATABASE_URL" in key.upper():
+                if "_DATABASE_URL" in key.upper() or key.upper().startswith(
+                    "AAP_MODULE_DATA_INFERENCE_"
+                ):
                     self.assertNotIn(key, child)
         application = application_environment(environment)
         self.assertEqual(
@@ -310,6 +314,33 @@ class EnvironmentTests(unittest.TestCase):
             application["INFERENCE_ROUTING_TOKEN"],
             environment["INFERENCE_ROUTING_TOKEN"],
         )
+
+    def test_e2e_does_not_select_inherited_inference_owners(self):
+        from worktree_env import isolated_environment, load_identity, topology
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            environment = isolated_environment(
+                resources,
+                code_root=root,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited={
+                    "inference_routing_url": "http://shared",
+                    "INFERENCE_ROUTING_DATABASE_URL": "postgresql://shared",
+                    "inference_health_observation_token_file": "/shared/token",
+                    "aap_module_data_inference_routing_url": "postgresql://shared",
+                },
+            )
+            self.assertNotIn("inference_routing_url", environment)
+            self.assertEqual(environment["INFERENCE_ROUTING_URL"], "")
+            self.assertEqual(environment["INFERENCE_ROUTING_DATABASE_URL"], "")
+            self.assertNotIn("aap_module_data_inference_routing_url", environment)
+            self.assertEqual(environment["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"], "")
+            self.assertEqual(environment["INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE"], "")
 
     def test_legacy_manifest_cannot_launch_with_a_fallback_inputs_bucket(self):
         from worktree_env import load_identity, topology, isolated_environment
