@@ -456,6 +456,8 @@ def reject_orphans(backend, *, allow_inference=False) -> None:
     previous = session_record(backend.resources)
     if previous and previous.get("unsettled_consumers"):
         raise WorktreeError("e2e 消费者结算未证明；保留运行记录及资源")
+    if allow_inference and (not previous or not previous.get("supervisor_reaped")):
+        raise WorktreeError("原监督进程没有已确认的完成回执；保留运行记录")
     if previous and any(
         process_matches(child, str(backend.code_root))
         for child in previous.get("children", [])
@@ -779,6 +781,9 @@ def run_processes(backend, options, *, fixture_inference=None) -> int:
                         raise WorktreeError("e2e 子进程未退出；保留运行记录")
                     os.killpg(child.pid, signal.SIGKILL)
                     child.wait(timeout=5)
+            if canonical_e2e and original is None and exit_code == 0 and not stopping:
+                record["supervisor_reaped"] = True
+                atomic_json(record_path, record)
             if inference is not None and not record.get("unsettled_consumers"):
                 inference.close()
         except BaseException as error:
