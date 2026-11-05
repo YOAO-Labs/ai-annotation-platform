@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { randomUUID } from "node:crypto";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { browserEnvironment } from "./e2e/helpers/browser-environment";
 
 // One run identity survives worker restarts but never aliases another invocation.
 if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1" && !process.env.PLAYWRIGHT_FIXTURE_RUN_ID) {
@@ -50,16 +51,8 @@ const isCI = Boolean(process.env.CI);
 const useIsolatedServers = Boolean(worktreeMode) || !isCI || Boolean(rasterMaskMatrix);
 const isolatedApiPort = process.env.PLAYWRIGHT_ISOLATED_API_PORT ?? "8010";
 const isolatedWebPort = process.env.PLAYWRIGHT_ISOLATED_WEB_PORT ?? "3001";
-// SSH ForwardX11 会注入 localhost DISPLAY；无头 SwANGLE 会因此误走 XCB，导致 WebGL2 初始化失败。
-// 只隔离转发型 DISPLAY，保留本机 :0 / :1，避免破坏显式 --headed 调试。
-const forwardedX11Display = /^localhost:\d+(?:\.\d+)?$/.test(process.env.DISPLAY ?? "");
-const pointcloudBrowserEnv = forwardedX11Display
-  ? Object.fromEntries(
-      Object.entries(process.env).filter(
-        (entry): entry is [string, string] => entry[0] !== "DISPLAY" && entry[1] !== undefined,
-      ),
-    )
-  : undefined;
+const browserEnv = browserEnvironment();
+const pointcloudBrowserEnv = browserEnvironment({ dropForwardedDisplay: true });
 
 if (useIsolatedServers) {
   // 固定隔离端口，避免继承 shell/CI job 中指向开发服务的旧变量。
@@ -124,6 +117,7 @@ export default defineConfig({
     baseURL: process.env.PLAYWRIGHT_BASE_URL ?? defaultBaseURL,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
+    launchOptions: { env: browserEnv },
   },
 
   projects: [
@@ -145,7 +139,7 @@ export default defineConfig({
         ...devices["Desktop Chrome"],
         ...(chromiumChannel ? { channel: chromiumChannel } : {}),
         launchOptions: {
-          ...(pointcloudBrowserEnv ? { env: pointcloudBrowserEnv } : {}),
+          env: pointcloudBrowserEnv,
           args: pointcloudWebGpuQualification
             ? process.platform === "darwin"
               ? []
@@ -192,13 +186,15 @@ export default defineConfig({
               timeout: 120_000,
             }]),
         {
-          command:
+          command: `env -i PATH="$PATH" HOME="$HOME" LANG="\${LANG:-C.UTF-8}" API_PROXY_TARGET="$API_PROXY_TARGET" MINIO_PROXY_TARGET="$MINIO_PROXY_TARGET" VITE_WS_HOST="$VITE_WS_HOST" PORT="$PORT" ${
             isCI && !rasterMaskMatrix
               ? `pnpm preview --host 127.0.0.1 --port ${isolatedWebPort} --strictPort`
-              : "pnpm dev --host 127.0.0.1",
+              : "pnpm dev --host 127.0.0.1"
+          }`,
           cwd: configDir,
           env: {
             API_PROXY_TARGET: `http://127.0.0.1:${isolatedApiPort}`,
+            MINIO_PROXY_TARGET: process.env.MINIO_PROXY_TARGET ?? "http://localhost:9000",
             VITE_WS_HOST: `127.0.0.1:${isolatedApiPort}`,
             PORT: isolatedWebPort,
           },

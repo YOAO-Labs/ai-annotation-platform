@@ -621,6 +621,8 @@ class LocalResources:
         self._fixture_overrides = {}
         self.code_root = code_root.resolve()
         self.touched = False
+        self._prepared = False
+        self._fixture_inference_prepared = False
         # Validate every source before connecting or writing. Old manifests remain
         # inspectable by doctor/stop/destroy; only an actual child process requires
         # the new dedicated input bucket, after explicit prepare has upgraded it.
@@ -1872,6 +1874,7 @@ class LocalResources:
 
     async def prepare_fixture_inference_database(self) -> None:
         """Fence PUBLIC TEMP in the verified disposable E2E database only."""
+        self._fixture_inference_prepared = False
         if self.resources["mode"] != "e2e":
             raise WorktreeError("推理夹具数据库权限只能用于 e2e 模式")
         runtime_role = self.runtime_url().username
@@ -1907,6 +1910,7 @@ class LocalResources:
                     )
                 )
                 if not public_temp:
+                    self._fixture_inference_prepared = True
                     return
                 sessions = await connection.scalar(
                     text(
@@ -1950,8 +1954,11 @@ class LocalResources:
                     raise WorktreeError("无法核对推理夹具数据库 TEMP 权限")
         finally:
             await engine.dispose()
+        self._fixture_inference_prepared = True
 
     def prepare(self, *, skip_migrations: bool = False) -> None:
+        self._prepared = False
+        self._fixture_inference_prepared = False
         revisions, heads = migration_graph(self.code_root)
         inventory = self.inspect()
         validate_inventory(self.resources, inventory)
@@ -2022,6 +2029,7 @@ class LocalResources:
                     configured_allowlist=self.settings.connector_host_allowlist,
                 )
             )
+        self._prepared = True
         print(
             f"[dev:worktree] {self.resources['database']} 已在 head {heads[0]}",
             file=sys.stderr,

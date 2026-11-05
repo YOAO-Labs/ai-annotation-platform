@@ -10,20 +10,13 @@ if (!Array.isArray(base.webServer) || base.webServer.length !== 1) {
 
 const [web] = base.webServer;
 const port = process.env.PLAYWRIGHT_ISOLATED_WEB_PORT ?? "3001";
-const browserEnv = Object.fromEntries(
-  Object.entries(process.env).filter(
-    (entry): entry is [string, string] =>
-      entry[0] !== "PLAYWRIGHT_RASTER_FIXTURE_SOCKET" && entry[1] !== undefined,
-  ),
-);
 
 export default defineConfig({
   ...base,
-  use: { ...base.use, launchOptions: { ...base.use?.launchOptions, env: browserEnv } },
   webServer: [
     {
       ...web,
-      command: `pnpm preview --host 127.0.0.1 --port ${port} --strictPort`,
+      command: `env -i PATH="$PATH" HOME="$HOME" LANG="\${LANG:-C.UTF-8}" API_PROXY_TARGET="$API_PROXY_TARGET" MINIO_PROXY_TARGET="$MINIO_PROXY_TARGET" VITE_WS_HOST="$VITE_WS_HOST" PORT="$PORT" pnpm preview --host 127.0.0.1 --port ${port} --strictPort`,
       env: {
         ...web.env,
         DATABASE_URL: "",

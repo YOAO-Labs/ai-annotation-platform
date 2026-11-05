@@ -14,6 +14,7 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
 import time
 from urllib.request import ProxyHandler, build_opener
 
@@ -25,7 +26,6 @@ from sqlalchemy.pool import NullPool
 from worktree_env import WorktreeError, atomic_json, read_state, state_path
 from worktree_runtime import (
     process_handle,
-    process_identity,
     process_matches,
     require_owner,
 )
@@ -40,6 +40,17 @@ _ROUTING = (
     "aap_inference_routing_v1.supersede_unbegun_scope(text)",
     "aap_inference_routing_v1.video_execution_scope_step(text,text)",
 )
+
+
+def _start_ticks(pid: int) -> int:
+    try:
+        stat_line = Path(f"/proc/{pid}/stat").read_text()
+        # The command in parentheses can contain whitespace and closing parens.
+        return int(stat_line[stat_line.rfind(")") + 1 :].split()[19])
+    except (OSError, ValueError, IndexError) as error:
+        raise WorktreeError("无法读取推理夹具的 Linux 进程身份") from error
+
+
 _HEALTH = (
     "aap_inference_health_observation_v1.health_observation_policy()",
     "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
@@ -74,6 +85,8 @@ class FixtureInferenceServices:
         self.pidfd = None
         self.poisoned = False
         self._credentials = None
+        self._lifecycle_lock = threading.RLock()
+        self._phase = "new"
 
     def _identity(self):
         return {
@@ -256,19 +269,20 @@ class FixtureInferenceServices:
         self.credentials_path.unlink(missing_ok=True)
 
     def start(self):
+        with self._lifecycle_lock:
+            if self._phase == "closed":
+                raise WorktreeError("推理夹具 owner 已关闭")
+            selection = self._start()
+            self._phase = "serving"
+            return selection
+
+    def _start(self):
         if self.poisoned:
             raise WorktreeError("推理夹具停止结果不明；保留原进程")
-        if self.process is not None:
-            if self.process.poll() is not None:
-                self.poisoned = True
-                raise WorktreeError("推理夹具进程意外退出；保留记录")
-            return self._selection()
         if self.record is not None:
-            if not process_matches(
-                self.record, str(self.code_root / "scripts/fixture_inference_services.py")
-            ):
+            if not self.is_alive():
                 self.poisoned = True
-                raise WorktreeError("推理夹具进程身份变化；保留记录")
+                raise WorktreeError("推理夹具进程身份或存活状态不明；保留记录")
             return self._selection()
         if self.marker_path.exists():
             return self._reattach()
@@ -335,6 +349,15 @@ class FixtureInferenceServices:
         if not handle:
             self.poisoned = True
             raise WorktreeError("无法核对推理夹具进程；保留记录")
+        handle["start_ticks"] = _start_ticks(self.process.pid)
+        if not hasattr(os, "pidfd_open"):
+            raise WorktreeError("无法取得推理夹具 pidfd；保留进程记录")
+        self.pidfd = os.pidfd_open(self.process.pid)
+        if (
+            not process_matches(handle, str(script))
+            or _start_ticks(self.process.pid) != handle["start_ticks"]
+        ):
+            raise WorktreeError("推理夹具进程身份变化；保留记录")
         if not self.marker_path.exists() or read_state(self.marker_path) != marker:
             raise WorktreeError("推理夹具启动记录归属变化；保留进程")
         self.record = {**marker, **handle, "phase": "running"}
@@ -382,7 +405,7 @@ class FixtureInferenceServices:
         ):
             raise WorktreeError("推理夹具未确认绑定端口；保留进程与凭据")
         opener = build_opener(ProxyHandler({}))
-        while time.monotonic() < deadline and self.process.poll() is None:
+        while time.monotonic() < deadline and self.is_alive():
             try:
                 with opener.open(
                     f"http://127.0.0.1:{values['port']}/health", timeout=1
@@ -390,8 +413,7 @@ class FixtureInferenceServices:
                     if (
                         response.status == 200
                         and json.load(response) == {"status": "ready"}
-                        and self.process.poll() is None
-                        and process_matches(self.record, str(script))
+                        and self.is_alive()
                     ):
                         return self._selection()
             except (OSError, ValueError):
@@ -438,7 +460,7 @@ class FixtureInferenceServices:
             raise WorktreeError("推理夹具控制回执身份不一致")
         return result
 
-    def _reattach(self):
+    def _reattach(self, *, required_status="serving"):
         marker = read_state(self.marker_path)
         require_owner("inference-owner", marker, self.resources["owner"])
         parent = marker.get("parent")
@@ -447,22 +469,26 @@ class FixtureInferenceServices:
         pid = parent.get("pid")
         if not isinstance(pid, int) or pid <= 0:
             raise WorktreeError("推理夹具监督进程身份无效")
-        actual = process_identity(pid)
-        if actual is None:
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                pass
-            else:
-                raise WorktreeError("无法确认原推理夹具监督进程退出")
-        elif actual["started"] == parent.get("started"):
-            raise WorktreeError("原推理夹具监督进程仍在运行")
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            pass
+        else:
+            # Even a different identity at the old PID is not a settled receipt.
+            raise WorktreeError("无法确认原推理夹具监督进程退出")
         script = str(self.code_root / "scripts/fixture_inference_services.py")
-        if not process_matches(marker, script) or not hasattr(os, "pidfd_open"):
+        if (
+            not hasattr(os, "pidfd_open")
+            or not process_matches(marker, script)
+            or _start_ticks(marker["pid"]) != marker.get("start_ticks")
+        ):
             raise WorktreeError("无法核对原推理夹具进程；保留记录")
         descriptor = os.pidfd_open(marker["pid"])
         try:
-            if not process_matches(marker, script):
+            if (
+                not process_matches(marker, script)
+                or _start_ticks(marker["pid"]) != marker.get("start_ticks")
+            ):
                 raise WorktreeError("推理夹具进程身份变化；保留记录")
             self._credentials = self._load_credentials()
             if self._credentials is None:
@@ -477,22 +503,23 @@ class FixtureInferenceServices:
                 raise WorktreeError("推理夹具控制目录路径无效")
             self.control_path = directory / "control.sock"
             self.record = marker
-            if self._control("inspect", time.monotonic() + 5) != {
-                "nonce": marker["nonce"],
-                "status": "serving",
-            }:
-                raise WorktreeError("推理夹具正在排空；保留原记录")
-            opener = build_opener(ProxyHandler({}))
-            with opener.open(
-                f"http://127.0.0.1:{self._credentials['port']}/health", timeout=5
-            ) as response:
-                if response.status != 200 or json.load(response) != {"status": "ready"}:
-                    raise WorktreeError("原推理夹具未就绪；保留记录")
+            reply = self._control("inspect", time.monotonic() + 5)
+            status = reply.get("status")
+            if reply != {"nonce": marker["nonce"], "status": required_status}:
+                raise WorktreeError("推理夹具未处于可接管状态；保留原记录")
+            if status == "serving":
+                opener = build_opener(ProxyHandler({}))
+                with opener.open(
+                    f"http://127.0.0.1:{self._credentials['port']}/health", timeout=5
+                ) as response:
+                    if response.status != 200 or json.load(response) != {"status": "ready"}:
+                        raise WorktreeError("原推理夹具未就绪；保留记录")
             parent = process_handle(os.getpid(), str(self.code_root))
             if (
                 parent is None
                 or read_state(self.marker_path) != marker
                 or not process_matches(marker, script)
+                or _start_ticks(marker["pid"]) != marker.get("start_ticks")
             ):
                 raise WorktreeError("推理夹具进程或记录变化；拒绝接管")
             self.record = {**marker, "parent": parent}
@@ -503,6 +530,83 @@ class FixtureInferenceServices:
             self.record = None
             os.close(descriptor)
             raise
+
+    def is_alive(self) -> bool:
+        if self.poisoned or self.record is None or self.pidfd is None:
+            return False
+        if select.select([self.pidfd], [], [], 0)[0]:
+            return False
+        return bool(
+            self.marker_path.exists()
+            and read_state(self.marker_path) == self.record
+            and process_matches(
+                self.record, str(self.code_root / "scripts/fixture_inference_services.py")
+            )
+            and _start_ticks(self.record["pid"]) == self.record.get("start_ticks")
+        )
+
+    def supervision_ready(self) -> bool:
+        with self._lifecycle_lock:
+            if self._phase == "paused":
+                return (
+                    not self.poisoned
+                    and self.record is None
+                    and self.pidfd is None
+                    and not self.marker_path.exists()
+                )
+            return self._phase == "serving" and self.is_alive()
+
+    def process_identity_inventory(self) -> list[dict]:
+        with self._lifecycle_lock:
+            if (
+                self._phase == "paused"
+                and not self.poisoned
+                and self.record is None
+                and self.pidfd is None
+                and not self.marker_path.exists()
+            ):
+                return []
+            if self._phase != "serving" or not self.is_alive():
+                raise WorktreeError("推理夹具进程身份未确认；保留资源")
+            return [
+                {
+                    key: self.record[key]
+                    for key in ("pid", "started", "scope", "command_hash", "start_ticks")
+                }
+            ]
+
+    def verified_selection(self, resources: dict, *, code_root: Path) -> dict:
+        with self._lifecycle_lock:
+            return self._verified_selection(resources, code_root=code_root)
+
+    def _verified_selection(self, resources: dict, *, code_root: Path) -> dict:
+        if resources != self.resources or Path(code_root).resolve() != self.code_root:
+            raise WorktreeError("推理夹具 owner 与工作树数据库不一致")
+        if self._credentials is None or not self.is_alive():
+            raise WorktreeError("推理夹具 owner 不可验证；拒绝选择")
+        if self._control("inspect", time.monotonic() + 5) != {
+            "nonce": self.record["nonce"],
+            "status": "serving",
+        }:
+            raise WorktreeError("推理夹具 owner 未处于服务状态")
+        if not self.is_alive():
+            raise WorktreeError("推理夹具 owner 身份变化；拒绝选择")
+        return self._selection()
+
+    def reattach(self) -> dict:
+        with self._lifecycle_lock:
+            if self.record is not None or not self.marker_path.exists():
+                raise WorktreeError("没有可明确接管的推理夹具 owner")
+            selection = self._reattach()
+            self._phase = "serving"
+            return selection
+
+    def recover_drained(self) -> None:
+        with self._lifecycle_lock:
+            if self.record is not None or not self.marker_path.exists():
+                raise WorktreeError("没有可明确接管的推理夹具 owner")
+            self._reattach(required_status="drained")
+            self.close()
 
     def _selection(self):
         value = self._credentials
@@ -518,35 +622,42 @@ class FixtureInferenceServices:
         }
 
     def pause(self):
+        with self._lifecycle_lock:
+            if self._phase == "closed":
+                raise WorktreeError("推理夹具 owner 已关闭")
+            self._pause()
+            if self._phase != "new":
+                self._phase = "paused"
+
+    def _pause(self):
         if self.poisoned:
             raise WorktreeError("推理夹具停止结果不明；保留原进程")
         if self.record is None:
             return
         try:
-            if (
-                not self.marker_path.exists()
-                or read_state(self.marker_path) != self.record
-                or not process_matches(
-                    self.record,
-                    str(self.code_root / "scripts/fixture_inference_services.py"),
-                )
-            ):
+            if not self.is_alive():
                 raise WorktreeError("推理夹具进程身份变化；保留记录")
             deadline = time.monotonic() + 12
             receipt = self._control("drain", deadline)
             if receipt != {"nonce": self.record["nonce"], "status": "drained"}:
                 raise WorktreeError("推理夹具排空回执无效；保留资源")
-            if self.process is not None:
-                if self.process.wait(timeout=max(0, deadline - time.monotonic())) != 0:
-                    raise ValueError
-            else:
-                if self.pidfd is None:
-                    raise WorktreeError("无法核对推理夹具进程退出；保留资源")
-                ready, _, _ = select.select(
-                    [self.pidfd], [], [], max(0, deadline - time.monotonic())
-                )
-                if not ready:
-                    raise TimeoutError
+            try:
+                self._control("finish", deadline)
+            except (OSError, ValueError, WorktreeError):
+                # A lost final reply is resolved only by the prior drain receipt,
+                # exact pidfd exit, and owned control-directory removal below.
+                pass
+            if self.pidfd is None:
+                raise WorktreeError("无法核对推理夹具进程退出；保留资源")
+            ready, _, _ = select.select(
+                [self.pidfd], [], [], max(0, deadline - time.monotonic())
+            )
+            if not ready:
+                raise TimeoutError
+            if self.process is not None and self.process.wait(timeout=0) != 0:
+                raise ValueError
+            if self.control_path.parent.exists():
+                raise WorktreeError("推理夹具控制目录未完成清理；保留记录")
             if (
                 not self.marker_path.exists()
                 or read_state(self.marker_path) != self.record
@@ -603,6 +714,13 @@ class FixtureInferenceServices:
             await engine.dispose()
 
     def close(self):
+        with self._lifecycle_lock:
+            if self._phase == "closed":
+                return
+            self._close()
+            self._phase = "closed"
+
+    def _close(self):
         if self.poisoned:
             raise WorktreeError("推理夹具停止结果不明；保留原进程")
         with self.backend.fixture_authority_fence():
@@ -646,7 +764,7 @@ async def _serve(payload):
     if control_path.exists() or control_path.is_symlink():
         raise RuntimeError("Inference control socket already exists")
     shutdown = asyncio.Event()
-    draining = False
+    drain_task = None
     controller = None
     socket_identity = None
 
@@ -662,8 +780,14 @@ async def _serve(payload):
         ):
             raise RuntimeError("Inference control directory identity changed")
 
+    async def drain():
+        await server.close()
+        await routing.close()
+        await health_data.close()
+
     async def control(reader, writer):
-        nonlocal draining
+        nonlocal drain_task
+        finishing = False
         try:
             raw = await asyncio.wait_for(reader.readline(), timeout=5)
             request = json.loads(raw)
@@ -675,13 +799,28 @@ async def _serve(payload):
             ):
                 return
             if request["command"] == "inspect":
-                status = "draining" if draining else "serving"
-            elif request["command"] == "drain" and not draining:
-                draining = True
-                await server.close()
-                await routing.close()
-                await health_data.close()
-                controller.close()
+                status = (
+                    "serving"
+                    if drain_task is None
+                    else "draining"
+                    if not drain_task.done()
+                    else "failed"
+                    if drain_task.cancelled() or drain_task.exception() is not None
+                    else "drained"
+                )
+            elif request["command"] == "drain":
+                if drain_task is None:
+                    drain_task = asyncio.create_task(drain())
+                await asyncio.shield(drain_task)
+                status = "drained"
+            elif (
+                request["command"] == "finish"
+                and drain_task is not None
+                and drain_task.done()
+                and not drain_task.cancelled()
+                and drain_task.exception() is None
+            ):
+                verify_directory()
                 current = control_path.lstat()
                 if (
                     not stat.S_ISSOCK(current.st_mode)
@@ -689,23 +828,23 @@ async def _serve(payload):
                     or current.st_uid != os.geteuid()
                 ):
                     raise RuntimeError("Inference control socket identity changed")
-                verify_directory()
+                controller.close()
                 control_path.unlink()
+                finishing = True
                 control_path.parent.rmdir()
-                status = "drained"
+                status = "stopping"
             else:
                 return
             writer.write(
                 (json.dumps({"nonce": payload["nonce"], "status": status}) + "\n").encode()
             )
             await writer.drain()
-            writer.close()
-            await writer.wait_closed()
-            if status == "drained":
-                shutdown.set()
         except (OSError, ValueError, TimeoutError, asyncio.LimitOverrunError):
             pass
         finally:
+            if finishing:
+                # Completion cannot depend on delivery of the final reply.
+                shutdown.set()
             writer.close()
             try:
                 await writer.wait_closed()

@@ -187,6 +187,26 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             runtime.parse_arguments(["--api-port", "0"])
 
+    def test_inference_recovery_requires_one_explicit_e2e_operation(self):
+        import worktree_runtime as runtime
+
+        recovery = runtime.parse_arguments(
+            ["recover-inference", "--", "python", "recover.py"]
+        )
+        self.assertEqual(recovery.mode, "e2e")
+        self.assertEqual(recovery.execute, ["python", "recover.py"])
+        self.assertTrue(
+            runtime.parse_arguments(["recover-inference", "--finish-drain"]).finish_drain
+        )
+        for args in (
+            ["recover-inference"],
+            ["recover-inference", "--finish-drain", "--", "true"],
+            ["recover-inference", "--mode", "test", "--finish-drain"],
+            ["destroy", "--finish-drain"],
+        ):
+            with self.subTest(args=args), self.assertRaises(SystemExit):
+                runtime.parse_arguments(args)
+
     def test_process_identity_rejects_pid_reuse_and_other_checkouts(self):
         import worktree_runtime as runtime
 
