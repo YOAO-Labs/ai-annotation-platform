@@ -58,6 +58,15 @@ contention returns `55P03`, and an unretired video or unproved Jobs row returns
 `23514`. The guard borrows the caller transaction and preserves original
 constraints and DELETE triggers.
 
+The typed dataset classifier receives Job ID, kind, payload, project ID and actor ID. Its packaged signature is `fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)`; unknown scope remains a cleanup blocker. The database suffix is an additional environment restriction, not authority to grant private fixture capabilities to the ordinary runtime.
+
+The current migration-bound contract is
+`apps/api/alembic/sql/0443_fixture_jobs.schema.json`, matching the installed
+`yoao_jobs/fixture_guard.schema.json`. Native acceptance checks every declared
+function's arguments, result, volatility and parallel safety against PostgreSQL.
+Historical SQL stays unchanged; reclaim classification advances through
+`0437_fixture_reclaim_job_scope.sql`, not a rewrite of the `0432` input.
+
 ## Filtering fixture outcomes
 
 `aap-jobs-filter-fixtures/v1` provides the fixed

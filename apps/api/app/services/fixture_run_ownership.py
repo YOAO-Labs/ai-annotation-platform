@@ -19,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 
 from app.db.models.fixture_run import (
+    FixtureAuditEvent,
     FixtureMaintenanceWindow,
     FixtureOriginalTarget,
     FixtureRun,
@@ -239,6 +240,21 @@ async def reserve(
     await db.flush()
 
 
+async def register_audit(
+    db, run_id: uuid.UUID, audit_id: int, audit_created_at: datetime
+) -> None:
+    """Record the Audit owner's exact composite receipt in its producer transaction."""
+    run = await _lock_run(db, run_id)
+    if run.state != "open":
+        _reject("fixture_run_closed")
+    db.add(
+        FixtureAuditEvent(
+            run_id=run_id, audit_id=audit_id, audit_created_at=audit_created_at
+        )
+    )
+    await db.flush()
+
+
 async def reserve_original_dataset(
     db, run_id: uuid.UUID, dataset_id: uuid.UUID, *, logical_key: str
 ) -> None:
@@ -409,6 +425,43 @@ def _require_settled_original_receipt(creation, operation) -> None:
         _reject("fixture_original_unsettled")
 
 
+async def _original_owner_retired(db, creation, *, owner_type, owner_id) -> bool:
+    """Recognize logical retirement, never physical reclaim completion."""
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+
+    retirements = list(
+        await db.scalars(
+            select(ManagedOriginalRetirement).where(
+                ManagedOriginalRetirement.creation_id == creation.id
+            )
+        )
+    )
+    if not retirements:
+        return False
+    if len(retirements) != 1:
+        _reject("fixture_original_retirement_changed")
+    retirement = retirements[0]
+    retired_owner_id = (
+        retirement.dataset_item_id
+        if owner_type == "dataset_asset"
+        else retirement.auxiliary_original_id
+    )
+    if (
+        retirement.owner_type != owner_type
+        or retired_owner_id != owner_id
+        or retirement.dataset_id != creation.dataset_id
+        or retirement.location_id != creation.location_id
+        or retirement.storage_identity != creation.storage_identity
+        or retirement.bucket != creation.bucket
+        or retirement.object_key != creation.object_key
+        or retirement.sha256 != creation.sha256
+        or retirement.size_bytes != creation.size_bytes
+        or retirement.etag != creation.etag
+    ):
+        _reject("fixture_original_retirement_changed")
+    return True
+
+
 async def recover_verified_originals(db, run_id: uuid.UUID) -> None:
     """Attach settled Creations only to their unchanged, already-persisted items."""
     from app.db.models.dataset import DatasetItem
@@ -464,7 +517,7 @@ async def recover_verified_originals(db, run_id: uuid.UUID) -> None:
         item_owner = await db.get(
             FixtureRunResource, (run_id, "item", resource.item_id)
         )
-        if item is None or item_owner is None:
+        if item_owner is None:
             _reject("fixture_original_item_missing")
         await exclusive(db, creation.bucket, creation.object_key)
         classification = await db.scalar(
@@ -476,6 +529,12 @@ async def recover_verified_originals(db, run_id: uuid.UUID) -> None:
         )
         if classification != "qualified":
             _reject("fixture_original_store_unqualified")
+        if item is None:
+            if await _original_owner_retired(
+                db, creation, owner_type="dataset_asset", owner_id=resource.item_id
+            ):
+                continue
+            _reject("fixture_original_item_missing")
         locations = list(
             await db.scalars(
                 select(DatasetAssetLocation).where(
@@ -592,6 +651,10 @@ async def recover_verified_auxiliary_originals(db, run_id: uuid.UUID) -> None:
             DatasetAuxiliaryOriginal, creation.id, with_for_update=True
         )
         if owner is None:
+            if await _original_owner_retired(
+                db, creation, owner_type="dataset_auxiliary", owner_id=creation.id
+            ):
+                continue
             await gateway._managed_original_data(
                 "aap_assets_v1.publish_operator_auxiliary",
                 {"creation_id": creation.id},

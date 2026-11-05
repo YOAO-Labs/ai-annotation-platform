@@ -1042,9 +1042,3 @@ class InferenceTopologyData:
                 "topology project association deletion returned malformed count"
             )
         return deleted
-
-    async def seed_workbench_health(self, registry_id: UUID) -> None:
-        await self._scalar(
-            text(f"SELECT {_SCHEMA}.seed_workbench_health(CAST(:registry_id AS uuid))"),
-            {"registry_id": registry_id},
-        )

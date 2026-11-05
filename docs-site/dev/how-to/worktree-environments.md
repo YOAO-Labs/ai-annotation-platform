@@ -131,6 +131,14 @@ pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
 
+运行级原件夹具通过独立的 `seed-request.py` owner 进程准备和清理。该进程先核对同一个可销毁数据库及 owner 身份，再显式启用托管原件维护协议；不改变普通 API／worker 或生产环境的默认开关。清理仍须满足准确根回执、对象版本、location 维护门和读者责任的结算要求，启用开关不等于已证明物理 I/O 排空。
+
+夹具 Audit 清理使用原生 `(id, created_at)` 复合回执，而不是按 namespace 或单独的整数 ID 删除。实际认证会话必须属于夹具 owner，叶运行已经封闭且所有准入责任已结算；共享原始 namespace 的两个运行仍各自保留准确归属。旧 UUID 回执不会自动转换或补造时间戳。
+
+涉及后端注册项时，清理还依赖真实 Routing owner 的连续性和排空证明。不可达的展示地址、空作业列表或终态标记不代表后端可以安全删除；未满足前置时保留运行与资源，不绕过静默检查。
+
+测试提供方也须经过真实认证的健康观测，普通运行账号不再因数据库具有测试后缀而取得直接设置夹具健康状态的权限。重新应用权限会撤销旧授权；历史 SQL 保持原件，由前向迁移退役该入口。
+
 CI 的可复用 E2E 工作流同样从仓库根目录调用 `pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web <套件命令>`，不再另起使用 owner 连接的 API 或维护第二套运行账号授权。PostgreSQL 的初始 `postgres` 连接用于协调器建库和迁移；实际普通 API 只获得本模式的受限连接。需要已构建 Web 的 CI 套件仍使用经过指纹核验的产物和严格端口 preview；Mask 的开发服务器与原生构建入口保持各自约定。
 
 `--with-worker` 使用当前 checkout 的 Python 依赖，同时启动普通和维护 worker。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，负责审计与预测月分区、旧审计分区归档，以及人员效率和审计统计物化视图刷新。两者均需通过任务注册与队列订阅检查；除了职责队列，也允许 Celery 自动创建的当前节点专属定向队列，缺失职责队列或其他意外订阅仍会阻止启动。`doctor` 分别显示 `worker` 和 `maintenance_worker`；任一个退出都会停止同次启动的服务。

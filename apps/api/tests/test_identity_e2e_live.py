@@ -14,6 +14,7 @@ from botocore.exceptions import ClientError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
+from tests.identity_e2e_support import fixture_routing_owner
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     endpoint_url,
@@ -38,8 +39,11 @@ pytestmark = [
 
 
 @pytest.fixture
-async def seed_owner_stack():
-    async with AsyncExitStack() as stack:
+async def seed_owner_stack(test_engine, monkeypatch):
+    async with (
+        fixture_routing_owner(test_engine, monkeypatch),
+        AsyncExitStack() as stack,
+    ):
         yield stack
 
 
@@ -89,6 +93,7 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
         minio_use_ssl=endpoint.scheme == "https",
         s3_access_key=os.environ["AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY"],
         s3_secret_key=os.environ["AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY"],
+        original_reader=True,
         identity_auth_database_url=make_url(
             os.environ["AAP_MODULE_DATA_IDENTITY_AUTH_URL"]
         ),
@@ -101,8 +106,6 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
     runs = [suite.new_run(uuid.uuid4().hex[:10]) for _ in range(2)]
     manifests = []
     try:
-        # Docker network attachment replaces existing host-port connections.
-        await test_engine.dispose()
         await asyncio.to_thread(cli.start)
         async with test_engine.begin() as db:
             await db.execute(
@@ -209,6 +212,7 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
 
 
 _PROBE_SOURCE = r"""import asyncio
+import hashlib
 import json
 import os
 import socket
@@ -283,6 +287,16 @@ try:
             hidden = client.post("/api/v1/__test/seed/project-roles", json={"namespace": "forbidden"})
             assert hidden.status_code == 404, hidden.text
             assert not any("/__test/seed/" in path for path in client.get("/openapi.json").json()["paths"])
+            identity = client.get(
+                f"/api/v1/files/tasks/{data['annotation_task_id']}/original-identity",
+                headers=headers,
+            )
+            assert identity.status_code == 200, identity.text
+            original = identity.json()
+            downloaded = client.get(original["download_path"], headers=headers)
+            assert downloaded.status_code == 200, downloaded.text
+            assert len(downloaded.content) == original["size_bytes"]
+            assert hashlib.sha256(downloaded.content).hexdigest() == original["sha256"]
             annotation = client.post(
                 f"/api/v1/tasks/{data['annotation_task_id']}/annotations",
                 headers=headers,
@@ -299,11 +313,22 @@ try:
         elif sys.argv[1] == "neighbor":
             removed = client.get("/api/v1/auth/me", headers=headers)
             assert removed.status_code == 401, removed.text
+            neighbor_headers = {"Authorization": "Bearer " + neighbor["access_token"]}
             access = client.get(
                 f"/api/v1/projects/{neighbor['fixture']['projects']['a']['project_id']}/access",
-                headers={"Authorization": "Bearer " + neighbor["access_token"]},
+                headers=neighbor_headers,
             )
             assert access.status_code == 200, access.text
+            identity = client.get(
+                f"/api/v1/files/tasks/{neighbor['fixture']['annotation_task_id']}/original-identity",
+                headers=neighbor_headers,
+            )
+            assert identity.status_code == 200, identity.text
+            original = identity.json()
+            downloaded = client.get(original["download_path"], headers=neighbor_headers)
+            assert downloaded.status_code == 200, downloaded.text
+            assert len(downloaded.content) == original["size_bytes"]
+            assert hashlib.sha256(downloaded.content).hexdigest() == original["sha256"]
             result = {"removed_actor_status": removed.status_code, "neighbor_project_role": access.json()["project_role"]}
         else:
             raise AssertionError("unknown consumer mode")

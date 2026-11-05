@@ -12,6 +12,7 @@ service, mirroring the existing `test_seed_router.py` harness.
 from __future__ import annotations
 
 from contextlib import closing
+from hashlib import sha256
 import uuid
 
 import pytest
@@ -21,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from tests import seed_owned_scenarios as scenarios
 from tests.identity_e2e_support import (
     committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
     fenced_http as fenced_http,
     fixture_and_fenced_http as fixture_and_fenced_http,
     owner_fault_http as owner_fault_http,
@@ -117,17 +119,79 @@ async def test_webcodecs_sources_are_owned_by_project_and_cleanup_keeps_neighbor
 
 
 @pytest.fixture
-async def fixture_playback_registry(app_module, monkeypatch):
-    from app.services.original_playback_registry import PlaybackRegistry
+async def fixture_playback_registry(app_module, monkeypatch, test_engine, tmp_path):
+    import asyncio
+    import secrets
+    import sys
 
-    registry = PlaybackRegistry()
-    monkeypatch.setattr(
-        app_module.state, "original_playback_registry", registry, raising=False
+    import httpx
+
+    from app.config import settings
+    from app.services.original_playback_registry import PlaybackRegistry
+    from tests.test_asset_storage_cleanup_runtime import (
+        _required_env,
+        _verified_resource_manifest,
+    )
+    from tests.test_assets_media_live import (
+        _free_loopback_port,
+        _guard_role_url,
+        _runtime_database_url,
+        _runtime_environment,
+        _start_process,
+        _stop_process,
+        _wait_control_ready,
+    )
+
+    control_url = _guard_role_url(
+        "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
+        "asset_media_control_client",
+        test_engine,
+    )
+    resources = _verified_resource_manifest(test_engine, control_url)
+    endpoint = (
+        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
+    )
+    token, port = secrets.token_urlsafe(32), _free_loopback_port()
+    environment = _runtime_environment(
+        tmp_path=tmp_path,
+        role="control",
+        database_url=_runtime_database_url(control_url),
+        endpoint=endpoint,
+        public_endpoint=endpoint,
+        datasets_bucket=resources["buckets"]["MINIO_DATASETS_BUCKET"],
+        legacy_bucket=resources["buckets"]["MINIO_BUCKET"],
+        cache_bucket=resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"],
+        access_key=_required_env("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_ACCESS_KEY"),
+        secret_key=_required_env("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_SECRET_KEY"),
+        token=token,
+        port=port,
+    )
+    log_path = tmp_path / "playback-media-control.log"
+    process, stream = _start_process(
+        [sys.executable, "-m", "yoao_assets_media_runtime"], environment, log_path
     )
     try:
-        yield registry
+        async with httpx.AsyncClient(
+            base_url=f"http://127.0.0.1:{port}", timeout=5, trust_env=False
+        ) as client:
+            await _wait_control_ready(client, process, log_path)
+            monkeypatch.setattr(
+                settings, "assets_media_url", str(client.base_url).rstrip("/")
+            )
+            monkeypatch.setattr(settings, "assets_media_token", token)
+            registry = PlaybackRegistry()
+            monkeypatch.setattr(
+                app_module.state, "original_playback_registry", registry, raising=False
+            )
+            try:
+                yield registry
+            finally:
+                await registry.shutdown()
     finally:
-        await registry.shutdown()
+        try:
+            await asyncio.to_thread(_stop_process, process)
+        finally:
+            stream.close()
 
 
 @pytest.mark.parametrize("kind", ["task", "item"])
@@ -189,7 +253,9 @@ async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neig
         built.append(run_b)
         own_wire, base, headers, payload = await seed_and_prepare(run_a, owned, kind)
         other_kind = "item" if kind == "task" else "task"
-        neighbor_wire, _, _, _ = await seed_and_prepare(run_b, neighbor, other_kind)
+        neighbor_wire, _, _, neighbor_payload = await seed_and_prepare(
+            run_b, neighbor, other_kind
+        )
         registry = fixture_playback_registry
         assert registry.diagnostics()["stages"] == 2
         blocked = await httpx_client.post(
@@ -203,6 +269,9 @@ async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neig
         assert (await _cleanup_owned(owner_fault_http, run_a)).status_code == 200
         assert (await fenced_http.head(own_wire["media_path"])).status_code == 410
         assert (await fenced_http.head(neighbor_wire["media_path"])).status_code == 200
+        neighbor_bytes = await fenced_http.get(neighbor_wire["media_path"])
+        assert neighbor_bytes.status_code == 200
+        assert sha256(neighbor_bytes.content).hexdigest() == neighbor_payload["sha256"]
         assert registry.diagnostics()["stages"] == 1
         assert (await _cleanup_owned(owner_fault_http, run_a)).status_code == 200
 
@@ -357,10 +426,14 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
         assert len(_read_versions(reader, versions)) == 5
 
     registry = await db_session.scalar(
-        select(MLBackendRegistry).where(MLBackendRegistry.url == scope.registry_url)
+        select(MLBackendRegistry).where(
+            MLBackendRegistry.id == uuid.UUID(body["ml_backend_id"])
+        )
     )
     assert registry is not None
     assert str(registry.id) == body["ml_backend_id"]
+    assert registry.auth_method == "token"
+    assert registry.state == "connected"
     pool = await db_session.scalar(
         select(MLBackendServicePool).where(
             MLBackendServicePool.legacy_instance_id == registry.id
@@ -779,14 +852,114 @@ async def test_owned_cleanup_does_not_match_legacy_shared_bug_prefix(
     await db_session.commit()
 
 
+async def test_owned_cleanup_preserves_foreign_pool_binding_before_drain(
+    fixture_and_fenced_http, committed_owner: AsyncSession
+):
+    from sqlalchemy import delete
+
+    from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
+    from app.db.models.ml_backend_registry import ProjectMLBackendPool
+    from app.db.models.project import Project
+    from app.db.models.user import User
+
+    client, db = fixture_and_fenced_http, committed_owner
+    run = client.owner_suite.new_run(A)
+    fixture = await _build_owned(client, run)
+    registry_id = uuid.UUID(fixture["ml_backend_id"])
+    pool_id = await db.scalar(
+        select(MLBackendServicePool.id).where(
+            MLBackendServicePool.legacy_instance_id == registry_id
+        )
+    )
+    assert pool_id is not None
+    user_id, project_id, binding_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    db.add(
+        User(
+            id=user_id,
+            email=f"neighbor-{user_id.hex}@example.test",
+            name="Independent owner",
+            password_hash="opaque",
+            role="super_admin",
+            is_active=True,
+        )
+    )
+    await db.flush()
+    db.add(
+        Project(
+            id=project_id,
+            display_id=f"P-N-{project_id.hex[:12]}",
+            name="Independent project",
+            type_label="image-det",
+            type_key="image-det",
+            owner_id=user_id,
+            tool_bindings={"bbox": {"enabled": True, "classes": ["neighbor"]}},
+        )
+    )
+    await db.flush()
+    db.add(
+        ProjectMLBackendPool(
+            id=binding_id,
+            project_id=project_id,
+            pool_id=pool_id,
+            enabled=True,
+            default_variants={"size": "small"},
+        )
+    )
+    await db.commit()
+    query = (
+        select(
+            MLBackendPoolMember.traffic_state,
+            MLBackendServicePool.enabled,
+            Project.name,
+            Project.owner_id,
+            Project.tool_bindings,
+            ProjectMLBackendPool.id,
+            ProjectMLBackendPool.enabled,
+            ProjectMLBackendPool.default_variants,
+        )
+        .select_from(MLBackendPoolMember)
+        .join(
+            MLBackendServicePool, MLBackendServicePool.id == MLBackendPoolMember.pool_id
+        )
+        .join(
+            ProjectMLBackendPool,
+            ProjectMLBackendPool.pool_id == MLBackendServicePool.id,
+        )
+        .join(Project, Project.id == ProjectMLBackendPool.project_id)
+        .where(
+            MLBackendPoolMember.registry_id == registry_id,
+            ProjectMLBackendPool.id == binding_id,
+        )
+    )
+    try:
+        before = (await db.execute(query)).one()
+        assert before.traffic_state == "active"
+
+        response = await _cleanup_owned(client, run)
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["code"] == "fixture_backend_foreign_reference"
+        assert (await db.execute(query)).one() == before
+    finally:
+        await db.rollback()
+        await db.execute(
+            delete(ProjectMLBackendPool).where(ProjectMLBackendPool.id == binding_id)
+        )
+        await db.execute(delete(Project).where(Project.id == project_id))
+        await db.execute(delete(User).where(User.id == user_id))
+        await db.commit()
+        response = await _cleanup_owned(client, run)
+        assert response.status_code == 200, response.text
+
+
 async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
     fixture_and_fenced_http, committed_owner: AsyncSession, monkeypatch
 ):
     """A Labeling abort rolls back deletion and permits exact cleanup to resume."""
     from app.api.v1._test_seed import (
         _LABELING_FIXTURE_DELETE_SQL,
-        _cleanup_e2e_fixtures,
+        _cleanup_owned_e2e_fixtures,
     )
+    from app.config import settings
     from app.db.models.bug_report import BugReport
     from app.db.models.project import Project
     from app.db.models.task import Task
@@ -836,9 +1009,10 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
 
     try:
         with monkeypatch.context() as patch:
+            patch.setattr(settings, "storage_maintenance_protocol_enabled", True)
             patch.setattr(db_session, "execute", abort_labeling_delete)
             with pytest.raises(DeadlockDetectedError) as caught:
-                await _cleanup_e2e_fixtures(db_session, run.scope())
+                await _cleanup_owned_e2e_fixtures(db_session, run.scope())
             assert caught.value is abort
 
         # Cleanup's rollback preserves the project, its tasks, and its users;
@@ -881,3 +1055,161 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
     assert not set(
         await db_session.scalars(select(User.email).where(User.email.in_(emails)))
     )
+
+
+async def test_owned_cleanup_resumes_after_logical_retirement_before_reclaim(
+    fixture_and_fenced_http, committed_owner, test_engine, monkeypatch
+):
+    from botocore.exceptions import ClientError
+
+    from app.api.v1 import _test_seed
+    from app.config import settings
+    from app.db.models.managed_original_reclaim import ManagedOriginalReclaimClaim
+    from app.db.models.managed_original_retirement import ManagedOriginalRetirement
+    from app.db.models.project import Project
+
+    client, db = fixture_and_fenced_http, committed_owner
+    run = client.owner_suite.new_run(A)
+    fixture = await _build_owned(client, run)
+    versions = await _fixture_versions(test_engine, run)
+    creation_ids = {row["id"] for row in versions}
+
+    class InterruptedReclaim(Exception):
+        pass
+
+    async def interrupt_reclaim(*_args):
+        raise InterruptedReclaim()
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(settings, "storage_maintenance_protocol_enabled", True)
+            patch.setattr(_test_seed, "_reclaim_owned_originals", interrupt_reclaim)
+            with pytest.raises(InterruptedReclaim):
+                await _test_seed._cleanup_owned_e2e_fixtures(db, run.scope())
+
+        assert (
+            await db.scalar(
+                select(Project.id).where(Project.id == uuid.UUID(fixture["project_id"]))
+            )
+            is None
+        )
+        assert (
+            set(
+                await db.scalars(
+                    select(ManagedOriginalRetirement.creation_id).where(
+                        ManagedOriginalRetirement.creation_id.in_(creation_ids)
+                    )
+                )
+            )
+            == creation_ids
+        )
+        assert not list(
+            await db.scalars(
+                select(ManagedOriginalReclaimClaim.id).where(
+                    ManagedOriginalReclaimClaim.creation_id.in_(creation_ids)
+                )
+            )
+        )
+        with closing(fixture_original_reader()) as reader:
+            _read_versions(reader, versions)
+    finally:
+        await db.rollback()
+        response = await _cleanup_owned(client, run)
+        assert response.status_code == 200, response.text
+
+    with closing(fixture_original_reader()) as reader:
+        for row in versions:
+            with pytest.raises(ClientError) as absent:
+                reader.head_object(
+                    Bucket=row["bucket"],
+                    Key=row["object_key"],
+                    VersionId=row["version_id"],
+                )
+            assert absent.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+
+
+async def test_owned_cleanup_retries_settled_reclaim_failure_without_touching_neighbor(
+    fixture_and_fenced_http, committed_owner, test_engine, monkeypatch
+):
+    from botocore.exceptions import ClientError
+    from fastapi import HTTPException
+
+    from app.api.v1 import _test_seed
+    from app.config import settings
+    from app.db.models.managed_original_reclaim import (
+        ManagedOriginalReclaimAttempt,
+        ManagedOriginalReclaimClaim,
+    )
+
+    client, db = fixture_and_fenced_http, committed_owner
+    run_a = client.owner_suite.new_run(A)
+    run_b = client.owner_suite.new_run(B)
+    await _build_owned(client, run_a)
+    await _build_owned(client, run_b)
+    versions_a = await _fixture_versions(test_engine, run_a)
+    versions_b = await _fixture_versions(test_engine, run_b)
+    creation_ids = {row["id"] for row in versions_a}
+    with closing(fixture_original_reader()) as reader:
+        bytes_a = _read_versions(reader, versions_a)
+        bytes_b = _read_versions(reader, versions_b)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(settings, "storage_maintenance_protocol_enabled", True)
+        patch.setattr(settings, "connector_host_allowlist", [])
+        with pytest.raises(HTTPException) as refused:
+            await _test_seed._cleanup_owned_e2e_fixtures(db, run_a.scope())
+        assert refused.value.status_code == 409
+
+    failed = (
+        await db.scalars(
+            select(ManagedOriginalReclaimAttempt).where(
+                ManagedOriginalReclaimAttempt.creation_id.in_(creation_ids),
+                ManagedOriginalReclaimAttempt.status == "failed",
+            )
+        )
+    ).one()
+    first_id, creation_id = failed.id, failed.creation_id
+    assert failed.physical_settled and failed.error_code == "connector_host_denied"
+    claim = (
+        await db.scalars(
+            select(ManagedOriginalReclaimClaim).where(
+                ManagedOriginalReclaimClaim.creation_id == creation_id
+            )
+        )
+    ).one()
+    assert claim.state == "released" and claim.current_attempt_id == first_id
+    with closing(fixture_original_reader()) as reader:
+        assert _read_versions(reader, versions_a) == bytes_a
+        assert _read_versions(reader, versions_b) == bytes_b
+    await db.rollback()
+
+    response = await _cleanup_owned(client, run_a)
+    assert response.status_code == 200, response.text
+    previous = await db.get(
+        ManagedOriginalReclaimAttempt, first_id, populate_existing=True
+    )
+    assert previous.status == "failed" and previous.physical_settled
+    assert previous.error_code == "connector_host_denied"
+    replacement = (
+        await db.scalars(
+            select(ManagedOriginalReclaimAttempt).where(
+                ManagedOriginalReclaimAttempt.retry_of_id == first_id
+            )
+        )
+    ).one()
+    assert replacement.creation_id == creation_id
+    assert replacement.status == "completed" and replacement.physical_settled
+    assert replacement.absence_verified_at is not None
+    with closing(fixture_original_reader()) as reader:
+        for row in versions_a:
+            with pytest.raises(ClientError) as absent:
+                reader.head_object(
+                    Bucket=row["bucket"],
+                    Key=row["object_key"],
+                    VersionId=row["version_id"],
+                )
+            assert absent.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+        assert _read_versions(reader, versions_b) == bytes_b
+    await db.rollback()
+    response = await _cleanup_owned(client, run_b)
+    assert response.status_code == 200, response.text

@@ -207,6 +207,9 @@ REVOKE ALL ON FUNCTION aap_inference_routing_v1.prediction_test_scope_reserve(te
 CREATE FUNCTION aap_inference_routing_v1.guard_prediction_scope_insert()
 RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+SET extra_float_digits TO 3
 AS $function$
 BEGIN
     IF NEW.operation IN ('image_batch_predict', 'prediction_retry') AND NOT EXISTS (
@@ -240,6 +243,9 @@ REVOKE ALL ON FUNCTION aap_inference_routing_v1.guard_prediction_scope_insert() 
 CREATE FUNCTION aap_inference_routing_v1.guard_prediction_dispatch_start()
 RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+SET extra_float_digits TO 3
 AS $function$
 DECLARE
     v_binding aap_inference_routing_v1.prediction_execution_scopes%ROWTYPE;
@@ -321,6 +327,9 @@ REVOKE ALL ON FUNCTION aap_inference_routing_v1.guard_prediction_dispatch_start(
 CREATE FUNCTION aap_inference_routing_v1.guard_prediction_managed_attempt()
 RETURNS trigger LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+SET extra_float_digits TO 3
 AS $function$
 BEGIN
     IF EXISTS (
@@ -352,6 +361,9 @@ CREATE FUNCTION aap_inference_routing_v1.fixture_prediction_scope_inventory(
 )
 RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+SET extra_float_digits TO 3
 AS $function$
 DECLARE v_scopes jsonb;
 BEGIN
@@ -453,6 +465,9 @@ CREATE FUNCTION aap_inference_routing_v1.fixture_prediction_tests_retired(
 )
 RETURNS boolean LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
+SET TimeZone TO 'UTC'
+SET DateStyle TO 'ISO, YMD'
+SET extra_float_digits TO 3
 AS $function$
 BEGIN
     PERFORM aap_inference_routing_v1.fixture_prediction_scope_inventory(p_run_id,p_project_ids,p_task_ids);

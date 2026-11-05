@@ -4,7 +4,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { FullConfig } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../fixtures/seed";
-import { closeFixtureTransport, getScreenshotCatalog } from "../helpers/seed-owner-transport.mjs";
+import {
+  closeFixtureTransport,
+  getScreenshotCatalog,
+  prepareFixtureSuite,
+} from "../helpers/seed-owner-transport.mjs";
 import { cleanupScreenshotRun } from "./fixture-run.mjs";
 import { storeScreenshotCatalog } from "./catalog-runtime";
 import { recordingPlan, screenshotCatalogPath } from "./recording-plan.mjs";
@@ -94,6 +98,7 @@ export default async function screenshotGlobalSetup(config: FullConfig): Promise
     ...(catalogScope === undefined ? [] : ["--backend-requirements", catalogScope]),
   ];
   try {
+    await prepareFixtureSuite(runId, "screenshot");
     const seed = spawnSync(path.join(apiRoot, ".venv/bin/python"), args, {
       cwd: apiRoot,
       env: { ...process.env, PYTHONPATH: "." },

@@ -69,7 +69,7 @@ const test = seededTest.extend<{
   ai: async ({ request, seed, page }, provideFixture, testInfo) => {
     const data = await seed.owned();
     const token = await seed.accessToken(data.admin_email);
-    const backend = await startAiRequestBackend();
+    const backend = startAiRequestBackend(seed, data);
     const detach = await backend.attach(request, {
       apiBase: API_BASE,
       projectId: data.project_id,
@@ -108,15 +108,17 @@ const test = seededTest.extend<{
     try {
       await provideFixture({ data, token, backend, pageErrors });
     } finally {
-      backend.failAll(false);
-      backend.release();
+      await backend.failAll(false);
+      await backend.release();
       // Keep only non-secret ownership evidence for exact cleanup of uploaded frame JPEGs.
       await writeFile(
         testInfo.outputPath("ai-request-metadata.json"),
         JSON.stringify({
           projectId: data.project_id,
           taskIds: [
-            ...new Set(backend.requests.flatMap((entry) => entry.tasks.map((task) => task.id))),
+            ...new Set(
+              (await backend.requests()).flatMap((entry) => entry.tasks.map((task) => task.id)),
+            ),
           ],
         }),
       );
@@ -132,7 +134,6 @@ const test = seededTest.extend<{
           .toBe(true);
       } finally {
         await detach();
-        await backend.close();
       }
     }
   },
@@ -156,9 +157,9 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
     await openAi(page, data, taskId);
     await expectPhase(page, "idle");
     await expect(page.getByTestId("ai-prediction-advanced")).toBeHidden();
-    backend.hold();
+    await backend.hold();
     const queued = await runImage(page);
-    await expect.poll(() => backend.requests.length).toBe(1);
+    await expect.poll(async () => (await backend.requests()).length).toBe(1);
     await expectPhase(page, "running");
     const summary = page.getByTestId("ai-request-summary");
     await expect(summary).toContainText("small");
@@ -192,7 +193,7 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
       "aria-valuenow",
       "0",
     );
-    backend.release();
+    await backend.release();
     await expectPhase(page, "review");
     await page.getByTestId("ai-prediction-primary-action").click();
     const [candidate] = await predictions(request, taskId, token);
@@ -225,14 +226,14 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0].attributes.color).toBe("red after review");
     await expect(page.getByTestId(`box-list-item-${rows[0].id}`)).toBeVisible({ timeout: 20_000 });
-    expect(backend.requests).toHaveLength(1);
+    expect(await backend.requests()).toHaveLength(1);
     expect(pageErrors).toEqual([]);
   });
 
   test("真实作业失败后重试原输入，下一轮配置不改写重试请求", async ({ page, request, ai }) => {
     const { data, token, backend, pageErrors } = ai;
     await openAi(page, data, data.task_ids[0]);
-    backend.failAll(true);
+    await backend.failAll(true);
     const first = await runImage(page);
     await expectPhase(page, "error");
     await expect(page.getByTestId("ai-request-error")).toContainText("预标失败");
@@ -241,14 +242,15 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
       .getByTestId("ai-prediction-advanced")
       .getByTestId("ai-variant-size")
       .selectOption("large");
-    backend.failAll(false);
-    backend.hold();
+    await backend.failAll(false);
+    await backend.hold();
     const second = await runImage(page);
     expect(second.job_id).not.toBe(first.job_id);
-    await expect.poll(() => backend.requests.length).toBe(2);
-    expect(backend.requests[1].context).toEqual(backend.requests[0].context);
+    await expect.poll(async () => (await backend.requests()).length).toBe(2);
+    const calls = await backend.requests();
+    expect(calls[1].context).toEqual(calls[0].context);
     await expect(page.getByTestId("ai-request-summary")).toContainText("small");
-    backend.release();
+    await backend.release();
     await expectPhase(page, "review");
     const found = await jobs(request, data.project_id, token);
     expect(found.find((job) => job.celery_task_id === first.job_id)?.status).toBe("failed");
@@ -259,9 +261,9 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
   test("取消等待真实终态，旧题迟到结果不打开新题审阅", async ({ page, request, ai }) => {
     const { data, token, backend, pageErrors } = ai;
     await openAi(page, data, data.task_ids[0]);
-    backend.hold();
+    await backend.hold();
     const queued = await runImage(page);
-    await expect.poll(() => backend.requests.length).toBe(1);
+    await expect.poll(async () => (await backend.requests()).length).toBe(1);
     await expect(page.getByTestId("ai-prediction-primary-action")).toHaveText("取消本次请求");
     const cancel = page.waitForResponse(
       (response) =>
@@ -281,7 +283,7 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
     await expectPhase(page, "idle");
     await page.getByTestId("workbench-ai-single").click();
     await panelCommand(page, "当前题 AI", "隐藏面板");
-    backend.release();
+    await backend.release();
     await expect
       .poll(
         async () =>
@@ -311,18 +313,18 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
     const review = page.getByTestId("video-tracker-review-bar");
     await expect(review).toContainText("已审 0/20");
     const original = await annotations(request, video.task_id, token);
-    backend.hold();
+    await backend.hold();
     const frameResponse = page.waitForResponse(
       (response) =>
         response.url().endsWith("/predict-frame") && response.request().method() === "POST",
     );
     await page.getByTestId("ai-prediction-primary-action").click();
-    await expect.poll(() => backend.requests.length).toBe(1);
+    await expect.poll(async () => (await backend.requests()).length).toBe(1);
     await expectPhase(page, "running");
     await expect(page.getByTestId("ai-request-summary")).toContainText("当前帧 F0");
     await page.getByTestId("ai-prediction-advanced-toggle").click();
     await expect(page.getByTestId("ai-prediction-run-next")).toBeDisabled();
-    backend.release();
+    await backend.release();
     const result = await json<{ frame_index: number; candidate_count: number }>(
       await frameResponse,
     );
@@ -375,7 +377,7 @@ test.describe("当前题 AI 的真实请求归属与阶段", () => {
     await openContextToolbar(page, "tracker-review");
     await expect(review).toContainText("已审 0/20", { timeout: 20_000 });
     expect(await jobs(request, data.project_id, token)).toEqual([]);
-    expect(backend.requests).toHaveLength(2);
+    expect(await backend.requests()).toHaveLength(2);
     expect(pageErrors).toEqual([]);
   });
 });

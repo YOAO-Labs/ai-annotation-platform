@@ -453,7 +453,7 @@ async def _wait_for_selector_gate(
 
     while asyncio.get_running_loop().time() < deadline:
         activity = await _scale_activity(
-            test_engine, application_name, cli.database_url.username
+            test_engine, application_name, test_engine.url.username
         )
         if (
             activity is not None
@@ -906,6 +906,7 @@ async def test_installed_identity_seed_selection_consumers(
             minio_use_ssl=endpoint.scheme == "https",
             s3_access_key=scope["access_key"],
             s3_secret_key=scope["secret_key"],
+            fixture_family="scale",
             fixture_run_ids=frozenset(
                 value for key, value in run_ids.items() if key != "denied"
             ),

@@ -133,6 +133,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)": "0433_project_video_retirement.sql",
     "aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)": "0424_upload_publication_identity.sql",
     "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
     "aap_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
@@ -177,10 +178,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_gpu_v1.gpu_plugin_prepared_cancellation_valid(uuid,jsonb)": "0392_plugin_prepared_cancellation.sql",
     "aap_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
     "aap_inference_gpu_v1.gpu_plugin_retirement_closure(uuid,text,bigint)": "0395_plugin_gpu_retirement.sql",
-    "public.sync_gpu_backend_membership()": "0395_plugin_gpu_retirement.sql",
+    "public.sync_gpu_backend_membership()": "0433_gpu_membership_scalar_guard.sql",
     "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
     "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0395_plugin_gpu_retirement.sql",
-    "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
+    "aap_labeling_v1.screenshot_operations_command(jsonb)": "0432_labeling_screenshot_operations.sql",
     "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
@@ -245,8 +246,11 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_video_retry_job(uuid,uuid,text)": "0407_jobs_video_retry.sql",
     "aap_jobs_v1.lock_video_retry_jobs(uuid)": "0407_jobs_video_retry.sql",
-    "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0331_jobs_filter_fixtures.sql",
-    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0330_jobs_fixture_cleanup.sql",
+    "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0432_jobs_fixture_presentation.sql",
+    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])": "0432_jobs_fixture_guard.sql",
+    "aap_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])": "0432_labeling_fixture_retry_guard.sql",
+    "aap_labeling_v1.guard_fixture_project_retry_anchors(uuid[])": "0432_labeling_fixture_retry_guard.sql",
     "aap_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
     **{
         signature: "0329_jobs_domain_queries.sql"
@@ -278,7 +282,7 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
     },
     "aap_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
-    "aap_audit_v1.maintenance_command(jsonb)": "0366_audit_fixture_cleanup.sql",
+    "aap_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
     "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
     "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
     **{
@@ -354,12 +358,21 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
             "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
             "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
-            "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
             "aap_identity_directory_v1.execute_directory_command(jsonb)",
             "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
             "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
             "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
             "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+        )
+    },
+    "aap_identity_invitations_v1.apply_invitation_command(jsonb)": "0432_identity_invitation_command.sql",
+    **{
+        signature: "0432_identity_fixture_invitations.sql"
+        for signature in (
+            "aap_identity_invitations_v1.bind_fixture_invitation()",
+            "aap_identity_invitations_v1.bind_fixture_invitation_birth(uuid,uuid)",
+            "aap_identity_invitations_v1.lock_fixture_invitation_run(uuid)",
+            "aap_identity_invitations_v1.guard_fixture_invitation_acceptance()",
         )
     },
     **{
@@ -436,6 +449,201 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
             "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
             "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
+        )
+    },
+    "aap_assets_v1.classify_fixture_original_reclaim(uuid,text)": "0432_assets_fixture_reclaim_guard.sql",
+    "aap_assets_v1.is_fixture_original_source(text,text)": "0432_assets_fixture_source_guard.sql",
+    "aap_assets_v1.guard_fixture_operator_source_receipt()": "0432_assets_fixture_source_guard.sql",
+    "aap_assets_v1.require_fixture_operator_manifest()": "0432_assets_fixture_auxiliary.sql",
+    "aap_assets_v1.guard_fixture_auxiliary_intent()": "0432_assets_fixture_auxiliary.sql",
+    "yoao_fixture_v1.retire_auxiliary_original(uuid,uuid,uuid)": "0440_fixture_auxiliary_retirement.sql",
+    "yoao_fixture_v1.guard_auxiliary_retirement()": "0440_fixture_auxiliary_retirement.sql",
+    "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
+    "aap_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
+    "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0443_fixture_dataset_retired_jobs.sql",
+    "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
+    "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
+    "yoao_fixture_v1.guard_jobs_anchor()": "0436_fixture_jobs_join.sql",
+    "yoao_fixture_v1.guard_dataset_job_anchor()": "0443_fixture_dataset_retired_jobs.sql",
+    **{
+        signature: "0432_jobs_fixture_presentation.sql"
+        for signature in (
+            "yoao_fixture_v1.guard_presentation_job_update()",
+            "yoao_fixture_v1.guard_presentation_job_dispatch()",
+        )
+    },
+    **{
+        signature: "0432_fixture_dataset_identity.sql"
+        for signature in (
+            "yoao_fixture_v1.guard_original_target()",
+            "yoao_fixture_v1.validate_run_original_target()",
+            "yoao_fixture_v1.guard_dataset_storage_identity()",
+            "yoao_fixture_v1.guard_run_original_store()",
+            "yoao_fixture_v1.guard_maintenance_window()",
+        )
+    },
+    **{
+        signature: "0432_labeling_screenshot_operations.sql"
+        for signature in (
+            "aap_labeling_v1._fixture_screenshot_project(uuid)",
+            "aap_labeling_v1._fixture_screenshot_path(uuid,uuid)",
+            "aap_labeling_v1._fixture_screenshot_task(uuid,uuid)",
+            "aap_labeling_v1._fixture_screenshot_user(uuid,text,text)",
+        )
+    },
+    **{
+        signature: "0434_prediction_execution_routing.sql"
+        for signature in (
+            "aap_inference_routing_v1.prediction_scope_reserve(text)",
+            "aap_inference_routing_v1.prediction_test_scope_reserve(text)",
+            "aap_inference_routing_v1.guard_prediction_scope_insert()",
+            "aap_inference_routing_v1.guard_prediction_dispatch_start()",
+            "aap_inference_routing_v1.guard_prediction_managed_attempt()",
+            "aap_inference_routing_v1.fixture_prediction_scope_inventory(uuid,uuid[],uuid[])",
+            "aap_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])",
+        )
+    },
+    **{
+        signature: "0434_prediction_output_ownership.sql"
+        for signature in (
+            "aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid)",
+            "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid)",
+            "aap_jobs_v1.finish_prediction_mask_producer(uuid)",
+            "aap_jobs_v1.prediction_mask_object_retained(uuid)",
+            "aap_jobs_v1.record_fixture_prediction_job_birth()",
+            "aap_jobs_v1.prediction_fixture_open(uuid)",
+            "aap_jobs_v1.preserve_fixture_prediction_dispatches()",
+            "aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid)",
+            "aap_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid)",
+            "aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])",
+        )
+    },
+    "public.guard_fixture_export_retention()": "0435_fixture_export_retention.sql",
+    **{
+        signature: "0435_fixture_export_zip_retirement.sql"
+        for signature in (
+            "public.guard_fixture_export_zip_state()",
+            "public.record_fixture_export_zip_creation()",
+            "public.guard_fixture_export_zip_receipt()",
+        )
+    },
+    **{
+        signature: "0435_fixture_export_execution.sql"
+        for signature in (
+            "public.guard_fixture_export_execution()",
+            "public.record_fixture_export_execution()",
+            "public.guard_fixture_export_job_identity()",
+            "public.fixture_export_session_owns_job(uuid)",
+            "public.fixture_export_execution_admitted(uuid)",
+            "public.begin_fixture_export_execution(uuid,uuid,uuid)",
+            "public.finish_fixture_export_execution(uuid,uuid)",
+            "public.retire_fixture_export_execution(uuid,uuid,uuid)",
+            "public.fixture_export_execution_retired(uuid,uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0435_fixture_native_export.sql"
+        for signature in (
+            "public.guard_fixture_native_export_evidence()",
+            "public.capture_fixture_native_export()",
+            "public.fixture_native_export_lifetime(uuid,uuid)",
+            "public.capture_fixture_native_export_output()",
+            "public.fixture_native_export_cleanup_eligible(uuid)",
+            "public.fixture_export_retired(uuid,uuid,uuid)",
+        )
+    },
+    "public.fixture_export_owner_session()": "0435_fixture_export_owner.sql",
+    "public.guard_fixture_export_private_retirement()": "0435_fixture_export_owner.sql",
+    "public.retire_fixture_native_export_output(uuid)": "0435_fixture_export_owner.sql",
+    **{
+        signature: "0442_fixture_export_zip_versions.sql"
+        for signature in (
+            "public.guard_export_zip_version_proof()",
+            "public.capture_fixture_export_zip_version()",
+            "public.guard_fixture_export_zip_version()",
+            "public.confirm_fixture_export_zip_absent(uuid)",
+            "public.guard_fixture_zip_retirement_proof()",
+        )
+    },
+    "aap_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.preserve_fixture_export_dispatch()": "0436_fixture_jobs_join.sql",
+    **{
+        signature: "0432_assets_media_source_read.sql"
+        for signature in (
+            "aap_assets_v1._managed_reclaim_json_string(text)",
+            "aap_assets_v1._managed_reclaim_lock_identity(text,text)",
+        )
+    },
+    **{
+        signature: "0432_assets_media_source_admission.sql"
+        for signature in (
+            "aap_assets_v1._begin_media_original_read(uuid,uuid,text)",
+            "aap_assets_v1._finish_media_original_read(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_spatial_original_admission.sql"
+        for signature in (
+            "aap_assets_v1.is_fixture_spatial_dataset(uuid)",
+            "aap_assets_v1.begin_spatial_calibration_original(uuid,uuid,text)",
+            "aap_assets_v1.finish_spatial_calibration_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_media_source_authority.sql"
+        for signature in (
+            "aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)",
+            "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_media_original_system(uuid,text,text)",
+            "aap_assets_v1.finish_media_original_read(uuid,uuid)",
+            "aap_assets_v1.finish_media_original_worker(uuid,uuid)",
+            "aap_assets_v1.finish_media_original_system(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_images_source_authority.sql"
+        for signature in (
+            "aap_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)",
+            "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_image_original_system(text,uuid,text,text)",
+            "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
+            "aap_assets_v1.finish_image_original_read(uuid,uuid)",
+            "aap_assets_v1.finish_image_original_worker(uuid,uuid)",
+            "aap_assets_v1.finish_image_original_system(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_inputs_source_authority.sql"
+        for signature in (
+            "aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
+            "aap_assets_v1.finish_accepted_image_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_video_inputs_source_authority.sql"
+        for signature in (
+            "aap_assets_v1._begin_video_input_original(uuid,bigint,uuid,text)",
+            "aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
+            "aap_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
+            "aap_assets_v1.finish_accepted_video_original(uuid,uuid)",
+            "aap_assets_v1.finish_tracker_video_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_video_inputs_control_source.sql"
+        for signature in (
+            "aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
+            "aap_assets_v1.finish_video_control_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_tracker_control_source.sql"
+        for signature in (
+            "aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
+            "aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
+            "aap_assets_v1.finish_tracker_control_original(uuid,uuid)",
         )
     },
 }
@@ -789,6 +997,17 @@ READ_RELATION_SPECS = {
             ("content_hash", "character varying(64)"),
             ("width", "integer"),
             ("height", "integer"),
+        ],
+    },
+    "aap_assets_v1.fixture_screenshot_item_facts": {
+        "sql": "0432_assets_screenshot_facts.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("run_id", "uuid"),
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_path", "character varying(1000)"),
+            ("relative_path", "text"),
         ],
     },
     "aap_assets_v1.scale_seed_dataset_item_facts": {
@@ -1314,6 +1533,8 @@ SQL_ARTIFACTS = (
     "0399_plugin_terminal_hold.sql",
     "0400_plugin_routing_replacement.sql",
     "0402_plugin_terminal_drain_route.sql",
+    "0403_plugin_asset_approval.sql",
+    "0404_route_scope_supersession.sql",
     "0406_labeling_mask_decision_lock.sql",
     "0407_jobs_video_retry.sql",
     "0409_video_execution_settlement.sql",
@@ -1337,8 +1558,59 @@ SQL_ARTIFACTS = (
     "0428_video_export_core_reads.sql",
     "0429_video_export_pair.sql",
     "0431_labeling_mask_staging.sql",
+    "0432_fixture_run_ownership_schema.sql",
+    "0432_labeling_fixture_retry_guard.sql",
+    "0432_jobs_fixture_guard.sql",
+    "0432_jobs_fixture_dataset_guard.sql",
+    "0432_fixture_jobs_anchor.sql",
+    "0432_fixture_dataset_jobs_anchor.sql",
+    "0432_fixture_dataset_identity.sql",
+    "0432_assets_fixture_auxiliary.sql",
+    "0432_assets_screenshot_facts.sql",
+    "0432_identity_fixture_invitations.sql",
+    "0432_identity_invitation_command.sql",
+    "0432_labeling_screenshot_operations.sql",
+    "0432_jobs_fixture_presentation.sql",
+    "0432_assets_fixture_source_guard.sql",
+    "0432_assets_fixture_reclaim_guard.sql",
+    "0432_assets_scale_fixture_guard.sql",
+    "0432_labeling_original_read.sql",
+    "0432_assets_media_source_read.sql",
+    "0432_assets_media_source_admission.sql",
+    "0432_assets_spatial_original_admission.sql",
+    "0432_assets_media_source_authority.sql",
+    "0432_assets_images_source_authority.sql",
+    "0432_assets_inputs_source_authority.sql",
+    "0432_assets_video_inputs_source_authority.sql",
+    "0432_assets_video_inputs_control_source.sql",
+    "0432_assets_tracker_control_source.sql",
+    "0433_gpu_membership_scalar_guard.sql",
+    "0433_project_video_retirement.sql",
+    "0434_prediction_execution_routing.sql",
+    "0434_prediction_output_ownership.sql",
+    "0435_fixture_export_retention.sql",
+    "0435_fixture_export_zip_retirement.sql",
+    "0435_fixture_export_retired.sql",
+    "0435_fixture_export_execution.sql",
+    "0435_fixture_native_export.sql",
+    "0435_fixture_export_owner.sql",
+    "0436_fixture_jobs_join.sql",
+    "0437_fixture_audit_receipts.sql",
+    "0437_fixture_audit_cleanup.sql",
+    "0437_fixture_reclaim_job_scope.sql",
+    "0438_fixture_audit_namespace.sql",
+    "0439_inference_fixture_health_retirement.sql",
+    "0440_fixture_auxiliary_retirement.sql",
+    "0441_fixture_presentation_dataset_guard.sql",
+    "0442_fixture_export_zip_versions.sql",
+    "0443_fixture_dataset_retired_jobs.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0437_fixture_audit_cleanup.schema.json",
+    "0434_prediction_execution_routing.schema.json",
+    "0434_prediction_output_ownership.schema.json",
+    "0443_fixture_jobs.schema.json",
+    "0432_labeling_screenshot_operations.schema.json",
     "0419_dataset_ingest_authority.schema.json",
     "0371_assets_owner_main_integration.schema.json",
     "0371_assets_managed_originals.schema.json",
@@ -4805,6 +5077,7 @@ def _install_and_rollback_frozen_sql(
         sql=(
             "SELECT current_database() = :'expected_database' "
             "AND to_regnamespace('aap_identity_v1') IS NULL "
+            "AND to_regnamespace('yoao_fixture_v1') IS NULL "
             "AND to_regnamespace('aap_identity_accounts_v1') IS NULL "
             "AND to_regnamespace('aap_identity_recovery_v1') IS NULL "
             "AND to_regnamespace('aap_identity_groups_v1') IS NULL "
@@ -7828,17 +8101,20 @@ def main(
         phase = "verify-jobs-notification-scope-node"
         jobs_scope_id = str(uuid4())
         jobs_scope_kind = "🧪" * 40
-        _psql(
-            container_id,
-            container_name,
-            container_identity,
-            username="owner",
-            password=owner_password,
-            database=database,
-            sql=(
-                "INSERT INTO public.async_jobs(id,kind,status,payload,result) VALUES ("
-                f"'{jobs_scope_id}'::uuid,'{jobs_scope_kind}','completed','{{}}'::jsonb,'{{}}'::jsonb);"
-            ),
+        jobs_scope_snapshot = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=(
+                    "INSERT INTO public.async_jobs(id,kind,status,payload,result) VALUES ("
+                    f"'{jobs_scope_id}'::uuid,'{jobs_scope_kind}','completed','{{}}'::jsonb,'{{}}'::jsonb) "
+                    "RETURNING to_jsonb(async_jobs);"
+                ),
+            )
         )
         api_jobs_fact = _psql(
             container_id,
@@ -7948,6 +8224,43 @@ def main(
             node_diagnostic = _node_failure_diagnostic(phase, delivery_node_result)
             raise RuntimeError("Node Notifications delivery-read check failed")
         evidence["notification_delivery_read"]["node_contract_check"] = True
+
+        # Both read-only consumers have exited. Dispose only our unchanged,
+        # never-dispatched probe before any fixture dataset can be published.
+        phase = "retire-jobs-notification-probe"
+        retired_probe = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="""
+WITH original AS (
+    SELECT id FROM public.async_jobs AS job
+    WHERE id = :'probe_id'::uuid AND to_jsonb(job) = :'probe_row'::jsonb
+    FOR UPDATE
+), removed AS (
+    DELETE FROM public.async_jobs AS job USING original
+    WHERE job.id = original.id
+      AND NOT EXISTS (
+          SELECT 1 FROM aap_jobs_v1.dispatch_intents AS intent
+          WHERE intent.job_id = job.id
+      )
+    RETURNING job.id
+)
+SELECT id FROM removed;
+""",
+            variables={
+                "probe_id": jobs_scope_id,
+                "probe_row": json.dumps(jobs_scope_snapshot, ensure_ascii=False),
+            },
+        )
+        if retired_probe.strip() != jobs_scope_id:
+            raise RuntimeError("Jobs notification probe changed or was dispatched")
+        evidence["jobs_notification_scope"]["unchanged_undispatched_probe_removed"] = (
+            True
+        )
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -10145,9 +10458,24 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_audit_read_grants()
                 apply_audit_maintenance_grants()
                 apply_jobs_scope_grants()
+                private_fixture_statements = (
+                    "SELECT * FROM yoao_fixture_v1.fixture_runs LIMIT 1",
+                    "SELECT * FROM yoao_fixture_v1.fixture_image_work_intents LIMIT 1",
+                    "SELECT * FROM aap_assets_v1.fixture_screenshot_item_facts LIMIT 1",
+                    "SELECT aap_labeling_v1.screenshot_operations_command('{}'::jsonb)",
+                    "SELECT aap_identity_invitations_v1.bind_fixture_invitation_birth(NULL::uuid,NULL::uuid)",
+                    "SELECT aap_identity_invitations_v1.lock_fixture_invitation_run(NULL::uuid)",
+                    "SELECT aap_labeling_v1._fixture_screenshot_user(NULL::uuid,NULL::text,NULL::text)",
+                    "SELECT aap_labeling_v1.create_scale_seed_tasks(NULL::text,NULL::uuid,NULL::uuid)",
+                    "SELECT aap_jobs_v1.delete_fixture_project_jobs(ARRAY[]::uuid[])",
+                    "SELECT aap_jobs_v1.delete_fixture_presentation_jobs(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
+                    "SELECT aap_labeling_v1.guard_fixture_presentation_failures(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
+                    "SELECT aap_labeling_v1.guard_fixture_project_retry_anchors(ARRAY[]::uuid[])",
+                )
                 for statement in (
                     *notification_private_statements,
                     notification_fact_read_statement,
+                    *private_fixture_statements,
                 ):
                     _assert_psql_permission_denied(
                         container_id,
@@ -10158,6 +10486,12 @@ SELECT pg_catalog.jsonb_build_object(
                         database=database,
                         statement=statement,
                     )
+                evidence["private_fixture_runtime_boundary"] = {
+                    "role": "legacy_runtime",
+                    "statements": list(private_fixture_statements),
+                    "sqlstate": "42501",
+                    "after_launcher_prepare": True,
+                }
                 notification_fact = _psql(
                     container_id,
                     container_name,
@@ -10247,54 +10581,6 @@ SELECT pg_catalog.jsonb_build_object(
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         raise
     finally:
-        for label, scope in (
-            ("audit_archive_writer", audit_archive_writer_storage),
-            ("audit_archive_reader", audit_archive_reader_storage),
-            ("mask_content", mask_content_storage),
-            ("mask_cleanup", mask_cleanup_storage),
-            ("api_bootstrap", api_bootstrap_storage),
-            ("image_worker", image_worker_storage),
-            ("media_worker", media_worker_storage),
-            ("media_control", media_control_storage),
-            ("import", import_storage),
-            ("import_source", import_source_storage),
-        ):
-            if scope is not None:
-                try:
-                    _destroy_cleanup_storage_scope(scope)
-                    evidence["cleanup"][label + "_storage_identity_removed"] = True
-                except Exception as error:
-                    evidence["cleanup"]["errors"].append(
-                        {label + "_storage_identity": type(error).__name__}
-                    )
-                    exit_code = 1
-        if source_storage is not None:
-            try:
-                _destroy_cleanup_storage_scope(source_storage)
-                evidence["cleanup"]["source_storage_identity_removed"] = True
-            except Exception as error:
-                evidence["cleanup"]["errors"].append(
-                    {"source_storage_identity": type(error).__name__}
-                )
-                exit_code = 1
-        if catalog_storage is not None:
-            try:
-                _destroy_cleanup_storage_scope(catalog_storage)
-                evidence["cleanup"]["catalog_storage_identity_removed"] = True
-            except Exception as error:
-                evidence["cleanup"]["errors"].append(
-                    {"catalog_storage_identity": type(error).__name__}
-                )
-                exit_code = 1
-        if cleanup_storage is not None:
-            try:
-                _destroy_cleanup_storage_scope(cleanup_storage)
-                evidence["cleanup"]["storage_identity_removed"] = True
-            except Exception as error:
-                evidence["cleanup"]["errors"].append(
-                    {"storage_identity": type(error).__name__}
-                )
-                exit_code = 1
         # prepare arms touched before publishing or mutating any owned resource.
         # If guarded destruction fails, retain the identity root and PostgreSQL.
         local_resources_destroyed = backend is None or not backend.touched
@@ -10331,6 +10617,54 @@ SELECT pg_catalog.jsonb_build_object(
             except Exception as error:
                 evidence["cleanup"]["errors"].append(
                     {"resource": "local-resources", "error_type": type(error).__name__}
+                )
+                exit_code = 1
+        for label, scope in (
+            ("audit_archive_writer", audit_archive_writer_storage),
+            ("audit_archive_reader", audit_archive_reader_storage),
+            ("mask_content", mask_content_storage),
+            ("mask_cleanup", mask_cleanup_storage),
+            ("api_bootstrap", api_bootstrap_storage),
+            ("image_worker", image_worker_storage),
+            ("media_worker", media_worker_storage),
+            ("media_control", media_control_storage),
+            ("import", import_storage),
+            ("import_source", import_source_storage),
+        ):
+            if scope is not None and local_resources_destroyed:
+                try:
+                    _destroy_cleanup_storage_scope(scope)
+                    evidence["cleanup"][label + "_storage_identity_removed"] = True
+                except Exception as error:
+                    evidence["cleanup"]["errors"].append(
+                        {label + "_storage_identity": type(error).__name__}
+                    )
+                    exit_code = 1
+        if source_storage is not None and local_resources_destroyed:
+            try:
+                _destroy_cleanup_storage_scope(source_storage)
+                evidence["cleanup"]["source_storage_identity_removed"] = True
+            except Exception as error:
+                evidence["cleanup"]["errors"].append(
+                    {"source_storage_identity": type(error).__name__}
+                )
+                exit_code = 1
+        if catalog_storage is not None and local_resources_destroyed:
+            try:
+                _destroy_cleanup_storage_scope(catalog_storage)
+                evidence["cleanup"]["catalog_storage_identity_removed"] = True
+            except Exception as error:
+                evidence["cleanup"]["errors"].append(
+                    {"catalog_storage_identity": type(error).__name__}
+                )
+                exit_code = 1
+        if cleanup_storage is not None and local_resources_destroyed:
+            try:
+                _destroy_cleanup_storage_scope(cleanup_storage)
+                evidence["cleanup"]["storage_identity_removed"] = True
+            except Exception as error:
+                evidence["cleanup"]["errors"].append(
+                    {"storage_identity": type(error).__name__}
                 )
                 exit_code = 1
         # Keep the verified database reachable when cleanup needs another pass.

@@ -209,7 +209,7 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session, tmp_pat
     assert await db_session.scalar(
         text(
             "SELECT pg_try_advisory_xact_lock("
-            "hashtextextended('aap-export:job:' || CAST(:job AS text), 0))"
+            "hashtextextended('aap-export:job:' || CAST(CAST(:job AS uuid) AS text), 0))"
         ),
         execution,
     )

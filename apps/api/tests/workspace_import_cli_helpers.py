@@ -22,7 +22,10 @@ from tests.test_asset_storage_cleanup_runtime import (
     _verify_postgres,
 )
 from tests.test_identity_sessions_live import _verify_redis
-from tests.test_labeling_module_api_cold import _minio_dependency, _verify_minio_identity
+from tests.test_labeling_module_api_cold import (
+    _minio_dependency,
+    _verify_minio_identity,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -207,7 +210,9 @@ class WorkspaceImportCli:
                 test_engine.url.host,
                 test_engine.url.port,
             ):
-                raise RuntimeError("CLI database and owned store use different verifiers")
+                raise RuntimeError(
+                    "CLI database and owned store use different verifiers"
+                )
             resources = _verified_resource_manifest(
                 SimpleNamespace(url=resource_url), resource_url
             )
@@ -1071,7 +1076,6 @@ class WorkspaceImportCli:
         if result.returncode != 0:
             raise RuntimeError("Owned nuScenes Docker operation failed")
         return result.stdout.strip()
-
 
     @staticmethod
     def _docker_redis_url(value: URL) -> str:

@@ -28,6 +28,12 @@ The model description documents the current tree semantics; the legacy fixture r
 
 Before sealing, Inference encodes the private health outcome with `health_observation_outcome_text`; the API decodes the verified text with `decode_health_observation_outcome`. This private body is limited to 16 MiB and accepts Python's legacy `NaN`, `Infinity`, and `-Infinity` number tokens to preserve the original response-materialization phase. The HTTP request and reply envelopes remain strict finite JSON and contain only opaque encrypted Native values.
 
+## Prediction routing admission
+
+`routing.schema.json` carries the current prediction execution and synchronous-test proofs. `image_batch_predict` and `prediction_retry` require the Jobs execution identity, actor, project, request digest, generation and lease token. `predict_test` requires its exact project and task. These proofs are rejected on unrelated operations; the routing owner also checks that the project and `batch:<job>:stage:<index>`, `retry:<job>:stage:<index>` or `api:predict-test:<task>` owner matches the proof.
+
+The proof records current admission, not a saved-job compatibility path or evidence that provider I/O has stopped. Private fixture cleanup still needs the matching execution, delivery and physical output retirement proofs.
+
 ## Plugin installation intent
 
 `yoao_inference_contract.plugin` defines a digest-pinned manifest, a bound resource, installation state and request/response models. The manifest is approved intent, not proof of a running artifact or its GPU qualification. CUDA bindings identify the platform resource, physical GPU and logical device separately. `plugin_is_active` allows legacy Registry entries without plugin metadata but rejects malformed or inactive reserved metadata. Manual endpoint tokens are separate from signed GPU admission authority.

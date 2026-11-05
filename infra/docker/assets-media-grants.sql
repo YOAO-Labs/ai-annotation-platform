@@ -94,7 +94,7 @@ BEGIN
     FOR namespace IN
         SELECT ns.nspname
         FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1'
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE ALL ON SCHEMA %I FROM %I, %I',
@@ -120,6 +120,20 @@ REVOKE ALL ON SCHEMA aap_assets_v1
 GRANT USAGE ON SCHEMA aap_assets_v1
     TO :"asset_media_control_role", :"asset_media_worker_role";
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text),
+    aap_assets_v1.finish_media_original_read(uuid,uuid),
+    aap_assets_v1.begin_media_original_system(uuid,text,text),
+    aap_assets_v1.finish_media_original_system(uuid,uuid),
+    aap_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text),
+    aap_assets_v1.finish_image_original_read(uuid,uuid),
+    aap_assets_v1.begin_image_original_system(text,uuid,text,text),
+    aap_assets_v1.finish_image_original_system(uuid,uuid),
+    aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text),
+    aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text),
+    aap_assets_v1.finish_video_control_original(uuid,uuid),
+    aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text),
+    aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text),
+    aap_assets_v1.finish_tracker_control_original(uuid,uuid),
     aap_assets_v1.read_media_source(uuid,uuid,uuid),
     aap_assets_v1.read_media_summaries(uuid[]),
     aap_assets_v1.ensure_video_media(uuid,uuid,uuid,jsonb),
@@ -174,6 +188,12 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)
     TO :"asset_media_control_role";
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text),
+    aap_assets_v1.finish_media_original_worker(uuid,uuid),
+    aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid),
+    aap_assets_v1.finish_accepted_video_original(uuid,uuid),
+    aap_assets_v1.begin_tracker_video_original(uuid,bigint,uuid),
+    aap_assets_v1.finish_tracker_video_original(uuid,uuid),
     aap_assets_v1.claim_video_media(uuid,uuid,integer,text[]),
     aap_assets_v1.heartbeat_video_media(uuid,bigint,uuid,integer),
     aap_assets_v1.stage_video_timetable(uuid,bigint,uuid,jsonb),
@@ -213,6 +233,14 @@ DECLARE
         WHERE role.rolname = current_setting('aap.asset_media_worker_role')
     );
     control_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_media_original_read(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_media_original_system(uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_media_original_system(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_image_original_read(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_image_original_system(text,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_image_original_system(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_media_source(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_media_summaries(uuid[])')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.ensure_video_media(uuid,uuid,uuid,jsonb)')::oid,
@@ -247,6 +275,12 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.read_image_usage()')::oid
     ];
     accepted_input_control_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_video_control_original(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_tracker_control_original(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)')::oid,
@@ -269,6 +303,12 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.reference_video_tracker_source(uuid,uuid,uuid,uuid,text,text)')::oid
     ];
     worker_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_media_original_worker(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_video_original(uuid,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_tracker_video_original(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_video_media(uuid,bigint,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.stage_video_timetable(uuid,bigint,uuid,jsonb)')::oid,
@@ -305,7 +345,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
           AND ns.nspname <> 'aap_assets_v1'
           AND (pg_catalog.has_schema_privilege(control_oid, ns.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(worker_oid, ns.oid, 'USAGE'))
@@ -375,7 +415,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
           AND proc.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(control_oid, proc.oid, 'EXECUTE')
           AND (ns.nspname <> 'aap_assets_v1' OR (
@@ -385,7 +425,7 @@ BEGIN
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
           AND proc.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(worker_oid, proc.oid, 'EXECUTE')
           AND (ns.nspname <> 'aap_assets_v1' OR proc.oid <> ALL(worker_functions))

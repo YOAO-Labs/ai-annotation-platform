@@ -6,13 +6,13 @@ from uuid import UUID, uuid5
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from yoao_inference_contract.routing import RoutingUnavailable
 from yoao_inference_contract.scope_retirement import (
     ScopeRetirementView,
     make_scope_retirement_request,
 )
 
-from app.db.base import async_session
 from app.services.ml_routing.authority import RoutingAuthority
 
 
@@ -22,9 +22,9 @@ class FixturePredictionRetirementBlocked(RuntimeError):
         super().__init__(reason)
 
 
-async def _inventory(run_id, project_ids, task_ids):
+async def _inventory(session_factory, run_id, project_ids, task_ids):
     try:
-        async with async_session() as db:
+        async with session_factory() as db:
             value = await db.scalar(
                 text(
                     "SELECT aap_inference_routing_v1.fixture_prediction_scope_inventory("
@@ -79,9 +79,13 @@ async def _inventory(run_id, project_ids, task_ids):
 
 
 async def retire_fixture_prediction_work(
-    *, run_id: UUID, project_ids: tuple[UUID, ...], task_ids: tuple[UUID, ...]
+    *,
+    session_factory: async_sessionmaker[AsyncSession],
+    run_id: UUID,
+    project_ids: tuple[UUID, ...],
+    task_ids: tuple[UUID, ...],
 ) -> None:
-    requests = await _inventory(run_id, project_ids, task_ids)
+    requests = await _inventory(session_factory, run_id, project_ids, task_ids)
     authority = RoutingAuthority()
     for request in requests:
         try:
@@ -97,7 +101,7 @@ async def retire_fixture_prediction_work(
         ):
             raise FixturePredictionRetirementBlocked("scope_retirement_pending")
     try:
-        async with async_session() as db:
+        async with session_factory() as db:
             retired = await db.scalar(
                 text(
                     "SELECT aap_inference_routing_v1.fixture_prediction_tests_retired("

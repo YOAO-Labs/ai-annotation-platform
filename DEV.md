@@ -2125,7 +2125,8 @@ CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask�
 
 私有截图与 scale 命令要求协调器提供 `AAP_FIXTURE_TOOLS_ROOT` 绝对目录：主机为仓库
 `scripts` 目录，安装镜像为 `/opt/yoao-fixture-tools`。截图和 scale 的 run 均须由主机
-协调器先在隔离测试环境注册；截图消费者和 `seed_scale.py --run-id UUID` / `--purge`
+协调器先在隔离测试环境注册；截图 global setup 在 seed 前经 owner 通道登记
+`SCREENSHOT_FIXTURE_RUN_ID`，截图消费者和 `seed_scale.py --run-id UUID` / `--purge`
 只处理该精确 run，不再隐式创建它。不要把原始存储写入凭据或源码挂载交给已安装的普通消费进程。
 
 默认、视觉和压力套件使用构建产物，Mask 任务由 Playwright 启动隔离 API 和 Vite dev。
@@ -3468,8 +3469,8 @@ SQL 失败／回滚保留旧状态和原始字节，旧对象清理发生在调�
 测试库中先安装 module-data owner grants、普通 Workspace consumer 围栏，再为明确
 选择的 fixture 操作账号追加 `workspace-seed-operator-grants.sql` 与
 `workspace-e2e-fixture-grants.sql`。后者只授予五项固定能力和模板 ID 关系；普通
-API／worker 不得到 fixture 能力。既有工作树测试账号按数据库后缀获得固定能力，
-不改变日常 Workspace 主环境的切换状态。
+API／worker 不得到 fixture 能力。测试库后缀只是必要的环境限制，不授权普通工作树
+账号读取私有夹具清单或调用 owner 能力；完整准备／清理继续使用独立 owner 通道。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \

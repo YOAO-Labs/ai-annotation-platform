@@ -4,12 +4,12 @@ Publication is a permanent delivery latch. StorageOperation has no age-based
 escape hatch: an unresolved physical operation always retains responsibility.
 """
 
-from copy import deepcopy
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import logging
 import re
 import uuid
+from copy import deepcopy
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 from sqlalchemy import Text, and_, cast, func, literal, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -23,6 +23,7 @@ from app.services import export_media_storage as physical
 from app.services import export_media_transfer as transfer
 from app.services import export_storage, storage_access
 from app.services import key_removal_accounting as key_removal
+from app.services import object_removal_accounting as version_removal
 from app.services.content_snapshot import ContentError
 
 log = logging.getLogger(__name__)
@@ -343,9 +344,15 @@ async def _guard(db, receipt, permit, *, zip_output=None):
         )
 
 
-async def _physical_delete(db, receipt, *, zip_output=None):
+async def _physical_delete(db, receipt, *, zip_output=None, zip_proof=None):
     if receipt.fixture_run_id is not None and not await fixture_owner_session(db):
         raise ContentError("fixture_export_owner_required")
+    if (
+        receipt.fixture_run_id is not None
+        and zip_output is not None
+        and zip_proof is None
+    ):
+        raise ContentError("fixture_export_zip_proof_required")
     ref = zip_output.storage_ref if zip_output is not None else receipt.storage_ref
     permit = await transfer._acquire(db, receipt, uuid.UUID(ref["location_id"]))
     failure, accounting = None, None
@@ -369,13 +376,19 @@ async def _physical_delete(db, receipt, *, zip_output=None):
         else:
             async with transfer._session(db) as owned:
                 target = await export_storage.io_target(owned, zip_output)
-            accounting = key_removal.recorder(
+            recorder = (
+                version_removal
+                if zip_proof is not None and zip_proof["version_id"] is not None
+                else key_removal
+            )
+            accounting = recorder.recorder(
                 db, zip_output, producer="export_zip_removals", purpose="temporary"
             )
             await transfer.physical_work(
                 export_storage.delete,
                 zip_output,
                 accounting=accounting,
+                **({"proof": zip_proof} if zip_proof is not None else {}),
                 **({"target": target} if target is not None else {}),
             )
         await transfer._async(_guard(db, receipt, permit, zip_output=zip_output))
@@ -401,9 +414,9 @@ async def _physical_delete(db, receipt, *, zip_output=None):
         raise failure
 
 
-async def delete_zip(db, owner, output):
+async def delete_zip(db, owner, output, *, proof=None):
     """Drain linked ZIP deletion without depending on media deletion success."""
-    await _physical_delete(db, owner, zip_output=output)
+    await _physical_delete(db, owner, zip_output=output, zip_proof=proof)
 
 
 async def _cleanup_one(db, identifier):

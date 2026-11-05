@@ -176,20 +176,23 @@ async def test_owner_cleanup_identity_dependencies_and_scope(
             )
             assert response.status_code == 200, response.text
             async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
-                assert await IdentityE2EFixtures(db).create_invitations(
-                    [
-                        FixtureInvitation(
-                            id=invitation_id,
-                            email=invitation_email,
-                            role="employee",
-                            project_role="reviewer",
-                            project_id=project.id,
-                            token=uuid.uuid4().hex,
-                            expires_at=STAMP,
-                            invited_by=ids[0],
-                        )
-                    ]
-                ) == 1
+                assert (
+                    await IdentityE2EFixtures(db).create_invitations(
+                        [
+                            FixtureInvitation(
+                                id=invitation_id,
+                                email=invitation_email,
+                                role="employee",
+                                project_role="reviewer",
+                                project_id=project.id,
+                                token=uuid.uuid4().hex,
+                                expires_at=STAMP,
+                                invited_by=ids[0],
+                            )
+                        ]
+                    )
+                    == 1
+                )
                 await db.commit()
             response = await suite.owner.post(
                 "/api/v1/__test/seed/invitation-finish",

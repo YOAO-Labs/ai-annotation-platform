@@ -36,6 +36,7 @@ packages = ["src/yoao_audit"]
 "src/yoao_audit/sql/0333_audit_maintenance.sql" = "yoao_audit/sql/0333_audit_maintenance.sql"
 "src/yoao_audit/sql/0366_audit_fixture_cleanup.sql" = "yoao_audit/sql/0366_audit_fixture_cleanup.sql"
 "src/yoao_audit/sql/0437_fixture_audit_cleanup.sql" = "yoao_audit/sql/0437_fixture_audit_cleanup.sql"
+"src/yoao_audit/sql/0438_fixture_audit_namespace.sql" = "yoao_audit/sql/0438_fixture_audit_namespace.sql"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

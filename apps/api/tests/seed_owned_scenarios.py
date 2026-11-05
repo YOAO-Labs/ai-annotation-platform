@@ -169,7 +169,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(MLBackendRegistry)
-            .where(MLBackendRegistry.url == scope_a.registry_url)
+            .where(MLBackendRegistry.id == uuid.UUID(body_a["ml_backend_id"]))
         )
         == 0
     )

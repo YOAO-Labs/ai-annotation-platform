@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import asyncio
+from importlib.resources import files
 import json
 import os
 from pathlib import Path
@@ -26,7 +27,7 @@ from tests.test_video_deletion_retirement_native import _seed_unretired
 ROOT = Path(__file__).resolve().parents[3]
 _ROLE = "identity_api_consumer"
 _CALL = "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
-_SCHEMA = ROOT / "apps/jobs/src/yoao_jobs/fixture_guard.schema.json"
+_SCHEMA = ROOT / "apps/api/alembic/sql/0443_fixture_jobs.schema.json"
 _NODE = ROOT / "apps/jobs/conformance/node/fixture_cleanup_acceptance.mjs"
 
 pytestmark = [
@@ -194,22 +195,38 @@ async def _workspace_guard_definition(engine):
 
 
 async def _assert_contract(test_engine):
-    schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
-    assert schema["$id"] == "aap-jobs-fixture-guard/v1"
-    contract = schema["x-postgresql-functions"][
-        "aap_jobs_v1.delete_fixture_project_jobs"
-    ]
-    assert contract["arguments"] == "uuid[]"
-    assert contract["returns"] == "bigint"
-    assert contract["volatility"] == "volatile"
+    frozen = json.loads(_SCHEMA.read_text(encoding="utf-8"))
+    installed = json.loads(
+        files("yoao_jobs").joinpath("fixture_guard.schema.json").read_text()
+    )
+    assert installed == frozen, "Published Jobs contracts disagree"
 
     async with test_engine.connect() as connection:
+        for name, contract in frozen["x-postgresql-functions"].items():
+            signature = f"{name}({contract['arguments']})"
+            actual = (
+                await connection.execute(
+                    text(
+                        "SELECT pg_catalog.oidvectortypes(p.proargtypes), "
+                        "pg_catalog.pg_get_function_result(p.oid), "
+                        "p.provolatile::text, p.proparallel::text "
+                        "FROM pg_catalog.pg_proc p "
+                        "WHERE p.oid=pg_catalog.to_regprocedure(:signature)"
+                    ),
+                    {"signature": signature},
+                )
+            ).one()
+            assert actual == (
+                contract["arguments"],
+                contract["returns"],
+                contract["volatility"][0],
+                contract["parallel"][0],
+            ), signature
         row = (
             await connection.execute(
                 text(
-                    "SELECT pg_catalog.oidvectortypes(p.proargtypes), "
-                    "pg_catalog.pg_get_function_result(p.oid),p.provolatile::text, "
-                    "p.prosecdef,p.proconfig,pg_catalog.pg_get_userbyid(p.proowner), "
+                    "SELECT p.prosecdef,p.proconfig,"
+                    "pg_catalog.pg_get_userbyid(p.proowner), "
                     "pg_catalog.has_function_privilege('identity_api_consumer',p.oid,'EXECUTE'), "
                     "EXISTS (SELECT FROM pg_catalog.aclexplode(COALESCE(p.proacl, "
                     "pg_catalog.acldefault('f',p.proowner))) acl "
@@ -221,9 +238,6 @@ async def _assert_contract(test_engine):
             )
         ).one()
     assert row == (
-        "uuid[]",
-        "bigint",
-        "v",
         True,
         [
             "search_path=pg_catalog, pg_temp",

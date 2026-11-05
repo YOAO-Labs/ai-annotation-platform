@@ -445,7 +445,16 @@ Inventory请求可选`window_id`，其item及Copy item另含nullable `window_id,
 
 `counts`包含`total_assertions/protected_assertions/retained_assertions/blocked_assertions`，后三者互斥且合计为总数；另有`policy_candidate_assertions`、`unknown_size_assertions`、`known_asserted_bytes`及无法完整解析的`unknown_training_versions/unknown_active_learning_rounds`。按记录累计的大小可能重复同一物理原件，不是可释放字节。计数、逐项引用及本页来自同一SQL观测；分页之间不保证数据库保持不变。
 
-每项返回历史`id/asset_id/dataset_id/dataset_item_id`、`retired_at/retain_until/size_bytes`、`policy_revision`、`identity_state=current|unknown|mismatch`、`status=protected|retained|blocked`、`policy_candidate`、`roots`和`blockers`，不返回桶、对象键、端点或秘密。`current`只表示保存的配置证据与当前配置匹配，不代表字节存在或内容已现场核验。`retain_until`仅是本条期限，null表示无限期；另返回`effective_retain_until/indefinite_retention/peer_assertions`及`declared_backup_holds/declared_migration_holds`，在全量同桶同键保守相关记录上取任意无限期、最大有限期限及所有有效要求，再分页。不同端点也可能保守归组，不宣称相同副本。已知引用或有效要求优先归为protected，否则有效期限未结束/无限期归为retained，其余归为blocked；候选仍受所有未知保护条件阻断。
+每项返回历史 `id/dataset_id/owner_type`，并按 `owner_type` 区分互斥身份：
+
+| `owner_type`        | 必填身份                      | 必须为 `null` 的身份          |
+| ------------------- | ----------------------------- | ----------------------------- |
+| `dataset_asset`     | `dataset_item_id`、`asset_id` | `auxiliary_original_id`       |
+| `dataset_auxiliary` | `auxiliary_original_id`       | `dataset_item_id`、`asset_id` |
+
+辅助原件不是 DatasetItem，客户端不得用辅助原件 ID 填充样本 ID 或构造样本链接。SDK 离线 `describe` 提供这一响应约束，但该路由仍为 `uncovered`，不因此声明已有专用 SDK 方法。
+
+其余字段包括 `retired_at/retain_until/size_bytes`、`policy_revision`、`identity_state=current|unknown|mismatch`、`status=protected|retained|blocked`、`policy_candidate`、`roots`和`blockers`，不返回桶、对象键、端点或秘密。`current`只表示保存的配置证据与当前配置匹配，不代表字节存在或内容已现场核验。`retain_until`仅是本条期限，null表示无限期；另返回`effective_retain_until/indefinite_retention/peer_assertions`及`declared_backup_holds/declared_migration_holds`，在全量同桶同键保守相关记录上取任意无限期、最大有限期限及所有有效要求，再分页。不同端点也可能保守归组，不宣称相同副本。已知引用或有效要求优先归为protected，否则有效期限未结束/无限期归为retained，其余归为blocked；候选仍受所有未知保护条件阻断。
 
 `roots`分别表示内容位置、样本、任务、任务数据集关联、所有保留状态的训练版本、主动学习历史及无法确认物理桶的旧任务。`blockers`解释这些引用、无限期/未到保留期限、未知/变化的存储身份、未核验内容/定位、不支持的历史快照和旧任务桶、未证明独占所有权、未知备份/迁移保留与未检查现场副本。未知历史结构不能因无法展开而视为零引用。
 

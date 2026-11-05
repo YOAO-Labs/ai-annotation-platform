@@ -1782,14 +1782,7 @@ async def _seed_operations(
     finally:
         request_id_var.reset(request_id_token)
     for audit in audit_rows:
-        await ownership.reserve(
-            db,
-            ids.run_id,
-            "audit",
-            audit.id,
-            logical_key=f"filter-audit-{audit.id.hex}",
-            published=True,
-        )
+        await ownership.register_audit(db, ids.run_id, audit.id, audit.created_at)
     return FilteringOperationsManifest(
         project_ids=[str(project_a.id), str(project_b.id)],
         dataset_ids=[str(dataset.id) for dataset in datasets],

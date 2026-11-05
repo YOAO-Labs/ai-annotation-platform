@@ -15,6 +15,7 @@ from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.audit_archive_output import AuditArchiveOutput
 from app.db.models.managed_original_creation import ManagedOriginalCreation
 from app.db.models.fixture_run import (
+    FixtureAuditEvent,
     FixturePresentationJob,
     FixtureRun,
     FixtureRunAdmission,
@@ -439,6 +440,7 @@ __all__ += ["StorageMigrationWindow"]
 
 __all__ += ["ManagedOriginalCreation"]
 __all__ += [
+    "FixtureAuditEvent",
     "FixturePresentationJob",
     "FixtureRun",
     "FixtureRunAdmission",

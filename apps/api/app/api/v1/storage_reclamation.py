@@ -36,6 +36,13 @@ async def managed_original_reclamation(
     db: AsyncSession = Depends(get_db),
     actor: User = Depends(require_roles(PlatformRole.SUPER_ADMIN)),
 ):
+    """查看已登记的原件退休声明，不授予物理删除权限。
+
+    items 按 owner_type 区分互斥身份：dataset_asset 必须包含 dataset_item_id
+    和 asset_id，auxiliary_original_id 为 null；dataset_auxiliary 必须包含
+    auxiliary_original_id，dataset_item_id 和 asset_id 均为 null。
+    辅助原件不是 DatasetItem；历史未登记对象不会被自动认领。
+    """
     assert_request_scopes(request, "*")
     return await preview(
         db,

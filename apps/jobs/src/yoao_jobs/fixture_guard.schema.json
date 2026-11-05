@@ -29,10 +29,10 @@
       "parallel": "unsafe"
     },
     "aap_jobs_v1.fixture_dataset_job_scope": {
-      "arguments": "text, jsonb",
+      "arguments": "uuid, text, jsonb, uuid, uuid",
       "returns": "jsonb",
       "volatility": "immutable",
-      "parallel": "safe"
+      "parallel": "unsafe"
     },
     "aap_jobs_v1.guard_fixture_dataset_jobs": {
       "arguments": "uuid[]",
@@ -59,7 +59,7 @@
       "parallel": "unsafe"
     }
   },
-  "x-scope": "owned project and typed dataset Jobs, plus unknown-scope Jobs, block cleanup; only atomic no-dispatch presentation receipts may retire",
+  "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required by both Dataset fences and Job deletion",
   "x-empty-scope": "guard succeeds and deletion returns zero",
   "x-security": {
     "database": "actual database name must end in _test or _e2e",

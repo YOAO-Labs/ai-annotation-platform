@@ -357,8 +357,8 @@ async def test_pin_must_still_be_admitted_after_awaited_authorization(
     lease_id = uuid.UUID(response.json()["lease_id"])
     recheck = originals.recheck_original
 
-    async def change_after_wait(db, context):
-        await recheck(db, context)
+    async def change_after_wait(db, context, **options):
+        await recheck(db, context, **options)
         if change == "expiry":
             monkeypatch.setattr(
                 registry,
@@ -382,8 +382,8 @@ async def test_ready_stage_lease_is_rechecked_after_final_authorization_wait(
     await prepare(httpx_client, video_world, project_admin, session_id=session)
     recheck = originals.recheck_original
 
-    async def expire_after_wait(db, context):
-        await recheck(db, context)
+    async def expire_after_wait(db, context, **options):
+        await recheck(db, context, **options)
         monkeypatch.setattr(
             registry,
             "_clock",

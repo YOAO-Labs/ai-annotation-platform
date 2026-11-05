@@ -79,7 +79,7 @@ BEGIN
     FOR namespace IN
         SELECT ns.nspname
         FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1'
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE ALL ON SCHEMA %I FROM %I', namespace.nspname, worker_role
@@ -99,6 +99,11 @@ END $$;
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_image_worker_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_image_worker_role";
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text),
+    aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text),
+    aap_assets_v1.finish_image_original_worker(uuid,uuid),
+    aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid),
+    aap_assets_v1.finish_accepted_image_original(uuid,uuid),
     aap_assets_v1.claim_image_media(uuid,uuid,integer,text[]),
     aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer),
     aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb),
@@ -118,6 +123,9 @@ DECLARE
         WHERE role.rolname = current_setting('aap.asset_image_worker_role')
     );
     worker_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_image_original_worker(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)')::oid,
@@ -126,6 +134,8 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.reconcile_image_media(jsonb,integer)')::oid
     ];
     accepted_input_worker_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_image_original(uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.claim_accepted_image_input(uuid,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.heartbeat_accepted_image_input(uuid,bigint,uuid,integer)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.finish_accepted_image_input(uuid,bigint,uuid,jsonb)')::oid,
@@ -138,7 +148,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
           AND ns.nspname <> 'aap_assets_v1'
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
@@ -202,7 +212,7 @@ BEGIN
         SELECT 1
         FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
           AND proc.prokind IN ('f', 'p')
           AND proc.oid <> ALL (worker_functions)
           AND proc.oid <> ALL (accepted_input_worker_functions)

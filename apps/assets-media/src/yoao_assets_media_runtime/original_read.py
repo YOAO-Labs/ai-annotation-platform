@@ -58,13 +58,14 @@ async def _finish(database, operation, permit):
 
 
 @asynccontextmanager
-async def admitted_original(database, storage, operation, request, finish_operation):
+async def original_permit(database, operation, request, finish_operation):
+    """Own durable admission until the caller's physical work has drained."""
     permit = await database.call(operation, request)
     if not isinstance(permit, c.OriginalRead):
         raise c.MediaFailure("invalid_response")
     failure = None
     try:
-        yield storage.bind_original(permit)
+        yield permit
     except BaseException as exc:
         failure = exc
         raise
@@ -91,3 +92,11 @@ async def admitted_original(database, storage, operation, request, finish_operat
                         combined.storage_operation_unsettled = True
                     raise combined from None
                 raise
+
+
+@asynccontextmanager
+async def admitted_original(database, storage, operation, request, finish_operation):
+    async with original_permit(
+        database, operation, request, finish_operation
+    ) as permit:
+        yield storage.bind_original(permit)

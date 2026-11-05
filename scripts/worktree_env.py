@@ -176,6 +176,7 @@ def isolated_environment(
         "TEST_DATABASE_URL": test_url,
         "PLAYWRIGHT_E2E_DATABASE_URL": test_url,
         "AAP_WORKTREE_RESOURCE_ROOT": resources["root"],
+        "AAP_FIXTURE_TOOLS_ROOT": str(code_root / "scripts"),
         "AAP_WORKTREE_MODE": resources["mode"],
         "FIXTURE_RUNTIME_DATABASE_URL": "",
         "REDIS_URL": redis_url,

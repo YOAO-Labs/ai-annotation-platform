@@ -43,7 +43,7 @@ export interface SeedData {
   reviewer_email: string;
   project_id: string;
   task_ids: string[];
-  /** v0.9.4 phase 3: SAM E2E 用 mock backend; url=http://mock-sam.e2e:9999, page.route 拦截 */
+  /** Per-run managed test execution provider. */
   ml_backend_id: string;
 }
 
@@ -944,6 +944,29 @@ export class SeedAPI {
     const token = this.projectNamespaces.get(projectId);
     if (!token) throw new Error("Project is not owned by this fixture scope");
     return this.ownedScope(token);
+  }
+  async providerControl(
+    projectId: string,
+    registryId: string,
+    action: "attach" | "detach" | "hold" | "release" | "fail_all" | "fail_next" | "requests",
+    value?: boolean | number,
+  ): Promise<{
+    requests: Array<{
+      tasks: Array<{ id: string }>;
+      context: Record<string, unknown>;
+      receivedAt: number;
+      responseStatus?: number;
+    }>;
+  }> {
+    const response = await postFixture(`${API_BASE}/api/v1/__test/seed/provider-control`, {
+      data: { ...this.projectScope(projectId), registry_id: registryId, action, value },
+    });
+    if (!response.ok()) {
+      throw new Error(
+        `Fixture provider control failed: ${response.status()} ${await response.text()}`,
+      );
+    }
+    return response.json();
   }
 
   async videoTask(projectId: string): Promise<{ task_id: string }> {

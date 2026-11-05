@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-05
 ---
 
 # 环境变量参考
@@ -499,6 +499,8 @@ last_reviewed: 2026-11-04
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `E2E_SEED_ENABLED` | `false` | 名称以 _e2e 或 _test 结尾的数据库；这些端点会创建和删除固定测试数据， 绝不要在开发库、staging 或 production 数据库上开启。 |
+| `PLAYWRIGHT_RASTER_FAULT_MANIFEST` | `—` | 仅由隔离 E2E 协调器提供：产品启动前准备的 Raster 故障夹具清单路径。 |
+| `AAP_FIXTURE_TOOLS_ROOT` | `—` | 仅由私有夹具协调器传入：fixture_suite_coordinator.py 所在的绝对目录。 |
 
 ## Docker 卷存储位置 (可选)
 
@@ -767,6 +769,12 @@ last_reviewed: 2026-11-04
 | `ASSETS_MEDIA_DATASETS_BUCKET` | `—` | — |
 | `ASSETS_MEDIA_CACHE_BUCKET` | `—` | — |
 | `ASSETS_MEDIA_INPUTS_BUCKET` | `—` | 独立 Assets Media 控制端和图片 Worker 的输入桶；Compose 默认继承 MINIO_INPUTS_BUCKET。 |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT` | `http://private-minio:9000` | 可选的只读原始对象目标：仅 owner 许可且端点、桶及物理身份完全匹配时使用。 API、独立 Media 控制/执行器和 Images 执行器必须配置相同端点与桶；使用仅允许读取的独立凭据。 未使用时保持全部未设置；使用时四项全部必填。密钥可改用对应的 _FILE 变量，不能同时设置。 |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET` | `fixture-originals` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY` | `—` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY` | `—` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY_FILE` | `—` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY_FILE` | `—` | — |
 | `ASSETS_MEDIA_CONTROL_S3_ACCESS_KEY_FILE` | `—` | 仅供可选 Compose 的宿主 secret 路径；容器分别映射为上述进程内凭据。 |
 | `ASSETS_MEDIA_CONTROL_S3_SECRET_KEY_FILE` | `—` | — |
 | `ASSETS_MEDIA_WORKER_S3_ACCESS_KEY_FILE` | `—` | — |

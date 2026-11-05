@@ -107784,6 +107784,7 @@
     },
     "/api/v1/storage/managed-original-reclamation": {
       "get": {
+        "description": "查看已登记的原件退休声明，不授予物理删除权限。\n\nitems 按 owner_type 区分互斥身份：dataset_asset 必须包含 dataset_item_id\n和 asset_id，auxiliary_original_id 为 null；dataset_auxiliary 必须包含\nauxiliary_original_id，dataset_item_id 和 asset_id 均为 null。\n辅助原件不是 DatasetItem；历史未登记对象不会被自动认领。",
         "operationId": "managed_original_reclamation_api_v1_storage_managed_original_reclamation_get",
         "parameters": [
           {

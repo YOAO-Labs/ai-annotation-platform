@@ -290,40 +290,6 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
     run = httpx_client.owner_suite.new_run(NAMESPACE)
     reset = await _build_owned(httpx_client, run)
 
-    login = await httpx_client.post(
-        "/api/v1/__test/seed/login", json={"email": reset["admin_email"]}
-    )
-    assert login.status_code == 200, login.text
-    backend_url = f"http://toolbar-{uuid.uuid4().hex}.e2e:9999"
-    assert (
-        await db_session.scalar(
-            select(MLBackendRegistry.id).where(MLBackendRegistry.url == backend_url)
-        )
-        is None
-    )
-    second_backend = await httpx_client.post(
-        f"/api/v1/projects/{reset['project_id']}/ml-backends",
-        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
-        json={
-            "name": "E1 toolbar fixture",
-            "url": backend_url,
-            "is_interactive": True,
-        },
-    )
-    assert second_backend.status_code == 201, second_backend.text
-    backend_id = uuid.UUID(second_backend.json()["id"])
-    assert (
-        await db_session.scalar(
-            select(MLBackendRegistry.url).where(MLBackendRegistry.id == backend_id)
-        )
-        == backend_url
-    )
-    retired = await httpx_client.delete(
-        f"/api/v1/admin/ml-integrations/registry/{backend_id}",
-        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
-    )
-    assert retired.status_code == 204, retired.text
-
     suite_payload = {"suite_id": str(httpx_client.owner_suite.suite_id)}
     first = await httpx_client.post("/api/v1/__test/seed/cleanup", json=suite_payload)
     second = await httpx_client.post("/api/v1/__test/seed/cleanup", json=suite_payload)
@@ -360,7 +326,7 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
         await db_session.scalar(
             select(func.count())
             .select_from(MLBackendRegistry)
-            .where(MLBackendRegistry.url.in_([run.scope().registry_url, backend_url]))
+            .where(MLBackendRegistry.id == uuid.UUID(reset["ml_backend_id"]))
         )
         == 0
     )

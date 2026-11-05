@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from pathlib import Path
 import re
 import secrets
 import subprocess
+import sys
 from urllib.parse import urlsplit
 import uuid
 
@@ -79,6 +81,7 @@ class WorkspaceCeleryWorker:
         self.node_name = f"{self.network_name}@worker"
         self.container_id: str | None = None
         self.network_id: str | None = None
+        self._fixture_reader_environment: dict[str, str] = {}
         self._docker_environment = self._minimal_docker_environment()
         _verify_postgres(test_engine.url)
         self._redis_owner_url = _verify_redis()
@@ -106,35 +109,110 @@ class WorkspaceCeleryWorker:
     def api_database_url(self) -> URL:
         return self._api_database_url
 
+    async def configure_fixture_original_reader(
+        self, *, media_url: str, media_token: str
+    ):
+        """Use host routing for the verified fixture reader and local Media peer."""
+        if self.container_id is not None or self.network_id is not None:
+            raise RuntimeError("Fixture reader must be configured before worker start")
+        parsed = urlsplit(media_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.port is None
+            or parsed.username
+            or parsed.password
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or len(media_token) < 32
+            or not media_token.isascii()
+            or any(character.isspace() for character in media_token)
+        ):
+            raise ValueError("Worker requires the local authenticated Media peer")
+
+        scripts = str(ROOT / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from fixture_store import reader_credentials, verified_store
+        from fixture_suite_coordinator import (
+            _resource_root,
+            _verified_database,
+            state_path,
+        )
+        from verify_storage_candidates import Owner
+        from yoao_assets_media_runtime.additional_original import (
+            load_additional_original_config,
+        )
+
+        _, resources, identity = await _verified_database()
+        if resources["database"] != self._database_name:
+            raise RuntimeError("Fixture reader database differs from worker")
+        manifest = state_path(
+            _resource_root(resources), resources["mode"], "fixture-store-owner.json"
+        )
+        if manifest.is_symlink() or not manifest.is_file():
+            raise RuntimeError("Fixture reader manifest is unavailable")
+        owner = Owner(manifest)
+        store, _writer = await asyncio.to_thread(verified_store, owner, identity)
+        reader = reader_credentials(owner, store)
+        configured = load_additional_original_config()
+        if (
+            configured is None
+            or configured.endpoint != store["endpoint"]
+            or configured.bucket != store["bucket"]
+            or configured.access_key != reader["access_key"]
+            or configured.secret_key != reader["secret_key"]
+        ):
+            raise RuntimeError("Fixture reader configuration differs from its receipt")
+        self._fixture_reader_environment = {
+            "ASSETS_MEDIA_URL": media_url.rstrip("/"),
+            "ASSETS_MEDIA_TOKEN": media_token,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT": configured.endpoint,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET": configured.bucket,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY": configured.access_key,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY": configured.secret_key,
+        }
+        # The immutable fixture endpoint is a host-reachable bridge address.
+        # Joining its network would invalidate the store's one-peer ownership.
+        self.object_store_endpoint = urlsplit(self.object_store_public_url).netloc
+        self._api_database_url = self._api_consumer_url()
+        self._result_database_url = self._role_dsn(
+            "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
+            "preannotation_result_client",
+        )
+        self._redis_url = self._redis_owner_url.render_as_string(hide_password=False)
+
     def start(self) -> None:
         self._prepare_files()
-        self.network_id = self._docker(
-            "network",
-            "create",
-            "--label",
-            "org.aap.acceptance=workspace-worker-assembly",
-            "--label",
-            f"org.aap.acceptance-id={self.identity}",
-            self.network_name,
-        )
         _verify_postgres(self.test_engine.url)
         _verify_redis()
-        self._docker(
-            "network",
-            "connect",
-            "--alias",
-            "worker-postgres",
-            self.network_id,
-            self.postgres_container,
-        )
-        self._docker(
-            "network",
-            "connect",
-            "--alias",
-            "worker-redis",
-            self.network_id,
-            self.redis_container,
-        )
+        if not self._fixture_reader_environment:
+            self.network_id = self._docker(
+                "network",
+                "create",
+                "--label",
+                "org.aap.acceptance=workspace-worker-assembly",
+                "--label",
+                f"org.aap.acceptance-id={self.identity}",
+                self.network_name,
+            )
+            self._docker(
+                "network",
+                "connect",
+                "--alias",
+                "worker-postgres",
+                self.network_id,
+                self.postgres_container,
+            )
+            self._docker(
+                "network",
+                "connect",
+                "--alias",
+                "worker-redis",
+                self.network_id,
+                self.redis_container,
+            )
         self.container_id = self._docker(
             "create",
             "--name",
@@ -146,7 +224,7 @@ class WorkspaceCeleryWorker:
             "--label",
             f"org.aap.source-revision={self._image_record['source_revision']}",
             "--network",
-            self.network_id,
+            "host" if self._fixture_reader_environment else self.network_id,
             "--add-host",
             "host.docker.internal:host-gateway",
             "--env-file",
@@ -185,7 +263,7 @@ class WorkspaceCeleryWorker:
         )
         self._docker("start", self.container_id)
         self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
 
     def restart(self) -> None:
         if self.container_id is None:
@@ -193,12 +271,12 @@ class WorkspaceCeleryWorker:
         self._verify_container_record(self._inspect(self.container_id))
         self._docker("restart", "--time", "20", self.container_id, timeout=45)
         self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
 
     def kill(self) -> dict:
         """Lose the owned worker process without running application cleanup."""
         before = self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
         self._docker("kill", "--signal", "KILL", self.container_id)
         if self._docker("wait", self.container_id, timeout=20) != "137":
             raise RuntimeError("Owned worker did not exit from SIGKILL")
@@ -257,7 +335,7 @@ class WorkspaceCeleryWorker:
         if type(pid) is not int or pid <= 1:
             raise ValueError("Worker child PID must be an integer greater than one")
         before = self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
         code = (
             "import os,pathlib,signal,sys; "
             "pid=int(sys.argv[1]); path=pathlib.Path('/proc')/str(pid); "
@@ -326,12 +404,7 @@ class WorkspaceCeleryWorker:
             item.split("=", 1) for item in (config.get("Env") or []) if "=" in item
         )
         database_url = make_url(env.get("DATABASE_URL", ""))
-        if (
-            database_url.username != "identity_api_consumer"
-            or database_url.host != "worker-postgres"
-            or database_url.port != 5432
-            or database_url.database != self._database_name
-        ):
+        if database_url != self._api_database_url:
             raise RuntimeError("Worker did not use the restricted API database role")
         if (
             env.get("PREANNOTATION_RESULTS_DATABASE_URL")
@@ -371,6 +444,15 @@ class WorkspaceCeleryWorker:
             env.get(key) != value for key, value in self.object_store_buckets.items()
         ):
             raise RuntimeError("Worker bucket bindings differ from its owned resources")
+        if self._fixture_reader_environment and (
+            any(
+                env.get(key) != value
+                for key, value in self._fixture_reader_environment.items()
+            )
+            or env.get("CONNECTOR_ENCRYPTION_KEY")
+            or env.get("CONNECTOR_ENCRYPTION_KEY_FILE")
+        ):
+            raise RuntimeError("Worker fixture reader authority changed")
         if env.get("WORKSPACE_INFERENCE_PROBE_URL"):
             raise RuntimeError("Worker unexpectedly selects a Workspace HTTP owner")
         mounts = record.get("Mounts") or []
@@ -396,9 +478,15 @@ class WorkspaceCeleryWorker:
             "image_id": record.get("Image"),
             "restart_count": (record.get("RestartCount") or 0),
             "started_at": (record.get("State") or {}).get("StartedAt"),
-            "database_client_address": record["NetworkSettings"]["Networks"][
-                self.network_name
-            ]["IPAddress"],
+            # Host mode shares the host's address; it cannot identify a worker.
+            "database_client_address": (
+                None
+                if self._fixture_reader_environment
+                else record["NetworkSettings"]["Networks"][self.network_name][
+                    "IPAddress"
+                ]
+            ),
+            "network_mode": host.get("NetworkMode"),
             "running": (record.get("State") or {}).get("Running") is True,
             "user": config.get("User"),
             "read_only": host.get("ReadonlyRootfs"),
@@ -410,6 +498,19 @@ class WorkspaceCeleryWorker:
                 "pids_limit": host.get("PidsLimit"),
             },
         }
+
+    def _assert_runtime_network(self) -> None:
+        if not self._fixture_reader_environment:
+            self.assert_private_network()
+            return
+        if self.network_id is not None or self.container_id is None:
+            raise RuntimeError("Fixture worker must use the verified host route")
+        record = self._inspect(self.container_id)
+        self._verify_container_record(record)
+        if (record.get("HostConfig") or {}).get("NetworkMode") != "host":
+            raise RuntimeError("Fixture worker host route changed")
+        _verify_postgres(self.test_engine.url)
+        _verify_redis()
 
     def assert_private_network(self) -> None:
         if self.network_id is None or self.container_id is None:
@@ -468,6 +569,11 @@ class WorkspaceCeleryWorker:
             ).password
             or "",
         ]
+        secrets.extend(
+            value
+            for name, value in self._fixture_reader_environment.items()
+            if re.search(r"(?i)(?:TOKEN|KEY|SECRET|PASSWORD)", name)
+        )
         for name, value_from_environment in getattr(
             self, "_tracker_environment", {}
         ).items():
@@ -536,6 +642,7 @@ class WorkspaceCeleryWorker:
             "HOME": "/tmp",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
+            "OPENBLAS_NUM_THREADS": "1",
         }
         for prefix in (
             "WORKSPACE_MEMBERSHIP",
@@ -549,6 +656,7 @@ class WorkspaceCeleryWorker:
             values[f"{prefix}_DATABASE_URL"] = ""
             values[f"{prefix}_DATABASE_URL_FILE"] = ""
         values.update(self.object_store_buckets)
+        values.update(self._fixture_reader_environment)
         self._write_env_file(self.environment_file, values)
 
     def _write_env_file(self, path: Path, values: dict[str, str]) -> None:
@@ -604,6 +712,8 @@ class WorkspaceCeleryWorker:
             or container_url.port != host_url.port
         ):
             raise RuntimeError("Verifier API consumer identity does not match test DB")
+        if self._fixture_reader_environment:
+            return host_url
         return container_url.set(
             host="worker-postgres",
             port=5432,
@@ -619,6 +729,8 @@ class WorkspaceCeleryWorker:
         ):
             raise RuntimeError(f"Verifier role URL {variable} does not match test DB")
         _verify_postgres(value)
+        if self._fixture_reader_environment:
+            return value.set(drivername="postgresql")
         return value.set(host="worker-postgres", port=5432, drivername="postgresql")
 
     def _docker_url(self, value: str, host: str) -> str:

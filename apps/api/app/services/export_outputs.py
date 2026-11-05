@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
+import logging
+import uuid
 from contextvars import copy_context
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import partial
-import logging
-import uuid
 
 from sqlalchemy import delete, or_, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
@@ -22,10 +23,15 @@ from app.services import (
     export_storage,
     export_zip_accounting,
     storage_access,
-    storage_migration_artifact_reads as artifact_reads,
-    storage_migration_read_publications as read_publications,
 )
 from app.services import key_removal_accounting as removal
+from app.services import object_removal_accounting as version_removal
+from app.services import (
+    storage_migration_artifact_reads as artifact_reads,
+)
+from app.services import (
+    storage_migration_read_publications as read_publications,
+)
 from app.services.original_read_plan import ReadRoute
 
 log = logging.getLogger(__name__)
@@ -67,6 +73,7 @@ class OutputSnapshot:
     expires_at: datetime
     _storage_ref: dict = field(repr=False)
     media_bundle_id: uuid.UUID | None = None
+    fixture: bool = False
 
     @property
     def storage_ref(self):
@@ -82,12 +89,12 @@ def _fact(row, name):
     return getattr(row, name)
 
 
-def snapshot(row):
+def snapshot(row, *, fixture=False):
     """Thread arguments contain immutable values, never an attached ORM record."""
     export_storage.resolve(row)
     facts = {name: deepcopy(_fact(row, name)) for name in _FACTS}
     facts["_storage_ref"] = facts.pop("storage_ref")
-    return OutputSnapshot(**facts)
+    return OutputSnapshot(**facts, fixture=fixture)
 
 
 def same(row, receipt):
@@ -297,9 +304,42 @@ async def create(
     db.add(row)
     await db.flush()
     _creation_valid(bundle, **facts)
-    receipt = snapshot(row)
+    receipt = snapshot(
+        row,
+        fixture=native is not None
+        or (bundle is not None and bundle.fixture_run_id is not None),
+    )
     await db.commit()
     return receipt
+
+
+def proof_writer(db, receipt):
+    """Persist a verified upload from its physical thread before it can settle."""
+    if not getattr(receipt, "fixture", False):
+        return None
+    loop = asyncio.get_running_loop()
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+
+    async def persist(proof):
+        async with factory() as owned:
+            row = await _locked(owned, receipt.id)
+            if row is None or row.state != "pending" or not same(row, receipt):
+                reject()
+            if row.upload_proof is not None:
+                reject("export_storage_invalid_receipt")
+            row.upload_proof = proof
+            await owned.commit()
+
+    def save(proof):
+        coroutine = persist(proof)
+        try:
+            future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except BaseException:
+            coroutine.close()
+            raise
+        future.result()
+
+    return save
 
 
 async def write(db, receipt, path):
@@ -330,6 +370,11 @@ async def write(db, receipt, path):
             path,
             **({"target": target} if target is not None else {}),
             accounting=accounting,
+            **(
+                {"save_proof": proof_writer(db, receipt)}
+                if getattr(receipt, "fixture", False)
+                else {}
+            ),
             on_acquired=acquired,
         )
     except BaseException as exc:
@@ -739,6 +784,13 @@ async def _cleanup_one(db, identifier, counters):
     ):
         await db.commit()
         return False
+    private = native is not None or (
+        bundle is not None and bundle.fixture_run_id is not None
+    )
+    proof = deepcopy(row.upload_proof) if private else None
+    if private and proof is None:
+        await db.commit()
+        return False
     receipt = snapshot(row)
     row.last_attempted_at = now()
     if await _has_read(db, receipt):
@@ -766,9 +818,14 @@ async def _cleanup_one(db, identifier, counters):
     counters["removed"] += removed
     owner = export_storage.resolve(receipt)
     if bundle is not None:
-        await export_media_retirement.delete_zip(db, bundle, receipt)
+        await export_media_retirement.delete_zip(
+            db, bundle, receipt, **({"proof": proof} if private else {})
+        )
     else:
-        accounting = removal.recorder(
+        recorder = (
+            version_removal if private and proof["version_id"] is not None else removal
+        )
+        accounting = recorder.recorder(
             db, receipt, producer="export_zip_removals", purpose="temporary"
         )
         owned_permit, failure = None, None
@@ -785,6 +842,7 @@ async def _cleanup_one(db, identifier, counters):
                 export_storage.delete,
                 receipt,
                 accounting=accounting,
+                **({"proof": proof} if private else {}),
                 on_acquired=acquired,
                 **(
                     {"target": await export_storage.io_target(db, receipt)}
@@ -820,6 +878,12 @@ async def _cleanup_one(db, identifier, counters):
         and not await _has_index(db, identifier)
         and not await _has_read(db, receipt)
     ):
+        if private and not await db.scalar(
+            text("SELECT public.confirm_fixture_export_zip_absent(:output_id)"),
+            {"output_id": current.id},
+        ):
+            await db.commit()
+            return False
         if current_bundle is not None and current_bundle.fixture_run_id is not None:
             await db.execute(
                 text(
@@ -841,7 +905,7 @@ async def _cleanup_one(db, identifier, counters):
             text("SELECT public.retire_fixture_native_export_output(:output_id)"),
             {"output_id": current.id},
         ):
-            await db.commit()
+            await db.rollback()
             return False
         await db.delete(current)
         await db.commit()

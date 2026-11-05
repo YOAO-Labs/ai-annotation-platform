@@ -440,6 +440,16 @@ END
 $audit_private_acl$;
 """
 VIDEO_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
+    "aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
+    "aap_assets_v1.finish_video_control_original(uuid,uuid)",
+    "aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
+    "aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
+    "aap_assets_v1.finish_tracker_control_original(uuid,uuid)",
+    "aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
+    "aap_assets_v1.finish_accepted_video_original(uuid,uuid)",
+    "aap_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
+    "aap_assets_v1.finish_tracker_video_original(uuid,uuid)",
     "aap_assets_v1.capture_accepted_video_manifest(uuid,uuid,uuid,jsonb)",
     "aap_assets_v1.read_accepted_video_manifest(uuid,uuid,uuid)",
     "aap_assets_v1.read_accepted_video_manifest_page(uuid,uuid,uuid,text,text,bigint,integer)",
@@ -467,6 +477,13 @@ VIDEO_RUNTIME_CAPABILITIES = (
     "aap_labeling_v1.accepted_video_input_referenced(uuid)",
 )
 IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)",
+    "aap_assets_v1.finish_image_original_read(uuid,uuid)",
+    "aap_assets_v1.begin_image_original_system(text,uuid,text,text)",
+    "aap_assets_v1.finish_image_original_system(uuid,uuid)",
+    "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+    "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
+    "aap_assets_v1.finish_image_original_worker(uuid,uuid)",
     "aap_assets_v1.read_video_derivative_links(uuid[])",
     "aap_assets_v1.publish_image_pyramid_thumbnail(uuid,integer,uuid)",
     "aap_assets_v1.read_image_source(uuid,uuid,uuid)",
@@ -494,6 +511,8 @@ IMAGE_MEDIA_RUNTIME_CAPABILITIES = (
 )
 INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "aap_inference_routing_v1.model_dispatch_step(text)",
+    "aap_inference_routing_v1.prediction_scope_reserve(text)",
+    "aap_inference_routing_v1.prediction_test_scope_reserve(text)",
     "aap_inference_routing_v1.routing_policy()",
     "aap_inference_routing_v1.routing_step(text,text)",
     "aap_inference_routing_v1.scope_retirement_step(text,text)",
@@ -501,6 +520,8 @@ INFERENCE_ROUTING_RUNTIME_CAPABILITIES = (
     "aap_inference_routing_v1.video_execution_scope_step(text,text)",
 )
 IMAGE_ACCEPTED_INPUT_RUNTIME_CAPABILITIES = (
+    "aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
+    "aap_assets_v1.finish_accepted_image_original(uuid,uuid)",
     "aap_assets_v1.find_accepted_image_input(uuid,uuid,uuid)",
     "aap_assets_v1.reserve_accepted_image_input(uuid,uuid,uuid,text,jsonb)",
     "aap_assets_v1.read_accepted_image_input(uuid,uuid,uuid)",
@@ -1181,11 +1202,6 @@ class LocalResources:
             )
             video_function_grant = ", ".join(VIDEO_RUNTIME_CAPABILITIES)
             audit_function_grant = ", ".join(AUDIT_RUNTIME_CAPABILITIES)
-            identity_capabilities = IDENTITY_RUNTIME_CAPABILITIES
-            if self.resources["database"].endswith(("_test", "_e2e")):
-                identity_capabilities += (
-                    "aap_identity_v1.replace_fixture_preferences(uuid,jsonb)",
-                )
             fixture_grants = (
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
                 f"FROM {role}, PUBLIC",
@@ -1197,40 +1213,30 @@ class LocalResources:
                 f"FROM {role}, PUBLIC",
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
                 f"FROM {role}, PUBLIC",
+                "REVOKE ALL ON FUNCTION "
+                "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text), "
+                "aap_identity_v1.replace_fixture_preferences(uuid,jsonb), "
+                "aap_labeling_v1.screenshot_operations_command(jsonb), "
+                "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]), "
+                "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid), "
+                "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid), "
+                "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer), "
+                "aap_workspace_v1.create_scale_seed_project(uuid,text), "
+                "aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid), "
+                "aap_workspace_v1.guard_scale_seed_cleanup(text), "
+                "aap_workspace_v1.delete_scale_seed_projects(text,uuid[]), "
+                "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean), "
+                "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[]) "
+                f"FROM {role}, PUBLIC",
+                f"REVOKE ALL ON SCHEMA aap_identity_fixture_v1, aap_workspace_fixture_v1 FROM {role}",
+                "REVOKE ALL ON ALL TABLES IN SCHEMA aap_identity_fixture_v1, aap_workspace_fixture_v1 "
+                f"FROM {role}",
+                "REVOKE ALL ON ALL SEQUENCES IN SCHEMA aap_identity_fixture_v1, aap_workspace_fixture_v1 "
+                f"FROM {role}",
+                "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_fixture_v1, aap_workspace_fixture_v1 "
+                f"FROM {role}",
             )
-            if self.resources["database"].lower().endswith(("_test", "_e2e")):
-                identity_capabilities += (
-                    "aap_identity_fixture_v1.create_account(uuid,text,text,text,text)",
-                    "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
-                    "aap_identity_fixture_v1.create_invitations(jsonb)",
-                    "aap_identity_fixture_v1.delete_accounts(boolean,text[])",
-                    "aap_identity_fixture_v1.delete_reset_tokens(uuid[])",
-                    "aap_identity_fixture_v1.delete_invitations(uuid[])",
-                    "aap_identity_fixture_v1.delete_organization_members(uuid[])",
-                )
-                fixture_grants += (
-                    "GRANT EXECUTE ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) "
-                    f"TO {role}",
-                    "GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
-                    f"TO {role}",
-                    "GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[]) "
-                    f"TO {role}",
-                    "GRANT EXECUTE ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb) "
-                    f"TO {role}",
-                    "GRANT EXECUTE ON FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb) "
-                    f"TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO {role}",
-                    f"GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO {role}",
-                    f"GRANT SELECT ON aap_workspace_fixture_v1.templates TO {role}",
-                    "GRANT EXECUTE ON FUNCTION "
-                    "aap_workspace_fixture_v1.create_project(jsonb), "
-                    "aap_workspace_fixture_v1.create_templates(jsonb), "
-                    "aap_workspace_fixture_v1.guard_project_cleanup(uuid[]), "
-                    "aap_workspace_fixture_v1.delete_projects(uuid[]), "
-                    f"aap_workspace_fixture_v1.delete_templates(boolean,text[]) TO {role}",
-                )
-            identity_function_grant = ", ".join(identity_capabilities)
+            identity_function_grant = ", ".join(IDENTITY_RUNTIME_CAPABILITIES)
             image_media_function_grant = ", ".join(IMAGE_MEDIA_RUNTIME_CAPABILITIES)
             image_accepted_function_grant = ", ".join(
                 IMAGE_ACCEPTED_RUNTIME_CAPABILITIES
@@ -1257,8 +1263,16 @@ class LocalResources:
                 for sql in (
                     f"GRANT CONNECT ON DATABASE {database} TO {role}",
                     f"GRANT USAGE ON SCHEMA public TO {role}",
+                    f"REVOKE ALL ON SCHEMA yoao_fixture_v1 FROM {role}",
+                    f"REVOKE ALL ON ALL TABLES IN SCHEMA yoao_fixture_v1 FROM {role}",
+                    f"REVOKE ALL ON ALL SEQUENCES IN SCHEMA yoao_fixture_v1 FROM {role}",
+                    f"REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_fixture_v1 FROM {role}",
                     *fixture_grants,
                     f"GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {role}",
+                    f"REVOKE ALL ON TABLE public.fixture_export_zip_retirements FROM {role}, PUBLIC",
+                    "REVOKE ALL ON FUNCTION public.fixture_export_owner_session(), "
+                    "public.retire_fixture_native_export_output(uuid), "
+                    f"public.confirm_fixture_export_zip_absent(uuid) FROM {role}, PUBLIC",
                     f"REVOKE ALL ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
                     "REVOKE ALL (day, action, target_type, actor_role, status_family, event_count) "
                     f"ON TABLE public.mv_audit_bi_daily FROM {role}, PUBLIC",
@@ -1310,11 +1324,6 @@ class LocalResources:
                     f"aap_labeling_v1.annotation_draft_rows TO {role}",
                     "GRANT EXECUTE ON FUNCTION "
                     "aap_labeling_v1.next_batch_display_id(), "
-                    "aap_labeling_v1.screenshot_operations_command(jsonb), "
-                    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]), "
-                    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid), "
-                    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid), "
-                    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer), "
                     "aap_labeling_v1.lock_active_learning_feedback_task_rows(uuid,uuid[]), "
                     "aap_labeling_v1.lock_active_learning_feedback_annotation_rows(uuid[]) "
                     f"TO {role}",
@@ -1368,11 +1377,6 @@ class LocalResources:
                     "aap_workspace_v1.create_media_seed_project(uuid,text,text,uuid,text,jsonb), "
                     "aap_workspace_v1.write_seed_project_projection(uuid,jsonb), "
                     "aap_workspace_v1.pin_seed_member_assignment(uuid,timestamptz), "
-                    "aap_workspace_v1.create_scale_seed_project(uuid,text), "
-                    "aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid), "
-                    "aap_workspace_v1.guard_scale_seed_cleanup(text), "
-                    "aap_workspace_v1.delete_scale_seed_projects(text,uuid[]), "
-                    "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean), "
                     "aap_workspace_v1.write_point_cloud_quality_config(uuid,jsonb), "
                     "aap_inference_backend_probe_v1.backend_probe_policy(), "
                     "aap_inference_backend_probe_v1.open_backend_probe_subject(text,uuid), "
@@ -1475,6 +1479,8 @@ class LocalResources:
                     "aap_assets_v1.lock_legacy_dataset_upload(uuid, uuid, uuid, uuid), "
                     "aap_assets_v1.read_legacy_dataset_upload(uuid, uuid, uuid, uuid), "
                     "aap_assets_v1.complete_legacy_dataset_upload(uuid, uuid, uuid, uuid, text, bigint, text, integer, integer), "
+                    "aap_assets_v1.is_fixture_original_source(text,text), "
+                    "aap_assets_v1.classify_fixture_original_reclaim(uuid,text), "
                     "aap_assets_v1.list_catalog_datasets(uuid, text, text, boolean, integer, bigint), "
                     "aap_assets_v1.get_catalog_dataset(uuid, uuid), "
                     "aap_assets_v1.list_catalog_items(uuid, uuid, integer, bigint), "
@@ -1482,6 +1488,9 @@ class LocalResources:
                     "aap_assets_v1.update_catalog_dataset(uuid, uuid, uuid, jsonb), "
                     "aap_assets_v1.list_dataset_projects(uuid, uuid), "
                     "aap_assets_v1.list_project_datasets(uuid, uuid), "
+                    "aap_assets_v1.is_fixture_spatial_dataset(uuid), "
+                    "aap_assets_v1.begin_spatial_calibration_original(uuid,uuid,text), "
+                    "aap_assets_v1.finish_spatial_calibration_original(uuid,uuid), "
                     "aap_assets_v1.guard_spatial_actor(uuid,text), "
                     "aap_assets_v1.list_spatial_scenes(uuid,uuid,timestamp with time zone,uuid,integer), "
                     "aap_assets_v1.get_spatial_scene(uuid,uuid), "
@@ -1552,6 +1561,12 @@ class LocalResources:
                     "aap_assets_v1.patch_operator_items(uuid, uuid, jsonb), "
                     "aap_assets_v1.recount_operator_items(uuid, uuid), "
                     "aap_assets_v1.read_operator_items(uuid, uuid, integer), "
+                    "aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text), "
+                    "aap_assets_v1.finish_media_original_read(uuid,uuid), "
+                    "aap_assets_v1.begin_media_original_system(uuid,text,text), "
+                    "aap_assets_v1.finish_media_original_system(uuid,uuid), "
+                    "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text), "
+                    "aap_assets_v1.finish_media_original_worker(uuid,uuid), "
                     "aap_assets_v1.read_media_source(uuid, uuid, uuid), "
                     "aap_assets_v1.read_media_summaries(uuid[]), "
                     "aap_assets_v1.ensure_video_media(uuid, uuid, uuid, jsonb), "
@@ -1621,6 +1636,15 @@ class LocalResources:
                     "aap_jobs_v1.skip_batch_result_member(jsonb), "
                     "aap_jobs_v1.finish_batch_result_execution(jsonb), "
                     "aap_jobs_v1.start_batch_result_member(jsonb), "
+                    "aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid), "
+                    "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid), "
+                    "aap_jobs_v1.finish_prediction_mask_producer(uuid), "
+                    "aap_jobs_v1.prediction_mask_object_retained(uuid), "
+                    "public.fixture_export_execution_admitted(uuid), "
+                    "public.begin_fixture_export_execution(uuid,uuid,uuid), "
+                    "public.finish_fixture_export_execution(uuid,uuid), "
+                    "public.fixture_native_export_lifetime(uuid,uuid), "
+                    "public.fixture_native_export_cleanup_eligible(uuid), "
                     "aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid), "
                     "aap_labeling_v1.accept_dataset_task_creation(uuid, uuid, uuid, uuid, uuid, uuid, text, integer), "
                     "aap_labeling_v1.prepare_dataset_task_creation(uuid, jsonb), "

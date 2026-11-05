@@ -414,10 +414,13 @@ BEGIN
         SELECT 1 FROM yoao_fixture_v1.fixture_presentation_jobs AS proof
         LEFT JOIN public.async_jobs AS job ON job.id=proof.job_id
         WHERE proof.run_id=p_run_id AND proof.project_id=p_project_id AND (
-            proof.state <> 'admitted' OR job.id IS NULL
-            OR job.project_id IS DISTINCT FROM p_project_id
-            OR job.kind IS DISTINCT FROM proof.kind OR job.status='running'
-            OR job.celery_task_id IS NOT NULL OR job.started_at IS NOT NULL
+            proof.state NOT IN ('admitted', 'retired')
+            OR (proof.state = 'admitted' AND (
+                job.id IS NULL OR job.project_id IS DISTINCT FROM p_project_id
+                OR job.kind IS DISTINCT FROM proof.kind OR job.status='running'
+                OR job.celery_task_id IS NOT NULL OR job.started_at IS NOT NULL
+            ))
+            OR (proof.state = 'retired' AND job.id IS NOT NULL)
             OR EXISTS (SELECT 1 FROM aap_jobs_v1.dispatch_intents AS intent WHERE intent.job_id=proof.job_id)
             OR EXISTS (SELECT 1 FROM public.batch_result_executions AS execution WHERE execution.job_id=proof.job_id)
             OR EXISTS (SELECT 1 FROM public.prediction_retry_attempts AS attempt WHERE attempt.job_id=proof.job_id)

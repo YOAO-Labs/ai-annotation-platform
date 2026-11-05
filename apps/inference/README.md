@@ -37,6 +37,8 @@ Named pipelines may borrow the API transaction when no HTTP owner is selected. R
 
 The Native migration resources and schemas ship in the package. Install matching migrations, module owner grants and runtime grants before selecting the independent owner. `infra/docker/inference-owner-grants.sql` installs one closed LOGIN profile per endpoint purpose, aggregate statistics, private GPU authority or collector. These LOGINS cannot own objects, inherit roles, read tables or call unrelated functions. Ordinary caller GPU capabilities have a separate bounded profile and never receive private authority functions.
 
+Owned test providers use authenticated health observation rather than a direct fixture health setter. Runtime grant reapplication revokes the obsolete fixture capability even in test and E2E databases; a database suffix does not authorize fabricated health. Historical SQL stays frozen, and the current forward migration removes that capability.
+
 ## Recovery and boundaries
 
 Durable routing binds scopes, attempts, control operations and retirement to exact backend continuity. Video acquisition includes the current Jobs execution proof. Cancellation, late results and restored execution remain fenced by Jobs/Labeling and routing state; a timeout or expired lease is not proof that backend work stopped.

@@ -25,11 +25,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import or_, select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_labeling.e2e_fixture_contract import TaskFixturePatch
@@ -68,7 +68,7 @@ router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
 _LABELING_FIXTURE_DELETE_SQL = (
     "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
 )
-_AUDIT_FILTERING_FIXTURE_CLEANUP = "audit_filtering_fixture_cleanup"
+_AUDIT_FIXTURE_CLEANUP = "audit_fixture_cleanup"
 
 
 # ---------------------------------------------------------------------------
@@ -122,11 +122,7 @@ class _OwnedFixtureScope:
 
     @property
     def registry_name(self) -> str:
-        return f"E2E SAM Mock Owned {self.namespace}"
-
-    @property
-    def registry_url(self) -> str:
-        return f"http://mock-sam-{self.namespace}.e2e:9999"
+        return f"E2E Test Provider Owned {self.namespace}"
 
     @property
     def image_key_prefix(self) -> str:
@@ -296,108 +292,6 @@ def _parse_owned_namespace(namespace: str) -> _OwnedFixtureScope:
     return _OwnedFixtureScope(namespace=namespace)
 
 
-def _delete_seed_object_prefix(
-    storage: Any,
-    *,
-    bucket: str,
-    prefix: str,
-    label: str,
-    protect_canonical: bool = False,
-) -> None:
-    """Delete an already resolved fixture prefix and verify complete removal."""
-    continuation_token: str | None = None
-    keys: list[str] = []
-    while True:
-        list_kwargs = {
-            "Bucket": bucket,
-            "Prefix": prefix,
-        }
-        if continuation_token:
-            list_kwargs["ContinuationToken"] = continuation_token
-        response = storage.client.list_objects_v2(**list_kwargs)
-        keys.extend(obj["Key"] for obj in response.get("Contents", []))
-        if not response.get("IsTruncated"):
-            break
-        continuation_token = response.get("NextContinuationToken")
-        if not continuation_token:
-            raise RuntimeError(f"{label} cleanup missing MinIO continuation token")
-    if protect_canonical and any(
-        _canonical_comment_attachment_key(key) for key in keys
-    ):
-        raise HTTPException(
-            409, detail={"code": "e2e_seed_attachment_canonical_residual"}
-        )
-    for offset in range(0, len(keys), 1000):
-        delete_response = storage.client.delete_objects(
-            Bucket=bucket,
-            Delete={
-                "Objects": [{"Key": key} for key in keys[offset : offset + 1000]],
-                "Quiet": True,
-            },
-        )
-        errors = delete_response.get("Errors", [])
-        if errors:
-            raise RuntimeError(
-                f"{label} cleanup MinIO delete failed for {len(errors)} object(s)"
-            )
-    remaining = storage.client.list_objects_v2(
-        Bucket=bucket,
-        Prefix=prefix,
-        MaxKeys=1,
-    ).get("Contents", [])
-    if remaining:
-        if protect_canonical and any(
-            _canonical_comment_attachment_key(item["Key"]) for item in remaining
-        ):
-            raise HTTPException(
-                409, detail={"code": "e2e_seed_attachment_canonical_residual"}
-            )
-        raise RuntimeError(f"{label} cleanup left MinIO objects")
-
-
-def _delete_webcodecs_seed_objects(storage: Any) -> None:
-    _delete_seed_object_prefix(
-        storage,
-        bucket=storage.datasets_bucket,
-        prefix="e2e/video/webcodecs/",
-        label="webcodecs",
-    )
-
-
-def _canonical_comment_attachment_key(key: str) -> bool:
-    parts = key.split("/")
-    if len(parts) != 3 or parts[0] != "comment-attachments":
-        return False
-    try:
-        return str(UUID(parts[1])) == parts[1] and str(UUID(parts[2])) == parts[2]
-    except (ValueError, AttributeError):
-        return False
-
-
-def _delete_comment_attachment_seed_objects(storage: Any, annotation_ids: list) -> None:
-    # These IDs are resolved from fixture projects before their database rows
-    # are deleted. Include unfinished uploads, not only attachments in comments.
-    for annotation_id in annotation_ids:
-        identifier = UUID(str(annotation_id))
-        _delete_seed_object_prefix(
-            storage,
-            bucket=storage.bucket,
-            prefix=f"comment-attachments/{identifier}/",
-            label="comment-attachment",
-            protect_canonical=True,
-        )
-
-
-def _delete_filtering_seed_objects(storage: Any) -> None:
-    """Delete only the deterministic objects owned by the filtering fixture."""
-    _delete_seed_object_prefix(
-        storage,
-        bucket=storage.datasets_bucket,
-        prefix="e2e/filtering/",
-        label="filtering",
-    )
-
-
 def _is_transaction_abort(exc: BaseException) -> bool:
     """Recognise a deadlock/serialization failure for the cleanup fail-fast policy.
 
@@ -432,7 +326,7 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
         == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
     )
     labeling_fixture_delete = operation == _LABELING_FIXTURE_DELETE_SQL
-    audit_fixture_delete = operation == _AUDIT_FILTERING_FIXTURE_CLEANUP
+    audit_fixture_delete = operation == _AUDIT_FIXTURE_CLEANUP
     identity_fixture_delete = operation.startswith("SELECT aap_identity_fixture_v1.")
     owner_fixture_delete = (
         jobs_fixture_delete or labeling_fixture_delete or audit_fixture_delete
@@ -442,7 +336,7 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
             if audit_fixture_delete:
                 deleted_rows = await AuditMaintenancePostgresData(
                     db
-                ).cleanup_filtering_fixture_events((params or {}).get("namespace"))
+                ).cleanup_fixture_events(params["run_id"])
                 decode_fixture_count(deleted_rows)
             else:
                 result = await db.execute(text(operation), params or {})
@@ -575,31 +469,6 @@ async def _resolve_fixture_scope(db, owned):
         "annotations", "project_id = ANY(:pids)", {"pids": list(projects)}
     )
     return FixtureScope(projects, users, annotations, tasks, datasets)
-
-
-def _cleanup_fixture_storage(owned, annotation_ids, project_ids):
-    """All legacy network I/O precedes the final fixture transaction locks."""
-    from app.services.storage import storage_service
-
-    if owned is None:
-        _delete_webcodecs_seed_objects(storage_service)
-        _delete_filtering_seed_objects(storage_service)
-    else:
-        for prefix in owned.all_storage_prefixes:
-            _delete_seed_object_prefix(
-                storage_service,
-                bucket=storage_service.datasets_bucket,
-                prefix=prefix,
-                label=f"owned-{owned.namespace}-{prefix.rstrip('/').rsplit('/', 1)[-1]}",
-            )
-        for project_id in project_ids:
-            _delete_seed_object_prefix(
-                storage_service,
-                bucket=storage_service.datasets_bucket,
-                prefix=f"e2e/video/webcodecs/{project_id}/",
-                label=f"owned-{owned.namespace}-webcodecs",
-            )
-    _delete_comment_attachment_seed_objects(storage_service, annotation_ids)
 
 
 @dataclass
@@ -1263,7 +1132,95 @@ async def _delete_owned_project_data(db, scope, run_id):
         raise HTTPException(409, detail={"code": "fixture_datasets_not_removed"})
 
 
-async def _delete_owned_accounts_and_auxiliary(db, owned, scope, *, family="owned"):
+async def _lock_and_check_fixture_backends(
+    db, run_id, *, expected_ids=None, owned_project_ids=()
+):
+    """Lock the exact inventory and reject external references before mutation."""
+    from app.db.models.fixture_run import FixtureRunResource
+
+    registry_ids = list(
+        await db.scalars(
+            select(FixtureRunResource.resource_id)
+            .where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "registry",
+            )
+            .order_by(FixtureRunResource.resource_id)
+            .with_for_update()
+        )
+    )
+    if expected_ids is not None and set(registry_ids) != set(expected_ids):
+        raise HTTPException(409, detail={"code": "fixture_backend_scope_changed"})
+    if not registry_ids:
+        return registry_ids
+    existing = list(
+        await db.scalars(
+            text(
+                "SELECT id FROM public.ml_backend_registry "
+                "WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
+            ),
+            {"ids": registry_ids},
+        )
+    )
+    if set(existing) != set(registry_ids):
+        raise HTTPException(409, detail={"code": "fixture_backend_scope_changed"})
+    pools = list(
+        await db.scalars(
+            text(
+                "SELECT id FROM public.ml_backend_service_pools "
+                "WHERE legacy_instance_id=ANY(CAST(:ids AS uuid[])) "
+                "OR id IN (SELECT pool_id FROM public.ml_backend_pool_members "
+                "WHERE registry_id=ANY(CAST(:ids AS uuid[]))) "
+                "ORDER BY id FOR UPDATE"
+            ),
+            {"ids": registry_ids},
+        )
+    )
+    await db.execute(
+        text(
+            "SELECT id FROM public.ml_backend_pool_members "
+            "WHERE pool_id=ANY(CAST(:pools AS uuid[])) ORDER BY id FOR UPDATE"
+        ),
+        {"pools": pools},
+    )
+    foreign_backend = await db.scalar(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM public.project_ml_backend_pool "
+            "WHERE pool_id=ANY(CAST(:pools AS uuid[])) "
+            "AND NOT (project_id=ANY(CAST(:owned_projects AS uuid[])))) "
+            "OR EXISTS (SELECT 1 FROM public.projects "
+            "WHERE ml_backend_pool_id=ANY(CAST(:pools AS uuid[])) "
+            "AND NOT (id=ANY(CAST(:owned_projects AS uuid[])))) "
+            "OR EXISTS (SELECT 1 FROM public.predictions "
+            "WHERE (ml_backend_id=ANY(CAST(:ids AS uuid[])) "
+            "OR ml_backend_pool_id=ANY(CAST(:pools AS uuid[]))) "
+            "AND NOT (project_id=ANY(CAST(:owned_projects AS uuid[])))) "
+            "OR EXISTS (SELECT 1 FROM public.failed_predictions "
+            "WHERE (ml_backend_id=ANY(CAST(:ids AS uuid[])) "
+            "OR ml_backend_pool_id=ANY(CAST(:pools AS uuid[]))) "
+            "AND NOT (project_id=ANY(CAST(:owned_projects AS uuid[])))) "
+            "OR EXISTS (SELECT 1 FROM public.trained_model_deployments "
+            "WHERE registry_id=ANY(CAST(:ids AS uuid[])))"
+        ),
+        {
+            "ids": registry_ids,
+            "pools": pools,
+            "owned_projects": list(owned_project_ids),
+        },
+    )
+    if foreign_backend:
+        raise HTTPException(409, detail={"code": "fixture_backend_foreign_reference"})
+    from app.services.ml_backend import MLBackendService
+
+    for registry_id in registry_ids:
+        if not await MLBackendService(db).validate_delete(registry_id):
+            raise HTTPException(409, detail={"code": "fixture_backend_scope_changed"})
+    return registry_ids
+
+
+async def _delete_owned_accounts_and_auxiliary(
+    db, owned, scope, *, family="owned", registry_topologies=None
+):
     """Remove only inventoried identities and exact owner-managed auxiliaries."""
     from app.api.v1 import _test_seed_attachments as attachments
 
@@ -1340,75 +1297,18 @@ async def _delete_owned_accounts_and_auxiliary(db, owned, scope, *, family="owne
         is not None
     ):
         raise HTTPException(409, detail={"code": "fixture_templates_not_removed"})
-    audit_ids = set(await _owned_resource_ids(db, run_id, "audit"))
-    matching_audits = (
-        set(
-            await db.scalars(
-                text(
-                    "SELECT id FROM aap_audit_v1.audit_events "
-                    "WHERE detail_json ->> 'namespace'=:namespace "
-                    "AND path='/api/v1/__test/seed/filtering'"
-                ),
-                {"namespace": owned.namespace},
-            )
-        )
-        if family == "owned"
-        else set()
+    if family == "owned":
+        await _try_fixture_delete(db, _AUDIT_FIXTURE_CLEANUP, {"run_id": run_id})
+    registry_ids = await _lock_and_check_fixture_backends(
+        db, run_id, expected_ids=registry_topologies or {}
     )
-    existing_audits = set(
-        await db.scalars(
-            text(
-                "SELECT id FROM aap_audit_v1.audit_events WHERE id=ANY(CAST(:ids AS uuid[]))"
-            ),
-            {"ids": list(audit_ids)},
-        )
-    )
-    if matching_audits != existing_audits or not matching_audits.issubset(audit_ids):
-        raise HTTPException(409, detail={"code": "fixture_audit_not_owned"})
-    if matching_audits:
-        await _try_fixture_delete(
-            db, _AUDIT_FILTERING_FIXTURE_CLEANUP, {"namespace": owned.namespace}
-        )
-    registry_ids = list(await _owned_resource_ids(db, run_id, "registry"))
     if registry_ids:
-        from app.application.ml_registry_deletion import delete_registry
+        from app.application.ml_registry_deletion import _finish_registry_deletion
 
-        existing = list(
-            await db.scalars(
-                text(
-                    "SELECT id FROM public.ml_backend_registry "
-                    "WHERE id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
-                ),
-                {"ids": registry_ids},
-            )
-        )
-        pools = list(
-            await db.scalars(
-                text(
-                    "SELECT id FROM public.ml_backend_service_pools "
-                    "WHERE legacy_instance_id=ANY(CAST(:ids AS uuid[])) ORDER BY id FOR UPDATE"
-                ),
-                {"ids": registry_ids},
-            )
-        )
-        foreign_backend = await db.scalar(
-            text(
-                "SELECT EXISTS (SELECT 1 FROM public.project_ml_backend_pool "
-                "WHERE pool_id=ANY(CAST(:pools AS uuid[]))) "
-                "OR EXISTS (SELECT 1 FROM public.projects WHERE ml_backend_pool_id=ANY(CAST(:pools AS uuid[]))) "
-                "OR EXISTS (SELECT 1 FROM public.predictions WHERE ml_backend_id=ANY(CAST(:ids AS uuid[])) "
-                "OR ml_backend_pool_id=ANY(CAST(:pools AS uuid[]))) "
-                "OR EXISTS (SELECT 1 FROM public.failed_predictions WHERE ml_backend_id=ANY(CAST(:ids AS uuid[])) "
-                "OR ml_backend_pool_id=ANY(CAST(:pools AS uuid[])))"
-            ),
-            {"ids": registry_ids, "pools": pools},
-        )
-        if foreign_backend:
-            raise HTTPException(
-                409, detail={"code": "fixture_backend_foreign_reference"}
-            )
-        for registry_id in existing:
-            if not await delete_registry(db, registry_id):
+        for registry_id in registry_ids:
+            if not await _finish_registry_deletion(
+                db, registry_topologies[registry_id]
+            ):
                 raise HTTPException(409, detail={"code": "fixture_backend_not_removed"})
     if users:
         await _try_fixture_delete(
@@ -1546,7 +1446,15 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
                     409, detail={"code": "fixture_original_reclaim_unsettled"}
                 )
             continue
-        if claim is not None:
+        retry_of_id = None
+        if (
+            claim is not None
+            and claim.state == "released"
+            and attempt.status == "failed"
+            and attempt.physical_settled
+        ):
+            retry_of_id = attempt.id
+        if claim is not None and retry_of_id is None:
             if (
                 claim.state != "claimed"
                 or attempt.status != "pending"
@@ -1562,7 +1470,8 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
                     409, detail={"code": "fixture_cleanup_actor_missing"}
                 )
             review = ManagedOriginalReclaimReview(
-                reason="Retire an exact isolated fixture original"
+                reason="Retire an exact isolated fixture original",
+                retry_of_id=retry_of_id,
             )
             preview = await managed_original_reclaim.preview(
                 db, retirement.id, review, actor
@@ -1581,6 +1490,7 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
                 ManagedOriginalReclaimApply(
                     reason=review.reason,
                     impact_token=preview.impact_token,
+                    retry_of_id=review.retry_of_id,
                 ),
                 actor,
             )
@@ -1589,7 +1499,7 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
                     run_id=run_id,
                     kind="reclaim",
                     resource_id=attempt.id,
-                    logical_key=f"reclaim-{creation_id.hex}",
+                    logical_key=f"reclaim-{attempt.id.hex}",
                     state="published",
                 )
             )
@@ -1615,17 +1525,92 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
             )
 
 
-async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=None):
-    """Seal and reclaim one exact run through the existing fixture cleanup owners."""
+async def _retire_fixture_execution_work(db, owned):
+    """Retire native work before any sibling Dataset can be reclaimed."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
     from app.api.v1 import _test_seed_attachments as attachments
-    from app.api.v1 import _test_seed_guide_assets as guides
     from app.application.fixture_prediction_retirement import (
         FixturePredictionRetirementBlocked,
         retire_fixture_prediction_work,
     )
     from app.db.models.async_job import AsyncJob
+    from app.db.models.fixture_run import FixturePresentationJob
+    from app.services import export_media_retirement, storage_access
+
+    run_id = owned.run_id
+    scope = await _resolve_fixture_scope(db, owned)
+    await db.rollback()
+    try:
+        await retire_fixture_prediction_work(
+            session_factory=async_sessionmaker(
+                storage_access.engine(db), expire_on_commit=False
+            ),
+            run_id=run_id,
+            project_ids=scope.project_ids,
+            task_ids=scope.task_ids,
+        )
+    except FixturePredictionRetirementBlocked as exc:
+        raise HTTPException(
+            409,
+            detail={
+                "code": "fixture_prediction_retirement_blocked",
+                "reason": exc.reason,
+            },
+        ) from exc
+    if await _resolve_fixture_scope(db, owned) != scope:
+        attachments.reject()
+    # Removing project bindings changes pool routing generations. Preserve the
+    # external-reference fence before starting physical export cleanup.
+    await _lock_and_check_fixture_backends(
+        db, run_id, owned_project_ids=scope.project_ids
+    )
+    await db.rollback()
+    export_jobs = list(
+        (
+            await db.execute(
+                select(AsyncJob.id, AsyncJob.project_id)
+                .where(
+                    AsyncJob.project_id.in_(scope.project_ids),
+                    AsyncJob.kind == "export",
+                    ~select(FixturePresentationJob.job_id)
+                    .where(
+                        FixturePresentationJob.job_id == AsyncJob.id,
+                        FixturePresentationJob.run_id == run_id,
+                        FixturePresentationJob.project_id == AsyncJob.project_id,
+                        FixturePresentationJob.kind == AsyncJob.kind,
+                        FixturePresentationJob.state == "admitted",
+                    )
+                    .exists(),
+                )
+                .order_by(AsyncJob.id)
+            )
+        ).all()
+    )
+    await db.rollback()
+    for job_id, project_id in export_jobs:
+        if not await export_media_retirement.retire_fixture_export(
+            db, run_id=run_id, project_id=project_id, job_id=job_id
+        ):
+            raise HTTPException(
+                409,
+                detail={
+                    "code": "fixture_export_retirement_unsettled",
+                    "job_id": str(job_id),
+                },
+            )
+    if await _resolve_fixture_scope(db, owned) != scope:
+        attachments.reject()
+    return scope
+
+
+async def _cleanup_owned_e2e_fixtures(
+    db, owned, *, family="owned", registry=None, providers=None
+):
+    """Seal and reclaim one exact run through the existing fixture cleanup owners."""
+    from app.api.v1 import _test_seed_attachments as attachments
+    from app.api.v1 import _test_seed_guide_assets as guides
     from app.db.models.fixture_run import (
-        FixturePresentationJob,
         FixtureMaintenanceWindow,
         FixtureRun,
         FixtureRunResource,
@@ -1636,7 +1621,6 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
         ManagedOriginalReclaimClaim,
     )
     from app.db.models.user import User
-    from app.services import export_media_retirement
     from app.services import fixture_run_ownership as ownership, storage_access
     from app.services.original_binary import AuthorizedOriginal, Resource
     from app.services.original_playback import PlaybackContext
@@ -1671,60 +1655,10 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
                 raise HTTPException(
                     409, detail={"code": "fixture_maintenance_window_changed"}
                 )
+            if providers is not None:
+                await providers.retire(run_id)
             return
-        scope = await resolve(db)
-        await db.rollback()
-        try:
-            await retire_fixture_prediction_work(
-                run_id=run_id,
-                project_ids=scope.project_ids,
-                task_ids=scope.task_ids,
-            )
-        except FixturePredictionRetirementBlocked as exc:
-            raise HTTPException(
-                409,
-                detail={
-                    "code": "fixture_prediction_retirement_blocked",
-                    "reason": exc.reason,
-                },
-            ) from exc
-        if await resolve(db) != scope:
-            attachments.reject()
-        export_jobs = list(
-            (
-                await db.execute(
-                    select(AsyncJob.id, AsyncJob.project_id)
-                    .where(
-                        AsyncJob.project_id.in_(scope.project_ids),
-                        AsyncJob.kind == "export",
-                        ~select(FixturePresentationJob.job_id)
-                        .where(
-                            FixturePresentationJob.job_id == AsyncJob.id,
-                            FixturePresentationJob.run_id == run_id,
-                            FixturePresentationJob.project_id == AsyncJob.project_id,
-                            FixturePresentationJob.kind == AsyncJob.kind,
-                            FixturePresentationJob.state == "admitted",
-                        )
-                        .exists(),
-                    )
-                    .order_by(AsyncJob.id)
-                )
-            ).all()
-        )
-        await db.rollback()
-        for job_id, project_id in export_jobs:
-            if not await export_media_retirement.retire_fixture_export(
-                db, run_id=run_id, project_id=project_id, job_id=job_id
-            ):
-                raise HTTPException(
-                    409,
-                    detail={
-                        "code": "fixture_export_retirement_unsettled",
-                        "job_id": str(job_id),
-                    },
-                )
-        if await resolve(db) != scope:
-            attachments.reject()
+        scope = await _retire_fixture_execution_work(db, owned)
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
                 FixtureMaintenanceWindow.run_id == run_id,
@@ -1744,6 +1678,12 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
             await _guard_fixture_export_anchors(db, run_id, scope.project_ids)
             await preflight.rollback()
         await guides.preflight(db, scope)
+        if family != "scale":
+            # Finish verified publication while the location is still active.
+            # The deletion transaction rechecks these exact attachments below.
+            await ownership.recover_verified_originals(db, run_id)
+            await ownership.recover_verified_auxiliary_originals(db, run_id)
+            await db.commit()
 
         verified = list(
             await db.scalars(
@@ -1843,6 +1783,10 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
 
             await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
             await _guard_fixture_export_anchors(db, run_id, scope.project_ids)
+            # Fence late references through the project-deletion commit.
+            await _lock_and_check_fixture_backends(
+                db, run_id, owned_project_ids=scope.project_ids
+            )
             if family == "scale":
                 await _delete_scale_project_data(db, scope, run_id)
             else:
@@ -1869,9 +1813,42 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
                 saved_actor = await db.get(User, actor_id, populate_existing=True)
                 await ownership.end_reclaim_window(db, saved_window, saved_actor)
                 window_id = None
+            registry_ids = await _lock_and_check_fixture_backends(db, run_id)
+            from app.application.ml_registry_deletion import _prepare_registry_deletion
+            from app.services.inference_topology_data import InferenceTopologyData
+            from app.services.ml_backend import MLBackendService
+
+            topology_data = InferenceTopologyData(db)
+            backend_service = MLBackendService(db)
+            for registry_id in registry_ids:
+                pool = await topology_data.pool_for_registry(registry_id)
+                if pool is not None:
+                    members = await topology_data.pool_members(pool.id)
+                    if pool.legacy_instance_id != registry_id or any(
+                        member.registry_id != registry_id for member in members
+                    ):
+                        raise HTTPException(
+                            409, detail={"code": "fixture_backend_scope_changed"}
+                        )
+                    await backend_service.drain_pool_member(pool.id, registry_id)
+            # Release the inventory and topology locks before the HTTP authority.
+            await db.commit()
+            registry_topologies = {}
+            for registry_id in registry_ids:
+                await _reconcile_fixture_backend(run_id, registry_id)
+                topology = await _prepare_registry_deletion(db, registry_id)
+                if topology is None:
+                    raise HTTPException(
+                        409, detail={"code": "fixture_backend_not_removed"}
+                    )
+                registry_topologies[registry_id] = topology
             final_scope = await resolve(db)
             await _delete_owned_accounts_and_auxiliary(
-                db, owned, final_scope, family=family
+                db,
+                owned,
+                final_scope,
+                family=family,
+                registry_topologies=registry_topologies,
             )
             remaining = await resolve(db)
             if remaining != attachments.FixtureScope():
@@ -1891,6 +1868,8 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
             run.state = "retired"
             run.retired_at = datetime.now(timezone.utc)
             await db.commit()
+            if providers is not None:
+                await providers.retire(run_id)
         except BaseException as failure:
             try:
                 await storage_access.finish(asyncio.create_task(db.rollback()))
@@ -1956,362 +1935,6 @@ async def _cleanup_owned_e2e_fixtures(db, owned, *, family="owned", registry=Non
             raise failure
 
 
-async def _cleanup_e2e_fixtures(
-    db: AsyncSession, owned: _OwnedFixtureScope | None = None, *, registry=None
-) -> None:
-    """Destroy only terminal fixture owners, then fence and delete the fixture."""
-    if owned is not None and owned.run_id is not None:
-        await _require_e2e_seed_database(db)
-        await _cleanup_owned_e2e_fixtures(db, owned, registry=registry)
-        return
-    from app.api.v1 import _test_seed_attachments as attachments
-    from app.api.v1 import _test_seed_guide_assets as guides
-    from app.services.original_binary import AuthorizedOriginal, Resource
-    from app.services.original_playback import PlaybackContext
-    from app.services.fixture_run_ownership import (
-        guard_dataset_jobs,
-        guard_project_jobs,
-    )
-    from app.services.storage_access import finish
-
-    async def resolve(session):
-        return await _resolve_fixture_scope(session, owned)
-
-    try:
-        await _require_e2e_seed_database(db)
-        scope = await resolve(db)
-        # Drain only this fixture's account/project holders before the NOWAIT
-        # owner guard. Roll back both the fence and the guard's never-started
-        # clearance: preparation commits, and final owner deletes recheck it.
-        async with db.begin_nested() as preflight:
-            try:
-                await attachments.fence(db, scope)
-            except DBAPIError as exc:
-                attachments.translate(exc)
-            if await resolve(db) != scope:
-                attachments.reject()
-            await guard_fixture_project_cleanup(db, list(scope.project_ids))
-            await guard_project_jobs(db, list(scope.project_ids))
-            await guard_dataset_jobs(db, list(scope.dataset_ids))
-            await preflight.rollback()
-        await guides.preflight(db, scope)
-        plan = await attachments.prepare(db, scope)
-        if registry is not None:
-
-            def fixture_context(context):
-                if not isinstance(context, PlaybackContext) or not isinstance(
-                    context.original, AuthorizedOriginal
-                ):
-                    return False
-                resource = context.original.resource
-                if not isinstance(resource, Resource):
-                    return False
-                return (
-                    resource.kind == "task" and resource.task_id in scope.task_ids
-                ) or (
-                    resource.kind == "item" and resource.dataset_id in scope.dataset_ids
-                )
-
-            await registry.revoke_contexts(fixture_context)
-        video_plan = await _prepare_fixture_video_cleanup(db, scope)
-        if registry is not None:
-            await registry.revoke_contexts(fixture_context)
-        await attachments.delete_objects(db, plan, resolve)
-        await _delete_fixture_video_objects(db, video_plan, resolve)
-        await db.commit()
-        legacy_cleanup = asyncio.create_task(
-            asyncio.to_thread(
-                _cleanup_fixture_storage, owned, plan.annotation_ids, scope.project_ids
-            )
-        )
-        try:
-            await asyncio.shield(legacy_cleanup)
-        except asyncio.CancelledError as cancelled:
-            # Keep the fixture anchor until physical deletion has settled.
-            try:
-                await finish(legacy_cleanup)
-            except BaseException as physical_failure:
-                raise builtins.BaseExceptionGroup(
-                    "Fixture cleanup was cancelled and physical deletion failed",
-                    [cancelled, physical_failure],
-                ) from None
-            raise
-
-        async def retire_guides():
-            await guides.retire_references(db, scope)
-            await _finalize_fixture_video_cleanup(db, video_plan, resolve)
-
-        await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
-        # The audit exemption belongs to this final transaction, not retirement.
-        await _cleanup_fixture_records(db, owned, scope)
-        await attachments.assert_empty(db, plan)
-        if await resolve(db) != attachments.FixtureScope():
-            attachments.reject("e2e_seed_cleanup_incomplete", 500)
-        await db.commit()
-    except BaseException as failure:
-        try:
-            await finish(asyncio.create_task(db.rollback()))
-        except BaseException as rollback_failure:
-            raise builtins.BaseExceptionGroup(
-                "Fixture cleanup and rollback failed", [failure, rollback_failure]
-            ) from None
-        raise
-
-
-async def _cleanup_fixture_records(
-    db: AsyncSession, owned: _OwnedFixtureScope | None, scope
-) -> None:
-    """定向删除 E2E fixture，并在当前事务内确认关键残留已清零。
-
-    ``owned=None`` 清理共享固定命名空间（全局 cleanup 的收敛语义）；
-    传入 ``owned`` 时所有谓词收窄为该命名空间的精确标识，绝不触及相邻命名空间
-    或普通数据。两种 scope 共用同一删除顺序与同一张表清单，避免出现第二套引擎。
-    """
-    # 0) 豁免 audit_logs immutability trigger：DELETE users 触发 audit_logs.actor_id
-    #    ON DELETE SET NULL（隐式 UPDATE）会被 trigger 拒绝（"audit_logs rows are
-    #    immutable: UPDATE operation denied"）。SET LOCAL 在外层事务中生效，所有
-    #    SAVEPOINT 自动继承。
-    await db.execute(text("SET LOCAL \"app.allow_audit_update\" = 'true'"))
-
-    fixture_project_ids = list(scope.project_ids)
-    fixture_user_ids = list(scope.user_ids)
-
-    # 2) 按 FK 依赖顺序定向 DELETE。
-    #    用 SAVEPOINT 隔离每个 DELETE：单条失败（如表不存在 / 列名漂移）不让外层
-    #    事务进入 aborted 状态。asyncpg 的 InFailedSQLTransactionError 必须靠
-    #    SAVEPOINT 回滚，try/except 单纯吞异常不够。让异常穿过 begin_nested 的
-    #    `async with` 自动 ROLLBACK TO SAVEPOINT,外层再 catch——双 rollback 会让
-    #    SA 在 __aexit__ 试图 RELEASE 已经手动 rollback 的 SP,事务进入怪状态致 500。
-    async def _try_delete(operation: str, params: dict | None = None) -> None:
-        await _try_fixture_delete(db, operation, params)
-
-    if fixture_project_ids:
-        fixture_task_ids = list(scope.task_ids)
-
-        # The filtering fixture owns these rows outside the ordinary task cascade.
-        # Delete them before tasks/projects so their restrictive foreign keys cannot
-        # block cleanup, while leaving every non-E2E row untouched. The legacy
-        # `BUG-E2E-FILTER-` prefix is a shared-fixture identifier and may only be
-        # matched by the shared (`owned is None`) cleanup; an owned namespace must
-        # never delete another namespace's or the shared filtering rows.
-        legacy_bug_prefix = (
-            " OR display_id LIKE 'BUG-E2E-FILTER-%'" if owned is None else ""
-        )
-        await _try_delete(
-            "DELETE FROM bug_comments WHERE bug_report_id IN ("
-            " SELECT id FROM bug_reports WHERE project_id = ANY(:pids) "
-            f" OR task_id = ANY(:tids){legacy_bug_prefix})",
-            {
-                "pids": fixture_project_ids,
-                "tids": fixture_task_ids,
-            },
-        )
-        await _try_delete(
-            "DELETE FROM bug_reports WHERE project_id = ANY(:pids) "
-            f" OR task_id = ANY(:tids){legacy_bug_prefix}",
-            {
-                "pids": fixture_project_ids,
-                "tids": fixture_task_ids,
-            },
-        )
-        await _try_delete(
-            "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
-            {"pids": fixture_project_ids},
-        )
-        await _try_delete(
-            "DELETE FROM project_task_views WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-
-        # One Labeling-owned command preserves the old feedback/comment/annotation,
-        # prediction and task lock/draft deletion order inside this caller transaction.
-        await _try_delete(
-            _LABELING_FIXTURE_DELETE_SQL,
-            {"pids": fixture_project_ids},
-        )
-
-        # 2d) v0.19.0 ADR-0044 · 断开项目对全局 backend 的启用关联;
-        #     project_ml_backend_pool.project_id FK ON DELETE CASCADE,删项目时也会自动清,
-        #     这里显式清避免后续 mock registry 行被 CASCADE 时跨 SAVEPOINT 留尾。
-        await _try_delete(
-            "DELETE FROM project_ml_backend_pool WHERE project_id = ANY(:pids)",
-            {"pids": fixture_project_ids},
-        )
-
-        # 2e) 删 project（CASCADE 带走 task_batches / project_members /
-        #     task_events / datasets）
-        await _try_delete(
-            "SELECT aap_workspace_fixture_v1.delete_projects(CAST(:pids AS uuid[]))",
-            {"pids": fixture_project_ids},
-        )
-
-    if owned is None:
-        dataset_selector = "display_id LIKE 'DS-E2E-%'"
-        dataset_params: dict = {}
-    else:
-        dataset_selector = "display_id = ANY(:owned_dataset_display_ids)"
-        dataset_params = {"owned_dataset_display_ids": owned.all_dataset_display_ids}
-
-    # 工作台 fixture 创建的图像 dataset 不由 project_datasets 反向级联删除；
-    # 必须在删 E2E 用户前显式清理，避免 datasets.created_by 拦住用户删除。
-    await _try_delete(f"DELETE FROM datasets WHERE {dataset_selector}", dataset_params)
-
-    if owned is None:
-        # Project templates are user-owned assets and do not cascade from projects.
-        await _try_delete(
-            "SELECT aap_workspace_fixture_v1.delete_templates(true, ARRAY[]::text[])",
-        )
-
-        # The Audit owner accepts this fixed marker only in isolated test databases.
-        await _try_delete(
-            _AUDIT_FILTERING_FIXTURE_CLEANUP,
-            {"namespace": None},
-        )
-    else:
-        await _try_delete(
-            "SELECT aap_workspace_fixture_v1.delete_templates(false, CAST(:owned_template_display_ids AS text[]))",
-            {"owned_template_display_ids": owned.filter_template_display_ids},
-        )
-
-        # The Audit owner scopes deletion to this exact namespace and seed path.
-        await _try_delete(
-            _AUDIT_FILTERING_FIXTURE_CLEANUP,
-            {"namespace": owned.namespace},
-        )
-
-    if fixture_user_ids:
-        # 删用户的反向引用，再删用户。表名 / 列名见 v0.8.7+ DB schema：
-        # bug_reports.reporter_id（不是 submitter_id）；bug_comments.author_id；
-        # password_reset_tokens.user_id；user_invitations.invited_by；
-        # organization_members.user_id（CASCADE 不在，需手删）；
-        # notification_preferences / notifications 是 CASCADE，自动跟着删。
-        # Labeling-owned references were already cleared by the project-scoped
-        # delete_fixture_project_rows capability above.
-        for tbl, col in [
-            ("password_reset_tokens", "user_id"),
-            ("bug_comments", "author_id"),
-            ("bug_reports", "reporter_id"),
-            ("bug_reports", "assigned_to_id"),
-            ("task_locks", "user_id"),
-            ("annotation_drafts", "user_id"),
-            ("user_invitations", "invited_by"),
-            ("organization_members", "user_id"),
-        ]:
-            if tbl == "password_reset_tokens":
-                await _try_delete(
-                    "SELECT aap_identity_fixture_v1.delete_reset_tokens(:uids)",
-                    {"uids": fixture_user_ids},
-                )
-            elif tbl == "user_invitations":
-                await _try_delete(
-                    "SELECT aap_identity_fixture_v1.delete_invitations(:uids)",
-                    {"uids": fixture_user_ids},
-                )
-            elif tbl == "organization_members":
-                await _try_delete(
-                    "SELECT aap_identity_fixture_v1.delete_organization_members(:uids)",
-                    {"uids": fixture_user_ids},
-                )
-            else:
-                await _try_delete(
-                    f"DELETE FROM {tbl} WHERE {col} = ANY(:uids)",
-                    {"uids": fixture_user_ids},
-                )
-        # 用户最后删（前面所有反向引用清干净后，仅靠 ON DELETE SET NULL FK 的字段
-        # 会被 PG 自动置 NULL，无 ondelete 的字段需我们已手动删完）。
-        await _try_delete(
-            "SELECT aap_identity_fixture_v1.delete_accounts("
-            "CAST(:shared AS boolean),CAST(:emails AS text[]))",
-            {
-                "shared": owned is None,
-                "emails": owned.all_user_emails if owned is not None else [],
-            },
-        )
-
-    # v0.23.3 ADR-0050 · mock registry 已有 singleton pool，且 pool 的
-    # legacy_instance_id / member 都以 RESTRICT 引用 registry。先删除 mock pool
-    # （member 随 pool CASCADE），再删 registry；包含顶栏多后端测试的第二个固定夹具。
-    # 否则共享夹具再次构建时会留下旧 registry，撞 url unique 约束。
-    if owned is None:
-        registry_selector = (
-            "url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')"
-        )
-        registry_params: dict = {}
-    else:
-        registry_selector = "url = :owned_registry_url"
-        registry_params = {"owned_registry_url": owned.registry_url}
-    await _try_delete(
-        "DELETE FROM ml_backend_service_pools WHERE legacy_instance_id IN "
-        f"(SELECT id FROM ml_backend_registry WHERE {registry_selector})",
-        registry_params,
-    )
-    # v0.19.0 ADR-0044 · 清旧的 E2E mock registry 行(url unique 约束,
-    # 重建必须先删旧)。共享注册项不删,只删本 fixture 自造的 mock url。
-    await _try_delete(
-        f"DELETE FROM ml_backend_registry WHERE {registry_selector}",
-        registry_params,
-    )
-
-    await db.flush()
-
-    if owned is None:
-        residual_query = (
-            "SELECT "
-            "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
-            " WHERE email LIKE '%@e2e.test') AS users, "
-            "(SELECT count(*) FROM aap_workspace_v1.project_facts "
-            " WHERE name = 'E2E Demo Project' "
-            "    OR display_id LIKE 'P-E2E-%') AS projects, "
-            "(SELECT count(*) FROM aap_workspace_fixture_v1.templates "
-            " WHERE display_id LIKE 'TPL-E2E-FILTER-%') AS templates, "
-            "(SELECT count(*) FROM aap_audit_v1.audit_events "
-            " WHERE detail_json ->> 'fixture' = 'filtering' "
-            "   AND path = '/api/v1/__test/seed/filtering') AS audit_rows, "
-            "(SELECT count(*) FROM ml_backend_registry "
-            " WHERE url IN ('http://mock-sam.e2e:9999', 'http://second-toolbar.e2e:9999')) AS ml_backends"
-        )
-        residual_params: dict = {}
-    else:
-        residual_query = (
-            "SELECT "
-            "(SELECT count(*) FROM aap_identity_fixture_v1.account_profiles "
-            " WHERE email = ANY(:owned_emails)) AS users, "
-            "(SELECT count(*) FROM aap_workspace_v1.project_facts "
-            " WHERE name = ANY(:owned_project_names) "
-            " OR display_id = ANY(:owned_project_display_ids)) AS projects, "
-            "(SELECT count(*) FROM aap_workspace_fixture_v1.templates "
-            " WHERE display_id = ANY(:owned_template_display_ids)) AS templates, "
-            "(SELECT count(*) FROM aap_audit_v1.audit_events "
-            " WHERE detail_json ->> 'namespace' = :owned_ns "
-            "   AND path = '/api/v1/__test/seed/filtering') AS audit_rows, "
-            "(SELECT count(*) FROM ml_backend_registry "
-            " WHERE url = :owned_registry_url) AS ml_backends"
-        )
-        residual_params = {
-            "owned_emails": owned.all_user_emails,
-            "owned_project_names": owned.all_project_names,
-            "owned_project_display_ids": owned.all_project_display_ids,
-            "owned_template_display_ids": owned.filter_template_display_ids,
-            "owned_ns": owned.namespace,
-            "owned_registry_url": owned.registry_url,
-        }
-    residual_row = (
-        (await db.execute(text(residual_query), residual_params)).mappings().one()
-    )
-    residuals = {
-        key: int(residual_row[key])
-        for key in ("users", "projects", "templates", "audit_rows", "ml_backends")
-    }
-    if any(residuals.values()):
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "code": "e2e_seed_cleanup_incomplete",
-                "residuals": residuals,
-            },
-        )
-
-
 class SeedCleanup(BaseModel):
     ok: bool = True
 
@@ -2348,26 +1971,40 @@ async def seed_cleanup(
     await db.commit()
     if blockers:
         raise HTTPException(409, detail={"code": "fixture_run_unsettled"})
+    providers = getattr(request.app.state, "fixture_backends", None)
+    provider_ids = list(providers.runs) if providers is not None else []
     children = (
         await db.execute(
             select(FixtureRun.id, FixtureRun.scope_key)
             .where(
                 FixtureRun.parent_run_id == payload.suite_id,
-                FixtureRun.state != "retired",
+                or_(FixtureRun.state != "retired", FixtureRun.id.in_(provider_ids)),
             )
             .order_by(FixtureRun.id)
         )
     ).all()
-    for run_id, namespace in children:
-        scope = _request_owned_scope(
+    scopes = [
+        _request_owned_scope(
             SeedOwnedRequest(
                 namespace=namespace, suite_id=payload.suite_id, run_id=run_id
             )
         )
-        await _cleanup_e2e_fixtures(
+        for run_id, namespace in children
+    ]
+    for scope in scopes:
+        blockers = await ownership.seal(db, scope.run_id, family="owned")
+        await db.commit()
+        if blockers:
+            raise HTTPException(409, detail={"code": "fixture_run_unsettled"})
+        run = await db.get(FixtureRun, scope.run_id, populate_existing=True)
+        if run.state != "retired":
+            await _retire_fixture_execution_work(db, scope)
+    for scope in scopes:
+        await _cleanup_owned_e2e_fixtures(
             db,
             owned=scope,
             registry=getattr(request.app.state, "original_playback_registry", None),
+            providers=providers,
         )
     root = await ownership._lock_run(db, payload.suite_id)
     if root.state != "retired":
@@ -2395,10 +2032,7 @@ class SeedOwned(BaseModel):
     reviewer_email: str
     project_id: str
     task_ids: list[str]
-    # v0.9.4 phase 3: SAM E2E 走 page.route 拦截 /interactive-annotating, 但项目侧仍需
-    # 「AI 启用 + 有效 ml_backend_id 绑定」, 否则 GeneralSection / 工作台显示「未绑定」红字,
-    # SAM 工具按钮直接 disabled. 这个 backend 的 url 是 mock://e2e-sam (前端不会真的请求,
-    # 由 Playwright page.route 拦截). 字段返回让 spec 可声明依赖.
+    # The private owner supplies a real per-run test execution provider.
     ml_backend_id: str
 
 
@@ -2452,7 +2086,7 @@ class _ImageWorkbenchFixture:
     dataset_name: str
     task_display_prefix: str
     registry_name: str
-    registry_url: str
+    providers: Any
     image_canvas: Literal["default", "720p", "5k", "8k"]
 
 
@@ -2708,13 +2342,17 @@ async def _build_image_workbench_fixture(
 
     inference_data = InferenceTopologyData(db)
     backend_service = MLBackendService(db)
+    provider = await ids.providers.start(ids.run_id)
     mock_backend = await backend_service.create_registry(
         name=ids.registry_name,
-        url=ids.registry_url,
+        url=provider.url,
         is_interactive=True,
-        auth_method="none",
+        auth_method="token",
+        auth_token=provider.token,
         extra_params={"e2e_mock": True},
     )
+    await provider.control("registry", str(mock_backend.id))
+    provider.registry_id = mock_backend.id
     await ownership.reserve(
         db,
         ids.run_id,
@@ -2723,7 +2361,12 @@ async def _build_image_workbench_fixture(
         logical_key="workbench",
         published=True,
     )
-    await inference_data.seed_workbench_health(mock_backend.id)
+    # Both independent authorities must see the published Registry.
+    await db.commit()
+    if not await backend_service.check_health(mock_backend.id):
+        raise RuntimeError("Fixture provider health observation failed")
+    await db.commit()
+    await _reconcile_fixture_backend(ids.run_id, mock_backend.id)
     await backend_service.set_enabled(project.id, mock_backend.id, True)
     mock_pool = await inference_data.pool_for_registry(mock_backend.id)
     if mock_pool is None:
@@ -2833,6 +2476,26 @@ async def _run_existing_fixture_seed(db, run_id: UUID, kind: str, build):
     return result
 
 
+async def _reconcile_fixture_backend(run_id: UUID, registry_id: UUID) -> None:
+    """Resume only this run's control, rotating after each completed epoch."""
+    from app.services.ml_routing.authority import RoutingAuthority
+
+    authority = RoutingAuthority()
+    snapshot = await authority.runtime_snapshot([registry_id])
+    if len(snapshot.registries) != 1:
+        raise HTTPException(409, detail={"code": "fixture_backend_scope_changed"})
+    state = snapshot.registries[0]
+    control_id = uuid5(run_id, f"fixture-backend:{registry_id}:{state.authority_epoch}")
+    if state.control_id is not None and state.control_id != control_id:
+        raise HTTPException(409, detail={"code": "fixture_backend_control_busy"})
+    result = await authority.execute(
+        "reconcile",
+        {"registry_id": str(registry_id), "control_id": str(control_id)},
+    )
+    if result.phase != "completed":
+        raise HTTPException(409, detail={"code": "fixture_backend_not_quiescent"})
+
+
 @router.post(
     "/seed/owned",
     response_model=SeedOwned,
@@ -2859,12 +2522,45 @@ async def seed_owned(
                 dataset_name=f"E2E Owned {scope.namespace} Image Dataset",
                 task_display_prefix=scope.task_display_prefix,
                 registry_name=scope.registry_name,
-                registry_url=scope.registry_url,
+                providers=request.app.state.fixture_backends,
                 image_canvas=payload.image_canvas,
             ),
         )
 
     return await _run_owned_seed(db, payload, "owned_seed", build)
+
+
+class FixtureBackendControlRequest(SeedOwnedRequest):
+    registry_id: UUID
+    action: Literal[
+        "attach", "detach", "hold", "release", "fail_all", "fail_next", "requests"
+    ]
+    value: bool | int | None = None
+
+
+@router.post("/seed/provider-control", include_in_schema=False)
+async def fixture_backend_control(
+    payload: FixtureBackendControlRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    from app.db.models.fixture_run import FixtureRun
+
+    run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
+    if (
+        run is None
+        or run.family != "owned"
+        or run.parent_run_id != payload.suite_id
+        or run.scope_key != payload.namespace
+        or run.state == "retired"
+        or payload.registry_id
+        not in await _owned_resource_ids(db, payload.run_id, "registry")
+    ):
+        raise HTTPException(404, detail={"code": "fixture_backend_not_found"})
+    provider = request.app.state.fixture_backends.runs.get(payload.run_id)
+    if provider is None or provider.registry_id != payload.registry_id:
+        raise HTTPException(409, detail={"code": "fixture_backend_owner_unavailable"})
+    return await provider.control(payload.action, payload.value)
 
 
 @router.post(
@@ -2894,10 +2590,11 @@ async def seed_owned_cleanup(
         or run.scope_key != payload.namespace
     ):
         raise HTTPException(404, detail={"code": "fixture_run_not_found"})
-    await _cleanup_e2e_fixtures(
+    await _cleanup_owned_e2e_fixtures(
         db,
         owned=scope,
         registry=getattr(request.app.state, "original_playback_registry", None),
+        providers=getattr(request.app.state, "fixture_backends", None),
     )
     await db.commit()
     return SeedCleanup()
@@ -3066,6 +2763,7 @@ async def seed_screenshot_cleanup(
         scope,
         family="screenshot",
         registry=getattr(request.app.state, "original_playback_registry", None),
+        providers=getattr(request.app.state, "fixture_backends", None),
     )
     return SeedCleanup()
 

@@ -77,10 +77,14 @@ seed cleanup. Only a session with USAGE membership in the actual fixture-run
 table owner may invoke it, in an `_test` or `_e2e` database and the caller's
 transaction-local immutability scope. It locks an owned leaf run in `sealing`
 or `retired` state, requires all admissions to be settled, and validates the
-filtering path and run namespace of each existing row before deleting only the
-exact `(id, created_at)` identities registered to that run. Already-deleted
-rows are ignored; mismatches abort the caller's transaction. It returns the
-deleted-row count and grants ordinary callers no direct Audit deletes.
+filtering path and producer namespace of each existing row before deleting only
+the exact `(id, created_at)` identities registered to that run. The producer
+namespace is the first 12 hexadecimal characters of SHA-256 over the run UUID's
+16 bytes followed by the UTF-8 caller namespace; the stored scope key remains
+the original caller namespace. Already-deleted rows are ignored; mismatches
+abort the caller's transaction. It returns the deleted-row count and grants
+ordinary callers no direct Audit deletes. Forward migration refuses historical
+UUID ownership rows rather than adopting them or inventing event timestamps.
 
 `aap_audit_v1.audit_daily_facts` publishes the existing six-dimension daily
 materialization through a read-only security-barrier view. Its row key matches

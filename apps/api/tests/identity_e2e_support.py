@@ -2,27 +2,29 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
 import json
 import os
-from pathlib import Path
 import uuid
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import event, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker
-
+from app.config import settings
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.deps import get_db
+from sqlalchemy import event, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
 from tests import seed_router_scenarios as seed_cases
 from tests.seed_owner_support import private_owned_suite
+from tests.test_identity_admission_live import _dsn
 from tests.test_labeling_counter_deltas_workflows_native import _configure_actual_api
 from tests.test_workspace_consumer_profile_native import _grants, _world
 
@@ -218,6 +220,10 @@ async def fenced_http(
     dataset_dispatcher,
 ):
     _configure_actual_api(test_engine, monkeypatch)
+    monkeypatch.setattr(settings, "identity_invitation_database_url_file", "")
+    monkeypatch.setattr(
+        settings, "identity_invitation_database_url", _dsn("INVITATION", test_engine)
+    )
     original = app_module.dependency_overrides.get(get_db)
     maker = async_sessionmaker(e2e_consumer, expire_on_commit=False)
 
@@ -239,8 +245,43 @@ async def fenced_http(
                 app_module.dependency_overrides[get_db] = original
 
 
+@asynccontextmanager
+async def fixture_routing_owner(test_engine, monkeypatch):
+    """Keep the actual function-only routing owner alive through fixture retirement."""
+    from app.config import settings
+
+    from tests.inference_health_observation_helpers import observation_provider
+    from tests.test_ml_routing_admin_pool_api import _routing_owner_http
+
+    target = test_engine.url
+    routing = make_url(os.environ["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"])
+    if (routing.host, routing.port or 5432, routing.database) != (
+        target.host,
+        target.port or 5432,
+        target.database,
+    ):
+        raise RuntimeError("Fixture routing owner targets a different database")
+    with monkeypatch.context() as patch:
+        patch.setattr(settings, "ml_backend_router_mode", "enforce")
+        patch.setenv("ML_BACKEND_ROUTER_MODE", "enforce")
+        async with (
+            _routing_owner_http(test_engine, patch),
+            observation_provider(test_engine.url) as (health_url, health_token),
+        ):
+            patch.setattr(settings, "inference_health_observation_url", health_url)
+            patch.setattr(settings, "inference_health_observation_token", health_token)
+            patch.setattr(settings, "inference_health_observation_token_file", "")
+            patch.setenv("INFERENCE_HEALTH_OBSERVATION_URL", health_url)
+            patch.setenv("INFERENCE_HEALTH_OBSERVATION_TOKEN", health_token)
+            patch.setenv("INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE", "")
+            patch.setenv("INFERENCE_ROUTING_URL", settings.inference_routing_url)
+            patch.setenv("INFERENCE_ROUTING_TOKEN", settings.inference_routing_token)
+            patch.setenv("INFERENCE_ROUTING_TOKEN_FILE", "")
+            yield
+
+
 @pytest.fixture
-async def fixture_and_fenced_http(fenced_http, test_engine):
+async def fixture_and_fenced_http(fenced_http, test_engine, monkeypatch):
     """Route only seed requests to the guarded owner process, never on error."""
     owner = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
     target = test_engine.url
@@ -250,7 +291,10 @@ async def fixture_and_fenced_http(fenced_http, test_engine):
         target.database,
     ), "Fixture owner and test engine must use the same disposable database"
 
-    async with private_owned_suite() as suite:
+    async with (
+        fixture_routing_owner(test_engine, monkeypatch),
+        private_owned_suite() as suite,
+    ):
 
         class CompositeClient:
             owner_suite = suite
@@ -280,13 +324,17 @@ async def fixture_and_fenced_http(fenced_http, test_engine):
 
 
 @pytest.fixture
-async def owner_fault_http(test_engine):
+async def owner_fault_http(test_engine, monkeypatch):
     """Keep in-process fault injection on a fixture-only app, not business HTTP."""
+    from app.api.v1._test_seed import router
+    from app.config import settings
+    from app.services.e2e_fixture_backend import FixtureBackends
     from fastapi import FastAPI
 
-    from app.api.v1._test_seed import router
+    monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
 
     owner_app = FastAPI()
+    owner_app.state.fixture_backends = FixtureBackends()
     owner_app.include_router(router, prefix="/api/v1/__test")
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
@@ -301,6 +349,7 @@ async def owner_fault_http(test_engine):
     ) as client:
         client.fixture_app = owner_app
         yield client
+    await owner_app.state.fixture_backends.close()
 
 
 @asynccontextmanager

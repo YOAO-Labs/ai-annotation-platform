@@ -708,18 +708,16 @@ def probe_reader(owner, store):
             capture_output=True,
             timeout=30,
         )
-        error = (result.stdout + result.stderr).decode(errors="replace").lower()
+        # mc admin info reports this denial in JSON even when its exit code is zero.
+        try:
+            denial = json.loads(result.stdout)
+        except (ValueError, UnicodeError):
+            denial = None
         require(
-            result.returncode != 0
-            and any(
-                value in error
-                for value in (
-                    "accessdenied",
-                    "access denied",
-                    "not authorized",
-                    "forbidden",
-                )
-            ),
+            isinstance(denial, dict)
+            and denial.get("status") == "error"
+            and isinstance(denial.get("error"), str)
+            and denial["error"].lower().replace(" ", "").rstrip(".") == "accessdenied",
             "fixture_reader_admin_denial_unproven",
         )
         deleted = source.delete_object(

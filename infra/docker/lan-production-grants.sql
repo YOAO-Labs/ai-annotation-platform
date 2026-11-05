@@ -65,6 +65,10 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"asset_cleanup_role";
 REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
+REVOKE ALL ON TABLE public.fixture_export_zip_retirements FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION public.fixture_export_owner_session(),
+    public.retire_fixture_native_export_output(uuid),
+    public.confirm_fixture_export_zip_absent(uuid) FROM :"application_role", PUBLIC;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
     aap_workspace_owner_transfer_v1, aap_inference_pipelines_v1,
@@ -131,6 +135,8 @@ GRANT EXECUTE ON FUNCTION aap_inference_v1.ai_mask_pool_reference_row(uuid) TO :
 GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_inference_routing_v1.routing_policy(),
     aap_inference_routing_v1.routing_step(text,text),
+    aap_inference_routing_v1.prediction_scope_reserve(text),
+    aap_inference_routing_v1.prediction_test_scope_reserve(text),
     aap_inference_routing_v1.scope_retirement_step(text,text),
     aap_inference_routing_v1.video_execution_scope_step(text,text)
     TO :"application_role";
@@ -139,6 +145,8 @@ GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(u
     aap_jobs_v1.video_execution_step(text,text),
     aap_jobs_v1.video_execution_checkpoint_step(text,text) TO :"application_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.is_fixture_original_source(text,text)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_operator_auxiliary(jsonb),
     aap_assets_v1.open_operator_storage_operation(uuid),
     aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
@@ -391,13 +399,29 @@ REVOKE ALL ON FUNCTION aap_jobs_v1._jobs_lifecycle_has_keys(jsonb,text[]),
 REVOKE ALL ON FUNCTION
     aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)
     FROM :"application_role", PUBLIC;
-SELECT right(current_database(),5)='_test' OR right(current_database(),4)='_e2e'
-    AS identity_fixture_database \gset
-\if :identity_fixture_database
-GRANT EXECUTE ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb)
-    TO :"application_role";
-\endif
 
+-- Fixture authority never follows a test database suffix into the runtime role.
+REVOKE ALL ON SCHEMA yoao_fixture_v1, aap_identity_fixture_v1, aap_workspace_fixture_v1
+    FROM :"application_role";
+REVOKE ALL ON ALL TABLES IN SCHEMA yoao_fixture_v1, aap_identity_fixture_v1,
+    aap_workspace_fixture_v1 FROM :"application_role";
+REVOKE ALL ON ALL SEQUENCES IN SCHEMA yoao_fixture_v1, aap_identity_fixture_v1,
+    aap_workspace_fixture_v1 FROM :"application_role";
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA yoao_fixture_v1, aap_identity_fixture_v1,
+    aap_workspace_fixture_v1 FROM :"application_role";
+REVOKE ALL ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb),
+    aap_labeling_v1.screenshot_operations_command(jsonb),
+    aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[]),
+    aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid),
+    aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid),
+    aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer),
+    aap_workspace_v1.create_scale_seed_project(uuid,text),
+    aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid),
+    aap_workspace_v1.guard_scale_seed_cleanup(text),
+    aap_workspace_v1.delete_scale_seed_projects(text,uuid[]),
+    aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean),
+    aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])
+    FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
@@ -408,41 +432,6 @@ REVOKE ALL ON FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb)
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
     FROM :"application_role", PUBLIC;
-SELECT right(lower(current_database()),5)='_test' OR right(lower(current_database()),4)='_e2e'
-    AS identity_e2e_fixture_database \gset
-\if :identity_e2e_fixture_database
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)
-    TO :"application_role";
-GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
-    TO :"application_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
-    TO :"application_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)
-    TO :"application_role";
-GRANT EXECUTE ON FUNCTION aap_labeling_v1.prepare_filtering_rendering(jsonb)
-    TO :"application_role";
-GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"application_role";
-GRANT SELECT ON aap_workspace_fixture_v1.templates TO :"application_role";
-GRANT EXECUTE ON FUNCTION
-    aap_workspace_fixture_v1.create_project(jsonb),
-    aap_workspace_fixture_v1.create_templates(jsonb),
-    aap_workspace_fixture_v1.guard_project_cleanup(uuid[]),
-    aap_workspace_fixture_v1.delete_projects(uuid[]),
-    aap_workspace_fixture_v1.delete_templates(boolean,text[])
-    TO :"application_role";
-
-GRANT USAGE ON SCHEMA aap_identity_fixture_v1 TO :"application_role";
-GRANT SELECT ON aap_identity_fixture_v1.account_profiles TO :"application_role";
-GRANT EXECUTE ON FUNCTION
-    aap_identity_fixture_v1.create_account(uuid,text,text,text,text),
-    aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid),
-    aap_identity_fixture_v1.create_invitations(jsonb),
-    aap_identity_fixture_v1.delete_accounts(boolean,text[]),
-    aap_identity_fixture_v1.delete_reset_tokens(uuid[]),
-    aap_identity_fixture_v1.delete_invitations(uuid[]),
-    aap_identity_fixture_v1.delete_organization_members(uuid[])
-    TO :"application_role";
-\endif
 
 REVOKE ALL ON TABLE public.identity_account_presence FROM :"application_role", PUBLIC;
 REVOKE ALL (user_id, status, last_seen_at)
@@ -819,6 +808,15 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_jobs_v1.skip_batch_result_member(jsonb),
     aap_jobs_v1.finish_batch_result_execution(jsonb),
     aap_jobs_v1.start_batch_result_member(jsonb),
+    aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid),
+    aap_jobs_v1.bind_prediction_mask_object(uuid,uuid),
+    aap_jobs_v1.finish_prediction_mask_producer(uuid),
+    aap_jobs_v1.prediction_mask_object_retained(uuid),
+    public.fixture_export_execution_admitted(uuid),
+    public.begin_fixture_export_execution(uuid,uuid,uuid),
+    public.finish_fixture_export_execution(uuid,uuid),
+    public.fixture_native_export_lifetime(uuid,uuid),
+    public.fixture_native_export_cleanup_eligible(uuid),
     aap_labeling_v1.admit_prediction_retry(jsonb),
     aap_labeling_v1.read_prediction_retry(jsonb),
     aap_labeling_v1.finish_prediction_retry_write(jsonb),
@@ -1046,11 +1044,6 @@ BEGIN
             RAISE EXCEPTION 'Missing private Workspace relation: %',v_name;
         END IF;
     END LOOP;
-    IF pg_catalog.right(pg_catalog.lower(current_database()),5)='_test'
-       OR pg_catalog.right(pg_catalog.lower(current_database()),4)='_e2e' THEN
-        v_readable := pg_catalog.array_append(v_readable,
-            'aap_workspace_fixture_v1.templates'::regclass);
-    END IF;
     v_relations := ARRAY(
         WITH RECURSIVE storage(oid) AS (
             SELECT c.oid FROM pg_catalog.pg_class c
@@ -1593,11 +1586,6 @@ BEGIN
             pg_catalog.split_part(v_signature,'.',1),v_runtime);
         EXECUTE pg_catalog.format('GRANT EXECUTE ON FUNCTION %s TO %I',v_signature,v_runtime);
     END LOOP;
-    IF pg_catalog.lower(current_database()) ~ '(_test|_e2e)$' THEN
-        EXECUTE pg_catalog.format(
-            'GRANT EXECUTE ON FUNCTION aap_inference_topology_v1.seed_workbench_health(uuid) TO %I',
-            v_runtime);
-    END IF;
 END;
 $inference_private_acl$;
 REVOKE EXECUTE ON FUNCTION

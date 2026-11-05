@@ -85,6 +85,7 @@ def prepare(payload):
     os.environ["MIGRATION_DATABASE_URL"] = ""
     os.environ["ENVIRONMENT"] = "development"
     os.environ["E2E_SEED_ENABLED"] = "true"
+    os.environ["STORAGE_MAINTENANCE_PROTOCOL_ENABLED"] = "true"
     return payload
 
 
@@ -107,8 +108,10 @@ async def main():
         from fastapi import FastAPI
         from app.api.v1._test_seed import router
         from app.db.base import engine
+        from app.services.e2e_fixture_backend import FixtureBackends
 
         app = FastAPI()
+        app.state.fixture_backends = FixtureBackends()
         app.include_router(router, prefix="/api/v1/__test")
 
         try:
@@ -148,6 +151,7 @@ async def main():
                         break
                     payload = prepare(json.loads(line))
         finally:
+            await app.state.fixture_backends.close()
             await engine.dispose()
 
 

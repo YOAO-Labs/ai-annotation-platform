@@ -26,6 +26,7 @@ from tests._owned_s3 import patch_owned_client
 from tests.seed_attachment_support import Objects, build as build_comments
 from tests.identity_e2e_support import (
     committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
     fenced_http as fenced_http,
     fixture_and_fenced_http as fixture_and_fenced_http,
     owner_fault_http as owner_fault_http,

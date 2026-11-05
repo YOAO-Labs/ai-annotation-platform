@@ -1,4 +1,4 @@
--- Grant the routing LOGIN only its four fixed Native capabilities.
+-- Grant the routing LOGIN only its fixed Native routing capabilities.
 -- Apply module-data-grants.sql first in the same explicitly named database.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v inference_owner=inference_code
@@ -57,7 +57,8 @@ DECLARE
     actual_tables text[];
     expected_tables text[] := ARRAY[
         'attempts', 'authority_secret', 'command_receipts', 'control_attempts',
-        'controls', 'plugin_replacement_bindings', 'plugin_terminal_update_guard',
+        'controls', 'fixture_prediction_test_scopes', 'plugin_replacement_bindings',
+        'plugin_terminal_update_guard', 'prediction_execution_scopes',
         'registry_state', 'scope_retirements', 'scopes',
         'video_execution_scope_permits', 'video_restore_attempts',
         'video_restore_contexts', 'video_restore_function_restore',
@@ -114,6 +115,8 @@ BEGIN
     END IF;
     FOR required IN SELECT * FROM (VALUES
         ('aap_inference_routing_v1.model_dispatch_step(text)','jsonb'),
+        ('aap_inference_routing_v1.prediction_scope_reserve(text)','jsonb'),
+        ('aap_inference_routing_v1.prediction_test_scope_reserve(text)','jsonb'),
         ('aap_inference_routing_v1.routing_policy()','jsonb'),
         ('aap_inference_routing_v1.routing_step(text,text)','jsonb'),
         ('aap_inference_routing_v1.scope_retirement_step(text,text)','jsonb'),
@@ -160,6 +163,8 @@ GRANT USAGE ON SCHEMA aap_inference_routing_v1
     TO :"inference_routing_role";
 GRANT EXECUTE ON FUNCTION
     aap_inference_routing_v1.model_dispatch_step(text),
+    aap_inference_routing_v1.prediction_scope_reserve(text),
+    aap_inference_routing_v1.prediction_test_scope_reserve(text),
     aap_inference_routing_v1.routing_policy(),
     aap_inference_routing_v1.routing_step(text,text),
     aap_inference_routing_v1.scope_retirement_step(text,text),
@@ -176,6 +181,8 @@ DECLARE
     actual_functions text[];
     expected_functions text[] := ARRAY[
         'aap_inference_routing_v1.model_dispatch_step(text)',
+        'aap_inference_routing_v1.prediction_scope_reserve(text)',
+        'aap_inference_routing_v1.prediction_test_scope_reserve(text)',
         'aap_inference_routing_v1.routing_policy()',
         'aap_inference_routing_v1.routing_step(text, text)',
         'aap_inference_routing_v1.scope_retirement_step(text, text)',

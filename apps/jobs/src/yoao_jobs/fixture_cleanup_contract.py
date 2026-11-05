@@ -67,10 +67,13 @@ def jobs_fixture_guard_sql():
 
 
 def jobs_fixture_dataset_guard_sql():
-    return (
-        files("yoao_jobs")
-        .joinpath("sql/0432_jobs_fixture_dataset_guard.sql")
-        .read_text()
+    sql = files("yoao_jobs").joinpath("sql")
+    return "\n-- aap-statement-break\n".join(
+        sql.joinpath(name).read_text()
+        for name in (
+            "0437_fixture_reclaim_job_scope.sql",
+            "0443_fixture_dataset_retired_jobs.sql",
+        )
     )
 
 
@@ -98,10 +101,10 @@ def jobs_fixture_guard_schema():
                 "parallel": "unsafe",
             },
             "aap_jobs_v1.fixture_dataset_job_scope": {
-                "arguments": "text, jsonb",
+                "arguments": "uuid, text, jsonb, uuid, uuid",
                 "returns": "jsonb",
                 "volatility": "immutable",
-                "parallel": "safe",
+                "parallel": "unsafe",
             },
             "aap_jobs_v1.guard_fixture_dataset_jobs": {
                 "arguments": "uuid[]",
@@ -115,6 +118,12 @@ def jobs_fixture_guard_schema():
                 "volatility": "volatile",
                 "parallel": "unsafe",
             },
+            "aap_jobs_v1.delete_fixture_presentation_jobs": {
+                "arguments": "uuid, uuid, uuid[]",
+                "returns": "bigint",
+                "volatility": "volatile",
+                "parallel": "unsafe",
+            },
             JOBS_FIXTURE_CLEANUP_FUNCTION: {
                 "arguments": "uuid[]",
                 "returns": "bigint",
@@ -122,7 +131,7 @@ def jobs_fixture_guard_schema():
                 "parallel": "unsafe",
             },
         },
-        "x-scope": "owned project and typed dataset Jobs, plus unknown-scope Jobs, block cleanup; only atomic no-dispatch presentation receipts may retire",
+        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required by both Dataset fences and Job deletion",
         "x-empty-scope": "guard succeeds and deletion returns zero",
         "x-security": {
             "database": "actual database name must end in _test or _e2e",

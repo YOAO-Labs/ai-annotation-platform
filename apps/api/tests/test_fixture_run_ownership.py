@@ -35,6 +35,67 @@ async def test_native_source_reader_fence_conflicts_with_python_reclaim_key(
     assert acquired is False
 
 
+async def test_audit_receipts_keep_native_ids_and_neighbor_events(test_engine):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+    from app.services.audit import AuditService
+    from app.services.audit_origin_contract import AuditOriginContext
+    from tests.seed_owner_support import private_owned_suite
+
+    async with (
+        private_owned_suite() as first_suite,
+        private_owned_suite() as second_suite,
+    ):
+        namespace = uuid.uuid4().hex[:10]
+        runs = [suite.new_run(namespace) for suite in (first_suite, second_suite)]
+        audit_receipts = []
+        async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+            for run in runs:
+                await ownership.start_owned_scope(
+                    db,
+                    suite_id=run.suite_id,
+                    run_id=run.run_id,
+                    namespace=run.namespace,
+                )
+                admission = await ownership.admit(db, run.run_id, "audit_fixture")
+                event = await AuditService.log(
+                    db,
+                    actor=None,
+                    action="filter.fixture.created",
+                    target_type="fixture_run",
+                    target_id=run.run_id,
+                    origin=AuditOriginContext(
+                        method="POST", path="/api/v1/__test/seed/filtering", ip=None
+                    ),
+                    status_code=201,
+                    detail={"namespace": run.scope().namespace},
+                )
+                await ownership.register_audit(
+                    db, run.run_id, event.id, event.created_at
+                )
+                audit_receipts.append((event.id, event.created_at))
+                await ownership.settle(db, run.run_id, admission)
+            await db.commit()
+        for _ in range(2):
+            response = await first_suite.owner.post(
+                "/api/v1/__test/seed/owned-cleanup", json=runs[0].payload()
+            )
+            assert response.status_code == 200, response.text
+            async with test_engine.connect() as db:
+                remaining = set(
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT id, created_at FROM aap_audit_v1.audit_events "
+                                "WHERE id=ANY(CAST(:ids AS bigint[]))"
+                            ),
+                            {"ids": [receipt[0] for receipt in audit_receipts]},
+                        )
+                    ).all()
+                )
+                assert remaining == {audit_receipts[1]}
+
+
 async def test_sealing_one_run_blocks_new_work_and_preserves_another(
     db_session, monkeypatch
 ):
@@ -135,9 +196,12 @@ async def test_fixture_cleanup_does_not_hide_database_failure(db_session):
 async def test_fixture_jobs_block_cleanup_and_late_admission(
     db_session, monkeypatch, status
 ):
+    import json
     from sqlalchemy import text
     from app.api.v1._test_seed import _try_fixture_delete
+    from app.db.models.dataset import Dataset, ProjectDataset
     from tests.factory import create_project, create_user
+    from tests.test_dataset_source_support import _creation_payload
 
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "e2e_seed_enabled", True)
@@ -147,11 +211,29 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
         await create_project(db_session, owner_id=owner.id, name=f"fixture-{run_id}")
         for run_id in (first, second)
     ]
+    datasets = [
+        Dataset(
+            display_id=f"D-{uuid.uuid4().hex[:12]}",
+            name=f"fixture-{run_id}",
+            created_by=owner.id,
+        )
+        for run_id in (first, second)
+    ]
     db_session.add_all(
-        [FixtureRun(id=first, family="scale"), FixtureRun(id=second, family="scale")]
+        [
+            FixtureRun(id=first, family="scale"),
+            FixtureRun(id=second, family="scale"),
+            *datasets,
+        ]
     )
     await db_session.flush()
-    for run_id, project in zip((first, second), projects):
+    associations = [
+        ProjectDataset(project_id=project.id, dataset_id=dataset.id)
+        for project, dataset in zip(projects, datasets)
+    ]
+    db_session.add_all(associations)
+    await db_session.flush()
+    for run_id, project, dataset in zip((first, second), projects, datasets):
         await ownership.reserve(
             db_session,
             run_id,
@@ -160,18 +242,43 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
             logical_key="project",
             published=True,
         )
+        await ownership.reserve(
+            db_session,
+            run_id,
+            "dataset",
+            dataset.id,
+            logical_key="dataset",
+            published=True,
+        )
 
     insert = text(
-        "INSERT INTO public.async_jobs (id, kind, project_id, status, progress_pct, payload, result) "
-        "VALUES (:id, 'export', :project, :status, 0, CAST('{}' AS jsonb), CAST('{}' AS jsonb))"
+        "INSERT INTO public.async_jobs "
+        "(id, kind, project_id, user_id, status, progress_pct, payload, result) "
+        "VALUES (:id, 'create_tasks', :project, :actor, :status, 0, "
+        "CAST(:payload AS jsonb), CAST('{}' AS jsonb))"
     )
+
+    def job_values(index, job_id, job_status):
+        return {
+            "id": job_id,
+            "project": projects[index].id,
+            "actor": owner.id,
+            "status": job_status,
+            "payload": json.dumps(
+                _creation_payload(
+                    job_id,
+                    owner.id,
+                    datasets[index].id,
+                    projects[index].id,
+                    associations[index].id,
+                )
+            ),
+        }
+
+    # Terminal display status is not evidence that the Job's execution settled.
     original_job, neighbor_job = uuid.uuid4(), uuid.uuid4()
-    await db_session.execute(
-        insert, {"id": original_job, "project": projects[0].id, "status": status}
-    )
-    await db_session.execute(
-        insert, {"id": neighbor_job, "project": projects[1].id, "status": "pending"}
-    )
+    await db_session.execute(insert, job_values(0, original_job, status))
+    await db_session.execute(insert, job_values(1, neighbor_job, "pending"))
     assert await ownership.seal(db_session, first, family="scale") == ()
 
     with pytest.raises(HTTPException) as blocked:
@@ -193,16 +300,14 @@ async def test_fixture_jobs_block_cleanup_and_late_admission(
             text("UPDATE public.async_jobs SET project_id=NULL WHERE id=:id"),
             {"id": original_job},
         ),
-        (insert, {"id": uuid.uuid4(), "project": projects[0].id, "status": "pending"}),
+        (insert, job_values(0, uuid.uuid4(), "pending")),
     ):
         with pytest.raises(DBAPIError) as rejected:
             async with db_session.begin_nested():
                 await db_session.execute(statement, params)
         assert rejected.value.orig.sqlstate == "23514"
 
-    await db_session.execute(
-        insert, {"id": uuid.uuid4(), "project": projects[1].id, "status": "pending"}
-    )
+    await db_session.execute(insert, job_values(1, uuid.uuid4(), "pending"))
     assert (
         await db_session.scalar(
             text(
@@ -387,7 +492,7 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
                 "INSERT INTO public.async_jobs (id,kind,project_id,user_id,status,progress_pct,payload,result) "
                 "VALUES (:job,'batch_predict',:project,:actor,'failed',100,'{}'::jsonb,"
                 "pg_catalog.jsonb_build_object('failed_prediction_ids',"
-                "pg_catalog.jsonb_build_array(CAST(:failure AS text))))"
+                "pg_catalog.jsonb_build_array(CAST(CAST(:failure AS uuid) AS text))))"
             ),
             {
                 "job": job_id,
@@ -465,6 +570,9 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
             == 2
         )
         await inconsistent.rollback()
+    assert (
+        await db_session.get(FixtureRun, runs[0], populate_existing=True)
+    ).state == "open"
 
     assert await retire(0) == 1
     assert (
@@ -474,6 +582,7 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
         == 1
     )
     assert await db_session.get(FailedPrediction, failures[0]) is not None
+    assert await db_session.get(FailedPrediction, failures[1]) is not None
 
     async with db_session.begin_nested() as inconsistent:
         await db_session.execute(
@@ -516,15 +625,18 @@ async def test_presentation_cleanup_keeps_real_retry_predecessor_and_neighbor(
         == 1
     )
     assert await db_session.get(FailedPrediction, failures[0]) is not None
+    assert await db_session.get(FailedPrediction, failures[1]) is not None
 
 
 async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
     db_session, monkeypatch
 ):
     import json
+    from datetime import datetime, timezone
     from sqlalchemy import text
-    from app.db.models.dataset import Dataset
+    from app.db.models.dataset import Dataset, ProjectDataset
     from tests.factory import create_project, create_user
+    from tests.test_dataset_source_support import _creation_payload
 
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "e2e_seed_enabled", True)
@@ -559,30 +671,38 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
         )
 
     insert = text(
-        "INSERT INTO public.async_jobs (id, kind, project_id, status, progress_pct, payload, result) "
-        "VALUES (:id, :kind, NULL, 'pending', 0, CAST(:payload AS jsonb), CAST('{}' AS jsonb))"
+        "INSERT INTO public.async_jobs (id, kind, project_id, user_id, status, progress_pct, payload, result) "
+        "VALUES (:id, :kind, NULL, :user_id, 'pending', 0, CAST(:payload AS jsonb), CAST('{}' AS jsonb))"
     )
-    neighbor = uuid.uuid4()
-    await db_session.execute(
-        insert,
-        {
-            "id": neighbor,
+
+    def backfill_values(dataset_id, job_id):
+        return {
+            "id": job_id,
             "kind": "media_backfill",
-            "payload": json.dumps({"dataset_id": str(datasets[1].id)}),
-        },
-    )
+            "user_id": owner.id,
+            "payload": json.dumps(
+                {
+                    "dataset_id": str(dataset_id),
+                    "purpose": "thumbnail",
+                    "accepted_before": datetime.now(timezone.utc).isoformat(),
+                    "operation_id": str(uuid.uuid4()),
+                    "media_backfill_kind": "aap-media-backfill/v1",
+                    "video_delegations": {},
+                }
+            ),
+        }
+
+    neighbor = uuid.uuid4()
+    await db_session.execute(insert, backfill_values(datasets[1].id, neighbor))
     await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
     project = await create_project(db_session, owner_id=owner.id)
+    association = ProjectDataset(project_id=project.id, dataset_id=datasets[1].id)
+    db_session.add(association)
+    await db_session.flush()
     task_job = uuid.uuid4()
-    task_payload = {
-        "schema": "aap-create-tasks/v1",
-        "operation_id": str(task_job),
-        "actor_id": str(owner.id),
-        "dataset_id": str(datasets[1].id),
-        "project_id": str(project.id),
-        "association_id": str(uuid.uuid4()),
-        "mode": "link",
-    }
+    task_payload = _creation_payload(
+        task_job, owner.id, datasets[1].id, project.id, association.id
+    )
     task_insert = text(
         "INSERT INTO public.async_jobs "
         "(id, kind, project_id, user_id, status, progress_pct, payload, result) "
@@ -599,8 +719,8 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
         },
     )
     await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
-    async with db_session.begin_nested() as savepoint:
-        await db_session.execute(
+    unknown_jobs = (
+        (
             task_insert,
             {
                 "id": uuid.uuid4(),
@@ -608,68 +728,127 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
                 "user_id": owner.id,
                 "payload": json.dumps(task_payload),
             },
-        )
-        with pytest.raises(HTTPException) as mismatch:
-            async with db_session.begin_nested():
-                await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
-        assert mismatch.value.detail["code"] == "fixture_dataset_job_unsettled"
-        await savepoint.rollback()
-    async with db_session.begin_nested() as savepoint:
-        await db_session.execute(
+        ),
+        (
             insert,
             {
                 "id": uuid.uuid4(),
                 "kind": "unknown_dataset_writer",
+                "user_id": owner.id,
                 "payload": json.dumps({"dataset_id": str(datasets[1].id)}),
             },
-        )
-        with pytest.raises(HTTPException) as unknown:
-            async with db_session.begin_nested():
-                await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
-        assert unknown.value.detail["code"] == "fixture_dataset_job_unsettled"
+        ),
+    )
+    # Existing sealed fixture Datasets can reject unknown Jobs at admission.
+    # Otherwise, the Dataset cleanup guard must reject the admitted unknown Job.
+    for statement, params in unknown_jobs:
+        async with db_session.begin_nested() as savepoint:
+            try:
+                async with db_session.begin_nested():
+                    await db_session.execute(statement, params)
+            except DBAPIError as blocked:
+                assert blocked.orig.sqlstate == "23514"
+                assert "fixture_dataset_job_scope_unknown" in str(blocked.orig)
+            else:
+                with pytest.raises(HTTPException) as blocked:
+                    async with db_session.begin_nested():
+                        await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
+                assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
+            await savepoint.rollback()
+    # Once this run is sealed both unknown families must be denied admission.
+    async with db_session.begin_nested() as savepoint:
+        assert await ownership.seal(db_session, first, family="scale") == ()
+        for statement, params in unknown_jobs:
+            with pytest.raises(
+                DBAPIError, match="fixture_dataset_job_scope_unknown"
+            ) as blocked:
+                async with db_session.begin_nested():
+                    await db_session.execute(statement, params)
+            assert blocked.value.orig.sqlstate == "23514"
         await savepoint.rollback()
+    await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
 
     job = uuid.uuid4()
+    await db_session.execute(insert, backfill_values(datasets[0].id, job))
+    assert await ownership.seal(db_session, first, family="scale") == ()
+    reclaim_insert = text(
+        "INSERT INTO public.async_jobs "
+        "(id, kind, project_id, user_id, status, progress_pct, payload, result) "
+        "VALUES (:id, 'managed_original_reclaim', :project_id, :user_id, 'pending', 0, "
+        "CAST(:payload AS jsonb), CAST('{}' AS jsonb))"
+    )
+    reclaim_payload = {
+        "retirement_id": str(uuid.uuid4()),
+        "reclaim_id": str(uuid.uuid4()),
+    }
+    for overrides in (
+        {"payload": json.dumps({"retirement_id": reclaim_payload["retirement_id"]})},
+        {"payload": json.dumps({**reclaim_payload, "reclaim_id": "not-a-uuid"})},
+        {"payload": json.dumps({**reclaim_payload, "dataset_id": str(datasets[0].id)})},
+        {"project_id": project.id},
+    ):
+        with pytest.raises(DBAPIError) as invalid_reclaim:
+            async with db_session.begin_nested():
+                await db_session.execute(
+                    reclaim_insert,
+                    {
+                        "id": uuid.uuid4(),
+                        "project_id": None,
+                        "user_id": owner.id,
+                        "payload": json.dumps(reclaim_payload),
+                        **overrides,
+                    },
+                )
+        assert invalid_reclaim.value.orig.sqlstate == "23514"
+    reclaim_actor = await create_user(
+        db_session, "employee", f"{uuid.uuid4()}@reclaim.test", "Reclaim actor"
+    )
+    reclaim_job = uuid.uuid4()
     await db_session.execute(
-        insert,
+        reclaim_insert,
         {
-            "id": job,
-            "kind": "media_backfill",
-            "payload": json.dumps({"dataset_id": str(datasets[0].id)}),
+            "id": reclaim_job,
+            "project_id": None,
+            "user_id": reclaim_actor.id,
+            "payload": json.dumps(reclaim_payload),
         },
     )
-    assert await ownership.seal(db_session, first, family="scale") == ()
+    await db_session.execute(
+        text("UPDATE public.async_jobs SET status='completed' WHERE id=:id"),
+        {"id": reclaim_job},
+    )
+    await db_session.execute(
+        text("DELETE FROM public.users WHERE id=:id"), {"id": reclaim_actor.id}
+    )
+    retained = (
+        await db_session.execute(
+            text("SELECT status,user_id FROM public.async_jobs WHERE id=:id"),
+            {"id": reclaim_job},
+        )
+    ).one()
+    assert tuple(retained) == ("completed", None)
     with pytest.raises(HTTPException) as blocked:
         async with db_session.begin_nested():
             await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
     assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
     for statement, params in (
         (text("DELETE FROM public.async_jobs WHERE id=:id"), {"id": job}),
+        (insert, backfill_values(datasets[0].id, uuid.uuid4())),
         (
             insert,
             {
                 "id": uuid.uuid4(),
-                "kind": "media_backfill",
-                "payload": json.dumps({"dataset_id": str(datasets[0].id)}),
+                "kind": "unknown_dataset_writer",
+                "user_id": owner.id,
+                "payload": "{}",
             },
-        ),
-        (
-            insert,
-            {"id": uuid.uuid4(), "kind": "unknown_dataset_writer", "payload": "{}"},
         ),
     ):
         with pytest.raises(DBAPIError) as rejected:
             async with db_session.begin_nested():
                 await db_session.execute(statement, params)
         assert rejected.value.orig.sqlstate == "23514"
-    await db_session.execute(
-        insert,
-        {
-            "id": uuid.uuid4(),
-            "kind": "media_backfill",
-            "payload": json.dumps({"dataset_id": str(datasets[1].id)}),
-        },
-    )
+    await db_session.execute(insert, backfill_values(datasets[1].id, uuid.uuid4()))
     assert (
         await db_session.scalar(
             text(
@@ -695,6 +874,7 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
     from app.db.models.user import User
     from scripts import seed_scale
     from tests.factory import create_user
+    from tests.seed_owner_support import private_seed_owner
 
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "e2e_seed_enabled", True)
@@ -730,6 +910,9 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
     pending = None
     failure = None
     try:
+        async with private_seed_owner() as fixture_owner:
+            await fixture_owner.prepare_suite(first, "scale")
+            await fixture_owner.prepare_suite(second, "scale")
         await seed_scale.seed(4, 2, 1, run_id=first)
         await seed_scale.seed(4, 2, 1, run_id=second)
         async with sessions.begin() as db:
@@ -749,6 +932,9 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
                 await seed_scale._purge(db, first)
             assert blocked.value.detail["code"] == "fixture_run_unsettled"
         async with sessions.begin() as db:
+            with pytest.raises(HTTPException) as late:
+                await ownership.admit(db, first, "after_seal")
+            assert late.value.detail["code"] == "fixture_run_closed"
             await ownership.settle(db, first, pending)
         pending = None
         async with sessions() as db:

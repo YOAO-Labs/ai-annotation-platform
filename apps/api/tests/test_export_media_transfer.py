@@ -35,6 +35,8 @@ class Source:
     size_bytes: int
     location_id: uuid.UUID
     maintenance_revision: int
+    owner_kind: str = "task_original"
+    read_route: object = None
 
 
 class Snapshot:

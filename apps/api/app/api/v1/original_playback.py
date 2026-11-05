@@ -72,7 +72,7 @@ async def _prepare(resource, payload, request, response, db, actor, registry):
         lease = await playback.prepare(db, resource, actor, payload, request, registry)
         # Reusing a ready stage can wait for unrelated retired files to close.
         # The saved authority/source still must hold after that real await.
-        await originals.recheck_original(db, lease.context.original)
+        await originals.recheck_original(db, lease.context.original, captured=True)
         registry.validate_lease(lease)
         path = media_path(lease.id)
         response.set_cookie(
@@ -271,7 +271,7 @@ async def read_original_video(
         context = pin.context
         if not isinstance(context, playback.PlaybackContext):
             raise HTTPException(410, {"code": "original_playback_expired"})
-        await originals.recheck_original(db, context.original)
+        await originals.recheck_original(db, context.original, captured=True)
         registry.validate_pin(pin)
         response = PlaybackResponse(
             pin.stage,

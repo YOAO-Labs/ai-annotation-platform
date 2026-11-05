@@ -96,6 +96,23 @@ class FixtureRun(Base):
     retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class FixtureAuditEvent(Base):
+    __tablename__ = "fixture_audit_events"
+    __table_args__ = {"schema": "yoao_fixture_v1"}
+
+    audit_id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=False
+    )
+    audit_created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), primary_key=True
+    )
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("yoao_fixture_v1.fixture_runs.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+
+
 class FixtureRunResource(Base):
     __tablename__ = "fixture_run_resources"
     __table_args__ = (
@@ -121,7 +138,7 @@ class FixtureRunResource(Base):
         ),
         CheckConstraint("length(logical_key) > 0", name="ck_fixture_run_logical_key"),
         CheckConstraint(
-            "kind IN ('user', 'project', 'dataset', 'item', 'task', 'creation', 'auxiliary', 'annotation', 'registry', 'template', 'reclaim', 'invitation', 'audit')",
+            "kind IN ('user', 'project', 'dataset', 'item', 'task', 'creation', 'auxiliary', 'annotation', 'registry', 'template', 'reclaim', 'invitation')",
             name="ck_fixture_run_resource_kind",
         ),
         CheckConstraint(

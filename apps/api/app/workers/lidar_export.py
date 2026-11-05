@@ -4,12 +4,12 @@ The LiDAR entry point remains compatible; each attempt selects its own explicit
 protocol, sharing physical, cache and publication fences with image exports.
 """
 
+import logging
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import logging
 from pathlib import Path
 from types import SimpleNamespace
-import uuid
 
 from sqlalchemy import delete, select
 
@@ -851,6 +851,7 @@ async def run_owned(
         from app.services import export_zip_accounting
 
         zip_accounting = export_zip_accounting.recorder(db, candidate)
+        save_proof = export_outputs.proof_writer(db, candidate)
         _, revision = await _io(
             db,
             receipt,
@@ -858,6 +859,7 @@ async def run_owned(
                 candidate,
                 path,
                 accounting=zip_accounting,
+                **({"save_proof": save_proof} if save_proof is not None else {}),
                 **({"target": zip_target} if zip_target is not None else {}),
             ),
             guard=zip_guard,
