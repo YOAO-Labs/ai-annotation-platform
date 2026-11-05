@@ -301,8 +301,17 @@ def frontend_environment(environment: dict) -> dict:
 
 def application_environment(environment: dict) -> dict:
     """Remove migration/test credentials before launching application processes."""
+    owner_dsn_keys = {
+        f"INFERENCE_{owner}_DATABASE_URL{suffix}"
+        for owner in ("ROUTING", "HEALTH_OBSERVATION")
+        for suffix in ("", "_FILE")
+    }
     return {
-        **environment,
+        **{
+            key: value
+            for key, value in environment.items()
+            if key.upper() not in owner_dsn_keys
+        },
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",
         "PLAYWRIGHT_E2E_DATABASE_URL": "",

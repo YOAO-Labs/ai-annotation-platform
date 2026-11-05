@@ -284,6 +284,33 @@ class EnvironmentTests(unittest.TestCase):
             )
             self.assertTrue(env["TMPDIR"].startswith(resources["directory"]))
 
+    def test_application_does_not_inherit_inference_owner_dsns(self):
+        from worktree_env import application_environment, frontend_environment
+
+        environment = {
+            "INFERENCE_ROUTING_DATABASE_URL": "private-routing-dsn",
+            "inference_routing_database_url_file": "/private/routing",
+            "INFERENCE_HEALTH_OBSERVATION_DATABASE_URL": "private-health-dsn",
+            "inference_health_observation_database_url_file": "/private/health",
+            "INFERENCE_ROUTING_URL": "http://127.0.0.1:8123",
+            "INFERENCE_ROUTING_TOKEN": "caller-token",
+        }
+        for child in (
+            application_environment(environment),
+            frontend_environment(environment),
+        ):
+            for key in environment:
+                if "_DATABASE_URL" in key.upper():
+                    self.assertNotIn(key, child)
+        application = application_environment(environment)
+        self.assertEqual(
+            application["INFERENCE_ROUTING_URL"], environment["INFERENCE_ROUTING_URL"]
+        )
+        self.assertEqual(
+            application["INFERENCE_ROUTING_TOKEN"],
+            environment["INFERENCE_ROUTING_TOKEN"],
+        )
+
     def test_legacy_manifest_cannot_launch_with_a_fallback_inputs_bucket(self):
         from worktree_env import load_identity, topology, isolated_environment
 
