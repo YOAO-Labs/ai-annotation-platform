@@ -7,6 +7,7 @@ import pytest
 from tests import seed_router_scenarios as scenarios
 from tests.identity_e2e_support import (
     committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
     fenced_http as fenced_http,
     fixture_and_fenced_http as fixture_and_fenced_http,
     owner_fault_http as owner_fault_http,

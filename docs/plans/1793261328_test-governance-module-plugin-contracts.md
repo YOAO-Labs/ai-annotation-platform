@@ -1,6 +1,6 @@
 # 面向后端模组解耦与能力插件化的测试治理计划草案
 
-> 状态：阶段 E 已完成 N1–N3 配套测试切片与阻塞缺陷的本地集成验收，提交为 `52c1701bb`；G2／G3／G6 及全计划仍按具名证据逐项推进。第 16 节规划与 N4–N6 并行的下一批任务，尚未启动；不授权公开发布或生产采用。
+> 状态：阶段 E 的本地集成验收已完成。第 16 节的阶段 F 正在实施：N4 四个切片与 N6-K 已完成各自验收；T1 默认完整资格、T2 精确清理仍未通过，N5／N6 后继及 J1／J2 门保持关闭。局部通过不等于 G2／G3／G6 或全计划完成，也不授权公开发布或生产采用。
 >
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
@@ -1160,6 +1160,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 
 **后续范围决定：** 用户批准 D1／D2 保留旧键作为恢复证据，并将独立 Media／Images 读许可及 dataset 级 Jobs 围栏纳入 T2。用户同时确认当前为 Beta、无真实用户数据迁移负担：N4 改为一次性受控切换，不建设旧保存任务续跑、长期 alias、双写或多版本混跑。当前业务行为、受限权限、归属和物理排空验收不削减；只收敛历史执行兼容要求。
 
+用户随后批准本阶段补齐真实推理作业的最小退役前置，以及新建私有夹具导出的创建时短保留期。前者复用现有受管 scope 协议，补齐 Job／执行代次与 scope 准入围栏、真实提供方排空和结果／输入／输出证明；不以固定输出 mock 替代真实录制，也不自动取得 GPU 资格。后者由 Export owner 根据真实运行归属在创建时冻结短期限，普通导出仍为 168 小时，已有交付期限不变；不改历史时间戳、不清空队列、不直接删除独立导出锚点。两项使用独立工作树，主进程持有后续前向迁移顺序及真实组合验收。
+
 ### 16.2 T1：补完整资格，不重建结果门
 
 当前 `scripts/test-suites.json` 和 `verify_module_data_boundary.py::_passed_test_count` 已有真实执行归属与严格结果对账，分别不再当作“拟新增清单”和“仅要求至少一项通过”的缺口。本轮重点是阶段 E 四项函数权限场景没有覆盖的 **当前默认 module-data 验证器组合门**。
@@ -1169,6 +1171,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - 已知 58 项超时没有最终 JUnit，不为“确认失败”再次盲跑。先处理与本次资格相关的明确前置；若新运行停滞，保留首次 phase、请求／连接／锁证据和完整退出，不通过增加时限或重试改绿。
 - 必需 target、实际收集 nodeid、JUnit 及验证器非 pytest 阶段逐项对账；缺失、错误、skip、中断、清理失败均保留为未通过。定向修复后的子集证据不能代替最终默认选集。
 - 完成只意味着当前具名验证器的资格通过，不代表所有模块替代语言实现、GPU、生产拓扑或治理全计划通过。若某前置确需越出批准范围，只阻断对应门并报告，不偷换成更小选集。
+
+独立测试修正 `98e65e23e` 已审核并合入集成工作树为 `5043630c3`，补丁等价比较一致。它保留当前 head 的 restore／replay，将历史退役拒绝放到准确 revision 的自有一次性数据库，保留真实拒绝与空库降级；并修正现行原件路径、流水线 HTTP 拒绝、批结果请求和 GPU 标量围栏覆盖。该提交没有运行数据库、默认 suite 或真实运行时验收，录制及旧 seed 调用方迁移仍单独进行，不能据此宣称 T1 已通过。
 
 ### 16.3 T2：收敛仍会跨运行清理的设施
 
@@ -1184,8 +1188,9 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 8. 当前生产者先登记准确运行／item 身份、提交真实待写入 item，再开始物理创建。中断恢复只将已验证且 I/O 已结束的 Creation 挂回原有、身份未变的 item；尚未写入的分配仅允许经过精确 CAS 放弃。未知写入、并发挂接及身份变化继续阻止清理；不为旧的无 item 孤立对象扩展退休记录类型或伪造业务锚点。
 9. 裸原件 URL 的签名限制必须在数据集预留前生效，并在最后一个根运行退役后保留，直到相应物理存储被准确退役；UUID 难猜、HEAD 不存在或 URL 到期均不能代替这个闭环。受跟踪的 owner delivery 与其他物理存储的普通读取保持各自合同。
 10. 沿用原件回收 owner 的 location 级 `active → draining → stopped` 维护门。共享该专用 location 的 B 有实际活动操作时，A 清理保持阻塞且不改动双方数据；真实排空后串行进入维护窗口、仅回收 A 的准确版本，再由同一 owner 恢复并验证 B。交错运行的邻居保护不等于不同运行可以独立并发执行物理回收，不停止共享平台 location，也不新增逐 run 绕过。
-11. nuScenes 截图实际使用独立 `map`／`raw_lidar` 辅助原件，不能伪造成 DatasetItem。沿现有 Assets 辅助原件 owner，在物理写入前登记准确运行、准入、原件／Creation 身份及来源合同；只恢复或退休本轮身份一致、已验证且 I/O 结束的真实意图。复用同一回收引擎，新增明确的 `dataset_auxiliary` 变体；原 `dataset_asset` 变体仍强制真实 item／asset 身份，不能扩成无锚点的通用 Creation 回收。公开回收 DTO、OpenAPI 与真实 UI／SDK 消费者同步表达互斥身份。私有准入能力不因测试库后缀授予普通 API 账号；未知状态、外部引用及普通非夹具行为继续保留原保护。
+11. nuScenes 截图实际使用独立 `map`／`raw_lidar` 辅助原件，不能伪造成 DatasetItem。沿现有 Assets 辅助原件 owner，在物理写入前登记准确运行、准入、原件／Creation 身份及来源合同；只恢复或退休本轮身份一致、已验证且 I/O 结束的真实意图。复用同一回收引擎，新增明确的 `dataset_auxiliary` 变体；原 `dataset_asset` 变体仍强制真实 item／asset 身份，不能扩成无锚点的通用 Creation 回收。公开回收 DTO、OpenAPI、Web 与 SDK 离线操作目录同步表达互斥身份，并验证实际 UI 消费者；SDK 覆盖表中尚未实现的回收端点继续保持 `uncovered`，不借此新增客户端能力或声称已覆盖。私有准入能力不因测试库后缀授予普通 API 账号；未知状态、外部引用及普通非夹具行为继续保留原保护。
 12. 夹具专用目标不得覆盖平台默认 `datasets` 存储绑定。协调进程登记私有、不可变的目标身份与真实 generation；分配、读取、维护窗口及回收均复核该目标和原 location 门。普通 API 创建／上传／读取／退役仍使用原业务绑定，并与 A／B 夹具交错验证。复用现有 Python 分配器和 native 写入／核验能力，不保留已被替代的私有 SQL 分配旁路，不自动认领普通上传或放宽整桶签名限制。截图实际使用的本地多相机标定读取也须凭真实 item／接受操作取得许可；可选独立 Catalog／Spatial 部署不因这条本地路径通过而取得资格。
+13. 截图中的真实邀请、注册和后台作业继续经过各自产品 owner。用户归属须在真实账号创建边界绑定，不能凭邀请接受者 ID／邮箱认领预存或并发注册的账号；已有账号接受邀请不产生夹具账号所有权。已派发作业不能改作未派发的展示夹具，Celery revoke、终态文案和直接删除 Jobs 行均不代表物理退役。当前恢复录制的真实 `prediction_retry` 缺少准确的 broker／provider／输出退役证明，会阻止整根清理；保留作业锚点和明确拒绝，不静默跳过原录制流程。该缺口与 #152 分开登记，不能以未派发的展示作业清理通过代替，也不在夹具改造中未经范围批准新建跨 provider／GPU 的退役体系。相应 Identity 录制测试继续执行原有 Labeling／Jobs／Identity 脚本消费者，改用真实运行级原件夹具，不以固定展示 ID、仅 ORM 元数据或直接 Identity 命令缩小其目标。
 
 ### 16.4 迁移验收矩阵
 
@@ -1237,16 +1242,17 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - 四个 F0 冻结的阶段 C／E 历史 ZIP 及 annotations 成员摘要保持不变，当前直接 decoder 与目录 adapter 均通过独立几何／轨迹／来源核对；保留的历史 1.3 Mask 原字节也经真实暂存、普通 worker 和像素读回。旧 reader 实际拒绝新 2.0 文件。以上不证明不存在的 LiDAR prediction、完整跨实例视频迁移或旧作业续跑；准确旧 key 的下载／保留／退役仍单列 N6-S。
 - T1 已执行的完整资格尝试失败，未生成默认选集通过结论。已审核的前置修复隔离互斥 LOGIN、极大 Audit ID 与固定账号 seed，保留三条验证器预检 Audit 事件，并在资源分配前检查本地 Node 依赖。共享 grants 修复候选在真实受限 LOGIN／HTTP 的定向 13 项中通过 11 项；两个失败分别为临时 MinIO 探针的响应结构断言错误和 GPU membership trigger 对 JSON 标量执行键删除。项目视频删除丢失物理执行退役检查、部分旧测试合同及 T2 前置仍需收敛；不得把定向结果称为完整默认资格。
 - **流水线局部更新修复已取得定向证据：** 修正映射读取，公开 schema 与独立 owner 均在写入前拒绝 `stages: null`。`96a12de61` 的 borrowed／HTTP 两项完整回放分别核对 69 个保留样本及当前 null 拒绝／状态不变；另一个真实受限 LOGIN 直接向 owner 提交 null 的用例已通过。仅删除未启用模型服务错误的提示文字比较，保留状态、错误中的有序 ID、响应头和数据库前后值；不重录历史字节。当前 checkout 的旧捕获入口因与新合同不再相容而移除，原捕获代码仍保留在 Git 历史。
-- 权限重新应用的真实前后观测证明：旧 Inference owner 的 Project `id`／`ml_backend_pool_id` 列权限被撤销，Workspace ID、Registry 读取和 Workspace lock／clear 能力保留。SDK／OpenAPI 的 26 项检查及实际 CLI 显式 null 拒绝通过；API、Web 和 SDK 产物同步生成。以上仅关闭此定向缺陷，GPU scalar、视频物理退役及完整默认资格仍待验收。
+- 权限重新应用的真实前后观测证明：旧 Inference owner 的 Project `id`／`ml_backend_pool_id` 列权限被撤销，Workspace ID、Registry 读取和 Workspace lock／clear 能力保留。SDK／OpenAPI 的 26 项检查及实际 CLI 显式 null 拒绝通过；API、Web 和 SDK 产物同步生成。以上仅关闭此定向缺陷；另外两项 native 缺陷的定向证据见下文，迁移集成、物理退役及完整默认资格仍待验收。
 - T2 的新原件回收资格必须来自协调进程在可销毁数据库中登记的根运行存储身份和源头回执；普通 seed 不能自行声明或修改。父进程另建专用 MinIO 容器、新数据卷及新凭据，实际确认准确新桶已启用版本控制且发布前没有对象、版本、删除标记或 multipart。该物理观测尚未绑定验收数据库、登记根权限或开放普通消费者，不代表 T2 已通过；现有共享存储及旧对象不补造归属。
-- T1 在完整资格的前置范围内补齐私有存储引导／suite 登记，T2 继续独占生产者、消费者、运行清单与清理合同；两路直接协调新入口，主进程审核并持有共享 grants、验证器、迁移顺序及实际激活权。两者尚未形成一致、可运行的集成候选。
-- 当前截图链仍依赖共享账号、固定 display ID 和宽泛 repair；必须将真实 producer、spec、catalog 与清理端一起切到本轮准确身份。仅给 reconciliation 增加 run ID 不能证明两个截图运行互不干扰，旧 repair 不作为验证捷径。
-- GPU 标量回归、待写入 item 恢复及根存储签名围栏当前只有未执行的候选；真实 signer、跨进程读取、维护窗口和并发激活尚未验收。T1 默认完整资格、J1 以及 N5／N6 后继门继续保持未通过。
+- T1 的私有存储引导／suite 登记与 T2 的生产者、运行清单和精确清理已形成主进程集成候选；源码合入不等于真实资格。后续修复和独立运行证据见下文，T1 默认完整门与 T2 组合门仍未通过。
+- 截图生产者、spec、catalog、录制辅助命令和清理消费者已切到运行级身份；真实双运行交错、失败／取消退出及邻居保护仍需组合验收，不能使用旧共享 repair 绕过。
+- 待写入 item 恢复及根存储签名围栏当前只有未执行的候选；真实 signer、跨进程读取、维护窗口和并发激活尚未验收。T1 默认完整资格、J1 以及 N5／N6 后继门继续保持未通过。
 - CI 的 E2E 入口已改用现有工作树协调器，不再以初始 owner 连接另起普通 API，并保留已构建 Web 的指纹核验与 preview。本地以此前不存在的 `test` 模式实际执行该入口：独立 `_app` LOGIN 的五项高权限标志均关闭，公共 schema 建表返回 `42501`，专属导入／已受理输入桶版本控制已启用，清除 owner 选择变量的冷 API `/health/db` 返回 200。21 项工作树资源回归、配置格式及 workflow 命名检查通过。探针原先错误地要求 SIGTERM 后退出码为零；原始失败回执保留，实际日志显示完成优雅关闭，安装的 Uvicorn 随后重抛信号并返回 `-15`。核实零连接与资源归属后，该临时 `test` 模式已准确销毁，既有 e2e 未动。此证据不含尚未集成的夹具协调器、T2 回收或远端 CI。
 - 固定 MinIO 服务镜像实际包含 `/usr/bin/mc`；主进程核对镜像身份、提取该二进制并在宿主机执行，得到 `RELEASE.2025-08-13T08-35-41Z`，SHA256 为 `01f866e9c5f9b87c2b09116fa5d7c06695b106242d829a8bb32990c00312e891`。E2E CI 复用这份镜像内客户端，不新增 Go 构建依赖，也不使用已返回 410 的旧官方下载地址。此证据只证明工具准备和宿主执行，不证明新的 IAM／协调器／回收生命周期已通过。
-- 当前 native Media／Images 的额外只读目标与私有协调器已形成待集成源码，真实独立进程读取仍未验收。源码审查补齐了取消后的物理线程／子进程排空、真实版本删除拒绝探针、引导前工具检查及销毁全程持有同一归属锁；这些修正尚未取得运行证据。nuScenes 辅助原件与回收响应的明确变体正在同一 T2 owner 内收敛，不改变前述未通过状态。
+- native Media／Images 的额外只读目标与私有协调器已接入候选；取消后的物理线程／子进程排空、准确版本拒绝探针、引导前工具检查和销毁归属锁均保留。独立 Media／Images 进程、nuScenes 辅助原件及实际回收闭环仍待验收，不能用存储账户探针替代。
 - 验证器退役临时 resource root 时，若仍有准确源头回执或 owner journal，则保留原目录，并在清理结果登记路径、SHA256 与 `fixture_evidence` 原因；成功销毁运行资源不再同时抹掉物理来源证据。实际调用该退役入口，分别验证真实观测字节副本、真实空 owner 生命周期的 journal 单独存在时均被保留，无此证据的临时根仍删除；临时探针目录已收尾，未改数据库或对象桶。此窄验证不是协调器、T2 物理回收或完整资格通过，证据为 `runtime-private/fixture-evidence-retention-smoke.json`。
 - 主进程在独立集成工作树接入协调器候选，尚未改动主分支的保留运行环境。源码审核确认该候选改写默认 `datasets` 绑定，普通 API 分配可能进入夹具桶却没有运行归属，与原件读取围栏及准确退役冲突。修正采用私有目标绑定，并同步实际分配器、协调器及维护／回收检查；完整运行验证仍待进行。新的夹具表与回收身份结构统一由冻结 SQL 安装，避免正常迁移与从基线安装的结构分叉。
+- **两项 native 修正取得数据库定向证据：** 在另建的准确归属 PostgreSQL 中，先迁移到保留基线 `bo0431`，再安装两份 `bo0433` 候选 SQL。两个真实受限 LOGIN 不能直接读取 Registry；SQL NULL 与七种 JSON null／标量／数组输入保持各自语义，非运行配置更新不改变 membership／fence，受保护 URL 和 seed-tag 写入仍被拒绝。另由真实 LOGIN 调用项目删除：未退役视频执行保留 task／job，且没有删除或 Audit 回执；普通空项目可删除，相同 operation 重放结果不变。确认零连接后，准确临时容器及匿名卷已删除，未启动 GPU／媒体读者或修改保留环境。回执为 `runtime-private/native-guard-smoke.json`；这不是 `bo0432 → bo0433` 迁移、完整角色矩阵、T2 物理闭环或 T1 默认完整资格通过。
 
 N4 的私有验收回执位于 `.orca-dag/20261104-074930-788/runtime-private/`，包括 `n4-f-current-exports-acceptance.json`、`n4-f-current-mask-acceptance.json`、`n4-f-current-sdk-acceptance.json`、`n4-f-media-import-acceptance-{retry1,source}.json`、`n4-f-tui-live-acceptance-retry1.json`、`n4-f-historical-files-acceptance.json`、`n4-f-historical-mask-live.json` 与 `n4-f-browser-final-24a109c3d/`。最初失败和过严探针断言分别保留，不覆盖为后续成功。
 
@@ -1257,3 +1263,21 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 主进程移除 D1 晚到响应回归中的提示文字耦合，保留可访问错误、较新草稿原文不变和不跳转断言；集成后三个训练相关文件共 100 项测试通过，运行时代码未再改动。
 
 流水线的真实回放、先前失败、独立 native 拒绝与 CLI 结果保留在 `runtime-private/pipeline-update-acceptance/`；源头观测保留在 `runtime-private/fixture-store-genesis.observation.json`。两者分别记录定向合同通过与存储未激活状态，不合并为整阶段完成。
+
+### 16.7 当前集成候选与定向证据
+
+- T1 的录制／scale 调用方修正、T2 的 `d8a54e1cf` 和推理／导出退役候选已合入独立集成工作树。Raster 的离线准备、私有 relay 及退出修复分别集成为 `51d458dea`、`de9ee2c61`、`350587322`；导出回执权限修复集成为 `922259261`。主分支的保留环境未激活这些候选。
+- 审核发现并修复私有 scale 清理误用全局 runtime 会话的问题：退役入口现在显式接收原 owner 连接派生的 session factory。真实 PostgreSQL smoke 证明 owner 可查询并结算空 scope，普通 runtime 被拒绝，邻居 run 不变；没有给普通角色补授 scope capability 清单权限。
+- 此前候选的空库迁移到 `bo0436`、模块 grants 和路由 grants 均执行成功。三项 Jobs 原生围栏回归通过；导出期限回归曾因 UUID 绑定为文本失败，修正后通过。新加入的导出 owner guard 已接入尚未发布的 `bo0435` 安装顺序及 grants，须在重新创建的数据库上另验；旧数据库 smoke 不冒充新 guard 已生效。该临时数据库在确认零连接后连同准确容器、卷及凭据文件移除，回执为 `runtime-private/native-chain-smoke.json`。
+- 安装版 API 原件消费者的真实验证先后被缺失的独立 Node `pg` 依赖和存储探针错误阻断，原失败报告保留。三处 peer 依赖按各自 lockfile 安装；后一个问题是 `mc` 以退出码零输出明确的 JSON `Access Denied`，已改为核对结构化拒绝。准确失败版本经 SHA256 校验后删除，新探针的真实 HEAD／GET／Range 及 PUT／删除／版本删除／管理权拒绝均通过。该次部分初始化的数据库、Redis、专用存储及引导存储已经准确退役；见 `reader-probe-fixed.json` 与 `cold-cli-bootstrap-recovery.json`。这不等于已安装消费者或独立 Media／Images 已通过。
+- 独立审核确认 Raster 的失败 seed 意图清理与子进程／socket 收尾修复在源码上关闭原阻塞；真实浏览器、提供方和退出路径尚需验收。导出 guard 绑定认证 `SESSION_USER` 对 receipt owner 的成员关系，普通调度器跳过私有交付，普通角色的回执写入和 native 退休权限撤销。新数据库的真实 LOGIN 已证明普通权限拒绝、`SECURITY DEFINER` 不提升认证会话、额外 DML／EXECUTE 也不能伪造回执，以及实际私有 owner 可写入；准确容器／卷／凭据已退役，见 `export-login-guard-retry-smoke.json`。该数据库权限证据不包含物理期限／删除，不采纳模拟存储结果作为物理证明。
+- 冷安装验证随后在冻结 SQL 正向安装阶段发现 `attempts.dispatch_state` 缺失：验收清单漏装已有的 `0403 → 0404` 前置，并把导出／Jobs 的降级 SQL 混入正向清单。修正后，真实冻结安装／事务回滚、升级到 `bo0436` 和 grants 重应用通过；该次继续执行因临时引导 MinIO 缺少验收器要求的服务标识而停止。原失败与准确清理证据分别保留在 `cold-cli-original-reader-attempt3.json` 至 `cold-cli-original-reader-attempt6.json`。截图全局 setup 同步在实际 seed 前登记准确的 `screenshot` suite，失败仍走原 owner 清理；冷安装与截图消费者资格需各自实跑，不以清单修改代替。
+- 推理路由的公开包内 JSON Schema 已同步执行 lease／准确测试 task 的互斥准入证明，Jobs schema 与生成入口同步准确 classifier 签名和真实退休证明边界。36 项路由合同回归通过，独立 JSON Schema 消费者接受三类合法 wire、拒绝十八个缺失／错误 proof 或 generation 输入；见 `prediction-wire-schema-smoke.json`。这不是 provider I/O 或物理退出资格。
+- 辅助原件的公开响应采用 `owner_type` 判别联合：样本文件必须带样本／Asset ID，辅助原件只用自身 `auxiliary_original_id`，不补造样本身份。OpenAPI、Web 类型与 SDK 离线目录已再生成；Web 类型检查及实际 `yoao describe` 通过，目录仍诚实标记 `uncovered`，不声明专用 SDK 方法。API 文档、用户指南和 README 同步说明；见 `public-ownership-artifacts-smoke.json`。尚无此响应的真实存储管理页面验收。
+- 冷安装第七次尝试因临时验收入口漏启 `AAP_IDENTITY_E2E_FIXTURE_LIVE` 而跳过，严格验证器正确判为失败。补齐显式开关并新建当前安装镜像后，第八次实际消费者通过项目角色读取、无关项目与私有 seed 路由拒绝、原件身份查询；原件下载返回 `storage_operation_unsettled`，owner 清理另返回 `fixture_dataset_job_unsettled`，组合门仍失败。准确临时数据库中保留一条原件读取责任及两组运行记录；已观测安装消费者容器不存在、数据库无其他连接，但不据此伪造原生结算。仅保留该失败运行的数据库／存储／证据等待收尾，既有保留环境未动；原始回执为 `cold-cli-original-reader-attempt7.json` 与 `cold-cli-original-reader-attempt8.json`。
+- 原件下载候选复用既有 Media typed permit 和额外只读目标，不向普通 API 提供私有存储的写入凭据；普通目标及已发布迁移目标仍走原有路径。第九次冷安装发现 Assets owner 缺少回收 claim 的列级读取权限，已只补齐该 owner 的 `bucket/object_key/state`；其已有的准确 operation 删除权限未扩大。私有 seed 进程显式开启维护协议，进程内故障注入夹具也显式配置，不修改生产默认值。
+- 第十次冷安装已完成安装版 API 的认证原件读取及字节校验，四项物理重定向回归通过；组合验收仍因真实回收 Job 的插入被 `fixture_dataset_job_scope_unknown` 拒绝而失败，不能写为双运行清理通过。新候选仅识别现有 `managed_original_reclaim` 的准确退休／attempt UUID payload；实际回收仍依赖原 owner 的 Attempt、停止位置许可与引用围栏，未知 Job 保护保留。第九、十次的失败与未完成清理分别保留在对应 `cold-cli-original-reader-attempt*.json`，没有伪造成功结算。
+- 两路只读审核另发现普通生产 LOGIN 缺少只读原件分类能力，以及未配置额外读取目标时向安装版 API 传入空配置的问题。候选补授准确的布尔分类函数，并在无读取目标时完全不传该配置；镜像继承了意外目标配置仍拒绝启动。第十一次的真实生产式 LOGIN 已证明普通目标分类返回 false、私有台账与账号表读取被拒绝；该次随后因旧录制导入失效而在 collection 失败，准确临时资源已退役。`classifier-grant-login-attempt11.json` 是权限证据，不是完整 API 启动或清理通过。
+- 第十二次暴露 Audit 原生整数 ID 被当作 UUID、非 root 容器不能读取验收脚本，以及共享 HTTP 夹具依赖未登记。修正后的第十三次选定子集为 9 通过、7 失败、2 个 teardown 错误；实际冷 API 的原件读取继续通过，但账号删除触发回收 Job 的 `user_id → NULL` 后被错误判为未知 scope。普通 API 完整启动另被容器无法访问宿主 loopback MinIO 阻断；Identity 回放还暴露过期缓存和邀请意图合同不一致。原始结果保留在 `cold-cli-original-reader-attempt12.json`、`cold-cli-original-reader-attempt13.json`，没有缩小后冒称完整资格通过。
+- Audit 独立审核确认原生身份为 `(id, created_at)`，整数 ID 台账和按 namespace 删除仍不安全。候选改为保存原生复合回执，由 Audit owner 认证真实私有调用者、锁定已封闭的 run 并按准确回执删除；旧 namespace 删除入口退出当前合同。使用前向迁移，遇到旧 UUID 归属行明确拒绝，不改写已应用迁移、不制造时间戳或认领旧行。两个新工作树分别处理 Audit owner 与 Identity／冷启动夹具；主进程持有迁移、grants 和集成验收。
+- T1 默认完整资格、T2 双运行与实际读者／推理／导出清理、#152 退出门均未通过；N5-S、N5-W、J1、N6-S、N6-E、J2 不提前开放。当前 Beta 只做明确单次切换，不新增旧任务兼容层、双写或孤立对象自动认领。

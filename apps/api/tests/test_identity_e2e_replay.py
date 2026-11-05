@@ -1,32 +1,30 @@
-"""Identity fixture read contracts and owner-process cleanup replay."""
+"""Current Identity fixture reads and exact private-owner cleanup boundaries."""
 
 from __future__ import annotations
 
-from datetime import datetime
-import json
 import os
 import uuid
 
+from fastapi import HTTPException
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.api.v1 import _test_seed as routes
 from app.core.security import decode_access_token
-from app.db.models.user import User
+from app.db.models.password_reset_token import PasswordResetToken
+from app.db.models.user_invitation import UserInvitation
+from app.services import fixture_run_ownership as ownership
+from app.services.identity_e2e_fixtures import IdentityE2EFixtures
+from tests.factory import create_user
 from tests.identity_e2e_support import (
-    CAPTURE,
     IDS,
-    ROOT,
+    STAMP,
     accounts,
-    e2e_consumer as e2e_consumer,
-    fenced_http as fenced_http,
-    fixture_and_fenced_http as fixture_and_fenced_http,
+    fixture_operator as fixture_operator,
     snapshot,
 )
-
-ORACLE = ROOT / "apps/api/tests/fixtures/identity_e2e_legacy.json"
-GOLDEN = {} if CAPTURE else json.loads(ORACLE.read_text())["snapshots"]
+from tests.seed_owner_support import private_owned_suite
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -37,54 +35,25 @@ pytestmark = [
 ]
 
 
-def canonical(value):
-    if isinstance(value, uuid.UUID):
-        return canonical(str(value))
-    if isinstance(value, datetime):
-        return value.isoformat()
-    if isinstance(value, str):
-        return next(
-            (name for name, identifier in IDS.items() if value == str(identifier)),
-            value,
-        )
-    if isinstance(value, list):
-        return [canonical(item) for item in value]
-    if isinstance(value, dict):
-        return {key: canonical(item) for key, item in value.items()}
-    return value
-
-
-def replay(name, value, record_property, *, qualification="identity_e2e_replay"):
-    value = canonical(value)
-    if CAPTURE:
-        directory = ROOT / ".worktree/identity-e2e-baseline-cases"
-        directory.mkdir(exist_ok=True)
-        (directory / f"{name}.json").write_text(
-            json.dumps(value, ensure_ascii=False, indent=2) + "\n"
-        )
-    else:
-        assert value == GOLDEN[name]
-    record_property(qualification, name)
-
-
 @pytest.mark.parametrize("case", ["full", "missing", "cached_email"])
-async def test_e2e_login_replays_full_profile_and_cache(
-    test_engine, e2e_consumer, case, record_property
+async def test_e2e_login_reads_current_profile_and_cache(
+    test_engine, fixture_operator, case, record_property
 ):
     async with accounts(test_engine):
-        async with async_sessionmaker(e2e_consumer, expire_on_commit=False)() as db:
+        async with async_sessionmaker(fixture_operator, expire_on_commit=False)() as db:
             email = "admin-probea@e2e.test"
+            preferences = {"unknown": {"unicode": "雪", "nested": [None, False, {}]}}
+            role = "viewer"
             if case == "missing":
-                email = "missing@example.test"
-            if case == "cached_email":
-                if CAPTURE:
-                    loaded = await db.scalar(
-                        select(User).where(User.id == IDS["target"])
+                with pytest.raises(HTTPException) as missing:
+                    await routes.seed_login(
+                        routes.SeedLoginRequest(email="missing@example.test"), db
                     )
-                else:
-                    from app.services.identity_e2e_fixtures import IdentityE2EFixtures
-
-                    loaded = await IdentityE2EFixtures(db).find(email)
+                assert missing.value.status_code == 404
+                record_property("identity_e2e_replay", "login-missing")
+                return
+            if case == "cached_email":
+                loaded = await IdentityE2EFixtures(db).find(email)
                 async with test_engine.begin() as owner:
                     await owner.execute(
                         text(
@@ -98,36 +67,23 @@ async def test_e2e_login_replays_full_profile_and_cache(
                         ),
                         {"id": IDS["target"]},
                     )
-                email = "changed@e2e.test"
-                assert loaded.email == "admin-probea@e2e.test"
-            try:
-                result = await routes.seed_login(
-                    routes.SeedLoginRequest(email=email), db
-                )
-            except Exception as error:
-                value = {
-                    "error": type(error).__name__,
-                    "status": getattr(error, "status_code", None),
-                    "detail": getattr(error, "detail", None),
-                }
-                assert case == "missing", value
-            else:
-                assert case != "missing"
-                claims = decode_access_token(result.access_token)
-                value = {
-                    "user": result.user.model_dump(mode="json"),
-                    "claims": {"sub": claims["sub"], "role": claims["role"]},
-                    "token_type": result.token_type,
-                }
-                assert (
-                    value["user"]["role"] == "viewer"
-                    and value["user"]["is_active"] is False
-                )
-            replay("login-" + case, value, record_property)
+                assert loaded.email == email
+                email, role, preferences = "changed@e2e.test", "employee", {}
+            result = await routes.seed_login(routes.SeedLoginRequest(email=email), db)
+            user = result.user.model_dump(mode="json")
+            claims = decode_access_token(result.access_token)
+            assert user["id"] == str(IDS["target"])
+            assert user["email"] == email
+            assert user["role"] == role
+            assert user["is_active"] is False
+            assert user["preferences"] == preferences
+            assert claims["sub"] == user["id"]
+            assert claims["role"] == role
+            record_property("identity_e2e_replay", "login-" + case)
 
 
 async def test_e2e_peek_keeps_precedence_and_inactive_accounts(
-    test_engine, e2e_consumer, record_property
+    test_engine, fixture_operator, record_property
 ):
     async with accounts(test_engine):
         async with test_engine.begin() as owner:
@@ -138,41 +94,115 @@ async def test_e2e_peek_keeps_precedence_and_inactive_accounts(
                 ),
                 {"id": IDS["dev"]},
             )
-        async with async_sessionmaker(e2e_consumer, expire_on_commit=False)() as db:
+        before = await snapshot(test_engine)
+        async with async_sessionmaker(fixture_operator, expire_on_commit=False)() as db:
             result = await routes.seed_peek(db)
             assert result.admin_email == "keeper@example.test"
-            replay("peek-priority", result.model_dump(mode="json"), record_property)
+        assert await snapshot(test_engine) == before
+        record_property("identity_e2e_replay", "peek-priority")
 
 
-@pytest.mark.parametrize("shared", [False, True])
+@pytest.mark.parametrize("scope", ["run", "suite"])
 async def test_owner_cleanup_identity_dependencies_and_scope(
-    test_engine, fixture_and_fenced_http, shared, record_property
+    test_engine, scope, record_property
 ):
     baseline = await snapshot(test_engine)
-    async with accounts(test_engine):
-        path = "/api/v1/__test/seed/" + ("cleanup" if shared else "owned-cleanup")
-        payload = {} if shared else {"json": {"namespace": "probea"}}
-        response = await fixture_and_fenced_http.post(path, **payload)
-        assert response.status_code == 200, response.text
-        first = await snapshot(test_engine)
-        for collection, rows in baseline.items():
-            assert all(row in first[collection] for row in rows)
-        scoped = {
-            collection: [
-                row
-                for row in rows
-                if row["id"] not in {item["id"] for item in baseline[collection]}
-            ]
-            for collection, rows in first.items()
-        }
-        assert len(scoped["users"]) == (1 if shared else 2)
-        assert scoped["reset_tokens"] == scoped["invitations"] == []
-        response = await fixture_and_fenced_http.post(path, **payload)
-        assert response.status_code == 200, response.text
-        assert await snapshot(test_engine) == first
-        replay(
-            "cleanup-" + ("shared" if shared else "owned"),
-            scoped,
-            record_property,
-            qualification="identity_owner_cleanup_replay",
-        )
+    keeper_id = None
+    try:
+        async with private_owned_suite() as suite:
+            runs = [suite.new_run(name) for name in ("identitya", "identityb")]
+            ids = []
+            reset_id, invitation_id = uuid.uuid4(), uuid.uuid4()
+            async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+                for run in runs:
+                    await ownership.start_owned_scope(
+                        db,
+                        suite_id=run.suite_id,
+                        run_id=run.run_id,
+                        namespace=run.namespace,
+                    )
+                    admission = await ownership.admit(db, run.run_id, "identity_replay")
+                    user = await create_user(
+                        db,
+                        "super_admin",
+                        f"identity-{run.run_id.hex}@e2e.test",
+                        "Owned",
+                    )
+                    ids.append(user.id)
+                    await ownership.reserve(
+                        db,
+                        run.run_id,
+                        "user",
+                        user.id,
+                        logical_key="admin",
+                        published=True,
+                    )
+                    if run is runs[0]:
+                        db.add_all(
+                            [
+                                PasswordResetToken(
+                                    id=reset_id,
+                                    user_id=user.id,
+                                    token_hash=uuid.uuid4().hex * 2,
+                                    issued_email=user.email,
+                                    expires_at=STAMP,
+                                ),
+                                UserInvitation(
+                                    id=invitation_id,
+                                    email=f"invite-{run.run_id.hex}@e2e.test",
+                                    role="reviewer",
+                                    token=uuid.uuid4().hex,
+                                    expires_at=STAMP,
+                                    invited_by=user.id,
+                                ),
+                            ]
+                        )
+                        await db.flush()
+                        await ownership.reserve(
+                            db,
+                            run.run_id,
+                            "invitation",
+                            invitation_id,
+                            logical_key="invitation",
+                            published=True,
+                        )
+                    await ownership.settle(db, run.run_id, admission)
+                keeper = await create_user(
+                    db, "viewer", f"keeper-{uuid.uuid4().hex}@example.test", "Keeper"
+                )
+                keeper_id = keeper.id
+                await db.commit()
+
+            if scope == "suite":
+                path = "/api/v1/__test/seed/cleanup"
+                payload = {"suite_id": str(suite.suite_id)}
+                expected_users = {keeper_id}
+            else:
+                path = "/api/v1/__test/seed/owned-cleanup"
+                payload = runs[0].payload()
+                expected_users = {keeper_id, ids[1]}
+            first = None
+            for _ in range(2):
+                response = await suite.owner.post(path, json=payload)
+                assert response.status_code == 200, response.text
+                observed = await snapshot(test_engine)
+                for collection, rows in baseline.items():
+                    assert all(row in observed[collection] for row in rows)
+                baseline_ids = {row["id"] for row in baseline["users"]}
+                assert {
+                    row["id"] for row in observed["users"]
+                } - baseline_ids == expected_users
+                assert reset_id not in {row["id"] for row in observed["reset_tokens"]}
+                assert invitation_id not in {
+                    row["id"] for row in observed["invitations"]
+                }
+                if first is not None:
+                    assert observed == first
+                first = observed
+            record_property("identity_owner_cleanup_replay", "cleanup-" + scope)
+    finally:
+        if keeper_id is not None:
+            async with test_engine.begin() as db:
+                await db.execute(
+                    text("DELETE FROM users WHERE id=:id"), {"id": keeper_id}
+                )

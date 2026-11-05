@@ -39,12 +39,12 @@ async def test_installed_api_keeps_embedded_bindings_after_private_acl_closure(
     endpoint = urlsplit(endpoint_url())
     assert endpoint.hostname and endpoint.port
     source = tmp_path / "embedded-identity-probe"
-    source.mkdir(mode=0o700)
+    source.mkdir(mode=0o755)
     probe = source / "probe.py"
     probe.write_text(
         _PROBE_HEAD + inspect.getsource(exercise_embedded_http) + _PROBE_TAIL
     )
-    probe.chmod(0o400)
+    probe.chmod(0o444)
     cli = WorkspaceImportCli(
         test_engine,
         tmp_path,
