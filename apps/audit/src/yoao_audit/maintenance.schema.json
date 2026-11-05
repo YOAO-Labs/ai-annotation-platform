@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-audit-maintenance/v1",
   "title": "Audit maintenance commands",
-  "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop. Filtering-fixture cleanup is limited to its fixed audit markers and isolated _test/_e2e databases.",
+  "$comment": "Partition names encode their first-day UTC month and next-month upper bound. Ensure accepts only first-day dates; archive keys must match the partition month. Commands remain in the caller transaction. Snapshot locks the identified partition ACCESS EXCLUSIVE; drop requires that lock in the same transaction. The archive object is written before drop. Fixture cleanup uses exact run-owned audit receipts in isolated _test/_e2e databases.",
   "$defs": {
     "AuditPartition": {
       "additionalProperties": false,
@@ -30,7 +30,12 @@
           "type": "integer"
         }
       },
-      "required": ["name", "from", "to", "oid"],
+      "required": [
+        "name",
+        "from",
+        "to",
+        "oid"
+      ],
       "title": "AuditPartition",
       "type": "object"
     },
@@ -62,11 +67,17 @@
           "type": "string"
         }
       },
-      "required": ["schema", "operation", "partition", "row_count", "object_key"],
+      "required": [
+        "schema",
+        "operation",
+        "partition",
+        "row_count",
+        "object_key"
+      ],
       "title": "_ArchiveEventRequest",
       "type": "object"
     },
-    "_CleanupFilteringFixtureEventsRequest": {
+    "_CleanupFixtureEventsRequest": {
       "additionalProperties": false,
       "properties": {
         "schema": {
@@ -75,25 +86,22 @@
           "type": "string"
         },
         "operation": {
-          "const": "cleanup_filtering_fixture_events",
+          "const": "cleanup_fixture_events",
           "title": "Operation",
           "type": "string"
         },
-        "namespace": {
-          "anyOf": [
-            {
-              "pattern": "^[a-z0-9]{4,12}$",
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Namespace"
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
         }
       },
-      "required": ["schema", "operation", "namespace"],
-      "title": "_CleanupFilteringFixtureEventsRequest",
+      "required": [
+        "schema",
+        "operation",
+        "run_id"
+      ],
+      "title": "_CleanupFixtureEventsRequest",
       "type": "object"
     },
     "_DropPartitionRequest": {
@@ -113,7 +121,11 @@
           "$ref": "#/$defs/AuditPartition"
         }
       },
-      "required": ["schema", "operation", "partition"],
+      "required": [
+        "schema",
+        "operation",
+        "partition"
+      ],
       "title": "_DropPartitionRequest",
       "type": "object"
     },
@@ -136,7 +148,11 @@
           "type": "string"
         }
       },
-      "required": ["schema", "operation", "month"],
+      "required": [
+        "schema",
+        "operation",
+        "month"
+      ],
       "title": "_EnsurePartitionRequest",
       "type": "object"
     },
@@ -154,7 +170,10 @@
           "type": "string"
         }
       },
-      "required": ["schema", "operation"],
+      "required": [
+        "schema",
+        "operation"
+      ],
       "title": "_ListPartitionsRequest",
       "type": "object"
     },
@@ -172,7 +191,10 @@
           "type": "string"
         }
       },
-      "required": ["schema", "operation"],
+      "required": [
+        "schema",
+        "operation"
+      ],
       "title": "_RefreshDailyRequest",
       "type": "object"
     },
@@ -193,7 +215,11 @@
           "$ref": "#/$defs/AuditPartition"
         }
       },
-      "required": ["schema", "operation", "partition"],
+      "required": [
+        "schema",
+        "operation",
+        "partition"
+      ],
       "title": "_SnapshotPartitionRequest",
       "type": "object"
     },
@@ -242,11 +268,13 @@
           "type": "boolean"
         }
       },
-      "required": ["created"],
+      "required": [
+        "created"
+      ],
       "title": "_EnsureData",
       "type": "object"
     },
-    "_FilteringFixtureCleanupData": {
+    "_FixtureCleanupData": {
       "additionalProperties": false,
       "properties": {
         "deleted_rows": {
@@ -256,8 +284,10 @@
           "type": "integer"
         }
       },
-      "required": ["deleted_rows"],
-      "title": "_FilteringFixtureCleanupData",
+      "required": [
+        "deleted_rows"
+      ],
+      "title": "_FixtureCleanupData",
       "type": "object"
     },
     "_PartitionsData": {
@@ -271,7 +301,9 @@
           "type": "array"
         }
       },
-      "required": ["partitions"],
+      "required": [
+        "partitions"
+      ],
       "title": "_PartitionsData",
       "type": "object"
     },
@@ -289,7 +321,9 @@
           "type": "array"
         }
       },
-      "required": ["rows"],
+      "required": [
+        "rows"
+      ],
       "title": "_SnapshotData",
       "type": "object"
     }
@@ -314,7 +348,7 @@
       "$ref": "#/$defs/_RefreshDailyRequest"
     },
     {
-      "$ref": "#/$defs/_CleanupFilteringFixtureEventsRequest"
+      "$ref": "#/$defs/_CleanupFixtureEventsRequest"
     }
   ],
   "x-aap-replies": {
@@ -342,7 +376,7 @@
             "$ref": "#/$defs/_SnapshotData"
           },
           {
-            "$ref": "#/$defs/_FilteringFixtureCleanupData"
+            "$ref": "#/$defs/_FixtureCleanupData"
           },
           {
             "$ref": "#/$defs/_EmptyData"
@@ -351,29 +385,46 @@
         "title": "Data"
       }
     },
-    "required": ["schema", "ok", "data"],
+    "required": [
+      "schema",
+      "ok",
+      "data"
+    ],
     "title": "_MaintenanceReply",
     "type": "object"
   },
   "x-postgresql-functions": {
     "aap_audit_v1.maintenance_command(jsonb)": {
-      "argument_types": ["jsonb"],
+      "argument_types": [
+        "jsonb"
+      ],
       "returns": "jsonb",
       "owner": "audit",
       "security_definer": true,
-      "fixed_targets": ["public.audit_logs monthly partitions", "public.mv_audit_bi_daily"],
+      "fixed_targets": [
+        "public.audit_logs monthly partitions",
+        "public.mv_audit_bi_daily"
+      ],
       "caller_transaction_required": true,
       "snapshot_lock": "ACCESS EXCLUSIVE",
       "drop_requires_same_transaction_lock": true,
       "operation_constraints": {
-        "cleanup_filtering_fixture_events": {
-          "fixed_targets": ["public.audit_logs filtering E2E fixture rows"],
-          "fixed_predicates": [
-            "path=/api/v1/__test/seed/filtering",
-            "namespace=null: detail_json.fixture=filtering",
-            "namespace=set: detail_json.namespace=namespace"
+        "cleanup_fixture_events": {
+          "fixed_targets": [
+            "public.audit_logs run-owned fixture rows"
           ],
-          "test_database_suffixes": ["_e2e", "_test"],
+          "fixed_predicates": [
+            "receipt.run_id=request.run_id",
+            "audit identity=(receipt.audit_id,receipt.audit_created_at)",
+            "path=/api/v1/__test/seed/filtering",
+            "detail_json.namespace=run.scope_key"
+          ],
+          "run_requirement": "owned leaf in sealing or retired state, with no unsettled admissions",
+          "caller_requirement": "SESSION_USER has USAGE membership in fixture_runs table owner",
+          "test_database_suffixes": [
+            "_e2e",
+            "_test"
+          ],
           "required_transaction_setting": "app.allow_audit_update=true"
         }
       }

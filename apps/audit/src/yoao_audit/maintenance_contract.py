@@ -7,6 +7,7 @@ import json
 import re
 from collections.abc import Mapping
 from typing import Annotated, Any, Literal, Union
+from uuid import UUID
 
 from pydantic import (
     BaseModel,
@@ -156,9 +157,9 @@ class _RefreshDailyRequest(_Command):
     operation: Literal["refresh_daily"]
 
 
-class _CleanupFilteringFixtureEventsRequest(_Command):
-    operation: Literal["cleanup_filtering_fixture_events"]
-    namespace: StrictStr | None = Field(pattern=r"^[a-z0-9]{4,12}$")
+class _CleanupFixtureEventsRequest(_Command):
+    operation: Literal["cleanup_fixture_events"]
+    run_id: UUID
 
 
 _MaintenanceRequest = Annotated[
@@ -169,7 +170,7 @@ _MaintenanceRequest = Annotated[
         _DropPartitionRequest,
         _ArchiveEventRequest,
         _RefreshDailyRequest,
-        _CleanupFilteringFixtureEventsRequest,
+        _CleanupFixtureEventsRequest,
     ],
     Field(discriminator="operation"),
 ]
@@ -210,7 +211,7 @@ class _EmptyData(_ClosedModel):
     pass
 
 
-class _FilteringFixtureCleanupData(_ClosedModel):
+class _FixtureCleanupData(_ClosedModel):
     deleted_rows: StrictInt = Field(ge=0, le=_MAX_POSTGRES_BIGINT)
 
 
@@ -221,7 +222,7 @@ class _MaintenanceReply(_ClosedModel):
         _PartitionsData,
         _EnsureData,
         _SnapshotData,
-        _FilteringFixtureCleanupData,
+        _FixtureCleanupData,
         _EmptyData,
     ]
 
@@ -261,8 +262,8 @@ def audit_maintenance_schema() -> dict[str, Any]:
             "the partition month. Commands remain in the caller transaction. "
             "Snapshot locks the identified partition ACCESS EXCLUSIVE; drop "
             "requires that lock in the same transaction. The archive object is "
-            "written before drop. Filtering-fixture cleanup is limited to its "
-            "fixed audit markers and isolated _test/_e2e databases."
+            "written before drop. Fixture cleanup uses exact run-owned audit "
+            "receipts in isolated _test/_e2e databases."
         ),
         "$defs": definitions,
         "oneOf": request_schema["oneOf"],
@@ -281,15 +282,16 @@ def audit_maintenance_schema() -> dict[str, Any]:
                 "snapshot_lock": "ACCESS EXCLUSIVE",
                 "drop_requires_same_transaction_lock": True,
                 "operation_constraints": {
-                    "cleanup_filtering_fixture_events": {
-                        "fixed_targets": [
-                            "public.audit_logs filtering E2E fixture rows"
-                        ],
+                    "cleanup_fixture_events": {
+                        "fixed_targets": ["public.audit_logs run-owned fixture rows"],
                         "fixed_predicates": [
+                            "receipt.run_id=request.run_id",
+                            "audit identity=(receipt.audit_id,receipt.audit_created_at)",
                             "path=/api/v1/__test/seed/filtering",
-                            "namespace=null: detail_json.fixture=filtering",
-                            "namespace=set: detail_json.namespace=namespace",
+                            "detail_json.namespace=run.scope_key",
                         ],
+                        "run_requirement": "owned leaf in sealing or retired state, with no unsettled admissions",
+                        "caller_requirement": "SESSION_USER has USAGE membership in fixture_runs table owner",
                         "test_database_suffixes": ["_e2e", "_test"],
                         "required_transaction_setting": "app.allow_audit_update=true",
                     }
