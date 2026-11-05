@@ -162,10 +162,10 @@ async def test_seed_login_unknown_email_404(fixture_and_fenced_http):
 
 
 async def test_seed_raster_mask_project_opt_in_and_content_fixtures(
-    fixture_and_fenced_http,
+    fixture_and_fenced_http, committed_owner
 ):
     await scenarios.seed_raster_mask_project_opt_in_and_content_fixtures(
-        fixture_and_fenced_http
+        fixture_and_fenced_http, committed_owner
     )
 
 

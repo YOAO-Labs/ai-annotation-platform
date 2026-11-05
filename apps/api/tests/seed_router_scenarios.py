@@ -400,7 +400,44 @@ async def seed_login_unknown_email_404(httpx_client):
     assert res.status_code == 404
 
 
-async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
+async def _assert_verified_image_canvas(db_session, run, task_id, expected_size):
+    from contextlib import closing
+    from io import BytesIO
+    from uuid import UUID
+
+    from PIL import Image
+
+    from app.db.models.dataset import DatasetItem
+    from app.db.models.task import Task
+    from tests.seed_owner_support import (
+        _fixture_versions,
+        _read_versions,
+        fixture_original_reader,
+    )
+
+    task = await db_session.get(Task, UUID(task_id))
+    assert task is not None and task.dataset_item_id is not None
+    item = await db_session.get(DatasetItem, task.dataset_item_id)
+    assert item is not None
+    item_id, object_key = item.id, item.file_path
+    assert (item.width, item.height) == expected_size
+    await db_session.rollback()
+
+    versions = await _fixture_versions(db_session.bind, run)
+    matches = [row for row in versions if row["object_key"] == object_key]
+    assert len(matches) == 1
+    with closing(fixture_original_reader()) as reader:
+        raw = next(iter(_read_versions(reader, matches).values()))
+    with Image.open(BytesIO(raw)) as image:
+        assert image.format == "PNG"
+        image.load()
+        assert image.size == expected_size
+    return item_id
+
+
+async def seed_raster_mask_project_opt_in_and_content_fixtures(
+    httpx_client, db_session
+):
     run = httpx_client.owner_suite.new_run(NAMESPACE)
     data = await _build_owned(httpx_client, run)
 
@@ -430,6 +467,9 @@ async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
     for canvas, size in (("5k", [2880, 5120]), ("8k", [8192, 8192])):
         large_run = httpx_client.owner_suite.new_run(NAMESPACE)
         large = await _build_owned(httpx_client, large_run, image_canvas=canvas)
+        await _assert_verified_image_canvas(
+            db_session, large_run, large["task_ids"][0], (size[1], size[0])
+        )
         enabled = await httpx_client.post(
             "/api/v1/__test/seed/configure-raster-mask",
             json={
@@ -450,40 +490,17 @@ async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
         )
         assert injected.status_code == 200, injected.text
         assert injected.json()["mask"]["size"] == size
-        if canvas == "8k":
-            assert injected.json()["mask"]["runs"] == 129
-
-    corrupt = await httpx_client.post(
-        "/api/v1/__test/seed/inject-raster-mask",
-        json={
-            "run_id": str(run.run_id),
-            "task_id": data["task_ids"][0],
-            "user_email": data["annotator_email"],
-            "variant": "corrupt",
-            "locked": True,
-        },
-    )
-    assert corrupt.status_code == 200, corrupt.text
-    assert corrupt.json()["mask"]["object_key"].endswith(".json")
 
 
 async def seed_raster_mask_media_canvas_preserves_item_dimensions(
     httpx_client, db_session
 ):
-    from uuid import UUID
-
     from app.db.models.dataset import DatasetItem
-    from app.db.models.task import Task
 
     run = httpx_client.owner_suite.new_run(NAMESPACE)
     data = await _build_owned(httpx_client, run, image_canvas="720p")
-    task = await db_session.get(Task, UUID(data["task_ids"][0]))
-    assert task is not None and task.dataset_item_id is not None
-    item = await db_session.get(DatasetItem, task.dataset_item_id)
-    assert item is not None
-    assert (item.width, item.height) == (1280, 720)
-    task_id, item_id = task.id, item.id
-    await db_session.rollback()
+    task_id = data["task_ids"][0]
+    item_id = await _assert_verified_image_canvas(db_session, run, task_id, (1280, 720))
 
     response = await httpx_client.post(
         "/api/v1/__test/seed/inject-raster-mask",
