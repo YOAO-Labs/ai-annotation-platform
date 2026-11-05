@@ -3,11 +3,13 @@
 import builtins
 import os
 from pathlib import Path
-import select
 import signal
 import subprocess
 import time
 
+from linux_pidfd import (
+    open_pidfd, pidfd_alive as _pidfd_live, pidfd_send_signal, waitid_pidfd,
+)
 from storage_s3_contract import ContractError, require
 
 # Keep exact pidfds and Popen handles reachable if cooperative drain fails.
@@ -21,12 +23,6 @@ def _proc_stat(pid):
         return None
     fields = raw.rsplit(")", 1)[1].split()
     return fields[0], int(fields[1]), int(fields[2])
-
-
-def _pidfd_live(descriptor):
-    poller = select.poll()
-    poller.register(descriptor, select.POLLIN)
-    return not poller.poll(0)
 
 
 def _track_consumer_descendants(root_pid, tracked):
@@ -58,7 +54,7 @@ def _track_consumer_descendants(root_pid, tracked):
                 if observed is None or observed[1] != parent:
                     continue
                 try:
-                    descriptor = os.pidfd_open(pid, 0)
+                    descriptor = open_pidfd(pid)
                 except ProcessLookupError:
                     continue
                 try:
@@ -82,6 +78,28 @@ def _group_live(group):
     return False
 
 
+def _track_group_members(group, tracked):
+    """Hold exact identities for live group members before signalling them."""
+    for path in Path("/proc").iterdir():
+        if not path.name.isdigit():
+            continue
+        pid = int(path.name)
+        if pid == group or pid in tracked:
+            continue
+        observed = _proc_stat(pid)
+        if observed is None or observed[2] != group or observed[0] in {"Z", "X"}:
+            continue
+        try:
+            descriptor = open_pidfd(pid)
+        except ProcessLookupError:
+            continue
+        observed = _proc_stat(pid)
+        if observed is None or observed[2] != group:
+            os.close(descriptor)
+            continue
+        tracked[pid] = descriptor
+
+
 def _signal_consumer(group, tracked, sig):
     # The leader is not reaped until this group is drained, so its process
     # group identity cannot be recycled while signalling.
@@ -91,9 +109,27 @@ def _signal_consumer(group, tracked, sig):
         pass
     for descriptor in tracked.values():
         try:
-            signal.pidfd_send_signal(descriptor, sig)
+            pidfd_send_signal(descriptor, sig)
         except ProcessLookupError:
             pass
+
+
+def _descendant_outcomes(signalled, *, reap):
+    outcomes = {}
+    options = os.WEXITED | os.WNOHANG | (0 if reap else os.WNOWAIT)
+    for pid, descriptor in signalled.items():
+        if _pidfd_live(descriptor):
+            outcomes[pid] = {"state": "live"}
+            continue
+        try:
+            observed = waitid_pidfd(descriptor, options)
+        except OSError as error:
+            outcomes[pid] = {"state": "unknown", "error": type(error).__name__, "errno": error.errno}
+            continue
+        outcomes[pid] = None if observed is None else {
+            "code": observed.si_code, "status": observed.si_status,
+        }
+    return outcomes
 
 
 def _drain_consumer(child, tracked):
@@ -101,8 +137,10 @@ def _drain_consumer(child, tracked):
     capture_failure = None
     try:
         _track_consumer_descendants(child.pid, tracked)
+        _track_group_members(child.pid, tracked)
     except Exception as error:
         capture_failure = error
+    signalled = {pid: fd for pid, fd in tracked.items() if _pidfd_live(fd)}
     _signal_consumer(child.pid, tracked, signal.SIGTERM)
     deadline = time.monotonic() + 3
     while _group_live(child.pid) or any(_pidfd_live(fd) for fd in tracked.values()):
@@ -112,6 +150,11 @@ def _drain_consumer(child, tracked):
             # a deadline as physical settlement.
             unsettled.child = child
             unsettled.pidfds = tracked
+            unsettled.descendant_outcomes = _descendant_outcomes(signalled, reap=False)
+            observed = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            unsettled.leader_status = (
+                {"code": observed.si_code, "status": observed.si_status} if observed else None
+            )
             if capture_failure is not None:
                 raise builtins.BaseExceptionGroup(
                     "raster descendant capture and shutdown failed",
@@ -120,7 +163,18 @@ def _drain_consumer(child, tracked):
             raise unsettled
         time.sleep(0.05)
     result = child.wait(timeout=0.1)
+    outcomes = _descendant_outcomes(signalled, reap=True)
+    if any(
+        outcome is None or outcome.get("code") != os.CLD_EXITED or outcome.get("status") != 0
+        for outcome in outcomes.values()
+    ):
+        error = ContractError("raster_consumer_descendant_exit_unsettled")
+        error.descendant_outcomes = outcomes
+        error.leader_status = result
+        raise error
     if capture_failure is not None:
+        capture_failure.descendant_outcomes = outcomes
+        capture_failure.leader_status = result
         raise capture_failure
     return result
 

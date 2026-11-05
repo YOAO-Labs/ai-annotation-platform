@@ -2,14 +2,12 @@
 
 import asyncio
 import builtins
-import ctypes
 import fcntl
 import hashlib
 import hmac
 import importlib.util
 import json
 import os
-import platform
 import re
 import secrets
 import select
@@ -26,6 +24,9 @@ from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from sqlalchemy.engine import make_url
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[4] / "scripts"))
+from linux_pidfd import open_pidfd  # noqa: E402
 
 
 _MASK_LIFECYCLE_ENABLED = (
@@ -109,21 +110,7 @@ def process_start(pid):
     return int(text[text.rfind(")") + 2 :].split()[19])
 
 
-def open_pidfd(pid):
-    if sys.platform != "linux" or platform.machine() not in {"x86_64", "aarch64"}:
-        raise SeedSetupRefused("Fixture authority requires Linux pidfds")
-    libc = ctypes.CDLL(None, use_errno=True)
-    libc.syscall.restype = ctypes.c_long
-    descriptor = libc.syscall(ctypes.c_long(434), ctypes.c_int(pid), ctypes.c_int(0))
-    if descriptor < 0:
-        number = ctypes.get_errno()
-        raise OSError(number, os.strerror(number))
-    return int(descriptor)
-
-
 def owner_paths():
-    code_root = Path(__file__).resolve().parents[4]
-    sys.path.insert(0, str(code_root / "scripts"))
     from fixture_suite_coordinator import _verified_resources
     from worktree_env import state_path
 
@@ -350,6 +337,27 @@ def connect_owner(*, create):
         os.close(descriptor)
 
 
+def current_owner_for_ack(record, channel):
+    """Bind finalization to the same actor's current, verified record."""
+    resources, directory = owner_paths()
+    descriptor = lock_start(directory, create=False)
+    try:
+        current = read_owner(directory, resources)
+        mutable = {"seal_secret", "offline_seal"}
+        if (
+            {key: value for key, value in current.items() if key not in mutable}
+            != {key: value for key, value in record.items() if key not in mutable}
+            or struct.unpack(
+                "3i", channel.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+            )[:2] != (record["pid"], os.getuid())
+        ):
+            raise SeedSetupRefused("Fixture authority identity changed before acknowledgement")
+        return current
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
 def verify_existing_owner():
     """Verify the original authority and an authenticated read without creating it."""
     channel, record, pidfd = connect_owner(create=False)
@@ -456,6 +464,7 @@ async def serve_authority(ready_fd):
     state["stop_operation"] = None
     state["stop_preparing"] = None
     state["journal_failure"] = None
+    state["disposal_failure"] = None
     connections = set()
 
     def persist_offline():
@@ -494,11 +503,12 @@ async def serve_authority(ready_fd):
             ) from None
 
 
-    def journal_failure(payload, *, response=None, error=None):
+    def journal_failure(payload, *, operation_id, response=None, error=None):
         descriptor = open_private_append(directory / "failures.ndjson")
         try:
             event = {
                 "nonce": generation["nonce"],
+                "operation_id": operation_id,
                 "operation": payload.get("operation", payload.get("path")),
                 "response": response,
                 "failure": "".join(traceback.format_exception(error)) if error else None,
@@ -547,6 +557,7 @@ async def serve_authority(ready_fd):
                         existing["acknowledged"] = True
                         response = {"operation_id": operation_id, "state": "acknowledged"}
                         if state["stop_operation"] == operation_id:
+                            response["authority_stopping"] = True
                             state["stopping"] = True
                     try:
                         writer.write(json.dumps(response).encode() + b"\n")
@@ -577,6 +588,7 @@ async def serve_authority(ready_fd):
                     state["stop_operation"] is not None
                     or state["stop_preparing"] is not None
                     or state["journal_failure"] is not None
+                    or state["disposal_failure"] is not None
                     or any(
                         item["digest"] == digest and not item["acknowledged"]
                         for item in operations.values()
@@ -602,6 +614,8 @@ async def serve_authority(ready_fd):
                         operation = payload.get("operation")
                         if state["journal_failure"] is not None:
                             raise SeedSetupRefused("Fixture evidence journal is unavailable")
+                        if state["disposal_failure"] is not None:
+                            raise SeedSetupRefused("Fixture database disposal is unsettled")
                         if state["offline"] is not None and operation not in {
                             "owner_offline_seal", "owner_offline_resume", "owner_offline_status"
                         }:
@@ -821,6 +835,8 @@ async def serve_authority(ready_fd):
                                 try:
                                     await state["engine"].dispose()
                                 except BaseException as error:
+                                    entry["disposal_error"] = error
+                                    state["disposal_failure"] = error
                                     if operation_failure is not None:
                                         raise builtins.BaseExceptionGroup(
                                             "fixture operation and database disposal failed",
@@ -833,14 +849,18 @@ async def serve_authority(ready_fd):
                         while isinstance(first, builtins.BaseExceptionGroup):
                             first = first.exceptions[0]
                         response = {"owner_error": type(first).__name__}
+                        if "operation_response" in entry:
+                            response["operation_response"] = entry["operation_response"]
+                        if "disposal_error" in entry:
+                            response["disposal_error"] = type(entry["disposal_error"]).__name__
                     if state["stop_operation"] == operation_id:
                         response["authority_stopping"] = True
                     entry["actual_response"] = response.copy()
                     if entry["error"] is not None or response.get("status", 200) != 200:
                         try:
                             journal_failure(
-                                payload,
-                                response=entry["actual_response"] if entry["error"] is None else None,
+                                payload, operation_id=operation_id,
+                                response=entry.get("operation_response", entry["actual_response"]),
                                 error=entry["error"],
                             )
                         except Exception as journal_error:
@@ -954,10 +974,13 @@ async def main():
     channel, record, pidfd = await asyncio.to_thread(
         connect_owner, create=request["action"] == "execute"
     )
-    stopping = set()
     try:
         with channel, channel.makefile("rwb") as stream:
             while True:
+                final_record = (
+                    await asyncio.to_thread(current_owner_for_ack, record, channel)
+                    if request["action"] == "ack" else None
+                )
                 stream.write(json.dumps({**request, "token": record["token"]}).encode() + b"\n")
                 stream.flush()
                 response = await asyncio.to_thread(stream.readline)
@@ -966,17 +989,15 @@ async def main():
                 result = json.loads(response)
                 if result.get("operation_id") != request["operation_id"]:
                     raise SeedSetupRefused("Fixture authority response identity changed")
-                if result.get("authority_stopping"):
-                    stopping.add(request["operation_id"])
-                if (
-                    request["action"] == "ack"
-                    and request["operation_id"] in stopping
-                    and result.get("state") == "acknowledged"
-                ):
+                if result.get("authority_stopping") and request["action"] == "ack":
+                    if result.get("state") != "acknowledged" or final_record is None:
+                        raise SeedSetupRefused("Invalid final shutdown acknowledgement")
                     poller = select.poll()
                     poller.register(pidfd, select.POLLIN)
                     await asyncio.to_thread(poller.poll)
-                    await asyncio.to_thread(finish_authority, record)
+                    await asyncio.to_thread(finish_authority, final_record)
+                    del result["authority_stopping"]
+                    response = json.dumps(result).encode() + b"\n"
                 sys.stdout.buffer.write(response)
                 sys.stdout.buffer.flush()
                 line = await asyncio.to_thread(sys.stdin.buffer.readline)

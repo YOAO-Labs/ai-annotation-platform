@@ -1019,9 +1019,15 @@ class WorkspaceImportCli:
                     key in reply and (
                         not isinstance(reply[key], str) or not reply[key].isidentifier()
                     )
-                    for key in ("owner_error", "journal_error")
+                    for key in ("owner_error", "journal_error", "disposal_error")
                 ):
                     raise RuntimeError("Private fixture coordinator returned an invalid error")
+                if "operation_response" in reply and (
+                    not isinstance(reply["operation_response"], dict)
+                    or type(reply["operation_response"].get("status")) is not int
+                    or not isinstance(reply["operation_response"].get("body"), str)
+                ):
+                    raise RuntimeError("Private fixture coordinator returned an invalid operation response")
                 if reply.get("owner_error") is None and (
                     type(reply.get("status")) is not int
                     or not isinstance(reply.get("body"), str)
@@ -1031,6 +1037,16 @@ class WorkspaceImportCli:
                 receipt = exchange({"action": "ack", "operation_id": operation_id})
                 if receipt.get("state") != "acknowledged":
                     raise RuntimeError("Private fixture coordinator receipt is unresolved")
+                if reply.get("disposal_error"):
+                    causes = []
+                    if "operation_response" in reply:
+                        causes.append(RuntimeError(f"Fixture operation returned HTTP {reply['operation_response']['status']}"))
+                    if reply.get("owner_error") and reply["owner_error"] != reply["disposal_error"]:
+                        causes.append(RuntimeError(f"Fixture operation failed: {reply['owner_error']}"))
+                    causes.append(RuntimeError(f"Fixture database disposal failed: {reply['disposal_error']}"))
+                    if reply.get("journal_error"):
+                        causes.append(RuntimeError(f"Fixture evidence journal failed: {reply['journal_error']}"))
+                    raise ExceptionGroup("Private fixture operation and disposal failed", causes)
                 if reply.get("journal_error"):
                     raise ExceptionGroup("Private fixture operation and evidence failed", [
                         RuntimeError(f"Fixture operation: {reply.get('owner_error', reply.get('status'))}"),

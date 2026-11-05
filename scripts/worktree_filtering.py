@@ -59,6 +59,14 @@ async def _fixture_request(payload: dict):
             or ("journal_error" in response and (
                 not isinstance(response["journal_error"], str) or not response["journal_error"].isidentifier()
             ))
+            or ("disposal_error" in response and (
+                not isinstance(response["disposal_error"], str) or not response["disposal_error"].isidentifier()
+            ))
+            or ("operation_response" in response and (
+                not isinstance(response["operation_response"], dict)
+                or type(response["operation_response"].get("status")) is not int
+                or not isinstance(response["operation_response"].get("body"), str)
+            ))
         ):
             raise WorktreeError("筛选夹具 owner 返回了无效结果")
         if response.get("owner_error") not in {
@@ -91,13 +99,19 @@ async def _fixture_request(payload: dict):
         )
     if response.get("owner_error") or response.get("journal_error"):
         causes = []
-        if response.get("owner_error"):
+        if response.get("operation_response"):
+            causes.append(WorktreeError(f"筛选夹具准备结果：HTTP {response['operation_response']['status']}"))
+        if response.get("owner_error") and response["owner_error"] != response.get("disposal_error"):
             causes.append(WorktreeError(f"筛选夹具操作失败：{response['owner_error']}"))
-        else:
+        if response.get("disposal_error"):
+            causes.append(WorktreeError(f"筛选夹具数据库释放失败：{response['disposal_error']}"))
+        if not causes:
             causes.append(WorktreeError(f"筛选夹具准备失败：HTTP {response['status']}"))
         if response.get("journal_error"):
             causes.append(WorktreeError(f"私有证据写入失败：{response['journal_error']}"))
         error = causes[0] if len(causes) == 1 else ExceptionGroup("夹具操作与证据失败", causes)
+        error.fixture_response = response
+        error.fixture_operation_id = operation_id
         error.add_note(f"Fixture operation ID: {operation_id}")
         raise error
     if response["status"] != 200:

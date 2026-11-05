@@ -7,10 +7,8 @@ The deterministic provider qualifies its own physical lifecycle, not a model or 
 from __future__ import annotations
 
 import asyncio
-import ctypes
 import json
 import os
-import platform
 import secrets
 import select
 import subprocess
@@ -48,6 +46,7 @@ from tests.seed_owner_support import (
     _fixture_versions,
     _read_versions,
     fixture_original_reader,
+    private_seed_owner,
 )
 from tests.test_asset_storage_cleanup_runtime import (
     _local_s3_client,
@@ -78,6 +77,9 @@ pytestmark = [
     ),
 ]
 ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(ROOT / "scripts"))
+from linux_pidfd import open_pidfd as _process_handle  # noqa: E402
+from worktree_env import atomic_json  # noqa: E402
 
 # Keep all exact process and pipe handles after indeterminate native work.
 _RETAINED_UNCERTAIN = []
@@ -123,6 +125,79 @@ class _PreservedSeedOwner(SeedOwner):
             self._buffer.extend(chunk)
 
 
+async def test_shutdown_ack_reconnects_and_preserves_exact_owner_identity(test_engine):
+    fixture_db = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
+    assert (fixture_db.host, fixture_db.port, fixture_db.database) == (
+        test_engine.url.host, test_engine.url.port, test_engine.url.database,
+    )
+    record_dir = (
+        Path(os.environ["AAP_WORKTREE_RESOURCE_ROOT"]) / ".worktree"
+        / os.environ["AAP_WORKTREE_MODE"] / "fixture-authority"
+    )
+    first_suite, neighbor = uuid.uuid4(), uuid.uuid4()
+    async with private_seed_owner() as first:
+        await first.prepare_suite(first_suite, "owned")
+        await first.prepare_suite(neighbor, "owned")
+        await OwnedSuite(first, first_suite).finish()
+        shared_id = str(uuid.uuid4())
+        shared = await first._exchange({
+            "action": "execute", "operation_id": shared_id,
+            "payload": {"operation": "owner_shutdown", "suite_id": str(first_suite)},
+        })
+        assert json.loads(shared["body"])["state"] == "shared"
+        async with private_seed_owner() as fresh:
+            await fresh.acknowledge_operation(shared_id)
+        assert await first.recover_operation(shared_id) == shared
+        seal = json.loads((await first._request({"operation": "owner_offline_seal"}))["body"])
+        async with private_seed_owner() as sealed:
+            status = await sealed._request({"operation": "owner_offline_status"})
+            assert json.loads(status["body"])["phase"] == "sealed"
+            await sealed._request({
+                "operation": "owner_offline_resume", "seal_secret": seal["seal_secret"],
+            })
+            await OwnedSuite(sealed, neighbor).finish()
+            assert await sealed.shutdown_authority(neighbor) == "stopped"
+    assert not (record_dir / "owner.json").exists()
+    assert json.loads((record_dir / "generation.json").read_text())["state"] == "closed"
+
+    final_suite = uuid.uuid4()
+    async with private_seed_owner() as first:
+        await first.prepare_suite(final_suite, "owned")
+        await OwnedSuite(first, final_suite).finish()
+        operation_id = str(uuid.uuid4())
+        result = await first._exchange({
+            "action": "execute", "operation_id": operation_id,
+            "payload": {"operation": "owner_shutdown", "suite_id": str(final_suite)},
+        })
+        assert json.loads(result["body"])["state"] == "stopped"
+        # Attach before replacement, then prove that the final ACK cannot
+        # finalize an altered record; restore the exact record before recovery.
+        probe = await asyncio.create_subprocess_exec(
+            sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
+            cwd=ROOT / "apps/api", stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        probe_id = str(uuid.uuid4())
+        probe.stdin.write((json.dumps({"action": "recover", "operation_id": probe_id}) + "\n").encode())
+        await probe.stdin.drain()
+        assert json.loads(await probe.stdout.readline())["state"] == "unknown"
+        path = record_dir / "owner.json"
+        record = json.loads(path.read_text())
+        try:
+            atomic_json(path, {**record, "nonce": secrets.token_hex(32)})
+            probe.stdin.write((json.dumps({"action": "ack", "operation_id": operation_id}) + "\n").encode())
+            await probe.stdin.drain()
+            assert await probe.stdout.readline() == b""
+            assert await probe.wait() != 0
+        finally:
+            atomic_json(path, record)
+            probe.stdin.close()
+        async with private_seed_owner() as fresh:
+            await fresh.acknowledge_operation(operation_id)
+    assert not (record_dir / "owner.json").exists()
+    assert json.loads((record_dir / "generation.json").read_text())["state"] == "closed"
+
+
 async def _eventually(description, probe, *, timeout=120):
     try:
         async with asyncio.timeout(timeout):
@@ -154,17 +229,6 @@ async def _control(owner, run, fixture, action):
     return response.json()["requests"]
 
 
-def _process_handle(pid):
-    if sys.platform != "linux" or platform.machine() not in {"x86_64", "aarch64"}:
-        raise RuntimeError("This explicit qualification requires a Linux pidfd")
-    # This runtime has kernel support but no Python os.pidfd_open binding.
-    libc = ctypes.CDLL(None, use_errno=True)
-    libc.syscall.restype = ctypes.c_long
-    descriptor = libc.syscall(ctypes.c_long(434), ctypes.c_int(pid), ctypes.c_int(0))
-    if descriptor < 0:
-        number = ctypes.get_errno()
-        raise OSError(number, os.strerror(number))
-    return int(descriptor)
 
 
 async def _provider_handle(run):

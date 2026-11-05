@@ -149,6 +149,14 @@ class SeedOwner:
                     or ("journal_error" in result and (
                         not isinstance(result["journal_error"], str) or not result["journal_error"].isidentifier()
                     ))
+                    or ("disposal_error" in result and (
+                        not isinstance(result["disposal_error"], str) or not result["disposal_error"].isidentifier()
+                    ))
+                    or ("operation_response" in result and (
+                        not isinstance(result["operation_response"], dict)
+                        or type(result["operation_response"].get("status")) is not int
+                        or not isinstance(result["operation_response"].get("body"), str)
+                    ))
                 ):
                     raise RuntimeError("Fixture owner returned an invalid operation result")
                 if result.get("owner_error") not in {
@@ -166,9 +174,14 @@ class SeedOwner:
                 self.failure = error
                 raise
         causes = []
-        if "owner_error" in result:
+        known = result.get("operation_response")
+        if known is not None:
+            causes.append(RuntimeError(f"Fixture operation returned HTTP {known['status']}"))
+        if result.get("owner_error") and result["owner_error"] != result.get("disposal_error"):
             causes.append(RuntimeError(f"Fixture operation failed: {result['owner_error']}"))
-        elif result.get("journal_error"):
+        if result.get("disposal_error"):
+            causes.append(RuntimeError(f"Fixture database disposal failed: {result['disposal_error']}"))
+        if not causes and result.get("journal_error"):
             causes.append(RuntimeError(f"Fixture operation returned HTTP {result['status']}"))
         if result.get("journal_error"):
             causes.append(RuntimeError(f"Fixture evidence journal failed: {result['journal_error']}"))
@@ -176,6 +189,8 @@ class SeedOwner:
             error = causes[0] if len(causes) == 1 else ExceptionGroup(
                 "Fixture operation and evidence failed", causes
             )
+            error.fixture_response = result
+            error.fixture_operation_id = operation_id
             error.add_note(f"Fixture operation ID: {operation_id}")
             raise error
         return result

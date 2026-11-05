@@ -9,6 +9,9 @@ export function recoverFixtureOperation(operationId: string): Promise<{
   status?: number;
   body?: string;
   owner_error?: string;
+  disposal_error?: string;
+  operation_response?: { status: number; body: string };
+  readonly privateOperationResponse?: { status: number; body: string };
   journal_error?: string;
 }>;
 export function acknowledgeFixtureOperation(operationId: string): Promise<void>;

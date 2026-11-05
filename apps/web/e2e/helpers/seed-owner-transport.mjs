@@ -106,6 +106,10 @@ function startOwner() {
         (response.owner_error === undefined &&
           (!Number.isInteger(response.status) || typeof response.body !== "string")) ||
         (response.journal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.journal_error)) ||
+        (response.disposal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.disposal_error)) ||
+        (response.operation_response !== undefined &&
+          (!response.operation_response || typeof response.operation_response !== "object" ||
+            !Number.isInteger(response.operation_response.status) || typeof response.operation_response.body !== "string")) ||
         (response.relay_journal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.relay_journal_error))
       ) {
         const error = new Error("Fixture owner returned an invalid operation result");
@@ -125,13 +129,16 @@ function startOwner() {
         }
       }
       const causes = [];
-      if (response.owner_error) causes.push(new Error(`Fixture operation failed: ${response.owner_error}`));
-      else if (response.journal_error || response.relay_journal_error) causes.push(new Error(`Fixture operation returned HTTP ${response.status}`));
+      if (response.operation_response) causes.push(new Error(`Fixture operation returned HTTP ${response.operation_response.status}`));
+      if (response.owner_error && response.owner_error !== response.disposal_error) causes.push(new Error(`Fixture operation failed: ${response.owner_error}`));
+      if (response.disposal_error) causes.push(new Error(`Fixture database disposal failed: ${response.disposal_error}`));
+      if (!causes.length && (response.journal_error || response.relay_journal_error)) causes.push(new Error(`Fixture operation returned HTTP ${response.status}`));
       if (response.journal_error) causes.push(new Error(`Fixture evidence journal failed: ${response.journal_error}`));
       if (response.relay_journal_error) causes.push(new Error(`Raster evidence journal failed: ${response.relay_journal_error}`));
       if (causes.length) {
         const error = causes.length === 1 ? causes[0] : new AggregateError(causes, "Fixture operation and evidence failed");
         error.operationId = operationId;
+        Object.defineProperty(error, "fixtureResponse", { value: response });
         throw error;
       }
       return response;
@@ -150,7 +157,15 @@ function startOwner() {
 export async function recoverFixtureOperation(operationId) {
   transport ??= startOwner();
   const result = await transport.exchange({ action: "recover", operation_id: operationId }, 30_000);
-  return result.status >= 300 ? { ...result, body: safeFailureBody(result.body) } : result;
+  if (result.status >= 300) result.body = safeFailureBody(result.body);
+  if (result.operation_response?.status >= 300) {
+    Object.defineProperty(result, "privateOperationResponse", { value: result.operation_response });
+    result.operation_response = {
+      ...result.operation_response,
+      body: safeFailureBody(result.operation_response.body),
+    };
+  }
+  return result;
 }
 
 export async function acknowledgeFixtureOperation(operationId) {

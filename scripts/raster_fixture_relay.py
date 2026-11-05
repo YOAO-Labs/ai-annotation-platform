@@ -147,8 +147,9 @@ class RasterFixtureRelay:
                             require(bool(response_line), "raster_fixture_process_exited")
                             response = json.loads(response_line)
                             require(response.get("operation_id") == operation_id, "raster_fixture_response_changed")
+                            known = response.get("operation_response", response)
                             with relay.lock:
-                                if response.get("status") is not None and response["status"] != 200:
+                                if (known.get("status") is not None and known["status"] != 200) or response.get("disposal_error"):
                                     try:
                                         relay.on_seed_failure(payload, response.copy())
                                     except BaseException as error:
@@ -156,11 +157,11 @@ class RasterFixtureRelay:
                                         response["relay_journal_error"] = type(error).__name__
                                 if (
                                     payload.get("path") == PREFIX + "owned"
-                                    and response.get("status") == 200
+                                    and known.get("status") == 200
                                     and not entry["registered"]
                                 ):
                                     data = payload["data"]
-                                    relay._register(data["run_id"], data["namespace"], json.loads(response["body"]))
+                                    relay._register(data["run_id"], data["namespace"], json.loads(known["body"]))
                                     entry["registered"] = True
                                 if response.get("owner_error") in {
                                     "OperationOutcomeUnresolved", "OperationIdentityConflict"
@@ -239,9 +240,16 @@ class RasterFixtureRelay:
             initial_response = json.loads(initial)
             require(initial_response.get("operation_id") == operation_id, "raster_fixture_response_changed")
             if initial_response.get("status") != 200 or initial_response.get("journal_error"):
-                causes = [ContractError(
-                    f"raster_fixture_prepare_{initial_response.get('status', initial_response.get('owner_error'))}"
-                )]
+                known = initial_response.get("operation_response")
+                causes = []
+                if known is not None:
+                    causes.append(ContractError(f"raster_seed_http_{known['status']}"))
+                if initial_response.get("owner_error") and initial_response["owner_error"] != initial_response.get("disposal_error"):
+                    causes.append(ContractError(f"raster_fixture_prepare_{initial_response['owner_error']}"))
+                if initial_response.get("disposal_error"):
+                    causes.append(ContractError(f"raster_seed_disposal_{initial_response['disposal_error']}"))
+                if not causes:
+                    causes.append(ContractError(f"raster_fixture_prepare_{initial_response.get('status')}"))
                 if initial_response.get("journal_error"):
                     causes.append(ContractError(f"raster_seed_journal_{initial_response['journal_error']}"))
                 try:

@@ -82,24 +82,36 @@ def seed_operation(process, owner, payload):
             ))
             and ("journal_error" not in reply or (
                 isinstance(reply["journal_error"], str) and reply["journal_error"].isidentifier()
+            ))
+            and ("disposal_error" not in reply or (
+                isinstance(reply["disposal_error"], str) and reply["disposal_error"].isidentifier()
+            ))
+            and ("operation_response" not in reply or (
+                isinstance(reply["operation_response"], dict)
+                and type(reply["operation_response"].get("status")) is int
+                and isinstance(reply["operation_response"].get("body"), str)
             )),
             "raster_seed_response_invalid",
         )
         if reply.get("owner_error") in {"OperationOutcomeUnresolved", "OperationIdentityConflict"}:
             raise ContractError(f"raster_seed_{reply['owner_error']}")
-        if reply.get("status") is not None and reply["status"] != 200:
+        known = reply.get("operation_response", reply)
+        if known.get("status") is not None and (known["status"] != 200 or reply.get("disposal_error")):
             owner.data["raster"].setdefault("seed_failures", []).append({
                 "operation_id": operation_id,
                 "operation": payload.get("operation", payload.get("path")),
-                "status": reply["status"],
-                "body": reply["body"],
+                "status": known["status"],
+                "body": known["body"],
+                "disposal_error": reply.get("disposal_error"),
             })
             try:
                 owner.save()
             except BaseException as error:
-                raise builtins.BaseExceptionGroup("raster seed and evidence failed", [
-                    ContractError(f"raster_seed_http_{reply['status']}"), error,
-                ]) from None
+                causes = [ContractError(f"raster_seed_http_{known['status']}")]
+                if reply.get("disposal_error"):
+                    causes.append(ContractError(f"raster_seed_disposal_{reply['disposal_error']}"))
+                causes.append(error)
+                raise builtins.BaseExceptionGroup("raster seed and evidence failed", causes) from None
         process.stdin.write(json.dumps({"action": "ack", "operation_id": operation_id}) + "\n")
         process.stdin.flush()
         receipt_line = process.stdout.readline()
@@ -113,9 +125,13 @@ def seed_operation(process, owner, payload):
         owner.data["raster"]["seed_operation"]["state"] = "acknowledged"
         owner.save()
         errors = []
-        if reply.get("owner_error"):
+        if reply.get("operation_response"):
+            errors.append(ContractError(f"raster_seed_http_{known['status']}"))
+        if reply.get("owner_error") and reply["owner_error"] != reply.get("disposal_error"):
             errors.append(ContractError(f"raster_seed_{reply['owner_error']}"))
-        elif reply.get("status") != 200:
+        if reply.get("disposal_error"):
+            errors.append(ContractError(f"raster_seed_disposal_{reply['disposal_error']}"))
+        if not errors and reply.get("status") != 200:
             errors.append(ContractError(f"raster_seed_http_{reply['status']}"))
         if reply.get("journal_error"):
             errors.append(ContractError(f"raster_seed_journal_{reply['journal_error']}"))
@@ -856,12 +872,22 @@ def exercise_faults(owner, environment, references, suite):
 
 def require_no_children():
     # Linux subreaper adoption exposes detached Playwright descendants too.
+    outcomes = []
+    live = False
     while True:
         try:
-            pid, _ = os.waitpid(-1, os.WNOHANG)
+            pid, status = os.waitpid(-1, os.WNOHANG)
         except ChildProcessError:
-            return
-        require(pid != 0, "raster_consumer_descendants_still_running")
+            break
+        if pid == 0:
+            live = True
+            break
+        outcomes.append({"pid": pid, "status": status})
+    if live or any(not os.WIFEXITED(item["status"]) or os.WEXITSTATUS(item["status"]) != 0 for item in outcomes):
+        error = ContractError("raster_consumer_descendants_unsettled")
+        error.adopted_outcomes = outcomes
+        error.children_live = live
+        raise error
 
 
 def require_only_fixture_owner(fenced):
@@ -1066,6 +1092,8 @@ def inside_with_inference(path, arguments, inference):
             "body": response.get("body"),
             "owner_error": response.get("owner_error"),
             "journal_error": response.get("journal_error"),
+            "operation_response": response.get("operation_response"),
+            "disposal_error": response.get("disposal_error"),
         })
         recorded.save()
 
@@ -1256,6 +1284,12 @@ def failure_evidence(error):
             and text.removeprefix("raster_consumer_exit_").lstrip("-").isdigit()
         ):
             value["code"] = text
+    if hasattr(error, "descendant_outcomes"):
+        value["descendant_outcomes"] = error.descendant_outcomes
+        value["leader_status"] = error.leader_status
+    if hasattr(error, "adopted_outcomes"):
+        value["adopted_outcomes"] = error.adopted_outcomes
+        value["children_live"] = error.children_live
     if isinstance(error, OSError) and error.errno is not None:
         value["errno"] = error.errno
     if error.__cause__ is not None:

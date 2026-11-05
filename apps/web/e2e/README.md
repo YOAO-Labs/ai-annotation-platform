@@ -140,6 +140,11 @@ suite 清理先完成全部子运行的原生执行退休，再逐个清理数�
 收到 socket 写入成功不构成调用方确认。未知物理 I/O 或未确认结果会阻止受保护的
 authority 关闭；如果私有失败日志无法持久写入，原操作结果及日志错误分别保留在存活的
 authority 中，后续变更拒绝执行，不能用重建 owner 消除该故障。
+若真实 HTTP 操作已有状态与正文、随后数据库连接池释放失败，同一 UUID 的恢复结果
+分别保留 `operation_response` 和 `disposal_error`；释放责任未证明结束时继续拒绝新变更，
+不得重放原操作。完整原始结果只保存在私有 authority 和证据中，普通输出仍需脱敏。
+Node 恢复接口的 `privateOperationResponse` 保存未脱敏的已知失败正文，且不会随普通
+对象枚举输出；仅限私有诊断，不得打印该字段。
 私有记录位于对应工作树模式的 `fixture-authority/owner.json`，只应由拥有该
 隔离环境的调用方读取。Raster 中断在封闭阶段时，恢复方先核对原始进程与资源身份，
 再通过同一私有客户端执行 `owner_offline_status`。只有 `phase: sealed` 同时证明每个
@@ -151,6 +156,8 @@ suite，返回的 `shared` 表示 authority 继续持有邻居，并不表示该
 最终关闭必须由持有 pidfd 的客户端证明原进程退出并完成精确记录收尾；若该客户端在
 确认结果后、证明退出之前失联，则保留原 generation 和证据为未决状态，报告失败，
 不得自动重建 authority、重放操作或销毁资源。最终退出后的原 authority 不再提供查询。
+已收到最终关闭结果的调用方可由新的私有客户端直接确认原 UUID；该客户端仍须核验
+同一 authority 的当前记录、精确进程退出及记录收尾，`shared` 确认不会结束共享 owner。
 原生推理 owner 必须通过原始进程身份与私有控制通道核验；完整暂停的退出回执保留在
 工作树 mode 的 `inference-paused.json`，文件名或缺失的进程本身都不等于完成证明。
 仅在原控制 owner 已认证、同一组 Routing/Health 端点就绪后才重新开放 seed。
