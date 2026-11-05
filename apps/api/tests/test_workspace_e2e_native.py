@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 from datetime import UTC, datetime
 import inspect
 import json
@@ -37,6 +38,11 @@ from tests.identity_e2e_support import (
     owner_fault_http as owner_fault_http,
     scenario_rle_bindings as scenario_rle_bindings,
 )
+from tests.seed_owner_support import (
+    _fixture_versions,
+    _read_versions,
+    fixture_original_reader,
+)
 from tests.test_training_dataset_references import (
     committed_rle_bindings as committed_rle_bindings,
 )
@@ -56,14 +62,6 @@ pytestmark = [
 @pytest.fixture
 async def e2e_consumer(test_engine):
     async with _world(test_engine, apply=True) as (_, producer, role, _):
-        profiles = [
-            "identity-e2e-fixture-grants.sql",
-            "workspace-seed-operator-grants.sql",
-            "workspace-e2e-fixture-grants.sql",
-        ]
-        for profile in profiles:
-            result = await _grants(test_engine, ROOT / "infra/docker" / profile, role)
-            assert result.returncode == 0, result.stderr
         async with test_engine.begin() as db:
             await db.execute(
                 text(
@@ -74,6 +72,20 @@ async def e2e_consumer(test_engine):
             )
         async with producer() as db:
             await _assert_closed(db)
+        yield producer.kw["bind"]
+
+
+@pytest.fixture
+async def fixture_operator(test_engine):
+    """A separate LOGIN for explicit Workspace fixture capability checks."""
+    async with _world(test_engine, apply=True) as (_, producer, role, _):
+        for profile in (
+            "identity-e2e-fixture-grants.sql",
+            "workspace-seed-operator-grants.sql",
+            "workspace-e2e-fixture-grants.sql",
+        ):
+            result = await _grants(test_engine, ROOT / "infra/docker" / profile, role)
+            assert result.returncode == 0, result.stderr
         yield producer.kw["bind"]
 
 
@@ -128,8 +140,8 @@ async def _snapshot(engine):
     "scenario",
     [
         seed_cases.project_roles_seed_builds_multi_project_employee_matrix,
-        seed_cases.project_roles_seed_is_idempotent,
-        seed_cases.seed_owned_is_idempotent_with_singleton_pool,
+        seed_cases.project_roles_seed_rebuilds_after_cleanup,
+        seed_cases.seed_owned_rebuilds_with_singleton_pool,
         seed_cases.seed_cleanup_is_idempotent_and_preserves_non_e2e_data,
         seed_cases.seed_raster_mask_project_opt_in_and_content_fixtures,
         owned_cases.owned_cleanup_is_exact_idempotent_and_neighbour_safe,
@@ -162,7 +174,7 @@ async def test_owner_fixture_scenarios_with_fenced_workspace_business_http(
 @pytest.mark.parametrize("autoflush", [True, False])
 @pytest.mark.parametrize("commit", [True, False], ids=["commit", "rollback"])
 async def test_fixture_writes_keep_cache_pending_work_and_transaction(
-    e2e_consumer, test_engine, autoflush, commit
+    fixture_operator, test_engine, autoflush, commit
 ):
     async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as owner:
         actor = await create_user(
@@ -173,7 +185,7 @@ async def test_fixture_writes_keep_cache_pending_work_and_transaction(
     pending_id = uuid.uuid4()
     try:
         async with async_sessionmaker(
-            e2e_consumer, expire_on_commit=False, autoflush=autoflush
+            fixture_operator, expire_on_commit=False, autoflush=autoflush
         )() as db:
             pending = Dataset(
                 id=pending_id,
@@ -277,12 +289,17 @@ async def test_fixture_writes_keep_cache_pending_work_and_transaction(
 
 
 async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
-    owner_fault_http, test_engine, e2e_consumer, monkeypatch
+    owner_fault_http,
+    fixture_and_fenced_http,
+    test_engine,
+    fixture_operator,
+    monkeypatch,
 ):
     from app.api.v1 import _test_seed_attachments as attachments
 
+    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
     response = await owner_fault_http.post(
-        "/api/v1/__test/seed/owned", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/owned", json=run.payload()
     )
     assert response.status_code == 200, response.text
     project_id = uuid.UUID(response.json()["project_id"])
@@ -323,9 +340,6 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
             )
         with monkeypatch.context() as patch:
 
-            def no_object_delete(*args, **kwargs):
-                pytest.fail("retirement refusal must precede storage deletion")
-
             async def no_owned_object_delete(*args, **kwargs):
                 pytest.fail("retirement refusal must precede owner object deletion")
 
@@ -333,14 +347,14 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
             patch.setattr(
                 routes, "_delete_fixture_video_objects", no_owned_object_delete
             )
-            patch.setattr(routes, "_delete_seed_object_prefix", no_object_delete)
+            patch.setattr(routes, "_reclaim_owned_originals", no_owned_object_delete)
             response = await owner_fault_http.post(
-                "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
             )
             assert response.status_code == 409, response.text
             assert response.json()["detail"]["code"] == "video_execution_not_retired"
         assert await _snapshot(test_engine) == before
-        async with async_sessionmaker(e2e_consumer)() as db:
+        async with async_sessionmaker(fixture_operator)() as db:
             with pytest.raises(DBAPIError) as error:
                 await db.scalar(
                     text(
@@ -373,20 +387,37 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
                 text("DELETE FROM video_tracker_jobs WHERE id=:id"), {"id": job_id}
             )
         response = await owner_fault_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+            "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize("kind", ["project", "template"])
 async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
-    owner_fault_http, test_engine, monkeypatch, kind
+    owner_fault_http, fixture_and_fenced_http, test_engine, monkeypatch, kind
 ):
     from app.db.models.project import Project
     from app.db.models.project_template import ProjectTemplate
 
-    row_id = uuid.uuid4()
+    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
+    built = await fixture_and_fenced_http.post(
+        "/api/v1/__test/seed/filtering", json=run.payload()
+    )
+    assert built.status_code == 200, built.text
+    manifest = built.json()
+    target_id = uuid.UUID(
+        manifest["image"]["project_id"]
+        if kind == "project"
+        else manifest["operations"]["template_ids"][0]
+    )
+    model = Project if kind == "project" else ProjectTemplate
+    keeper_row_id = uuid.uuid4()
     async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as db:
+        target = await db.get(model, target_id)
+        old_display = target.display_id
+        target.display_id = f"RENAMED-{uuid.uuid4().hex[:12]}"
+        target.name = "Renamed owned fixture"
+        await db.flush()
         keeper = await create_user(
             db, "super_admin", f"residual-{uuid.uuid4()}@keeper.test", "Keeper"
         )
@@ -394,9 +425,9 @@ async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
         if kind == "project":
             db.add(
                 Project(
-                    id=row_id,
-                    display_id=f"P-FI-I-{NAMESPACE}",
-                    name="Renamed ordinary name",
+                    id=keeper_row_id,
+                    display_id=old_display,
+                    name="Ordinary neighbor",
                     type_label="Image",
                     type_key="image-det",
                     owner_id=keeper_id,
@@ -405,9 +436,9 @@ async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
         else:
             db.add(
                 ProjectTemplate(
-                    id=row_id,
-                    display_id=f"TPLFI-A-{NAMESPACE}",
-                    name="Retained template",
+                    id=keeper_row_id,
+                    display_id=old_display,
+                    name="Ordinary neighbor",
                     type_label="Image",
                     type_key="image-det",
                     created_by=keeper_id,
@@ -424,27 +455,37 @@ async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
     try:
         with monkeypatch.context() as patch:
             patch.setattr(AsyncSession, "execute", controlled_failure)
-            response = await owner_fault_http.post(
-                "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
-            )
-            assert response.status_code == 500, response.text
-            assert response.json()["detail"]["residuals"][kind + "s"] == 1
+            with pytest.raises(
+                RuntimeError, match="controlled fixture deletion failure"
+            ):
+                await owner_fault_http.post(
+                    "/api/v1/__test/seed/owned-cleanup", json=run.payload()
+                )
+        async with async_sessionmaker(test_engine)() as db:
+            assert await db.get(model, target_id) is not None
+            assert await db.get(model, keeper_row_id) is not None
         response = await owner_fault_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+            "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert response.status_code == 200, response.text
+        async with async_sessionmaker(test_engine)() as db:
+            assert await db.get(model, target_id) is None
+            assert await db.get(model, keeper_row_id) is not None
     finally:
         async with test_engine.begin() as db:
             table = "projects" if kind == "project" else "project_templates"
-            await db.execute(text(f"DELETE FROM {table} WHERE id=:id"), {"id": row_id})
+            await db.execute(
+                text(f"DELETE FROM {table} WHERE id=:id"), {"id": keeper_row_id}
+            )
             await db.execute(text("DELETE FROM users WHERE id=:id"), {"id": keeper_id})
 
 
 async def test_owner_lidar_cleanup_propagates_transaction_abort_before_storage(
-    owner_fault_http, test_engine, monkeypatch
+    owner_fault_http, fixture_and_fenced_http, test_engine, monkeypatch
 ):
+    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
     response = await owner_fault_http.post(
-        "/api/v1/__test/seed/lidar", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/lidar", json=run.payload()
     )
     assert response.status_code == 200, response.text
     before = await _snapshot(test_engine)
@@ -461,25 +502,25 @@ async def test_owner_lidar_cleanup_propagates_transaction_abort_before_storage(
     try:
         with monkeypatch.context() as patch:
             patch.setattr(AsyncSession, "execute", controlled_abort)
-            patch.setattr(
-                routes,
-                "_delete_seed_object_prefix",
-                lambda *a, **k: pytest.fail("aborted cleanup deleted storage"),
-            )
+
+            async def no_reclaim(*args, **kwargs):
+                pytest.fail("aborted cleanup reclaimed original storage")
+
+            patch.setattr(routes, "_reclaim_owned_originals", no_reclaim)
             with pytest.raises(ControlledAbort):
                 await owner_fault_http.post(
-                    "/api/v1/__test/seed/lidar", json={"namespace": NAMESPACE}
+                    "/api/v1/__test/seed/owned-cleanup", json=run.payload()
                 )
         assert await _snapshot(test_engine) == before
     finally:
         response = await owner_fault_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+            "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert response.status_code == 200, response.text
 
 
 async def test_node_fixed_fixture_capabilities_and_borrowed_rollback(
-    e2e_consumer, test_engine, record_property
+    fixture_operator, test_engine, record_property
 ):
     async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as db:
         actor = await create_user(
@@ -492,7 +533,7 @@ async def test_node_fixed_fixture_capabilities_and_borrowed_rollback(
             ["node", str(ROOT / "apps/api/tests/fixtures/workspace_e2e_peer.mjs")],
             input=json.dumps(
                 {
-                    "database_url": e2e_consumer.url.set(
+                    "database_url": fixture_operator.url.set(
                         drivername="postgresql"
                     ).render_as_string(hide_password=False),
                     "owner_id": str(actor_id),
@@ -579,12 +620,13 @@ async def test_fixture_capabilities_require_explicit_operator_profile(test_engin
 
 @pytest.mark.parametrize("state", ["23514", "55P03"])
 async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
-    owner_fault_http, test_engine, monkeypatch, state
+    owner_fault_http, fixture_and_fenced_http, test_engine, monkeypatch, state
 ):
-    from app.services.storage import storage_service
+    from botocore.exceptions import ClientError
 
+    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
     response = await owner_fault_http.post(
-        "/api/v1/__test/seed/owned", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/owned", json=run.payload()
     )
     assert response.status_code == 200, response.text
     project_id = uuid.UUID(response.json()["project_id"])
@@ -613,15 +655,9 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
             )
         )
     before = await _snapshot(test_engine)
-    prefix = routes._parse_owned_namespace(NAMESPACE).image_key_prefix
-
-    def object_keys():
-        result = storage_service.client.list_objects_v2(
-            Bucket=storage_service.datasets_bucket, Prefix=prefix
-        )
-        return {item["Key"] for item in result.get("Contents", [])}
-
-    assert object_keys()
+    versions = await _fixture_versions(test_engine, run)
+    with closing(fixture_original_reader()) as reader:
+        before_versions = _read_versions(reader, versions)
 
     async def children():
         async with test_engine.connect() as db:
@@ -656,9 +692,8 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
     try:
         with monkeypatch.context() as patch:
             patch.setattr(AsyncSession, "execute", denied)
-            # Physical fixture objects are removed before this final DB rejection.
             response = await owner_fault_http.post(
-                "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
             )
             assert response.status_code == 409, response.text
             expected = (
@@ -672,7 +707,8 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
             )
         assert await _snapshot(test_engine) == before
         assert await children() == before_children
-        assert object_keys() == set()
+        with closing(fixture_original_reader()) as reader:
+            assert _read_versions(reader, versions) == before_versions
         async with test_engine.connect() as db:
             assert (
                 await db.scalar(
@@ -692,7 +728,7 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
             )
     finally:
         response = await owner_fault_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+            "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert response.status_code == 200, response.text
         async with test_engine.connect() as db:
@@ -710,4 +746,14 @@ async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
                 )
                 == 0
             )
-        assert object_keys() == set()
+        with closing(fixture_original_reader()) as reader:
+            for row in versions:
+                with pytest.raises(ClientError) as removed:
+                    reader.head_object(
+                        Bucket=row["bucket"],
+                        Key=row["object_key"],
+                        VersionId=row["version_id"],
+                    )
+                assert (
+                    removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+                )

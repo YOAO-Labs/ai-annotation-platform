@@ -34,6 +34,7 @@ from tests.identity_e2e_support import (
     e2e_consumer as e2e_consumer,
     fenced_http as fenced_http,
     fixture_and_fenced_http as fixture_and_fenced_http,
+    fixture_operator as fixture_operator,
     scenario_rle_bindings as scenario_rle_bindings,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
@@ -58,6 +59,8 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
     monkeypatch.setattr(settings, "identity_account_database_url_file", "")
     monkeypatch.setattr(settings, "identity_account_database_url", account_url)
     namespace = "receiptcase"
+    run = fixture_and_fenced_http.owner_suite.new_run(namespace)
+    created_scope = False
     keeper_id = uuid.uuid4()
     keeper_email = f"cleanup-audit-{keeper_id.hex}@example.test"
     async with test_engine.begin() as db:
@@ -77,9 +80,10 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
         )
     try:
         created = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/project-roles", json={"namespace": namespace}
+            "/api/v1/__test/seed/project-roles", json=run.payload()
         )
         assert created.status_code == 200, created.text
+        created_scope = True
         email = created.json()["owner_email_a"]
         login = await fixture_and_fenced_http.post(
             "/api/v1/__test/seed/login", json={"email": email}
@@ -105,7 +109,7 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
                 == 1
             )
         cleaned = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+            "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert cleaned.status_code == 200, cleaned.text
         async with test_engine.connect() as db:
@@ -133,16 +137,19 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
                 )
             ).one() == (keeper_id, keeper_email, "employee", "fixture.keep")
     finally:
-        cleaned = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
-        )
-        assert cleaned.status_code == 200, cleaned.text
+        if created_scope:
+            cleaned = await fixture_and_fenced_http.post(
+                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
+            )
+            assert cleaned.status_code == 200, cleaned.text
 
 
 async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_actor(
     test_engine, fixture_and_fenced_http, fenced_http, e2e_consumer
 ):
     namespace = "refcase"
+    run = fixture_and_fenced_http.owner_suite.new_run(namespace)
+    created_scope = False
     role = e2e_consumer.url.username
     assert role.startswith("workspace_consumer_") and role.replace("_", "").isalnum()
     async with test_engine.begin() as db:
@@ -164,9 +171,16 @@ async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_acto
     dataset_name = f"External cleanup reference {uuid.uuid4().hex}"
     try:
         created = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/project-roles", json={"namespace": namespace}
+            "/api/v1/__test/seed/project-roles", json=run.payload()
         )
         assert created.status_code == 200, created.text
+        created_scope = True
+        manifest = created.json()
+        user_ids = [uuid.UUID(user["id"]) for user in manifest["users"].values()]
+        project_ids = [
+            uuid.UUID(project["project_id"])
+            for project in manifest["projects"].values()
+        ]
         email = created.json()["owner_email_a"]
         login = await fixture_and_fenced_http.post(
             "/api/v1/__test/seed/login", json={"email": email}
@@ -191,12 +205,12 @@ async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_acto
                 == actor_id
             )
             projects_before = await db.scalar(
-                text("SELECT count(*) FROM projects WHERE name LIKE :name"),
-                {"name": f"E2E Project Roles % {namespace}"},
+                text("SELECT count(*) FROM projects WHERE id=ANY(:ids)"),
+                {"ids": project_ids},
             )
             assert projects_before == 4
         blocked = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+            "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert blocked.status_code == 409, blocked.text
         async with test_engine.connect() as db:
@@ -209,15 +223,15 @@ async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_acto
             )
             assert (
                 await db.scalar(
-                    text("SELECT count(*) FROM users WHERE email LIKE :email"),
-                    {"email": f"%-{namespace}@e2e.test"},
+                    text("SELECT count(*) FROM users WHERE id=ANY(:ids)"),
+                    {"ids": user_ids},
                 )
                 == 9
             )
             assert (
                 await db.scalar(
-                    text("SELECT count(*) FROM projects WHERE name LIKE :name"),
-                    {"name": f"E2E Project Roles % {namespace}"},
+                    text("SELECT count(*) FROM projects WHERE id=ANY(:ids)"),
+                    {"ids": project_ids},
                 )
                 == projects_before
             )
@@ -226,10 +240,11 @@ async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_acto
             await db.execute(
                 text("DELETE FROM datasets WHERE name=:name"), {"name": dataset_name}
             )
-        cleaned = await fixture_and_fenced_http.post(
-            "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
-        )
-        assert cleaned.status_code == 200, cleaned.text
+        if created_scope:
+            cleaned = await fixture_and_fenced_http.post(
+                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
+            )
+            assert cleaned.status_code == 200, cleaned.text
 
 
 @pytest.mark.parametrize(
@@ -266,8 +281,8 @@ async def test_fixture_grants_reject_direct_presence_access(test_engine, grant_f
     [
         seed_cases.seed_owned_returns_fixture_payload,
         seed_cases.project_roles_seed_builds_multi_project_employee_matrix,
-        seed_cases.project_roles_seed_is_idempotent,
-        seed_cases.seed_owned_is_idempotent_with_singleton_pool,
+        seed_cases.project_roles_seed_rebuilds_after_cleanup,
+        seed_cases.seed_owned_rebuilds_with_singleton_pool,
         seed_cases.seed_login_after_owned_returns_jwt,
         seed_cases.seed_login_unknown_email_404,
         seed_cases.seed_raster_mask_project_opt_in_and_content_fixtures,
@@ -416,7 +431,7 @@ async def test_committed_owner_cleans_only_its_committed_keepers(
 
 
 async def test_node_fixture_contract_and_borrowed_rollback(
-    test_engine, e2e_consumer, record_property
+    test_engine, fixture_operator, record_property
 ):
     async with (
         accounts(test_engine),
@@ -428,7 +443,7 @@ async def test_node_fixture_contract_and_borrowed_rollback(
             ["node", str(ROOT / "apps/api/tests/fixtures/identity_e2e_peer.mjs")],
             input=json.dumps(
                 {
-                    "database_url": e2e_consumer.url.set(
+                    "database_url": fixture_operator.url.set(
                         drivername="postgresql"
                     ).render_as_string(hide_password=False),
                     "target_id": str(IDS["target"]),
@@ -461,7 +476,7 @@ async def test_node_fixture_contract_and_borrowed_rollback(
                 )
                 == 1
             )
-        async with e2e_consumer.connect() as db:
+        async with fixture_operator.connect() as db:
             transaction = await db.begin()
             assert (
                 await db.scalar(
@@ -573,7 +588,7 @@ async def organization_member(engine):
 
 
 async def test_python_fixture_write_waits_and_borrows_transaction(
-    test_engine, e2e_consumer, record_property
+    test_engine, fixture_operator, record_property
 ):
     async with accounts(test_engine):
         async with test_engine.begin() as db:
@@ -588,7 +603,7 @@ async def test_python_fixture_write_waits_and_borrows_transaction(
                 {"id": IDS["target"]},
             )
         before = await snapshot(test_engine)
-        async with async_sessionmaker(e2e_consumer, expire_on_commit=False)() as db:
+        async with async_sessionmaker(fixture_operator, expire_on_commit=False)() as db:
             service = IdentityE2EFixtures(db)
             user = await service.find("admin-probea@e2e.test")
             assert user.is_active is True
@@ -600,7 +615,9 @@ async def test_python_fixture_write_waits_and_borrows_transaction(
         assert await snapshot(test_engine) == before
 
         async def write():
-            async with async_sessionmaker(e2e_consumer, expire_on_commit=False)() as db:
+            async with async_sessionmaker(
+                fixture_operator, expire_on_commit=False
+            )() as db:
                 service = IdentityE2EFixtures(db)
                 user = await service.find("admin-probea@e2e.test")
                 assert (
@@ -633,7 +650,7 @@ async def test_python_fixture_write_waits_and_borrows_transaction(
                                     text(
                                         "SELECT pid,wait_event_type,wait_event FROM pg_stat_activity WHERE datname=current_database() AND usename=:role AND state='active' AND wait_event_type='Lock' AND position('mark_manual_inactive' in query)>0"
                                     ),
-                                    {"role": e2e_consumer.url.username},
+                                    {"role": fixture_operator.url.username},
                                 )
                             )
                             .mappings()

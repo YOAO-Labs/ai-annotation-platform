@@ -8,10 +8,12 @@ NAMESPACE = "seedroute"
 
 
 async def seed_owned_returns_fixture_payload(httpx_client):
-    body = await _build_owned(httpx_client, NAMESPACE)
-    assert body["admin_email"] == f"admin-{NAMESPACE}@e2e.test"
-    assert body["annotator_email"] == f"anno-{NAMESPACE}@e2e.test"
-    assert body["reviewer_email"] == f"rev-{NAMESPACE}@e2e.test"
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    body = await _build_owned(httpx_client, run)
+    scope = run.scope()
+    assert body["admin_email"] == scope.admin_email
+    assert body["annotator_email"] == scope.annotator_email
+    assert body["reviewer_email"] == scope.reviewer_email
     assert isinstance(body["task_ids"], list)
     assert len(body["task_ids"]) == 5
 
@@ -49,8 +51,9 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     from app.db.models.task_batch import TaskBatch
     from app.db.models.user import User
 
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
     response = await httpx_client.post(
-        "/api/v1/__test/seed/project-roles", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/project-roles", json=run.payload()
     )
     assert response.status_code == 200, response.text
     body = response.json()
@@ -72,7 +75,9 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(User.email.like(f"%-{NAMESPACE}@e2e.test"))
+            .where(
+                User.id.in_([uuid.UUID(user["id"]) for user in body["users"].values()])
+            )
         )
         == 9
     )
@@ -155,38 +160,52 @@ async def project_roles_seed_builds_multi_project_employee_matrix(
     assert batch.annotator_id is None
 
 
-async def project_roles_seed_is_idempotent(httpx_client, db_session):
+async def project_roles_seed_rebuilds_after_cleanup(httpx_client, db_session):
     from sqlalchemy import func, select
 
     from app.db.models.user import User
 
+    first_run = httpx_client.owner_suite.new_run(NAMESPACE)
     first = await httpx_client.post(
-        "/api/v1/__test/seed/project-roles", json={"namespace": NAMESPACE}
-    )
-    second = await httpx_client.post(
-        "/api/v1/__test/seed/project-roles", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/project-roles", json=first_run.payload()
     )
     assert first.status_code == 200, first.text
+    cleanup = await httpx_client.post(
+        "/api/v1/__test/seed/owned-cleanup", json=first_run.payload()
+    )
+    assert cleanup.status_code == 200, cleanup.text
+    second_run = httpx_client.owner_suite.new_run(NAMESPACE)
+    second = await httpx_client.post(
+        "/api/v1/__test/seed/project-roles", json=second_run.payload()
+    )
     assert second.status_code == 200, second.text
+    assert first.json()["employee_email"] != second.json()["employee_email"]
     assert (
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(User.email.like(f"%-{NAMESPACE}@e2e.test"))
+            .where(User.email.in_(second_run.scope().pr_user_emails))
         )
         == 9
     )
 
 
-async def seed_owned_is_idempotent_with_singleton_pool(httpx_client, db_session):
+async def seed_owned_rebuilds_with_singleton_pool(httpx_client, db_session):
     from sqlalchemy import select
 
     from app.db.models.dataset import DatasetItem
     from app.db.models.ml_backend_registry import ProjectMLBackendPool
     from app.db.models.task import Task
 
-    await _build_owned(httpx_client, NAMESPACE)
-    body = await _build_owned(httpx_client, NAMESPACE)
+    first_run = httpx_client.owner_suite.new_run(NAMESPACE)
+    first = await _build_owned(httpx_client, first_run)
+    cleanup = await httpx_client.post(
+        "/api/v1/__test/seed/owned-cleanup", json=first_run.payload()
+    )
+    assert cleanup.status_code == 200, cleanup.text
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    body = await _build_owned(httpx_client, run)
+    assert body["project_id"] != first["project_id"]
     assert body["ml_backend_id"]
 
     assoc = await db_session.scalar(
@@ -225,7 +244,7 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
 ):
     import uuid
 
-    from sqlalchemy import func, or_, select
+    from sqlalchemy import func, select
 
     from app.db.models.dataset import Dataset
     from app.db.models.ml_backend_registry import MLBackendRegistry
@@ -268,25 +287,46 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
     )
     await db_session.commit()
 
-    reset = await _build_owned(httpx_client, NAMESPACE)
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    reset = await _build_owned(httpx_client, run)
 
     login = await httpx_client.post(
         "/api/v1/__test/seed/login", json={"email": reset["admin_email"]}
     )
     assert login.status_code == 200, login.text
+    backend_url = f"http://toolbar-{uuid.uuid4().hex}.e2e:9999"
+    assert (
+        await db_session.scalar(
+            select(MLBackendRegistry.id).where(MLBackendRegistry.url == backend_url)
+        )
+        is None
+    )
     second_backend = await httpx_client.post(
         f"/api/v1/projects/{reset['project_id']}/ml-backends",
         headers={"Authorization": f"Bearer {login.json()['access_token']}"},
         json={
             "name": "E1 toolbar fixture",
-            "url": "http://second-toolbar.e2e:9999",
+            "url": backend_url,
             "is_interactive": True,
         },
     )
     assert second_backend.status_code == 201, second_backend.text
+    backend_id = uuid.UUID(second_backend.json()["id"])
+    assert (
+        await db_session.scalar(
+            select(MLBackendRegistry.url).where(MLBackendRegistry.id == backend_id)
+        )
+        == backend_url
+    )
+    retired = await httpx_client.delete(
+        f"/api/v1/admin/ml-integrations/registry/{backend_id}",
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )
+    assert retired.status_code == 204, retired.text
 
-    first = await httpx_client.post("/api/v1/__test/seed/cleanup")
-    second = await httpx_client.post("/api/v1/__test/seed/cleanup")
+    suite_payload = {"suite_id": str(httpx_client.owner_suite.suite_id)}
+    first = await httpx_client.post("/api/v1/__test/seed/cleanup", json=suite_payload)
+    second = await httpx_client.post("/api/v1/__test/seed/cleanup", json=suite_payload)
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert first.json() == {"ok": True}
@@ -294,7 +334,9 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
 
     assert (
         await db_session.scalar(
-            select(func.count()).select_from(User).where(User.email.like("%@e2e.test"))
+            select(func.count())
+            .select_from(User)
+            .where(User.email.in_(run.scope().user_emails))
         )
         == 0
     )
@@ -302,12 +344,7 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
         await db_session.scalar(
             select(func.count())
             .select_from(Project)
-            .where(
-                or_(
-                    Project.name == "E2E Demo Project",
-                    Project.display_id.like("P-E2E-%"),
-                )
-            )
+            .where(Project.id == uuid.UUID(reset["project_id"]))
         )
         == 0
     )
@@ -315,7 +352,7 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
         await db_session.scalar(
             select(func.count())
             .select_from(Dataset)
-            .where(Dataset.display_id.like("DS-E2E-%"))
+            .where(Dataset.display_id == run.scope().dataset_display_id)
         )
         == 0
     )
@@ -323,11 +360,7 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
         await db_session.scalar(
             select(func.count())
             .select_from(MLBackendRegistry)
-            .where(
-                MLBackendRegistry.url.in_(
-                    ["http://mock-sam.e2e:9999", "http://second-toolbar.e2e:9999"]
-                )
-            )
+            .where(MLBackendRegistry.url.in_([run.scope().registry_url, backend_url]))
         )
         == 0
     )
@@ -346,7 +379,8 @@ async def seed_cleanup_is_idempotent_and_preserves_non_e2e_data(
 
 
 async def seed_login_after_owned_returns_jwt(httpx_client):
-    fixture = await _build_owned(httpx_client, NAMESPACE)
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    fixture = await _build_owned(httpx_client, run)
     res = await httpx_client.post(
         "/api/v1/__test/seed/login",
         json={"email": fixture["admin_email"]},
@@ -367,11 +401,16 @@ async def seed_login_unknown_email_404(httpx_client):
 
 
 async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
-    data = await _build_owned(httpx_client, NAMESPACE)
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    data = await _build_owned(httpx_client, run)
 
     configured = await httpx_client.post(
         "/api/v1/__test/seed/configure-raster-mask",
-        json={"project_id": data["project_id"], "enabled": True},
+        json={
+            "run_id": str(run.run_id),
+            "project_id": data["project_id"],
+            "enabled": True,
+        },
     )
     assert configured.status_code == 200, configured.text
     assert configured.json()["enabled"] is True
@@ -379,6 +418,7 @@ async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
     healthy = await httpx_client.post(
         "/api/v1/__test/seed/inject-raster-mask",
         json={
+            "run_id": str(run.run_id),
             "task_id": data["task_ids"][0],
             "user_email": data["annotator_email"],
             "variant": "donut_three",
@@ -387,9 +427,36 @@ async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
     assert healthy.status_code == 200, healthy.text
     assert healthy.json()["mask"]["size"] == [48, 64]
 
+    for canvas, size in (("5k", [2880, 5120]), ("8k", [8192, 8192])):
+        large_run = httpx_client.owner_suite.new_run(NAMESPACE)
+        large = await _build_owned(httpx_client, large_run, image_canvas=canvas)
+        enabled = await httpx_client.post(
+            "/api/v1/__test/seed/configure-raster-mask",
+            json={
+                "run_id": str(large_run.run_id),
+                "project_id": large["project_id"],
+                "enabled": True,
+            },
+        )
+        assert enabled.status_code == 200, enabled.text
+        injected = await httpx_client.post(
+            "/api/v1/__test/seed/inject-raster-mask",
+            json={
+                "run_id": str(large_run.run_id),
+                "task_id": large["task_ids"][0],
+                "user_email": large["annotator_email"],
+                "canvas": canvas,
+            },
+        )
+        assert injected.status_code == 200, injected.text
+        assert injected.json()["mask"]["size"] == size
+        if canvas == "8k":
+            assert injected.json()["mask"]["runs"] == 129
+
     corrupt = await httpx_client.post(
         "/api/v1/__test/seed/inject-raster-mask",
         json={
+            "run_id": str(run.run_id),
             "task_id": data["task_ids"][0],
             "user_email": data["annotator_email"],
             "variant": "corrupt",
@@ -398,29 +465,6 @@ async def seed_raster_mask_project_opt_in_and_content_fixtures(httpx_client):
     )
     assert corrupt.status_code == 200, corrupt.text
     assert corrupt.json()["mask"]["object_key"].endswith(".json")
-
-    five_k = await httpx_client.post(
-        "/api/v1/__test/seed/inject-raster-mask",
-        json={
-            "task_id": data["task_ids"][1],
-            "user_email": data["annotator_email"],
-            "canvas": "5k",
-        },
-    )
-    assert five_k.status_code == 200, five_k.text
-    assert five_k.json()["mask"]["size"] == [2880, 5120]
-
-    eight_k = await httpx_client.post(
-        "/api/v1/__test/seed/inject-raster-mask",
-        json={
-            "task_id": data["task_ids"][2],
-            "user_email": data["annotator_email"],
-            "canvas": "8k",
-        },
-    )
-    assert eight_k.status_code == 200, eight_k.text
-    assert eight_k.json()["mask"]["size"] == [8192, 8192]
-    assert eight_k.json()["mask"]["runs"] == 129
 
 
 async def seed_raster_mask_media_canvas_preserves_item_dimensions(
@@ -431,19 +475,21 @@ async def seed_raster_mask_media_canvas_preserves_item_dimensions(
     from app.db.models.dataset import DatasetItem
     from app.db.models.task import Task
 
-    data = await _build_owned(httpx_client, NAMESPACE)
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    data = await _build_owned(httpx_client, run, image_canvas="720p")
     task = await db_session.get(Task, UUID(data["task_ids"][0]))
     assert task is not None and task.dataset_item_id is not None
     item = await db_session.get(DatasetItem, task.dataset_item_id)
     assert item is not None
-    item.width = 1280
-    item.height = 720
-    await db_session.commit()
+    assert (item.width, item.height) == (1280, 720)
+    task_id, item_id = task.id, item.id
+    await db_session.rollback()
 
     response = await httpx_client.post(
         "/api/v1/__test/seed/inject-raster-mask",
         json={
-            "task_id": str(task.id),
+            "run_id": str(run.run_id),
+            "task_id": str(task_id),
             "user_email": data["annotator_email"],
             "variant": "smart_scribble_source",
             "canvas": "media",
@@ -452,7 +498,7 @@ async def seed_raster_mask_media_canvas_preserves_item_dimensions(
 
     assert response.status_code == 200, response.text
     assert response.json()["mask"]["size"] == [720, 1280]
-    await db_session.refresh(item)
+    item = await db_session.get(DatasetItem, item_id, populate_existing=True)
     assert (item.width, item.height) == (1280, 720)
 
 
@@ -486,7 +532,8 @@ async def seed_owned_preserves_dev_data(httpx_client, db_session):
     db_session.add(dev_proj)
     await db_session.commit()
 
-    fixture = await _build_owned(httpx_client, NAMESPACE)
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+    fixture = await _build_owned(httpx_client, run)
 
     # dev 数据应保留
     kept_user = (

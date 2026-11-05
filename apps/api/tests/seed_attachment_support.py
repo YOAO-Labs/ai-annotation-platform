@@ -96,18 +96,20 @@ class Objects:
 
 async def build(ctx):
     name = "sa" + uuid.uuid4().hex[:8]
-    ctx.names.append(name)
-    response = await ctx.http.post(
-        "/api/v1/__test/seed/owned", json={"namespace": name}
+    run = ctx.suite.new_run(name)
+    response = await ctx.suite.owner.post(
+        "/api/v1/__test/seed/owned", json=run.payload()
     )
     assert response.status_code == 200, response.text
+    ctx.runs.append(run)
     world = response.json()
-    login = await ctx.http.post(
+    login = await ctx.suite.owner.post(
         "/api/v1/__test/seed/login", json={"email": world["admin_email"]}
     )
     assert login.status_code == 200, login.text
     world.update(
         namespace=name,
+        run=run,
         actor_id=login.json()["user"]["id"],
         headers={"Authorization": "Bearer " + login.json()["access_token"]},
     )

@@ -1,12 +1,7 @@
 """Regression tests for the owned (per-test) E2E seed fixture routes.
 
-P7 fixture isolation contract (`POST /api/v1/__test/seed/owned` and
-`POST /api/v1/__test/seed/owned-cleanup`):
-
-* identifiers derive deterministically from a validated namespace token, so a
-  test (and only that test) can rebuild or remove its own fixture;
-* creation is non-destructive: another namespace's fixture and ordinary data
-  are never matched by build or cleanup;
+Each suite has an explicit owner and each build has a fresh run identity.
+Creation and cleanup preserve unrelated runs and ordinary data.
 * cleanup is exact and idempotent, and fails loudly on residuals instead of
   silently leaving partial state.
 
@@ -16,15 +11,25 @@ service, mirroring the existing `test_seed_router.py` harness.
 
 from __future__ import annotations
 
-from contextlib import closing, contextmanager
+from contextlib import closing
 import uuid
 
-import httpx
 import pytest
 from sqlalchemy import func, select
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from tests import seed_owned_scenarios as scenarios
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+    owner_fault_http as owner_fault_http,
+)
+from tests.seed_owner_support import (
+    _fixture_versions,
+    _read_versions,
+    fixture_original_reader,
+)
 from tests.seed_owned_scenarios import (
     A,
     B,
@@ -37,162 +42,78 @@ from tests.seed_owned_scenarios import (
 pytestmark = pytest.mark.asyncio
 
 
-@pytest.fixture
-async def committed_client(app_module, test_engine):
-    """Independent original readers must see the fixture's committed rows."""
-    from app.deps import get_db
-
-    factory = async_sessionmaker(test_engine, expire_on_commit=False)
-
-    async def session():
-        async with factory() as db:
-            yield db
-
-    previous = app_module.dependency_overrides.get(get_db)
-    app_module.dependency_overrides[get_db] = session
-    try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
-        ) as client:
-            yield client
-    finally:
-        if previous is None:
-            app_module.dependency_overrides.pop(get_db, None)
-        else:
-            app_module.dependency_overrides[get_db] = previous
-
-
-@contextmanager
-def _restore_video_seed_objects(monkeypatch):
-    """Restore only the exact shared fixture keys written by this test."""
-    from botocore.exceptions import ClientError
-
-    from app.services.storage import storage_service
-
-    client = storage_service.client
-    put_object = client.put_object
-    previous = {}
-
-    def record_put(**kwargs):
-        locator = (kwargs["Bucket"], kwargs["Key"])
-        if not locator[1].startswith("e2e/video/"):
-            return put_object(**kwargs)
-        if locator not in previous:
-            try:
-                obj = client.get_object(Bucket=locator[0], Key=locator[1])
-            except ClientError as exc:
-                if exc.response["Error"]["Code"] != "NoSuchKey":
-                    raise
-                previous[locator] = None
-            else:
-                body = obj["Body"]
-                try:
-                    previous[locator] = {
-                        "Body": body.read(),
-                        **{
-                            name: obj[name]
-                            for name in (
-                                "ContentType",
-                                "Metadata",
-                                "CacheControl",
-                                "ContentDisposition",
-                                "ContentEncoding",
-                                "ContentLanguage",
-                                "Expires",
-                            )
-                            if name in obj
-                        },
-                    }
-                finally:
-                    body.close()
-        return put_object(**kwargs)
-
-    monkeypatch.setattr(client, "put_object", record_put)
-    try:
-        yield
-    finally:
-        for (bucket, key), obj in previous.items():
-            if obj is None:
-                client.delete_object(Bucket=bucket, Key=key)
-            else:
-                put_object(Bucket=bucket, Key=key, **obj)
-
-
 @pytest.mark.parametrize(
     ("route", "fixture"),
     [("video-task", None), ("video-webcodecs", "malformed-samples")],
 )
 async def test_video_seeds_register_actual_original_bytes(
-    committed_client, db_session, route, fixture
+    fixture_and_fenced_http, committed_owner, route, fixture
 ):
-    httpx_client = committed_client
-    body = await _build_owned(httpx_client, A)
+    client = fixture_and_fenced_http
+    run = client.owner_suite.new_run(A)
+    body = await _build_owned(client, run)
     try:
-        # Register after the owned image seed so this fixture owns only video writes.
-        with pytest.MonkeyPatch.context() as video_patch:
-            with _restore_video_seed_objects(video_patch):
-                payload = {"project_id": body["project_id"]}
-                if fixture is not None:
-                    payload["fixture"] = fixture
-                response = await httpx_client.post(
-                    f"/api/v1/__test/seed/{route}", json=payload
-                )
-                assert response.status_code == 200, response.text
-                await _assert_verified_video_bytes(
-                    db_session, response.json()["task_id"]
-                )
+        payload = {**run.payload(), "project_id": body["project_id"]}
+        if fixture is not None:
+            payload["fixture"] = fixture
+        response = await client.post(f"/api/v1/__test/seed/{route}", json=payload)
+        assert response.status_code == 200, response.text
+        await _assert_verified_video_bytes(
+            committed_owner, response.json()["task_id"], run
+        )
     finally:
-        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert (await _cleanup_owned(client, run)).status_code == 200
 
 
 async def test_webcodecs_sources_are_owned_by_project_and_cleanup_keeps_neighbor(
-    committed_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession, test_engine
 ):
     from botocore.exceptions import ClientError
 
     from app.services import original_sources
-    from app.services.storage import storage_service
 
+    client = fixture_and_fenced_http
+    runs = [client.owner_suite.new_run(namespace) for namespace in (A, B)]
     sources = []
-    try:
-        for namespace in (A, B):
-            fixture = await _build_owned(committed_client, namespace)
-            video = await committed_client.post(
-                "/api/v1/__test/seed/video-webcodecs",
-                json={
-                    "project_id": fixture["project_id"],
-                    "fixture": "h264-baseline-gop12",
-                },
-            )
-            assert video.status_code == 200, video.text
-            sources.append(
-                await original_sources.resolve_task(
-                    db_session, uuid.UUID(video.json()["task_id"])
-                )
-            )
-        own, neighbor = sources
-        assert own.object_key != neighbor.object_key
-        before = storage_service.client.get_object(
-            Bucket=neighbor.bucket, Key=neighbor.object_key
+    for run in runs:
+        fixture = await _build_owned(client, run)
+        video = await client.post(
+            "/api/v1/__test/seed/video-webcodecs",
+            json={
+                **run.payload(),
+                "project_id": fixture["project_id"],
+                "fixture": "h264-baseline-gop12",
+            },
         )
-        with closing(before["Body"]) as body:
-            neighbor_bytes = body.read()
+        assert video.status_code == 200, video.text
+        sources.append(
+            await original_sources.resolve_task(
+                committed_owner, uuid.UUID(video.json()["task_id"])
+            )
+        )
+    own, neighbor = sources
+    assert own.object_key != neighbor.object_key
+    own_versions = await _fixture_versions(test_engine, runs[0])
+    neighbor_versions = await _fixture_versions(test_engine, runs[1])
+    own_version = next(
+        row for row in own_versions if row["object_key"] == own.object_key
+    )
+    with closing(fixture_original_reader()) as reader:
+        before = _read_versions(reader, neighbor_versions)
 
-        assert (await _cleanup_owned(committed_client, A)).status_code == 200
+    assert (await _cleanup_owned(client, runs[0])).status_code == 200
+    with closing(fixture_original_reader()) as reader:
         with pytest.raises(ClientError) as removed:
-            storage_service.client.head_object(Bucket=own.bucket, Key=own.object_key)
+            reader.head_object(
+                Bucket=own_version["bucket"],
+                Key=own_version["object_key"],
+                VersionId=own_version["version_id"],
+            )
         assert removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
-        after = storage_service.client.get_object(
-            Bucket=neighbor.bucket, Key=neighbor.object_key
-        )
-        with closing(after["Body"]) as body:
-            assert body.read() == neighbor_bytes
-        assert after.get("VersionId") == before.get("VersionId")
-        await _assert_verified_video_bytes(db_session, video.json()["task_id"])
-    finally:
-        for namespace in (A, B):
-            cleanup = await _cleanup_owned(committed_client, namespace)
-            assert cleanup.status_code == 200, cleanup.text
+        assert _read_versions(reader, neighbor_versions) == before
+    await _assert_verified_video_bytes(
+        committed_owner, video.json()["task_id"], runs[1]
+    )
 
 
 @pytest.fixture
@@ -211,15 +132,24 @@ async def fixture_playback_registry(app_module, monkeypatch):
 
 @pytest.mark.parametrize("kind", ["task", "item"])
 async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neighbor(
-    committed_client, db_session, fixture_playback_registry, kind
+    fixture_and_fenced_http,
+    fenced_http,
+    committed_owner,
+    owner_fault_http,
+    fixture_playback_registry,
+    kind,
 ):
-    httpx_client = committed_client
+    httpx_client = fixture_and_fenced_http
+    db_session = committed_owner
+    owner_fault_http.fixture_app.state.original_playback_registry = (
+        fixture_playback_registry
+    )
     from app.db.models.task import Task
 
-    async def seed_and_prepare(fixture, resource_kind):
+    async def seed_and_prepare(run, fixture, resource_kind):
         video = await httpx_client.post(
             "/api/v1/__test/seed/video-task",
-            json={"project_id": fixture["project_id"]},
+            json={**run.payload(), "project_id": fixture["project_id"]},
         )
         assert video.status_code == 200, video.text
         task_id = video.json()["task_id"]
@@ -249,81 +179,85 @@ async def test_owned_cleanup_reclaims_video_lease_capacity_without_touching_neig
         assert response.status_code == 200, response.text
         return response.json(), base, headers, payload
 
-    with pytest.MonkeyPatch.context() as video_patch:
-        with _restore_video_seed_objects(video_patch):
-            try:
-                owned = await _build_owned(httpx_client, A)
-                neighbor = await _build_owned(httpx_client, B)
-                own_wire, base, headers, payload = await seed_and_prepare(owned, kind)
-                other_kind = "item" if kind == "task" else "task"
-                neighbor_wire, _, _, _ = await seed_and_prepare(neighbor, other_kind)
-                registry = fixture_playback_registry
-                assert registry.diagnostics()["stages"] == 2
-                blocked = await httpx_client.post(
-                    base + "-playback",
-                    headers=headers,
-                    json={**payload, "session_id": str(uuid.uuid4())},
-                )
-                assert blocked.status_code == 429, blocked.text
-                assert blocked.json()["detail"]["code"] == (
-                    "video_playback_capacity_exceeded"
-                )
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
+    built = []
+    try:
+        owned = await _build_owned(httpx_client, run_a)
+        built.append(run_a)
+        neighbor = await _build_owned(httpx_client, run_b)
+        built.append(run_b)
+        own_wire, base, headers, payload = await seed_and_prepare(run_a, owned, kind)
+        other_kind = "item" if kind == "task" else "task"
+        neighbor_wire, _, _, _ = await seed_and_prepare(run_b, neighbor, other_kind)
+        registry = fixture_playback_registry
+        assert registry.diagnostics()["stages"] == 2
+        blocked = await httpx_client.post(
+            base + "-playback",
+            headers=headers,
+            json={**payload, "session_id": str(uuid.uuid4())},
+        )
+        assert blocked.status_code == 429, blocked.text
+        assert blocked.json()["detail"]["code"] == "video_playback_capacity_exceeded"
 
-                assert (await _cleanup_owned(httpx_client, A)).status_code == 200
-                assert (
-                    await httpx_client.head(own_wire["media_path"])
-                ).status_code == 410
-                assert (
-                    await httpx_client.head(neighbor_wire["media_path"])
-                ).status_code == 200
-                assert registry.diagnostics()["stages"] == 1
-                assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert (await _cleanup_owned(owner_fault_http, run_a)).status_code == 200
+        assert (await fenced_http.head(own_wire["media_path"])).status_code == 410
+        assert (await fenced_http.head(neighbor_wire["media_path"])).status_code == 200
+        assert registry.diagnostics()["stages"] == 1
+        assert (await _cleanup_owned(owner_fault_http, run_a)).status_code == 200
 
-                rebuilt = await _build_owned(httpx_client, A)
-                rebuilt_wire, _, _, _ = await seed_and_prepare(rebuilt, kind)
-                assert registry.diagnostics()["stages"] == 2
-                retried = await _build_owned(httpx_client, A)
-                assert (
-                    await httpx_client.head(rebuilt_wire["media_path"])
-                ).status_code == 410
-                assert (
-                    await httpx_client.head(neighbor_wire["media_path"])
-                ).status_code == 200
-                assert registry.diagnostics()["stages"] == 1
-                await seed_and_prepare(retried, kind)
-                assert registry.diagnostics()["stages"] == 2
-            finally:
-                cleanups = [await _cleanup_owned(httpx_client, ns) for ns in (A, B)]
-                assert all(response.status_code == 200 for response in cleanups)
-                assert fixture_playback_registry.diagnostics()["stages"] == 0
+        rebuilt_run = httpx_client.owner_suite.new_run(A)
+        rebuilt = await _build_owned(httpx_client, rebuilt_run)
+        built.append(rebuilt_run)
+        rebuilt_wire, _, _, _ = await seed_and_prepare(rebuilt_run, rebuilt, kind)
+        assert registry.diagnostics()["stages"] == 2
+        assert (await _cleanup_owned(owner_fault_http, rebuilt_run)).status_code == 200
+        assert (await fenced_http.head(rebuilt_wire["media_path"])).status_code == 410
+        assert (await fenced_http.head(neighbor_wire["media_path"])).status_code == 200
+        assert registry.diagnostics()["stages"] == 1
+        retried_run = httpx_client.owner_suite.new_run(A)
+        retried = await _build_owned(httpx_client, retried_run)
+        built.append(retried_run)
+        await seed_and_prepare(retried_run, retried, kind)
+        assert registry.diagnostics()["stages"] == 2
+    finally:
+        cleanups = [await _cleanup_owned(owner_fault_http, run) for run in built]
+        assert all(response.status_code == 200 for response in cleanups)
+        assert fixture_playback_registry.diagnostics()["stages"] == 0
 
 
 @pytest.mark.parametrize(
     "namespace",
     ["", "AB", "abc", "a" * 13, "ab-cd", "ab_cd", "тест"],
 )
-async def test_owned_namespace_rejects_malformed_tokens(httpx_client, namespace):
-    response = await httpx_client.post(
-        "/api/v1/__test/seed/owned", json={"namespace": namespace}
+async def test_owned_namespace_rejects_malformed_tokens(
+    fixture_and_fenced_http, namespace
+):
+    run = fixture_and_fenced_http.owner_suite.new_run(namespace)
+    response = await fixture_and_fenced_http.post(
+        "/api/v1/__test/seed/owned", json=run.payload()
     )
     assert response.status_code == 422, response.text
     assert response.json()["detail"]["code"] == "e2e_owned_namespace_invalid"
 
-    cleanup = await _cleanup_owned(httpx_client, namespace)
+    cleanup = await _cleanup_owned(fixture_and_fenced_http, run)
     assert cleanup.status_code == 422, cleanup.text
 
 
 @pytest.mark.parametrize("namespace", ["abcd", "a" * 12])
-async def test_owned_namespace_accepts_boundary_tokens(httpx_client, namespace):
-    body = await _build_owned(httpx_client, namespace)
+async def test_owned_namespace_accepts_boundary_tokens(
+    fixture_and_fenced_http, namespace
+):
+    run = fixture_and_fenced_http.owner_suite.new_run(namespace)
+    body = await _build_owned(fixture_and_fenced_http, run)
     try:
-        assert body["admin_email"] == f"admin-{namespace}@e2e.test"
+        assert body["admin_email"] == run.scope().admin_email
     finally:
-        assert (await _cleanup_owned(httpx_client, namespace)).status_code == 200
+        assert (await _cleanup_owned(fixture_and_fenced_http, run)).status_code == 200
 
 
 async def test_owned_fixture_builds_complete_namespaced_workbench(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession, test_engine
 ):
     from app.db.models.dataset import Dataset, DatasetItem
     from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
@@ -336,14 +270,16 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
     from app.db.models.task import Task
     from app.db.models.task_batch import TaskBatch
     from app.db.models.user import User
-    from app.services.storage import storage_service
 
-    body = await _build_owned(httpx_client, A)
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run = httpx_client.owner_suite.new_run(A)
+    scope = run.scope()
+    body = await _build_owned(httpx_client, run)
 
     # Response shape matches SeedData so existing spec call sites keep working.
-    assert body["admin_email"] == f"admin-{A}@e2e.test"
-    assert body["annotator_email"] == f"anno-{A}@e2e.test"
-    assert body["reviewer_email"] == f"rev-{A}@e2e.test"
+    assert body["admin_email"] == scope.admin_email
+    assert body["annotator_email"] == scope.annotator_email
+    assert body["reviewer_email"] == scope.reviewer_email
     assert len(body["task_ids"]) == 5
     assert body["ml_backend_id"]
 
@@ -374,7 +310,7 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
 
     project = await db_session.get(Project, uuid.UUID(body["project_id"]))
     assert project is not None
-    assert project.name == _owned_project_name(A)
+    assert project.name == _owned_project_name(run)
     assert project.tool_bindings["region"]["enabled"] is True
 
     memberships = {
@@ -388,12 +324,12 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
     assert memberships == {"annotator", "reviewer"}
 
     batch = await db_session.scalar(
-        select(TaskBatch).where(TaskBatch.display_id == f"B-E2E-{A}")
+        select(TaskBatch).where(TaskBatch.display_id == scope.batch_display_id)
     )
     assert batch is not None and batch.project_id == project.id
 
     dataset = await db_session.scalar(
-        select(Dataset).where(Dataset.display_id == f"DS-E2E-{A}")
+        select(Dataset).where(Dataset.display_id == scope.dataset_display_id)
     )
     assert dataset is not None
     tasks = list(
@@ -402,7 +338,7 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
         ).all()
     )
     assert len(tasks) == 5
-    assert all(task.display_id.startswith(f"T-E2E-{A}") for task in tasks)
+    assert all(task.display_id.startswith(scope.task_display_prefix) for task in tasks)
     items = list(
         (
             await db_session.scalars(
@@ -415,12 +351,13 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
     assert {(item.width, item.height, item.file_type) for item in items} == {
         (64, 48, "image")
     }
-    assert all(item.file_path.startswith(f"e2e/owned/{A}/image/") for item in items)
+    versions = await _fixture_versions(test_engine, run)
+    assert {item.file_path for item in items} == {row["object_key"] for row in versions}
+    with closing(fixture_original_reader()) as reader:
+        assert len(_read_versions(reader, versions)) == 5
 
     registry = await db_session.scalar(
-        select(MLBackendRegistry).where(
-            MLBackendRegistry.url == f"http://mock-sam-{A}.e2e:9999"
-        )
+        select(MLBackendRegistry).where(MLBackendRegistry.url == scope.registry_url)
     )
     assert registry is not None
     assert str(registry.id) == body["ml_backend_id"]
@@ -451,41 +388,40 @@ async def test_owned_fixture_builds_complete_namespaced_workbench(
     )
     assert login.status_code == 200, login.text
 
-    listing = storage_service.client.list_objects_v2(
-        Bucket=storage_service.datasets_bucket, Prefix=f"e2e/owned/{A}/image/"
-    )
-    assert {obj["Key"] for obj in listing.get("Contents", [])} == {
-        f"e2e/owned/{A}/image/task-{index}.png" for index in range(1, 6)
-    }
-
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run)).status_code == 200
 
 
 async def test_owned_cleanup_is_exact_idempotent_and_neighbour_safe(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
     await scenarios.owned_cleanup_is_exact_idempotent_and_neighbour_safe(
-        httpx_client, db_session
+        fixture_and_fenced_http, committed_owner
     )
 
 
-async def test_owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSession):
-    await scenarios.owned_rebuild_is_retry_safe(httpx_client, db_session)
+async def test_owned_rebuild_is_retry_safe(fixture_and_fenced_http, committed_owner):
+    await scenarios.owned_rebuild_is_retry_safe(
+        fixture_and_fenced_http, committed_owner
+    )
 
 
 async def test_owned_cleanup_never_touches_another_role_fixture(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
     from app.db.models.project import Project
     from app.db.models.user import User
 
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
+
     neighbor = await httpx_client.post(
-        "/api/v1/__test/seed/project-roles", json={"namespace": B}
+        "/api/v1/__test/seed/project-roles", json=run_b.payload()
     )
     assert neighbor.status_code == 200, neighbor.text
-    await _build_owned(httpx_client, A)
+    await _build_owned(httpx_client, run_a)
 
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run_a)).status_code == 200
 
     assert (
         await db_session.scalar(
@@ -508,11 +444,16 @@ async def test_owned_cleanup_never_touches_another_role_fixture(
 
 
 async def test_project_roles_namespaces_survive_invalid_setup_and_neighbor_cleanup(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession, test_engine
 ):
+    from botocore.exceptions import ClientError
+
     from app.db.models.project import Project
     from app.db.models.user import User
-    from app.services.storage import storage_service
+
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
 
     keeper = User(
         id=uuid.uuid4(),
@@ -526,20 +467,19 @@ async def test_project_roles_namespaces_survive_invalid_setup_and_neighbor_clean
     await db_session.commit()
     keeper_id = keeper.id
     path = "/api/v1/__test/seed/project-roles"
-    key_a = f"e2e/owned/{A}/project-roles/a/task-1.svg"
-    key_b = f"e2e/owned/{B}/project-roles/a/task-1.svg"
-    storage = storage_service.client
-    bucket = storage_service.datasets_bucket
+    invalid = httpx_client.owner_suite.new_run("invalid-namespace")
     try:
-        a = await httpx_client.post(path, json={"namespace": A})
-        b = await httpx_client.post(path, json={"namespace": B})
+        a = await httpx_client.post(path, json=run_a.payload())
+        b = await httpx_client.post(path, json=run_b.payload())
         assert a.status_code == b.status_code == 200
         a_project = uuid.UUID(a.json()["projects"]["a"]["project_id"])
         b_project = uuid.UUID(b.json()["projects"]["a"]["project_id"])
-        with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
-            before = body.read()
+        own_versions = await _fixture_versions(test_engine, run_a)
+        neighbor_versions = await _fixture_versions(test_engine, run_b)
+        with closing(fixture_original_reader()) as reader:
+            before = _read_versions(reader, neighbor_versions)
 
-        for payload in (None, {}, {"namespace": "invalid-namespace"}):
+        for payload in (None, {}, invalid.payload()):
             rejected = await httpx_client.post(path, json=payload)
             assert rejected.status_code == 422, rejected.text
         assert (
@@ -555,7 +495,7 @@ async def test_project_roles_namespaces_survive_invalid_setup_and_neighbor_clean
             == 1
         )
 
-        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+        assert (await _cleanup_owned(httpx_client, run_a)).status_code == 200
         assert (
             await db_session.scalar(
                 select(func.count()).select_from(Project).where(Project.id == a_project)
@@ -569,16 +509,24 @@ async def test_project_roles_namespaces_survive_invalid_setup_and_neighbor_clean
             == 1
         )
         assert await db_session.get(User, keeper_id) is not None
-        with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
-            assert body.read() == before
-        assert not storage.list_objects_v2(Bucket=bucket, Prefix=key_a).get("Contents")
+        with closing(fixture_original_reader()) as reader:
+            assert _read_versions(reader, neighbor_versions) == before
+            for row in own_versions:
+                with pytest.raises(ClientError) as removed:
+                    reader.head_object(
+                        Bucket=row["bucket"],
+                        Key=row["object_key"],
+                        VersionId=row["version_id"],
+                    )
+                assert (
+                    removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+                )
         login = await httpx_client.post(
             "/api/v1/__test/seed/login", json={"email": b.json()["employee_email"]}
         )
         assert login.status_code == 200, login.text
     finally:
-        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
-        assert (await _cleanup_owned(httpx_client, B)).status_code == 200
+        await httpx_client.owner_suite.finish()
         keeper = await db_session.get(User, keeper_id)
         if keeper is not None:
             await db_session.delete(keeper)
@@ -586,22 +534,28 @@ async def test_project_roles_namespaces_survive_invalid_setup_and_neighbor_clean
 
 
 async def test_project_roles_failed_setup_cleans_only_its_own_objects(
-    httpx_client, db_session: AsyncSession, monkeypatch
+    fixture_and_fenced_http,
+    committed_owner: AsyncSession,
+    owner_fault_http,
+    test_engine,
+    monkeypatch,
 ):
+    from botocore.exceptions import ClientError
+
     from app.api.v1 import _test_seed
     from app.db.models.project import Project
-    from app.services.storage import storage_service
+
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
 
     path = "/api/v1/__test/seed/project-roles"
-    neighbor = await httpx_client.post(path, json={"namespace": B})
+    neighbor = await httpx_client.post(path, json=run_b.payload())
     assert neighbor.status_code == 200, neighbor.text
     neighbor_project = uuid.UUID(neighbor.json()["projects"]["a"]["project_id"])
-    key_a = f"e2e/owned/{A}/project-roles/a/task-1.svg"
-    key_b = f"e2e/owned/{B}/project-roles/a/task-1.svg"
-    storage = storage_service.client
-    bucket = storage_service.datasets_bucket
-    with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
-        before = body.read()
+    neighbor_versions = await _fixture_versions(test_engine, run_b)
+    with closing(fixture_original_reader()) as reader:
+        before = _read_versions(reader, neighbor_versions)
     original = _test_seed._build_project_roles_image_project
 
     async def fail_after_first_project(*args, **kwargs):
@@ -618,27 +572,37 @@ async def test_project_roles_failed_setup_cleans_only_its_own_objects(
             with pytest.raises(
                 RuntimeError, match="controlled role fixture setup failure"
             ):
-                await httpx_client.post(path, json={"namespace": A})
+                await owner_fault_http.post(path, json=run_a.payload())
         await db_session.rollback()
-        assert storage.list_objects_v2(Bucket=bucket, Prefix=key_a).get("Contents")
-        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
-        assert not storage.list_objects_v2(Bucket=bucket, Prefix=key_a).get("Contents")
+        own_versions = await _fixture_versions(test_engine, run_a)
+        assert (await _cleanup_owned(httpx_client, run_a)).status_code == 200
         assert await db_session.get(Project, neighbor_project) is not None
-        with closing(storage.get_object(Bucket=bucket, Key=key_b)["Body"]) as body:
-            assert body.read() == before
+        with closing(fixture_original_reader()) as reader:
+            assert _read_versions(reader, neighbor_versions) == before
+            for row in own_versions:
+                with pytest.raises(ClientError) as removed:
+                    reader.head_object(
+                        Bucket=row["bucket"],
+                        Key=row["object_key"],
+                        VersionId=row["version_id"],
+                    )
+                assert (
+                    removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+                )
     finally:
         await db_session.rollback()
-        assert (await _cleanup_owned(httpx_client, A)).status_code == 200
-        assert (await _cleanup_owned(httpx_client, B)).status_code == 200
+        await httpx_client.owner_suite.finish()
 
 
 async def test_owned_cleanup_preserves_external_identity_reference_until_released(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
     from app.db.models.project import Project
     from app.db.models.user import User
 
-    fixture = await _build_owned(httpx_client, A)
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run = httpx_client.owner_suite.new_run(A)
+    fixture = await _build_owned(httpx_client, run)
     annotator_id = await db_session.scalar(
         select(User.id).where(User.email == fixture["annotator_email"])
     )
@@ -655,7 +619,7 @@ async def test_owned_cleanup_preserves_external_identity_reference_until_release
     db_session.add(neighbor)
     await db_session.commit()
 
-    refused = await _cleanup_owned(httpx_client, A)
+    refused = await _cleanup_owned(httpx_client, run)
     assert refused.status_code == 409, refused.text
     assert refused.json()["detail"]["code"] == "e2e_seed_identity_referenced"
     assert (
@@ -671,7 +635,7 @@ async def test_owned_cleanup_preserves_external_identity_reference_until_release
 
     await db_session.delete(neighbor)
     await db_session.commit()
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run)).status_code == 200
     assert (
         await db_session.scalar(
             select(func.count()).select_from(User).where(User.id == annotator_id)
@@ -689,21 +653,20 @@ async def test_owned_cleanup_preserves_external_identity_reference_until_release
 
 
 async def test_filtering_requires_namespace_without_touching_existing_fixture(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession, test_engine
 ):
     from app.db.models.project import Project
-    from app.services.storage import storage_service
 
-    fixture = await _build_owned(httpx_client, A)
-    key = f"e2e/owned/{A}/image/task-1.png"
-    with closing(
-        storage_service.client.get_object(
-            Bucket=storage_service.datasets_bucket, Key=key
-        )["Body"]
-    ) as body:
-        before = body.read()
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
 
-    for payload in (None, {}, {"namespace": "invalid-namespace"}):
+    run = httpx_client.owner_suite.new_run(A)
+    fixture = await _build_owned(httpx_client, run)
+    versions = await _fixture_versions(test_engine, run)
+    with closing(fixture_original_reader()) as reader:
+        before = _read_versions(reader, versions)
+
+    invalid = httpx_client.owner_suite.new_run("invalid-namespace")
+    for payload in (None, {}, invalid.payload()):
         response = await httpx_client.post(
             "/api/v1/__test/seed/filtering", json=payload
         )
@@ -713,72 +676,67 @@ async def test_filtering_requires_namespace_without_touching_existing_fixture(
     assert response.status_code == 404, response.text
 
     assert await db_session.get(Project, uuid.UUID(fixture["project_id"])) is not None
-    with closing(
-        storage_service.client.get_object(
-            Bucket=storage_service.datasets_bucket, Key=key
-        )["Body"]
-    ) as body:
-        after = body.read()
-    assert after == before
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    with closing(fixture_original_reader()) as reader:
+        assert _read_versions(reader, versions) == before
+    assert (await _cleanup_owned(httpx_client, run)).status_code == 200
 
 
-async def test_owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
-    await scenarios.owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog)
+async def test_owned_filtering_cleanup_removes_accounts(fixture_and_fenced_http):
+    await scenarios.owned_filtering_cleanup_removes_accounts(fixture_and_fenced_http)
 
 
-async def test_owned_routes_stay_hidden_from_openapi(httpx_client, app_module):
-    for path in ("/api/v1/__test/seed/owned", "/api/v1/__test/seed/owned-cleanup"):
+async def test_owned_routes_stay_hidden_from_openapi(app_module):
+    from app.api.v1._test_seed import router
+
+    for suffix in ("/seed/owned", "/seed/owned-cleanup"):
         route = next(
-            route for route in app_module.routes if getattr(route, "path", None) == path
+            route for route in router.routes if getattr(route, "path", None) == suffix
         )
         assert route.include_in_schema is False
-        assert path not in app_module.openapi()["paths"]
+        assert f"/api/v1/__test{suffix}" not in app_module.openapi()["paths"]
 
 
 async def test_owned_filtering_fixture_is_namespaced_and_converges(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
     await scenarios.owned_filtering_fixture_is_namespaced_and_converges(
-        httpx_client, db_session
+        fixture_and_fenced_http, committed_owner
     )
 
 
 async def test_owned_lidar_fixture_is_namespaced(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
-    await scenarios.owned_lidar_fixture_is_namespaced(httpx_client, db_session)
+    await scenarios.owned_lidar_fixture_is_namespaced(
+        fixture_and_fenced_http, committed_owner
+    )
 
 
 async def test_owned_project_roles_fixture_is_namespaced(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
-    await scenarios.owned_project_roles_fixture_is_namespaced(httpx_client, db_session)
+    await scenarios.owned_project_roles_fixture_is_namespaced(
+        fixture_and_fenced_http, committed_owner
+    )
 
 
 async def test_owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
     await scenarios.owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
-        httpx_client, db_session
+        fixture_and_fenced_http, committed_owner
     )
 
 
 async def test_owned_cleanup_does_not_match_legacy_shared_bug_prefix(
-    httpx_client, db_session: AsyncSession
+    fixture_and_fenced_http, committed_owner: AsyncSession
 ):
-    """An owned cleanup must never delete the shared `BUG-E2E-FILTER-` rows.
-
-    The cleanup deletes `bug_comments` first (they reference `bug_reports`), then
-    the `bug_reports` themselves. The legacy shared filtering fixture identifies
-    its reports with the `BUG-E2E-FILTER-` display prefix, so that prefix may only
-    be matched by the shared (`owned is None`) cleanup; an owned namespace may
-    only match its own project/task-owned rows. Matching the shared prefix from an
-    owned cleanup would let one namespace delete the shared fixture's rows (a
-    neighbour-safety violation).
-    """
+    """An owned cleanup must never delete an unrelated legacy-prefix bug."""
     from app.db.models.bug_report import BugReport
     from app.db.models.user import User
+
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run = httpx_client.owner_suite.new_run(A)
 
     reporter = User(
         id=uuid.uuid4(),
@@ -804,14 +762,14 @@ async def test_owned_cleanup_does_not_match_legacy_shared_bug_prefix(
     db_session.add(shared_bug)
     await db_session.commit()
 
-    await _build_owned(httpx_client, A)
-    response = await _cleanup_owned(httpx_client, A)
+    await _build_owned(httpx_client, run)
+    response = await _cleanup_owned(httpx_client, run)
     assert response.status_code == 200, response.text
     assert (
         await db_session.scalar(
             select(func.count())
             .select_from(BugReport)
-            .where(BugReport.display_id == "BUG-E2E-FILTER-RGT")
+            .where(BugReport.id == shared_bug.id)
         )
         == 1
     )
@@ -822,13 +780,12 @@ async def test_owned_cleanup_does_not_match_legacy_shared_bug_prefix(
 
 
 async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
-    httpx_client, db_session: AsyncSession, monkeypatch
+    fixture_and_fenced_http, committed_owner: AsyncSession, monkeypatch
 ):
-    """A Labeling owner abort rolls back cleanup and leaves the fixture reusable."""
+    """A Labeling abort rolls back deletion and permits exact cleanup to resume."""
     from app.api.v1._test_seed import (
         _LABELING_FIXTURE_DELETE_SQL,
         _cleanup_e2e_fixtures,
-        _parse_owned_namespace,
     )
     from app.db.models.bug_report import BugReport
     from app.db.models.project import Project
@@ -841,7 +798,9 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
 
         orig = _Orig()
 
-    body = await _build_owned(httpx_client, A)
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run = httpx_client.owner_suite.new_run(A)
+    body = await _build_owned(httpx_client, run)
     project_id = uuid.UUID(body["project_id"])
     task_ids = {uuid.UUID(task_id) for task_id in body["task_ids"]}
     reporter_id = await db_session.scalar(
@@ -879,7 +838,7 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
         with monkeypatch.context() as patch:
             patch.setattr(db_session, "execute", abort_labeling_delete)
             with pytest.raises(DeadlockDetectedError) as caught:
-                await _cleanup_e2e_fixtures(db_session, _parse_owned_namespace(A))
+                await _cleanup_e2e_fixtures(db_session, run.scope())
             assert caught.value is abort
 
         # Cleanup's rollback preserves the project, its tasks, and its users;
@@ -905,7 +864,7 @@ async def test_owned_cleanup_propagates_controlled_abort_and_skips_rest(
             == emails
         )
     finally:
-        response = await _cleanup_owned(httpx_client, A)
+        response = await _cleanup_owned(httpx_client, run)
         assert response.status_code == 200, response.text
 
     assert (

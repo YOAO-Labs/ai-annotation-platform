@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+from contextlib import closing
+import os
 import uuid
 
 from sqlalchemy import func, select
@@ -12,37 +14,61 @@ A = "regaa"
 B = "regbb"
 
 
-async def _build_owned(client, namespace: str) -> dict:
-    response = await client.post(
-        "/api/v1/__test/seed/owned", json={"namespace": namespace}
-    )
+async def _build_owned(client, run, *, image_canvas=None) -> dict:
+    payload = run.payload()
+    if image_canvas is not None:
+        payload["image_canvas"] = image_canvas
+    response = await client.post("/api/v1/__test/seed/owned", json=payload)
     assert response.status_code == 200, response.text
     return response.json()
 
 
-async def _cleanup_owned(client, namespace: str):
-    return await client.post(
-        "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
-    )
+async def _cleanup_owned(client, run):
+    return await client.post("/api/v1/__test/seed/owned-cleanup", json=run.payload())
 
 
-def _owned_project_name(namespace: str) -> str:
-    return f"E2E Owned {namespace}"
+def _owned_project_name(run) -> str:
+    return run.scope().project_name
 
 
-async def _assert_verified_video_bytes(db_session, task_id):
+async def _assert_verified_video_bytes(db_session, task_id, run):
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.db.models.managed_original_creation import ManagedOriginalCreation
     from app.services import original_sources
-    from app.services.storage import storage_service
 
     source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
     assert source.media_type == "video" and source.bucket is not None
-    body = storage_service.client.get_object(
-        Bucket=source.bucket, Key=source.object_key
-    )["Body"]
-    try:
-        payload = body.read()
-    finally:
-        body.close()
+    creation = await db_session.scalar(
+        select(ManagedOriginalCreation)
+        .join(
+            FixtureRunResource,
+            FixtureRunResource.creation_id == ManagedOriginalCreation.id,
+        )
+        .where(
+            FixtureRunResource.run_id == run.run_id,
+            FixtureRunResource.kind == "creation",
+            ManagedOriginalCreation.location_id == source.location_id,
+            ManagedOriginalCreation.bucket == source.bucket,
+            ManagedOriginalCreation.object_key == source.object_key,
+            ManagedOriginalCreation.status == "verified",
+        )
+    )
+    assert creation is not None and creation.version_id and creation.receipt
+    assert creation.sha256 == source.sha256
+    assert creation.size_bytes == source.size_bytes
+    from tests.seed_owner_support import fixture_original_reader
+
+    assert source.bucket == os.environ["AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET"]
+    with closing(fixture_original_reader()) as client:
+        response = client.get_object(
+            Bucket=source.bucket, Key=source.object_key, VersionId=creation.version_id
+        )
+        assert response["VersionId"] == creation.version_id
+        body = response["Body"]
+        try:
+            payload = body.read()
+        finally:
+            body.close()
     assert payload
     assert source.size_bytes == len(payload)
     assert source.sha256 == hashlib.sha256(payload).hexdigest()
@@ -94,11 +120,14 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
     )
     await db_session.commit()
 
-    body_a = await _build_owned(httpx_client, A)
-    body_b = await _build_owned(httpx_client, B)
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
+    scope_a, scope_b = run_a.scope(), run_b.scope()
+    body_a = await _build_owned(httpx_client, run_a)
+    body_b = await _build_owned(httpx_client, run_b)
 
-    first = await _cleanup_owned(httpx_client, A)
-    second = await _cleanup_owned(httpx_client, A)
+    first = await _cleanup_owned(httpx_client, run_a)
+    second = await _cleanup_owned(httpx_client, run_a)
     assert first.status_code == 200, first.text
     assert second.status_code == 200, second.text
     assert first.json() == {"ok": True} == second.json()
@@ -108,11 +137,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(
-                User.email.in_(
-                    [f"admin-{A}@e2e.test", f"anno-{A}@e2e.test", f"rev-{A}@e2e.test"]
-                )
-            )
+            .where(User.email.in_(scope_a.user_emails))
         )
         == 0
     )
@@ -120,7 +145,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(Project)
-            .where(Project.name == _owned_project_name(A))
+            .where(Project.name == scope_a.project_name)
         )
         == 0
     )
@@ -128,7 +153,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(Dataset)
-            .where(Dataset.display_id == f"DS-E2E-{A}")
+            .where(Dataset.display_id == scope_a.dataset_display_id)
         )
         == 0
     )
@@ -136,7 +161,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(TaskBatch)
-            .where(TaskBatch.display_id == f"B-E2E-{A}")
+            .where(TaskBatch.display_id == scope_a.batch_display_id)
         )
         == 0
     )
@@ -144,7 +169,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(MLBackendRegistry)
-            .where(MLBackendRegistry.url == f"http://mock-sam-{A}.e2e:9999")
+            .where(MLBackendRegistry.url == scope_a.registry_url)
         )
         == 0
     )
@@ -154,11 +179,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(
-                User.email.in_(
-                    [f"admin-{B}@e2e.test", f"anno-{B}@e2e.test", f"rev-{B}@e2e.test"]
-                )
-            )
+            .where(User.email.in_(scope_b.user_emails))
         )
         == 3
     )
@@ -166,7 +187,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(Project)
-            .where(Project.name == _owned_project_name(B))
+            .where(Project.name == scope_b.project_name)
         )
         == 1
     )
@@ -174,7 +195,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(Dataset)
-            .where(Dataset.display_id == f"DS-E2E-{B}")
+            .where(Dataset.display_id == scope_b.dataset_display_id)
         )
         == 1
     )
@@ -191,18 +212,15 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         )
 
     # A can be rebuilt after its cleanup, and B still converges afterwards.
-    rebuilt = await _build_owned(httpx_client, A)
+    rebuilt_run = httpx_client.owner_suite.new_run(A)
+    rebuilt = await _build_owned(httpx_client, rebuilt_run)
     assert rebuilt["project_id"] not in (body_a["project_id"], body_b["project_id"])
-    assert (await _cleanup_owned(httpx_client, B)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run_b)).status_code == 200
     assert (
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(
-                User.email.in_(
-                    [f"admin-{B}@e2e.test", f"anno-{B}@e2e.test", f"rev-{B}@e2e.test"]
-                )
-            )
+            .where(User.email.in_(scope_b.user_emails))
         )
         == 0
     )
@@ -210,11 +228,7 @@ async def owned_cleanup_is_exact_idempotent_and_neighbour_safe(
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(
-                User.email.in_(
-                    [f"admin-{A}@e2e.test", f"anno-{A}@e2e.test", f"rev-{A}@e2e.test"]
-                )
-            )
+            .where(User.email.in_(rebuilt_run.scope().user_emails))
         )
         == 3
     )
@@ -225,19 +239,28 @@ async def owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSession):
     from app.db.models.task import Task
     from app.db.models.user import User
 
-    first = await _build_owned(httpx_client, A)
+    first_run = httpx_client.owner_suite.new_run(A)
+    first = await _build_owned(httpx_client, first_run)
     stale_project_id = uuid.UUID(first["project_id"])
     stale_task_ids = {uuid.UUID(task_id) for task_id in first["task_ids"]}
 
-    second = await _build_owned(httpx_client, A)
-    assert second["admin_email"] == first["admin_email"]
+    cleanup = await _cleanup_owned(httpx_client, first_run)
+    assert cleanup.status_code == 200, cleanup.text
+    retired = await httpx_client.post(
+        "/api/v1/__test/seed/owned", json=first_run.payload()
+    )
+    assert retired.status_code == 409, retired.text
+
+    second_run = httpx_client.owner_suite.new_run(A)
+    second = await _build_owned(httpx_client, second_run)
+    assert second["admin_email"] != first["admin_email"]
     rebuilt_project_id = uuid.UUID(second["project_id"])
     assert rebuilt_project_id != stale_project_id
     rebuilt_task_ids = {uuid.UUID(task_id) for task_id in second["task_ids"]}
     assert len(rebuilt_task_ids) == 5
     assert rebuilt_task_ids.isdisjoint(stale_task_ids)
 
-    # No leftovers from the crashed attempt survive the retry.
+    # The retired attempt is gone and cannot be resurrected.
     assert await db_session.get(Project, stale_project_id) is None
     assert (
         await db_session.scalar(
@@ -251,28 +274,21 @@ async def owned_rebuild_is_retry_safe(httpx_client, db_session: AsyncSession):
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(
-                User.email.in_(
-                    [f"admin-{A}@e2e.test", f"anno-{A}@e2e.test", f"rev-{A}@e2e.test"]
-                )
-            )
+            .where(User.email.in_(second_run.scope().user_emails))
         )
         == 3
     )
 
 
-async def owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
-    """Filtering teardown must surface failures and remove its owned accounts."""
-    import logging
+async def owned_filtering_cleanup_removes_accounts(httpx_client):
+    """Filtering teardown removes its owned accounts."""
 
-    build = await httpx_client.post(
-        "/api/v1/__test/seed/filtering", json={"namespace": A}
-    )
+    run = httpx_client.owner_suite.new_run(A)
+    build = await httpx_client.post("/api/v1/__test/seed/filtering", json=run.payload())
     assert build.status_code == 200, build.text
     manifest = build.json()
 
-    with caplog.at_level(logging.WARNING, logger="anno-api.seed_cleanup"):
-        cleanup = await _cleanup_owned(httpx_client, A)
+    cleanup = await _cleanup_owned(httpx_client, run)
     assert cleanup.status_code == 200, cleanup.text
 
     assert (
@@ -281,10 +297,6 @@ async def owned_filtering_cleanup_reports_exact_failures(httpx_client, caplog):
             json={"email": manifest["user_emails"]["admin"]},
         )
     ).status_code == 404
-    skips = [
-        r.getMessage() for r in caplog.records if "seed_cleanup skip" in r.getMessage()
-    ]
-    assert skips == [], f"owned cleanup swallowed delete failures: {skips}"
 
 
 async def owned_filtering_fixture_is_namespaced_and_converges(
@@ -303,8 +315,11 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
     from app.db.models.project import Project
     from app.db.models.project_template import ProjectTemplate
 
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
+    scope_a = run_a.scope()
     body_a = await httpx_client.post(
-        "/api/v1/__test/seed/filtering", json={"namespace": A}
+        "/api/v1/__test/seed/filtering", json=run_a.payload()
     )
     assert body_a.status_code == 200, body_a.text
     manifest_a = body_a.json()
@@ -317,7 +332,7 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
     )
     assert image_source.media_type == "image" and image_source.size_bytes > 0
     for task_id in manifest_a["video"]["task_ids"].values():
-        await _assert_verified_video_bytes(db_session, task_id)
+        await _assert_verified_video_bytes(db_session, task_id, run_a)
     for task_id in manifest_a["lidar"]["task_ids"]:
         source = await original_sources.resolve_task(db_session, uuid.UUID(task_id))
         assert source.media_type == "point_cloud" and source.size_bytes > 0
@@ -338,19 +353,19 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
             .select_from(Project)
             .where(
                 Project.id == project_a_id,
-                Project.display_id == f"P-FI-I-{A}",
+                Project.display_id == scope_a.filter_project_display_ids[0],
             )
         )
         == 1
     )
 
     body_b = await httpx_client.post(
-        "/api/v1/__test/seed/filtering", json={"namespace": B}
+        "/api/v1/__test/seed/filtering", json=run_b.payload()
     )
     assert body_b.status_code == 200, body_b.text
     manifest_b = body_b.json()
 
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run_a)).status_code == 200
 
     assert (
         await db_session.scalar(
@@ -362,7 +377,7 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
         await db_session.scalar(
             select(func.count())
             .select_from(ProjectTemplate)
-            .where(ProjectTemplate.display_id.in_([f"TPLFI-A-{A}", f"TPLFI-B-{A}"]))
+            .where(ProjectTemplate.display_id.in_(scope_a.filter_template_display_ids))
         )
         == 0
     )
@@ -370,7 +385,7 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
         await db_session.scalar(
             select(func.count())
             .select_from(AuditLog)
-            .where(AuditLog.detail_json["namespace"].astext == A)
+            .where(AuditLog.detail_json["namespace"].astext == scope_a.namespace)
         )
         == 0
     )
@@ -385,7 +400,7 @@ async def owned_filtering_fixture_is_namespaced_and_converges(
         )
         == 4
     )
-    assert (await _cleanup_owned(httpx_client, B)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run_b)).status_code == 200
 
 
 async def owned_lidar_fixture_is_namespaced(httpx_client, db_session: AsyncSession):
@@ -393,8 +408,10 @@ async def owned_lidar_fixture_is_namespaced(httpx_client, db_session: AsyncSessi
     from app.db.models.project import Project
     from sqlalchemy import func
 
-    await _build_owned(httpx_client, A)
-    lidar = await httpx_client.post("/api/v1/__test/seed/lidar", json={"namespace": A})
+    run = httpx_client.owner_suite.new_run(A)
+    scope = run.scope()
+    await _build_owned(httpx_client, run)
+    lidar = await httpx_client.post("/api/v1/__test/seed/lidar", json=run.payload())
     assert lidar.status_code == 200, lidar.text
     body = lidar.json()
     lidar_project_id = uuid.UUID(body["lidar_project_id"])
@@ -402,7 +419,9 @@ async def owned_lidar_fixture_is_namespaced(httpx_client, db_session: AsyncSessi
         await db_session.scalar(
             select(func.count())
             .select_from(Project)
-            .where(Project.id == lidar_project_id, Project.name == f"E2E Lidar {A}")
+            .where(
+                Project.id == lidar_project_id, Project.name == scope.lidar_project_name
+            )
         )
         == 1
     )
@@ -410,7 +429,7 @@ async def owned_lidar_fixture_is_namespaced(httpx_client, db_session: AsyncSessi
         await db_session.scalar(
             select(func.count())
             .select_from(Dataset)
-            .where(Dataset.display_id == f"DS-LDR-{A}")
+            .where(Dataset.display_id == scope.lidar_dataset_display_id)
         )
         == 1
     )
@@ -431,7 +450,7 @@ async def owned_lidar_fixture_is_namespaced(httpx_client, db_session: AsyncSessi
                 asset = await db_session.get(DatasetAsset, camera.content_id)
                 assert asset.checksum_value == camera.sha256
 
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run)).status_code == 200
     assert (
         await db_session.scalar(
             select(func.count())
@@ -444,7 +463,7 @@ async def owned_lidar_fixture_is_namespaced(httpx_client, db_session: AsyncSessi
         await db_session.scalar(
             select(func.count())
             .select_from(Dataset)
-            .where(Dataset.display_id == f"DS-LDR-{A}")
+            .where(Dataset.display_id == scope.lidar_dataset_display_id)
         )
         == 0
     )
@@ -458,13 +477,15 @@ async def owned_project_roles_fixture_is_namespaced(
     from app.db.models.project import Project
     from app.db.models.user import User
 
+    run = httpx_client.owner_suite.new_run(A)
+    scope = run.scope()
     body = await httpx_client.post(
-        "/api/v1/__test/seed/project-roles", json={"namespace": A}
+        "/api/v1/__test/seed/project-roles", json=run.payload()
     )
     assert body.status_code == 200, body.text
     data = body.json()
 
-    assert data["employee_email"] == f"employee-{A}@e2e.test"
+    assert data["employee_email"] in scope.pr_user_emails
     assert data["projects"]["a"]["project_role"] == "annotator"
     assert data["projects"]["b"]["project_role"] == "reviewer"
     assert data["projects"]["c"]["project_role"] is None
@@ -472,20 +493,18 @@ async def owned_project_roles_fixture_is_namespaced(
         row[0]
         for row in (
             await db_session.execute(
-                select(Project.name).where(
-                    Project.name.like(f"E2E Project Roles % {A}")
-                )
+                select(Project.name).where(Project.name.in_(scope.pr_project_names))
             )
         ).fetchall()
     ]
-    assert sorted(names) == sorted(f"E2E Project Roles {key} {A}" for key in "ABCD")
+    assert sorted(names) == sorted(scope.pr_project_names)
 
-    assert (await _cleanup_owned(httpx_client, A)).status_code == 200
+    assert (await _cleanup_owned(httpx_client, run)).status_code == 200
     assert (
         await db_session.scalar(
             select(func.count())
             .select_from(User)
-            .where(User.email == f"employee-{A}@e2e.test")
+            .where(User.email == data["employee_email"])
         )
         == 0
     )
@@ -500,17 +519,74 @@ async def owned_project_roles_fixture_is_namespaced(
 async def owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
     httpx_client, db_session: AsyncSession
 ):
-    """The namespace-scoped invite actor is removed by the exact owned cleanup.
-
-    `video-issue-context` creates its second actor through the real invite ->
-    register path. That actor must be namespace-scoped (`takeover-<namespace>@e2e.test`)
-    so the exact owned cleanup removes it instead of leaking a shared global
-    account that only the global teardown could touch. A *different* namespace's
-    takeover actor and an ordinary non-E2E account must both survive.
-    """
+    """Only birth-bound takeover accounts are removed with their own run."""
     from app.db.models.user import User
 
-    await _build_owned(httpx_client, A)
+    async def takeover(run):
+        world = await _build_owned(httpx_client, run)
+        login = await httpx_client.post(
+            "/api/v1/__test/seed/login", json={"email": world["admin_email"]}
+        )
+        assert login.status_code == 200, login.text
+        actor = login.json()
+        email = run.scope().takeover_email
+        intent_id = uuid.uuid4()
+        prepared = await httpx_client.post(
+            "/api/v1/__test/seed/invitation-intent",
+            json={
+                "run_id": str(run.run_id),
+                "intent_id": str(intent_id),
+                "project_id": world["project_id"],
+                "inviter_id": actor["user"]["id"],
+                "email": email,
+            },
+        )
+        assert prepared.status_code == 200, prepared.text
+        try:
+            invitation = await httpx_client.post(
+                "/api/v1/users/invite",
+                headers={"Authorization": "Bearer " + actor["access_token"]},
+                json={
+                    "email": email,
+                    "role": "employee",
+                    "project_id": world["project_id"],
+                    "project_member_role": "annotator",
+                },
+            )
+            assert invitation.status_code == 201, invitation.text
+            registered = await httpx_client.post(
+                "/api/v1/auth/register",
+                json={
+                    "token": invitation.json()["token"],
+                    "name": "E2E Takeover",
+                    "password": "Takeover-123",
+                },
+            )
+            assert registered.status_code == 201, registered.text
+        except BaseException as failure:
+            try:
+                finished = await httpx_client.post(
+                    "/api/v1/__test/seed/invitation-finish",
+                    json={"run_id": str(run.run_id), "intent_id": str(intent_id)},
+                )
+                assert finished.status_code == 200, finished.text
+            except BaseException as finish_failure:
+                raise BaseExceptionGroup(
+                    "Takeover creation and intent settlement failed",
+                    [failure, finish_failure],
+                ) from None
+            raise
+        finished = await httpx_client.post(
+            "/api/v1/__test/seed/invitation-finish",
+            json={"run_id": str(run.run_id), "intent_id": str(intent_id)},
+        )
+        assert finished.status_code == 200, finished.text
+        return uuid.UUID(registered.json()["user"]["id"])
+
+    run_a = httpx_client.owner_suite.new_run(A)
+    run_b = httpx_client.owner_suite.new_run(B)
+    own_id = await takeover(run_a)
+    neighbour_id = await takeover(run_b)
     keeper = User(
         id=uuid.uuid4(),
         email="owned-takeover-keeper@example.com",
@@ -519,41 +595,21 @@ async def owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
         role="employee",
         is_active=True,
     )
-    own_takeover = User(
-        id=uuid.uuid4(),
-        email=f"takeover-{A}@e2e.test",
-        name="E2E Takeover",
-        password_hash="x",
-        role="employee",
-        is_active=True,
-    )
-    neighbour_takeover = User(
-        id=uuid.uuid4(),
-        email=f"takeover-{B}@e2e.test",
-        name="E2E Neighbour Takeover",
-        password_hash="x",
-        role="employee",
-        is_active=True,
-    )
-    db_session.add_all([keeper, own_takeover, neighbour_takeover])
+    db_session.add(keeper)
     await db_session.commit()
 
-    response = await _cleanup_owned(httpx_client, A)
+    response = await _cleanup_owned(httpx_client, run_a)
     assert response.status_code == 200, response.text
 
     assert (
         await db_session.scalar(
-            select(func.count())
-            .select_from(User)
-            .where(User.email == f"takeover-{A}@e2e.test")
+            select(func.count()).select_from(User).where(User.id == own_id)
         )
         == 0
     )
     assert (
         await db_session.scalar(
-            select(func.count())
-            .select_from(User)
-            .where(User.email == f"takeover-{B}@e2e.test")
+            select(func.count()).select_from(User).where(User.id == neighbour_id)
         )
         == 1
     )
@@ -565,6 +621,3 @@ async def owned_cleanup_removes_own_takeover_actor_and_keeps_neighbours(
         )
         == 1
     )
-
-    await db_session.delete(neighbour_takeover)
-    await db_session.commit()

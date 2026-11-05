@@ -17,13 +17,10 @@ from tests.identity_recording_fixture_helpers import (
     ROOT,
     recording_graph,
     recording_snapshot,
+    recording_owner_session,
+    recording_consumer as recording_consumer,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_identity_recording_native import (
-    recording_consumer as _recording_consumer,
-)
-
-recording_consumer = _recording_consumer
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -38,7 +35,7 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
     test_engine, recording_consumer, record_property
 ):
     async with recording_graph(test_engine) as ids:
-        before = await recording_snapshot(test_engine)
+        before = await recording_snapshot(test_engine, ids)
         url, consumer = recording_consumer
         result = await asyncio.to_thread(
             subprocess.run,
@@ -62,7 +59,7 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
             "rolled_back": True,
             "updated": [1, 1, 0, 0],
         }
-        assert await recording_snapshot(test_engine) == before
+        assert await recording_snapshot(test_engine, ids) == before
         async with consumer.connect() as db:
             transaction = await db.begin()
             assert (
@@ -78,7 +75,7 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
                 == 1
             )
             await transaction.rollback()
-        assert await recording_snapshot(test_engine) == before
+        assert await recording_snapshot(test_engine, ids) == before
         async with test_engine.connect() as db:
             assert not await db.scalar(
                 text(
@@ -89,13 +86,11 @@ async def test_fixture_preferences_node_and_borrowed_rollback(
 
 
 async def test_fixture_preferences_waits_for_the_preferences_row(
-    test_engine, recording_consumer, monkeypatch, tmp_path, record_property
+    test_engine, tmp_path, record_property
 ):
     async with recording_graph(test_engine) as ids:
-        url, _consumer = recording_consumer
-        role = url.username
-        monkeypatch.setenv("DATABASE_URL", url.render_as_string(hide_password=False))
-        monkeypatch.delenv("SCREENSHOT_DATABASE_URL", raising=False)
+        async with recording_owner_session() as owner:
+            role = await owner.scalar(text("SELECT current_user"))
         path = tmp_path / "preferences.json"
         path.write_text('{"after_lock":"new"}')
         pending = None
