@@ -220,7 +220,11 @@ jobs:
         run: |
           echo "E2E_PREP_SECONDS=$(( $(date +%s) - E2E_PREP_START ))" >> "$GITHUB_ENV"
           echo "E2E_RUN_START=$(date +%s)" >> "$GITHUB_ENV"
-          pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web ${{ matrix.command }}
+          if [ "${{ matrix.suite }}" = "mask-native" ]; then
+            pnpm --filter web ${{ matrix.command }}
+          else
+            pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web ${{ matrix.command }}
+          fi
       - name: Record execution seconds
         if: always() && steps.e2e.outcome != 'skipped'
         run: echo "E2E_RUN_SECONDS=$(( $(date +%s) - E2E_RUN_START ))" >> "$GITHUB_ENV"
