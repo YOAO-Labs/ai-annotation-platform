@@ -1460,6 +1460,10 @@ Identity 组织范围、Assets 关联数据集 kind、Labeling 视频阻塞事�
 
 当前 Redis 检查仍只是一次在飞计数观察，尚未证明账本连续性、暂停路由候选的代次围栏或长请求租约持续有效；不能由一次零计数推导完整停流安全。外部观察已通过事务绑定的密封快照及受限提供方回执接入独立运行时，详见 [ADR-0152](/dev/adr/0152-credential-owning-health-observations)。它证明提供方来源与快照归属；同事务健康数据能力及延迟 apply 见 [ADR-0153](/dev/adr/0153-caller-owned-native-health-data)。协调器提取见 [ADR-0150](/dev/adr/0150-portable-backend-health-coordination)。
 
+Inference 路由与健康观测进程使用各自连接 URL 中显式配置的 LOGIN 身份，
+并验证实际 `current_user` 和 `session_user` 均为该身份；不同隔离环境可使用不同账号。
+两者仍只允许各自固定函数集合，拒绝私表、序列、成员资格及数据库创建／临时表权限。
+
 本地197项去重选定检查通过，24组旧健康相位和38组既有服务池观测匹配。
 该协调器批次的独立安装 Inference／Workspace 分别通过132／449项；对应镜像的包及 API／Native
 指纹一致。该批次证据覆盖协调器提取，不代表独立健康写服务或完整 Inference 已完成。

@@ -1042,3 +1042,98 @@ async def test_routing_owner_real_database_http_and_captured_transaction(
                 await owner.execute("DELETE FROM public.users WHERE id=$1", user_id)
             finally:
                 await owner.close()
+
+
+@pytest.mark.asyncio
+async def test_scoped_inference_logins_enforce_identity_and_capabilities(test_engine):
+    from yoao_inference.health_observation_postgres import (
+        BackendHealthObservationPostgresData,
+        _FUNCTIONS as health_functions,
+    )
+    from yoao_inference.routing_postgres import (
+        RoutingPostgresData,
+        _FUNCTIONS as routing_functions,
+    )
+
+    await assert_owned_test_database(test_engine)
+    owner = await asyncpg.connect(_owner_dsn(test_engine))
+    roles = []
+    password = uuid.uuid4().hex
+    suffix = uuid.uuid4().hex
+    try:
+        for capability, schema, functions in (
+            ("route", "aap_inference_routing_v1", routing_functions),
+            ("health", "aap_inference_health_observation_v1", health_functions),
+        ):
+            role = f"fixture_{capability}_{suffix}"
+            await owner.execute(
+                f'CREATE ROLE "{role}" LOGIN NOINHERIT PASSWORD \'{password}\''
+            )
+            roles.append(role)
+            await owner.execute(f'GRANT USAGE ON SCHEMA "{schema}" TO "{role}"')
+            for name, arguments in functions:
+                await owner.execute(
+                    f'GRANT EXECUTE ON FUNCTION "{schema}"."{name}"({arguments}) TO "{role}"'
+                )
+        routing_url = test_engine.url.set(
+            drivername="postgresql", username=roles[0], password=password
+        ).render_as_string(hide_password=False)
+        health_url = test_engine.url.set(
+            drivername="postgresql", username=roles[1], password=password
+        ).render_as_string(hide_password=False)
+        routing = RoutingRuntime(routing_url)
+        health = BackendHealthObservationPostgresData(health_url)
+        try:
+            assert await routing.readiness()
+            assert await health.readiness()
+            wrong_health = BackendHealthObservationPostgresData(routing_url)
+            wrong_routing = RoutingRuntime(health_url)
+            try:
+                assert await wrong_health.readiness() is False
+                assert await wrong_routing.readiness() is False
+            finally:
+                await wrong_health.close()
+                await wrong_routing.close()
+            connection = await asyncpg.connect(routing_url)
+            try:
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await connection.fetch(
+                        "SELECT * FROM aap_inference_routing_v1.authority_secret"
+                    )
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await connection.fetchval(
+                        "SELECT aap_inference_health_observation_v1.health_observation_policy()"
+                    )
+                async with connection.transaction():
+                    with pytest.raises(RoutingUnavailable):
+                        await RoutingPostgresData.bind(
+                            connection, expected_login=roles[1]
+                        )
+            finally:
+                await connection.close()
+            connection = await asyncpg.connect(health_url)
+            try:
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await connection.fetch(
+                        "SELECT * FROM aap_inference_health_observation_v1.observation_secret"
+                    )
+                with pytest.raises(asyncpg.InsufficientPrivilegeError):
+                    await connection.fetchval(
+                        "SELECT aap_inference_routing_v1.routing_policy()"
+                    )
+            finally:
+                await connection.close()
+            await owner.execute(
+                "GRANT EXECUTE ON FUNCTION "
+                "aap_inference_health_observation_v1.health_observation_policy() "
+                f'TO "{roles[0]}"'
+            )
+            assert await routing.readiness() is False
+        finally:
+            await routing.close()
+            await health.close()
+    finally:
+        for role in reversed(roles):
+            await owner.execute(f'DROP OWNED BY "{role}"')
+            await owner.execute(f'DROP ROLE "{role}"')
+        await owner.close()

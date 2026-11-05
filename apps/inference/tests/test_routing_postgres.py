@@ -58,7 +58,7 @@ class _Connection:
 
 
 async def _bind(monkeypatch, connection):
-    async def verify(_actual, *, schema, functions):
+    async def verify(_actual, *, schema, functions, role):
         return None
 
     monkeypatch.setitem(
@@ -66,7 +66,7 @@ async def _bind(monkeypatch, connection):
         "yoao_owner_data.postgres",
         SimpleNamespace(verify_function_only_role=verify),
     )
-    data = await RoutingPostgresData.bind(connection)
+    data = await RoutingPostgresData.bind(connection, expected_login="routing-test")
     return data
 
 
@@ -74,7 +74,7 @@ async def _bind(monkeypatch, connection):
 async def test_bind_requires_active_transaction_and_borrows_all_resources(monkeypatch):
     inactive = _Connection(active=False)
     with pytest.raises(RoutingUnavailable):
-        await RoutingPostgresData.bind(inactive)
+        await RoutingPostgresData.bind(inactive, expected_login="routing-test")
     assert inactive.calls == []
 
     connection = _Connection()

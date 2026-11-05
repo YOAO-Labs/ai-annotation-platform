@@ -132,9 +132,15 @@ class RoutingPostgresData:
         self._transaction_id = transaction_id
 
     @classmethod
-    async def bind(cls, connection: Any) -> RoutingPostgresData:
+    async def bind(
+        cls, connection: Any, *, expected_login: str
+    ) -> RoutingPostgresData:
         try:
-            if connection.is_in_transaction() is not True:
+            if (
+                type(expected_login) is not str
+                or not expected_login
+                or connection.is_in_transaction() is not True
+            ):
                 raise RoutingUnavailable()
             from yoao_owner_data.postgres import verify_function_only_role
 
@@ -142,6 +148,7 @@ class RoutingPostgresData:
                 connection,
                 schema=_SCHEMA,
                 functions=_FUNCTIONS,
+                role=expected_login,
             )
             policy = _json_object(
                 await connection.fetchval(_POLICY_SQL),
