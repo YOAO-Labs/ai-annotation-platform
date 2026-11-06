@@ -35,6 +35,11 @@ def upgrade() -> None:
         .joinpath("sql/0447_jobs_publication_execution.sql")
         .read_text(encoding="utf-8")
     )
+    _execute_source(
+        files("yoao_jobs")
+        .joinpath("sql/0447_jobs_fixture_media_publication.sql")
+        .read_text(encoding="utf-8")
+    )
     _execute("0447_export_execution.sql")
     _execute("0447_export_fixture_rebind.sql")
     op.execute("DROP FUNCTION public.fixture_export_execution_admitted(uuid)")

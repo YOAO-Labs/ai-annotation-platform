@@ -173,3 +173,71 @@ async def refuse_publication(connection, arguments):
     )
     if recorded is not True:
         raise RuntimeError("Jobs pre-request refusal was not acknowledged")
+
+
+async def publish_fixture_media_delivery(database_url, delivery_id, publisher):
+    """Publish only the owner-saved envelope while holding its physical fence."""
+    from .queue_contract import (
+        JobsQueueNotSent,
+        JobsQueueUnavailable,
+        QueueDispatch,
+        decode_queue_request,
+        encode_queue_request,
+    )
+
+    async with _publication_connection(database_url) as connection:
+        owned = await connection.fetchval(
+            "SELECT pg_catalog.pg_try_advisory_lock("
+            "pg_catalog.hashtextextended('aap-jobs:fixture-media:' || $1::uuid::text, 0))",
+            delivery_id,
+        )
+        if owned is not True:
+            raise PublicationUnavailable("Fixture media publication is already owned")
+        nonce = uuid.uuid4()
+        raw = await connection.fetchval(
+            "SELECT aap_jobs_v1.begin_fixture_media_publication($1, $2)",
+            delivery_id,
+            nonce,
+        )
+        try:
+            receipt = json.loads(raw) if isinstance(raw, str) else raw
+            if (
+                not isinstance(receipt, dict)
+                or set(receipt) != {"state", "delivery_id", "payload_digest", "envelope"}
+                or receipt["state"] not in {"entered", "accepted"}
+                or receipt["delivery_id"] != str(delivery_id)
+                or not isinstance(receipt["payload_digest"], str)
+                or len(receipt["payload_digest"]) != 64
+                or any(char not in "0123456789abcdef" for char in receipt["payload_digest"])
+            ):
+                raise ValueError
+            operation = decode_queue_request(encode_queue_request(receipt["envelope"]))
+            if not isinstance(operation, QueueDispatch) or operation.execution_id != str(delivery_id):
+                raise ValueError
+        except (AttributeError, KeyError, TypeError, ValueError):
+            raise PublicationUnavailable("Fixture media publication receipt is invalid") from None
+        if receipt["state"] == "accepted":
+            return str(delivery_id)
+        try:
+            published = await publisher.publish_envelope(receipt["envelope"])
+        except JobsQueueNotSent as primary:
+            try:
+                recorded = await connection.fetchval(
+                    "SELECT aap_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
+                    delivery_id, nonce, "not_sent",
+                )
+                if recorded is not True:
+                    raise PublicationUnavailable("Fixture media refusal was not acknowledged")
+            except BaseException as closing:
+                raise BaseExceptionGroup(
+                    "Fixture media refusal and owner recording failed", [primary, closing]
+                ) from None
+            raise
+        if published != str(delivery_id):
+            raise JobsQueueUnavailable()
+        if await connection.fetchval(
+            "SELECT aap_jobs_v1.finish_fixture_media_publication($1, $2, $3)",
+            delivery_id, nonce, "accepted",
+        ) is not True:
+            raise PublicationUnavailable("Fixture media publication was not acknowledged")
+        return str(delivery_id)

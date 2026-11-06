@@ -302,6 +302,17 @@ timeouts and lost responses do not establish that outcome. Preserve the
 associated queue, results, objects, credentials and evidence until the remaining
 physical obligations are resolved.
 
+Fixture-owned pyramid, thumbnail and video deliveries without an AsyncJob use
+the same Jobs publication-control credential but a separate immutable delivery
+record. The producer transaction binds the actual run, DatasetItem or
+TaskOriginal subject, source receipt, private queue and complete v2 envelope;
+Assets validates the source and payload before Jobs records it. The worker
+waits on the same publication fence and requires a positive accepted receipt
+before Assets admits physical work. A sealed run can retire an exact delivery
+only after all its publication attempts have definite outcomes; no attempts or
+any unknown attempt remain blocked. Assets execution/no-start proof is
+independent of this publication tombstone.
+
 ## Package verification
 
 From the repository root, the locked test extra includes the asynchronous runner:
