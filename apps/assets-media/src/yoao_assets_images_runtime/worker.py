@@ -1530,8 +1530,16 @@ def _check_finish_request_budget(request: FinishImageMediaRequest) -> None:
 
 
 async def _run_worker(
-    *, once: bool, job_id: UUID | None, input_id: UUID | None = None
+    *,
+    once: bool,
+    job_id: UUID | None,
+    input_id: UUID | None = None,
+    shutdown_event: asyncio.Event | None = None,
+    ready_callback=None,
+    strict: bool = False,
 ) -> None:
+    if ready_callback is not None and (once or job_id is not None or input_id is not None or not strict):
+        raise ValueError("readiness requires both strict unselected worker lanes")
     config: ImageWorkerConfig = load_config()
     database = await _connect_worker_database(config)
     try:
@@ -1558,16 +1566,34 @@ async def _run_worker(
                 policy=policy,
                 worker_id=executor.worker_id,
             )
+            stopped = shutdown_event or asyncio.Event()
+            ready = False
+            unsettled = False
             if once:
+                if stopped.is_set():
+                    return
+                image_work = None
                 if job_id is not None:
-                    await executor.execute_once(job_id=job_id)
+                    image_work = await executor.execute_once(job_id=job_id)
                 else:
                     result = await inputs.execute_once(input_id=input_id)
+                    if stopped.is_set():
+                        if inputs.unsettled_claim or (
+                            result is not None and result.status not in {"ready", "failed"}
+                        ):
+                            raise RuntimeError("Assets image input claim is unsettled")
+                        return
                     if result is None and input_id is None:
-                        await executor.execute_once()
+                        image_work = await executor.execute_once()
+                if stopped.is_set() and job_id is None and inputs.unsettled_claim:
+                    raise RuntimeError("Assets image input claim is unsettled")
+                if stopped.is_set() and image_work is not None and image_work.outcome not in {
+                    "published", "replayed", "failed"
+                }:
+                    raise RuntimeError("Assets image claim is unsettled")
                 return
             next_reconcile = 0.0
-            while True:
+            while not stopped.is_set():
                 try:
                     now = asyncio.get_running_loop().time()
                     if input_id is None and now >= next_reconcile:
@@ -1576,28 +1602,61 @@ async def _run_worker(
                             asyncio.get_running_loop().time()
                             + _RECONCILE_INTERVAL_SECONDS
                         )
+                    if stopped.is_set():
+                        break
                     input_work = (
                         await inputs.execute_once(input_id=input_id)
                         if job_id is None
                         else None
                     )
+                    if inputs.unsettled_claim or (
+                        input_work is not None
+                        and input_work.status not in {"ready", "failed"}
+                    ):
+                        unsettled = True
+                        if strict:
+                            raise RuntimeError("Assets image input claim is unsettled")
+                    if stopped.is_set():
+                        break
                     image_work = (
                         await executor.execute_once(job_id=job_id)
                         if input_id is None
                         else None
                     )
+                    if image_work is not None and image_work.outcome not in {
+                        "published", "replayed", "failed"
+                    }:
+                        unsettled = True
+                        if strict:
+                            raise RuntimeError("Assets image claim is unsettled")
+                    if stopped.is_set():
+                        break
+                    if not ready and ready_callback is not None:
+                        ready_callback()
+                        ready = True
                     did_work = input_work is not None or image_work is not None
                 except (ImageFailure, InputFailure) as exc:
+                    unsettled = True
+                    if strict:
+                        raise
                     _LOGGER.error("Assets image worker operation failed (%s)", exc.code)
                     did_work = False
                 except Exception as exc:  # noqa: BLE001 - do not log source/URL data
+                    unsettled = True
+                    if strict:
+                        raise
                     _LOGGER.error(
                         "Assets image worker iteration failed (%s)",
                         type(exc).__name__,
                     )
                     did_work = False
-                if did_work is None or did_work is False:
-                    await asyncio.sleep(config.poll_seconds)
+                if not did_work:
+                    try:
+                        await asyncio.wait_for(stopped.wait(), timeout=config.poll_seconds)
+                    except asyncio.TimeoutError:
+                        pass
+            if unsettled:
+                raise RuntimeError("Assets image worker has unsettled work")
         finally:
             try:
                 if input_storage is not None:
@@ -1627,20 +1686,31 @@ async def _connect_worker_database(config: ImageWorkerConfig) -> AsyncpgImageDat
         raise RuntimeError("Assets image worker database connection failed") from None
 
 
-async def _with_signals(coroutine) -> None:
+async def _run_worker_cli(*, once, job_id, input_id, ready_fd, stopped_fd):
+    """Stop admitting work on signal; drain the exact current unit."""
     loop = asyncio.get_running_loop()
-    task = asyncio.create_task(coroutine)
+    stopped = asyncio.Event()
     installed = []
     for caught_signal in (signal.SIGTERM, signal.SIGINT):
-        try:
-            loop.add_signal_handler(caught_signal, task.cancel)
-            installed.append(caught_signal)
-        except (NotImplementedError, RuntimeError):
-            pass
+        loop.add_signal_handler(caught_signal, stopped.set)
+        installed.append(caught_signal)
+
+    def ready():
+        os.write(ready_fd, b"ready\n")
+        os.close(ready_fd)
+
     try:
-        await task
-    except asyncio.CancelledError:
-        return
+        await _run_worker(
+            once=once,
+            job_id=job_id,
+            input_id=input_id,
+            shutdown_event=stopped,
+            ready_callback=ready if ready_fd is not None else None,
+            strict=ready_fd is not None,
+        )
+        if stopped_fd is not None and stopped.is_set():
+            os.write(stopped_fd, b"settled\n")
+            os.close(stopped_fd)
     finally:
         for caught_signal in installed:
             loop.remove_signal_handler(caught_signal)
@@ -1655,13 +1725,28 @@ def main() -> None:
     parser.add_argument(
         "--healthcheck", action="store_true", help="verify the worker SQL login"
     )
+    parser.add_argument("--ready-fd", type=int)
+    parser.add_argument("--stopped-fd", type=int)
     args = parser.parse_args()
-    coroutine = (
-        _healthcheck()
-        if args.healthcheck
-        else _run_worker(once=args.once, job_id=args.job_id, input_id=args.input_id)
-    )
-    asyncio.run(_with_signals(coroutine))
+    if (args.ready_fd is None) != (args.stopped_fd is None):
+        parser.error("ready and stopped descriptors must be supplied together")
+    if args.ready_fd is not None and (
+        args.ready_fd < 0 or args.stopped_fd < 0 or args.ready_fd == args.stopped_fd
+        or args.once or args.job_id or args.input_id or args.healthcheck
+    ):
+        parser.error("supervised readiness requires a continuous unselected worker")
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        if args.healthcheck:
+            asyncio.run(_healthcheck())
+        else:
+            asyncio.run(_run_worker_cli(
+                once=args.once, job_id=args.job_id, input_id=args.input_id,
+                ready_fd=args.ready_fd, stopped_fd=args.stopped_fd,
+            ))
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 if __name__ == "__main__":

@@ -1495,6 +1495,19 @@ def failure_evidence(error):
     return value
 
 
+def destroy_with_images_role(backend, owner, confirmation):
+    """Keep the original LOGIN through every guarded-destruction refusal."""
+    with backend.fixture_authority_fence():
+        owner.data["raster"]["images"]["state"] = "guarded_destroy_intent"
+        owner.save()
+        backend._destroy_owned(confirmation)
+        owner.data["raster"]["images"]["state"] = "database_role_drop_intent"
+        owner.save()
+        asyncio.run(image_role(backend, owner, "drop"))
+        owner.data["raster"]["images"]["state"] = "database_role_removed"
+        owner.save()
+
+
 def outer(arguments):
     libc = ctypes.CDLL(None, use_errno=True)
     require(libc.prctl(36, 1, 0, 0, 0) == 0, "raster_subreaper_unavailable")
@@ -1593,7 +1606,9 @@ def outer(arguments):
             asyncio.run(backend.prepare_fixture_inference_database())
             owner.data["raster"]["images"]["state"] = "database_role_creation_intent"
             owner.save()
-            asyncio.run(image_role(backend, owner, "create"))
+            owner.data["raster"]["images"]["database_role_oid"] = asyncio.run(
+                image_role(backend, owner, "create")
+            )
             owner.data["raster"]["images"]["state"] = "database_role_ready"
             owner.save()
             inference = FixtureInferenceServices(backend, code_root=ROOT)
@@ -1619,13 +1634,8 @@ def outer(arguments):
             inference.close()
             phase.close()
             require_no_children()
-            owner.data["raster"]["images"]["state"] = "database_role_drop_intent"
-            owner.save()
-            asyncio.run(image_role(backend, owner, "drop"))
-            owner.data["raster"]["images"]["state"] = "database_role_removed"
-            owner.save()
             verify_store_physical(owner)
-            backend.destroy(resources["confirmation"])
+            destroy_with_images_role(backend, owner, resources["confirmation"])
             owner.data["raster"]["state"] = "worktree_destroyed"
             owner.save()
             require(owner.cleanup(), "raster_store_cleanup_failed")

@@ -138,6 +138,8 @@ class InputExecutor:
         self.database, self.storage = database, storage
         self.worker_id = worker_id or uuid4()
         self.policy = policy or ImagePolicy()
+        # Sticky: a lost lease is not evidence that this worker's claim settled.
+        self.unsettled_claim = False
         self.temp_root = Path(temp_root) if temp_root is not None else None
 
     async def _materialize(self, claim, lease):
@@ -283,6 +285,7 @@ class InputExecutor:
 
     async def _fail(self, claim, code):
         if code == "lease_lost":
+            self.unsettled_claim = True
             return None
         try:
             return await self.database.call(
@@ -296,6 +299,7 @@ class InputExecutor:
             )
         except c.InputFailure as failure:
             if failure.code == "lease_lost":
+                self.unsettled_claim = True
                 return None
             raise
 

@@ -53,30 +53,40 @@ def _credentials(owner):
 
 
 async def image_role(backend, owner, action):
-    """Create or remove only the recorded function-only LOGIN in the owned DB."""
+    """Create the LOGIN in its owned DB or drop its original OID after destruction."""
     from yoao_assets_images_runtime.health import _expected_signatures
 
     credentials = _credentials(owner)
     role = credentials["database_role"]
     require(action in {"create", "drop"}, "raster_images_role_action_invalid")
-    database = await backend.database()
-    require(
-        database is not None and database.get("owner") == backend.resources["owner"],
-        "raster_images_database_owner_changed",
-    )
-    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    if action == "create":
+        database = await backend.database()
+        require(
+            database is not None and database.get("owner") == backend.resources["owner"],
+            "raster_images_database_owner_changed",
+        )
+    target = backend.url if action == "create" else backend.url.set(database="postgres")
+    engine = create_async_engine(target, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.begin() as connection:
-            db_owner = await connection.scalar(
-                text(
-                    "SELECT shobj_description(oid,'pg_database') FROM pg_database "
-                    "WHERE datname=current_database()"
+            if action == "create":
+                db_owner = await connection.scalar(
+                    text(
+                        "SELECT shobj_description(oid,'pg_database') FROM pg_database "
+                        "WHERE datname=current_database()"
+                    )
                 )
-            )
-            require(
-                db_owner == backend.resources["owner"],
-                "raster_images_database_owner_changed",
-            )
+                require(
+                    db_owner == backend.resources["owner"],
+                    "raster_images_database_owner_changed",
+                )
+            else:
+                await backend.verify_database_server(connection)
+                present = await connection.scalar(
+                    text("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname=:name)"),
+                    {"name": backend.resources["database"]},
+                )
+                require(not present, "raster_images_database_still_exists")
             operator = (
                 await connection.execute(
                     text(
@@ -129,30 +139,39 @@ async def image_role(backend, owner, action):
                     connection, operator["oid"], role=role
                 )
                 require(observed is not None, "raster_images_role_missing")
+                original_oid = observed["oid"]
                 backend._validate_runtime_role(observed, credentials)
+                # Persist the prospective OID before commit; the intent remains
+                # unresolved if either publication or the DB commit is ambiguous.
+                owner.data["raster"]["images"]["database_role_oid"] = original_oid
+                owner.save()
             else:
                 require(observed is not None, "raster_images_role_missing")
                 backend._validate_runtime_role(observed, credentials)
+                require(
+                    observed["oid"] == owner.data["raster"]["images"].get("database_role_oid"),
+                    "raster_images_role_oid_changed",
+                )
                 require(not observed["sessions"], "raster_images_role_sessions_remain")
                 require(
                     operator["rolsuper"]
                     or (operator["rolcreaterole"] and observed["operator_admin"]),
                     "raster_images_role_drop_denied",
                 )
-                signatures = ", ".join(_expected_signatures("worker"))
-                await connection.exec_driver_sql(
-                    f"REVOKE EXECUTE ON FUNCTION {signatures} FROM {quote(role)}"
-                )
-                await connection.exec_driver_sql(
-                    f"REVOKE USAGE ON SCHEMA aap_assets_v1 FROM {quote(role)}"
-                )
-                await connection.exec_driver_sql(
-                    f"REVOKE CONNECT ON DATABASE {quote(backend.resources['database'])} "
-                    f"FROM {quote(role)}"
-                )
+                # All grants in the exact worktree database disappeared with it.
+                # DROP ROLE refuses any remaining dependency in another database.
                 await connection.exec_driver_sql(f"DROP ROLE {quote(role)}")
+                require(
+                    not await connection.scalar(
+                        text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE oid=:oid)"),
+                        {"oid": observed["oid"]},
+                    ),
+                    "raster_images_role_drop_unconfirmed",
+                )
     finally:
         await engine.dispose()
+    if action == "create":
+        return original_oid
 
 
 def make_credentials(owner):
@@ -235,10 +254,12 @@ class RasterImagesProcess:
         self.descriptor = None
         self.tracked = {}
         self.ready_fd = None
+        self.settled_fd = None
 
     def start(self):
         self.journal("starting", {})
         self.ready_fd, writer = os.pipe()
+        self.settled_fd, settled_writer = os.pipe()
         try:
             self.child = subprocess.Popen(
                 [
@@ -247,16 +268,23 @@ class RasterImagesProcess:
                     "--worker",
                 ],
                 cwd=self.root / "apps/api",
-                env={**self.environment, "RASTER_IMAGES_READY_FD": str(writer)},
-                pass_fds=(writer,),
+                env={
+                    **self.environment,
+                    "RASTER_IMAGES_READY_FD": str(writer),
+                    "RASTER_IMAGES_STOPPED_FD": str(settled_writer),
+                },
+                pass_fds=(writer, settled_writer),
                 start_new_session=True,
             )
         except BaseException:
             os.close(self.ready_fd)
+            os.close(self.settled_fd)
+            self.settled_fd = None
             self.ready_fd = None
             raise
         finally:
             os.close(writer)
+            os.close(settled_writer)
         self.journal("spawned", {"pid": self.child.pid})
         self.descriptor = open_pidfd(self.child.pid)
         self.journal(
@@ -297,6 +325,12 @@ class RasterImagesProcess:
             requested = pidfd_alive(self.descriptor)
             if requested:
                 pidfd_send_signal(self.descriptor, signal.SIGTERM)
+                # The worker owns the current claim and its physical children.
+                # Its native policy bounds work; a process deadline is not a
+                # settlement receipt and must not cancel that work.
+                while pidfd_alive(self.descriptor):
+                    _track_consumer_descendants(self.child.pid, self.tracked)
+                    select.select([self.descriptor], [], [], 0.1)
             result = _drain_consumer(self.child, self.tracked, request_stop=False)
             if not requested or result != 0:
                 error = ContractError("raster_images_exit_unsettled")
@@ -305,6 +339,11 @@ class RasterImagesProcess:
                     "shutdown_requested": requested,
                 }
                 raise error
+            receipt = os.read(self.settled_fd, 9)
+            require(
+                receipt == b"settled\n" and os.read(self.settled_fd, 1) == b"",
+                "raster_images_settlement_unconfirmed",
+            )
             self.journal(
                 "stopped",
                 {"pid": self.child.pid, "exit_code": result, "shutdown_requested": True},
@@ -315,6 +354,7 @@ class RasterImagesProcess:
         else:
             if self.ready_fd is not None:
                 os.close(self.ready_fd)
+            os.close(self.settled_fd)
             os.close(self.descriptor)
             for descriptor in self.tracked.values():
                 os.close(descriptor)
@@ -326,24 +366,15 @@ def _start_ticks(pid):
 
 
 def _worker_main():
-    """Announce from the native worker's first polling call, after initialization."""
+    """Run the installed worker with its explicit native lifecycle descriptors."""
     import pyvips
 
     from yoao_assets_images_runtime import worker
 
-    # The polling process otherwise loads libvips only on its first pyramid job.
     pyvips.version(0)
-
-    descriptor = int(os.environ.pop("RASTER_IMAGES_READY_FD"))
-    code = worker.InputExecutor.execute_once.__code__
-
-    def ready(frame, event, _arg):
-        if event == "call" and frame.f_code is code:
-            sys.setprofile(None)
-            os.write(descriptor, b"ready\n")
-            os.close(descriptor)
-
-    sys.setprofile(ready)
+    ready_fd = os.environ.pop("RASTER_IMAGES_READY_FD")
+    stopped_fd = os.environ.pop("RASTER_IMAGES_STOPPED_FD")
+    sys.argv = [sys.argv[0], "--ready-fd", ready_fd, "--stopped-fd", stopped_fd]
     worker.main()
 
 

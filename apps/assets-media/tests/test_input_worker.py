@@ -146,12 +146,9 @@ async def test_lost_or_unknown_initial_lease_never_copies_or_overwrites_winner(
         return await native(operation, request)
 
     state.database.call.side_effect = lost
-    assert (
-        await InputExecutor(
-            state.database, state.storage, temp_root=tmp_path
-        ).execute_once()
-        is None
-    )
+    executor = InputExecutor(state.database, state.storage, temp_root=tmp_path)
+    assert await executor.execute_once() is None
+    assert executor.unsettled_claim is True
     state.storage.download_source.assert_not_awaited()
     assert not any(
         operation in {"finish_accepted_image_input", "fail_accepted_image_input"}
