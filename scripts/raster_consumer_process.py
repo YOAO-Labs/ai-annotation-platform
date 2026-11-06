@@ -8,7 +8,10 @@ import subprocess
 import time
 
 from linux_pidfd import (
-    open_pidfd, pidfd_alive as _pidfd_live, pidfd_send_signal, waitid_pidfd,
+    open_pidfd,
+    pidfd_alive as _pidfd_live,
+    pidfd_send_signal,
+    waitid_pidfd,
 )
 from storage_s3_contract import ContractError, require
 
@@ -101,17 +104,24 @@ def _track_group_members(group, tracked):
 
 
 def _signal_consumer(group, tracked, sig):
-    # The leader is not reaped until this group is drained, so its process
-    # group identity cannot be recycled while signalling.
+    # The leader is still unreaped; signal exact descriptors, not a group whose
+    # members may disappear before their individual delivery can be observed.
+    leader = open_pidfd(group)
     try:
-        os.killpg(group, sig)
-    except ProcessLookupError:
-        pass
-    for descriptor in tracked.values():
+        if _pidfd_live(leader):
+            pidfd_send_signal(leader, sig)
+    finally:
+        os.close(leader)
+    signalled = {}
+    for pid, descriptor in tracked.items():
+        if not _pidfd_live(descriptor):
+            continue
         try:
             pidfd_send_signal(descriptor, sig)
         except ProcessLookupError:
-            pass
+            continue
+        signalled[pid] = descriptor
+    return signalled
 
 
 def _descendant_outcomes(signalled, *, reap):
@@ -124,11 +134,20 @@ def _descendant_outcomes(signalled, *, reap):
         try:
             observed = waitid_pidfd(descriptor, options)
         except OSError as error:
-            outcomes[pid] = {"state": "unknown", "error": type(error).__name__, "errno": error.errno}
+            outcomes[pid] = {
+                "state": "unknown",
+                "error": type(error).__name__,
+                "errno": error.errno,
+            }
             continue
-        outcomes[pid] = None if observed is None else {
-            "code": observed.si_code, "status": observed.si_status,
-        }
+        outcomes[pid] = (
+            None
+            if observed is None
+            else {
+                "code": observed.si_code,
+                "status": observed.si_status,
+            }
+        )
     return outcomes
 
 
@@ -140,8 +159,7 @@ def _drain_consumer(child, tracked):
         _track_group_members(child.pid, tracked)
     except Exception as error:
         capture_failure = error
-    signalled = {pid: fd for pid, fd in tracked.items() if _pidfd_live(fd)}
-    _signal_consumer(child.pid, tracked, signal.SIGTERM)
+    signalled = _signal_consumer(child.pid, tracked, signal.SIGTERM)
     deadline = time.monotonic() + 3
     while _group_live(child.pid) or any(_pidfd_live(fd) for fd in tracked.values()):
         if time.monotonic() >= deadline:
@@ -151,9 +169,13 @@ def _drain_consumer(child, tracked):
             unsettled.child = child
             unsettled.pidfds = tracked
             unsettled.descendant_outcomes = _descendant_outcomes(signalled, reap=False)
-            observed = os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            observed = os.waitid(
+                os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
+            )
             unsettled.leader_status = (
-                {"code": observed.si_code, "status": observed.si_status} if observed else None
+                {"code": observed.si_code, "status": observed.si_status}
+                if observed
+                else None
             )
             if capture_failure is not None:
                 raise builtins.BaseExceptionGroup(
@@ -165,7 +187,9 @@ def _drain_consumer(child, tracked):
     result = child.wait(timeout=0.1)
     outcomes = _descendant_outcomes(signalled, reap=True)
     if any(
-        outcome is None or outcome.get("code") != os.CLD_EXITED or outcome.get("status") != 0
+        outcome is None
+        or outcome.get("code") != os.CLD_EXITED
+        or outcome.get("status") != 0
         for outcome in outcomes.values()
     ):
         error = ContractError("raster_consumer_descendant_exit_unsettled")

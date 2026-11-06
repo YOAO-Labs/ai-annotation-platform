@@ -4,9 +4,11 @@ import json
 import os
 from pathlib import Path
 import select
+import shutil
 import socket
 import subprocess
 import sys
+import tempfile
 import textwrap
 import uuid
 
@@ -45,11 +47,13 @@ def test_owner_seed_refuses_cross_boundary_setup_without_leaking_credentials(
     secret = "fixture-secret-not-for-output"
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
-        input=json.dumps({
-            "action": "execute",
-            "operation_id": str(uuid.uuid4()),
-            "payload": {"path": path, "data": {"namespace": "guarded"}},
-        }),
+        input=json.dumps(
+            {
+                "action": "execute",
+                "operation_id": str(uuid.uuid4()),
+                "payload": {"path": path, "data": {"namespace": "guarded"}},
+            }
+        ),
         text=True,
         capture_output=True,
         env={
@@ -79,11 +83,13 @@ def test_mask_lifecycle_owner_refuses_foreign_database_or_disabled_e2e(
     secret = "fixture-secret-not-for-output"
     result = subprocess.run(
         [sys.executable, str(SCRIPT)],
-        input=json.dumps({
-            "action": "execute",
-            "operation_id": str(uuid.uuid4()),
-            "payload": {"operation": "mask_slice_lifecycle", "data": {}},
-        }),
+        input=json.dumps(
+            {
+                "action": "execute",
+                "operation_id": str(uuid.uuid4()),
+                "payload": {"operation": "mask_slice_lifecycle", "data": {}},
+            }
+        ),
         text=True,
         capture_output=True,
         env={
@@ -138,35 +144,54 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
         AsyncEngine.dispose = fail_disposal
         asyncio.run(module.serve_authority(ready_fd))
     """)
-    process = subprocess.Popen(
-        [sys.executable, "-c", program, str(root), str(directory), str(write_fd)],
-        cwd=root / "apps/api", pass_fds=(write_fd,), stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
-    )
-    os.close(write_fd)
+    socket_base = tempfile.mkdtemp(prefix="fixture-disposal-", dir="/tmp")
+    process = None
     try:
+        process = subprocess.Popen(
+            [sys.executable, "-c", program, str(root), str(directory), str(write_fd)],
+            cwd=root / "apps/api",
+            pass_fds=(write_fd,),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
+            env={**os.environ, "TMPDIR": socket_base},
+        )
+        os.close(write_fd)
+        write_fd = None
         assert select.select([read_fd], [], [], 30)[0]
-        assert os.read(read_fd, 1) == b"1"
+        ready = os.read(read_fd, 1)
+        if ready != b"1":
+            process.wait(timeout=10)
+            diagnostic = tmp_path / "authority-startup.stderr"
+            diagnostic.write_bytes(process.stderr.read())
+            pytest.fail(
+                f"Authority did not become ready; private diagnostic: {diagnostic}"
+            )
         record = json.loads((directory / "owner.json").read_text())
         operation_id = str(uuid.uuid4())
-        payload = {"path": "/api/v1/__test/seed/owned", "data": {}}
+        payload = {"path": "/api/v1/__test/seed/unknown-owned-operation", "data": {}}
         with socket.socket(socket.AF_UNIX) as channel:
             channel.settimeout(30)
             channel.connect(record["socket"])
             with channel.makefile("rwb") as stream:
+
                 def exchange(action, identity, **extra):
-                    stream.write(json.dumps({
-                        "token": record["token"], "action": action,
-                        "operation_id": identity, **extra,
-                    }).encode() + b"\n")
+                    stream.write(
+                        json.dumps(
+                            {
+                                "token": record["token"],
+                                "action": action,
+                                "operation_id": identity,
+                                **extra,
+                            }
+                        ).encode()
+                        + b"\n"
+                    )
                     stream.flush()
                     return json.loads(stream.readline())
 
                 outcome = exchange("execute", operation_id, payload=payload)
                 assert outcome["disposal_error"] == "OSError"
-                assert outcome["operation_response"]["status"] == 422
-                detail = json.loads(outcome["operation_response"]["body"])["detail"]
-                assert {"namespace", "suite_id", "run_id"} <= {item["loc"][-1] for item in detail}
+                assert outcome["operation_response"]["status"] == 404
                 assert exchange("recover", operation_id) == outcome
                 assert exchange("ack", operation_id)["state"] == "acknowledged"
                 refused = exchange("execute", str(uuid.uuid4()), payload=payload)
@@ -176,7 +201,11 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
         assert event["response"] == outcome["operation_response"]
     finally:
         os.close(read_fd)
-        if process.poll() is None:
-            process.kill()
-        process.wait(timeout=10)
-        process.stderr.close()
+        if write_fd is not None:
+            os.close(write_fd)
+        if process is not None:
+            if process.poll() is None:
+                process.kill()
+            process.wait(timeout=10)
+            process.stderr.close()
+        shutil.rmtree(socket_base)

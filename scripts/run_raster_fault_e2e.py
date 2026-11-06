@@ -67,52 +67,91 @@ def seed_operation(process, owner, payload):
     reply = None
     acknowledged = False
     try:
-        process.stdin.write(json.dumps({
-            "action": "execute", "operation_id": operation_id, "payload": payload,
-        }) + "\n")
+        process.stdin.write(
+            json.dumps(
+                {
+                    "action": "execute",
+                    "operation_id": operation_id,
+                    "payload": payload,
+                }
+            )
+            + "\n"
+        )
         process.stdin.flush()
         line = process.stdout.readline()
         require(bool(line), "raster_seed_process_exited")
         reply = json.loads(line)
-        require(reply.get("operation_id") == operation_id, "raster_seed_response_changed")
+        require(
+            reply.get("operation_id") == operation_id, "raster_seed_response_changed"
+        )
         require(reply.get("state") != "pending", "raster_seed_operation_pending")
         require(
-            (isinstance(reply.get("owner_error"), str) and reply["owner_error"].isidentifier() if "owner_error" in reply else (
-                type(reply.get("status")) is int and isinstance(reply.get("body"), str)
-            ))
-            and ("journal_error" not in reply or (
-                isinstance(reply["journal_error"], str) and reply["journal_error"].isidentifier()
-            ))
-            and ("disposal_error" not in reply or (
-                isinstance(reply["disposal_error"], str) and reply["disposal_error"].isidentifier()
-            ))
-            and ("operation_response" not in reply or (
-                isinstance(reply["operation_response"], dict)
-                and type(reply["operation_response"].get("status")) is int
-                and isinstance(reply["operation_response"].get("body"), str)
-            )),
+            (
+                isinstance(reply.get("owner_error"), str)
+                and reply["owner_error"].isidentifier()
+                if "owner_error" in reply
+                else (
+                    type(reply.get("status")) is int
+                    and isinstance(reply.get("body"), str)
+                )
+            )
+            and (
+                "journal_error" not in reply
+                or (
+                    isinstance(reply["journal_error"], str)
+                    and reply["journal_error"].isidentifier()
+                )
+            )
+            and (
+                "disposal_error" not in reply
+                or (
+                    isinstance(reply["disposal_error"], str)
+                    and reply["disposal_error"].isidentifier()
+                )
+            )
+            and (
+                "operation_response" not in reply
+                or (
+                    isinstance(reply["operation_response"], dict)
+                    and type(reply["operation_response"].get("status")) is int
+                    and isinstance(reply["operation_response"].get("body"), str)
+                )
+            ),
             "raster_seed_response_invalid",
         )
-        if reply.get("owner_error") in {"OperationOutcomeUnresolved", "OperationIdentityConflict"}:
+        if reply.get("owner_error") in {
+            "OperationOutcomeUnresolved",
+            "OperationIdentityConflict",
+        }:
             raise ContractError(f"raster_seed_{reply['owner_error']}")
         known = reply.get("operation_response", reply)
-        if known.get("status") is not None and (known["status"] != 200 or reply.get("disposal_error")):
-            owner.data["raster"].setdefault("seed_failures", []).append({
-                "operation_id": operation_id,
-                "operation": payload.get("operation", payload.get("path")),
-                "status": known["status"],
-                "body": known["body"],
-                "disposal_error": reply.get("disposal_error"),
-            })
+        if known.get("status") is not None and (
+            known["status"] != 200 or reply.get("disposal_error")
+        ):
+            owner.data["raster"].setdefault("seed_failures", []).append(
+                {
+                    "operation_id": operation_id,
+                    "operation": payload.get("operation", payload.get("path")),
+                    "status": known["status"],
+                    "body": known["body"],
+                    "disposal_error": reply.get("disposal_error"),
+                }
+            )
             try:
                 owner.save()
             except BaseException as error:
                 causes = [ContractError(f"raster_seed_http_{known['status']}")]
                 if reply.get("disposal_error"):
-                    causes.append(ContractError(f"raster_seed_disposal_{reply['disposal_error']}"))
+                    causes.append(
+                        ContractError(f"raster_seed_disposal_{reply['disposal_error']}")
+                    )
                 causes.append(error)
-                raise builtins.BaseExceptionGroup("raster seed and evidence failed", causes) from None
-        process.stdin.write(json.dumps({"action": "ack", "operation_id": operation_id}) + "\n")
+                raise builtins.BaseExceptionGroup(
+                    "raster seed and evidence failed", causes
+                ) from None
+        process.stdin.write(
+            json.dumps({"action": "ack", "operation_id": operation_id}) + "\n"
+        )
         process.stdin.flush()
         receipt_line = process.stdout.readline()
         require(bool(receipt_line), "raster_seed_receipt_missing")
@@ -127,16 +166,24 @@ def seed_operation(process, owner, payload):
         errors = []
         if reply.get("operation_response"):
             errors.append(ContractError(f"raster_seed_http_{known['status']}"))
-        if reply.get("owner_error") and reply["owner_error"] != reply.get("disposal_error"):
+        if reply.get("owner_error") and reply["owner_error"] != reply.get(
+            "disposal_error"
+        ):
             errors.append(ContractError(f"raster_seed_{reply['owner_error']}"))
         if reply.get("disposal_error"):
-            errors.append(ContractError(f"raster_seed_disposal_{reply['disposal_error']}"))
+            errors.append(
+                ContractError(f"raster_seed_disposal_{reply['disposal_error']}")
+            )
         if not errors and reply.get("status") != 200:
             errors.append(ContractError(f"raster_seed_http_{reply['status']}"))
         if reply.get("journal_error"):
-            errors.append(ContractError(f"raster_seed_journal_{reply['journal_error']}"))
+            errors.append(
+                ContractError(f"raster_seed_journal_{reply['journal_error']}")
+            )
         if len(errors) > 1:
-            raise builtins.BaseExceptionGroup("raster seed and authority evidence failed", errors)
+            raise builtins.BaseExceptionGroup(
+                "raster seed and authority evidence failed", errors
+            )
         if errors:
             raise errors[0]
         return json.loads(reply["body"])
@@ -145,7 +192,11 @@ def seed_operation(process, owner, payload):
             error.fixture_response = reply
             error.add_note(
                 "Fixture response was received"
-                + (" before acknowledgement became uncertain" if not acknowledged else "")
+                + (
+                    " before acknowledgement became uncertain"
+                    if not acknowledged
+                    else ""
+                )
             )
         error.fixture_operation_id = operation_id
         error.add_note(f"Fixture operation ID: {operation_id}")
@@ -154,9 +205,15 @@ def seed_operation(process, owner, payload):
 
 def seed_once(owner, environment, payload):
     process = subprocess.Popen(
-        [str(ROOT / "apps/api/.venv/bin/python"), str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
-        cwd=ROOT / "apps/api", env=environment,
-        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,
+        [
+            str(ROOT / "apps/api/.venv/bin/python"),
+            str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
+        ],
+        cwd=ROOT / "apps/api",
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        text=True,
     )
     try:
         result = seed_operation(process, owner, payload)
@@ -186,8 +243,11 @@ class NativePhaseControl:
         class Handler(socketserver.StreamRequestHandler):
             def handle(self):
                 try:
-                    credentials = self.request.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
+                    credentials = self.request.getsockopt(
+                        socket.SOL_SOCKET, socket.SO_PEERCRED, 12
+                    )
                     import struct
+
                     _, uid, _ = struct.unpack("3i", credentials)
                     request = json.loads(self.rfile.readline())
                     require(uid == os.getuid(), "raster_phase_peer_changed")
@@ -232,9 +292,14 @@ class NativePhaseControl:
         self.thread.start()
         text = Path(f"/proc/{os.getpid()}/stat").read_text()
         self.connection = {
-            "socket": str(self.socket_path), "token": self.token, "pid": os.getpid(),
+            "socket": str(self.socket_path),
+            "token": self.token,
+            "pid": os.getpid(),
             "start": int(text[text.rfind(")") + 2 :].split()[19]),
-            "socket_identity": [self.socket_identity.st_dev, self.socket_identity.st_ino],
+            "socket_identity": [
+                self.socket_identity.st_dev,
+                self.socket_identity.st_ino,
+            ],
         }
 
     def close(self):
@@ -268,21 +333,29 @@ class NativePhaseClient:
         with socket.socket(socket.AF_UNIX) as connection:
             connection.connect(self.record["socket"])
             import struct
+
             pid, uid, _ = struct.unpack(
                 "3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12)
             )
             info = Path(self.record["socket"]).lstat()
             text = Path(f"/proc/{pid}/stat").read_text()
             require(
-                pid == self.record["pid"] and uid == os.getuid()
+                pid == self.record["pid"]
+                and uid == os.getuid()
                 and int(text[text.rfind(")") + 2 :].split()[19]) == self.record["start"]
-                and stat.S_ISSOCK(info.st_mode) and info.st_uid == uid
+                and stat.S_ISSOCK(info.st_mode)
+                and info.st_uid == uid
                 and stat.S_IMODE(info.st_mode) == 0o600
                 and [info.st_dev, info.st_ino] == self.record["socket_identity"],
                 "raster_phase_owner_changed",
             )
             with connection.makefile("rwb") as stream:
-                stream.write(json.dumps({"token": self.record["token"], "action": action}).encode() + b"\n")
+                stream.write(
+                    json.dumps(
+                        {"token": self.record["token"], "action": action}
+                    ).encode()
+                    + b"\n"
+                )
                 stream.flush()
                 line = stream.readline()
                 require(bool(line), "raster_phase_owner_disconnected")
@@ -566,7 +639,9 @@ def request_fixtures(owner, environment, suite, attempts):
                     }
                 )
                 references.append((masks[0]["mask"], masks[1]["mask"]))
-        fenced = post({"operation": "owner_offline_seal", "require_fixture_inference": True})
+        fenced = post(
+            {"operation": "owner_offline_seal", "require_fixture_inference": True}
+        )
     except BaseException as error:
         failure = error
         raise
@@ -883,7 +958,10 @@ def require_no_children():
             live = True
             break
         outcomes.append({"pid": pid, "status": status})
-    if live or any(not os.WIFEXITED(item["status"]) or os.WEXITSTATUS(item["status"]) != 0 for item in outcomes):
+    if live or any(
+        not os.WIFEXITED(item["status"]) or os.WEXITSTATUS(item["status"]) != 0
+        for item in outcomes
+    ):
         error = ContractError("raster_consumer_descendants_unsettled")
         error.adopted_outcomes = outcomes
         error.children_live = live
@@ -919,7 +997,9 @@ def require_only_fixture_owner(fenced):
     def children(pid):
         result = set()
         for task in Path(f"/proc/{pid}/task").iterdir():
-            result.update(int(value) for value in (task / "children").read_text().split())
+            result.update(
+                int(value) for value in (task / "children").read_text().split()
+            )
         return result
 
     owner_pid = record["pid"]
@@ -946,7 +1026,8 @@ def require_only_fixture_owner(fenced):
                 {"pid": item["pid"], "start": item["start"]}
                 for item in offline.get("providers", [])
                 if item.get("sealed") and not item.get("resumed")
-            ] == providers,
+            ]
+            == providers,
             "raster_fixture_seal_incomplete",
         )
     expected = {entry["pid"] for entry in providers}
@@ -1031,10 +1112,14 @@ def inside_with_inference(path, arguments, inference):
     selection = inference.start()
     os.environ.update(selection)
     restricted.update(selection)
-    seed_once(owner, restricted, {
-        "operation": "owner_offline_resume",
-        "seal_secret": fenced["seal_secret"],
-    })
+    seed_once(
+        owner,
+        restricted,
+        {
+            "operation": "owner_offline_resume",
+            "seal_secret": fenced["seal_secret"],
+        },
+    )
     manifest = state_path(ROOT, "e2e", "data", f"raster-fault-{suite}.json")
     private_write(
         manifest,
@@ -1083,18 +1168,21 @@ def inside_with_inference(path, arguments, inference):
     owner.data["raster"]["relay_socket"] = str(socket_path)
     owner.save()
     browser_environment["PLAYWRIGHT_RASTER_FIXTURE_SOCKET"] = str(socket_path)
+
     def record_seed_failure(request, response):
         recorded = Owner(path)
-        recorded.data["raster"].setdefault("seed_failures", []).append({
-            "operation_id": response.get("operation_id"),
-            "operation": request.get("operation", request.get("path")),
-            "status": response.get("status"),
-            "body": response.get("body"),
-            "owner_error": response.get("owner_error"),
-            "journal_error": response.get("journal_error"),
-            "operation_response": response.get("operation_response"),
-            "disposal_error": response.get("disposal_error"),
-        })
+        recorded.data["raster"].setdefault("seed_failures", []).append(
+            {
+                "operation_id": response.get("operation_id"),
+                "operation": request.get("operation", request.get("path")),
+                "status": response.get("status"),
+                "body": response.get("body"),
+                "owner_error": response.get("owner_error"),
+                "journal_error": response.get("journal_error"),
+                "operation_response": response.get("operation_response"),
+                "disposal_error": response.get("disposal_error"),
+            }
+        )
         recorded.save()
 
     def record_seed_intent(operation_id):
@@ -1103,12 +1191,18 @@ def inside_with_inference(path, arguments, inference):
         recorded.save()
 
     relay = RasterFixtureRelay(
-        str(socket_path), suite, entries, restricted, record_seed_failure, record_seed_intent
+        str(socket_path),
+        suite,
+        entries,
+        restricted,
+        record_seed_failure,
+        record_seed_intent,
     )
     api = None
     result = None
     failure = None
     shutdown_failures = []
+    api_shutdown_requested = False
 
     def record_unsettled(reason):
         recorded = Owner(path)
@@ -1125,11 +1219,7 @@ def inside_with_inference(path, arguments, inference):
         api = subprocess.Popen(
             [
                 sys.executable,
-                "-m",
-                "uvicorn",
-                "app.main:app",
-                "--host",
-                "127.0.0.1",
+                str(ROOT / "scripts/raster_api_process.py"),
                 "--port",
                 str(api_port),
             ],
@@ -1168,8 +1258,7 @@ def inside_with_inference(path, arguments, inference):
     if api is not None and api.poll() is None:
         try:
             api.terminate()
-        except ProcessLookupError:
-            pass
+            api_shutdown_requested = True
         except BaseException as error:
             shutdown_failures.append(error)
             retain_unsettled("raster_api_shutdown_failed")
@@ -1181,7 +1270,15 @@ def inside_with_inference(path, arguments, inference):
             retain_unsettled("raster_fixture_shutdown_failed")
     if api is not None:
         try:
-            api.wait(timeout=3)
+            api_result = api.wait(timeout=3)
+            if not api_shutdown_requested or api_result != 0:
+                error = ContractError("raster_api_exit_unsettled")
+                error.api_outcome = {
+                    "exit_code": api_result,
+                    "shutdown_requested": api_shutdown_requested,
+                }
+                shutdown_failures.append(error)
+                retain_unsettled("raster_api_exit_unsettled")
         except subprocess.TimeoutExpired:
             shutdown_failures.append(ContractError("raster_api_shutdown_unsettled"))
             retain_unsettled("raster_api_shutdown_unsettled")
@@ -1199,18 +1296,25 @@ def inside_with_inference(path, arguments, inference):
             "raster consumer and shutdown failures", shutdown_failures
         )
     try:
-        require_only_fixture_owner({
-            **fenced,
-            "providers": [],
-            "seal_secret": None,
-        })
+        require_only_fixture_owner(
+            {
+                **fenced,
+                "providers": [],
+                "seal_secret": None,
+            }
+        )
         native_inventory = inference.request("inventory")
-        require(isinstance(native_inventory, list) and native_inventory, "raster_native_identity_unconfirmed")
+        require(
+            isinstance(native_inventory, list) and native_inventory,
+            "raster_native_identity_unconfirmed",
+        )
         owner = Owner(path)
         owner.data["raster"]["pre_retirement_native_identities"] = native_inventory
         owner.save()
         shutdown = seed_once(owner, restricted, {"operation": "owner_shutdown"})
-        require(shutdown.get("state") == "stopped", "raster_fixture_shutdown_unconfirmed")
+        require(
+            shutdown.get("state") == "stopped", "raster_fixture_shutdown_unconfirmed"
+        )
         inference.pause()
     except BaseException as error:
         retain_unsettled("raster_owner_shutdown_unsettled")
@@ -1262,7 +1366,18 @@ def inside_with_inference(path, arguments, inference):
         None,
         cwd=ROOT / "apps/web",
     )
-    require_no_children()
+    try:
+        require_no_children()
+    except BaseException as error:
+        retain_unsettled("raster_consumer_descendants_still_running")
+        errors = [error, *shutdown_failures]
+        if result:
+            errors.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
+        if len(errors) > 1:
+            raise builtins.BaseExceptionGroup(
+                "raster final browser and descendant shutdown failed", errors
+            ) from None
+        raise
     if result == 0:
         owner = Owner(path)
         owner.data["raster"]["state"] = "consumers_stopped"
@@ -1290,6 +1405,8 @@ def failure_evidence(error):
     if hasattr(error, "adopted_outcomes"):
         value["adopted_outcomes"] = error.adopted_outcomes
         value["children_live"] = error.children_live
+    if hasattr(error, "api_outcome"):
+        value["api_outcome"] = error.api_outcome
     if isinstance(error, OSError) and error.errno is not None:
         value["errno"] = error.errno
     if error.__cause__ is not None:
@@ -1397,7 +1514,9 @@ def outer(arguments):
             inference.start()
             phase = NativePhaseControl(inference, resources)
             result = run_processes(
-                backend, options, fixture_inference=inference,
+                backend,
+                options,
+                fixture_inference=inference,
                 coordinator_input=phase.connection,
             )
             owner = Owner(manifest)
@@ -1406,7 +1525,10 @@ def outer(arguments):
             if result != 0 or owner.data["raster"]["state"] != "consumers_stopped":
                 return result or 1
             require(phase.failure is None, "raster_native_phase_unsettled")
-            require(inference.process_identity_inventory() == [], "raster_native_pause_unconfirmed")
+            require(
+                inference.process_identity_inventory() == [],
+                "raster_native_pause_unconfirmed",
+            )
             require_no_children()
             inference.close()
             phase.close()

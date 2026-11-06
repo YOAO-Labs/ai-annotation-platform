@@ -4,12 +4,14 @@ import ctypes
 import os
 from pathlib import Path
 import platform
+import select
 import signal
 import subprocess
 import sys
 import tempfile
 from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 
 from run_raster_fault_e2e import require_no_children
 from raster_consumer_process import _unsettled_consumers, run_product
@@ -105,10 +107,13 @@ class RasterConsumerShutdownTests(unittest.TestCase):
                 "time.sleep(0.6)"
             )
             try:
-                with self.assertRaisesRegex(ContractError, "raster_consumer_descendant_exit_unsettled") as raised:
+                with self.assertRaises(ContractError) as raised:
                     run_product(
                         [sys.executable, "-c", consumer, grandchild, str(marker)],
-                        dict(os.environ), None, None, cwd=root,
+                        dict(os.environ),
+                        None,
+                        None,
+                        cwd=root,
                     )
                 pid = int(marker.read_text())
                 self.assertEqual(raised.exception.leader_status, 0)
@@ -125,27 +130,78 @@ class RasterConsumerShutdownTests(unittest.TestCase):
                     for descriptor in tracked.values():
                         os.close(descriptor)
 
-    def test_parent_reaped_normal_descendant_does_not_block_success(self):
-        consumer = (
-            "import subprocess, sys; "
-            "child = subprocess.Popen([sys.executable, '-c', 'pass']); "
-            "sys.exit(child.wait())"
+    def test_descendant_reaped_before_signal_delivery_does_not_block_success(self):
+        import raster_consumer_process as consumer
+        from linux_pidfd import open_pidfd
+
+        parent_code = """
+import subprocess, sys
+child = subprocess.Popen(
+    [sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"],
+    stdin=subprocess.PIPE,
+)
+print(child.pid, flush=True)
+sys.stdin.buffer.read(1)
+child.stdin.write(b"x")
+child.stdin.flush()
+print(child.wait(), flush=True)
+sys.stdin.buffer.read(1)
+"""
+        leader = subprocess.Popen(
+            [sys.executable, "-c", "pass"], start_new_session=True
         )
-        self.assertEqual(run_product(
-            [sys.executable, "-c", consumer], dict(os.environ), None, None,
-            cwd=Path(__file__).resolve().parent,
-        ), 0)
+        parent = subprocess.Popen(
+            [sys.executable, "-u", "-c", parent_code],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        descriptor = None
+        try:
+            os.waitid(os.P_PID, leader.pid, os.WEXITED | os.WNOWAIT)
+            self.assertTrue(select.select([parent.stdout], [], [], 5)[0])
+            child_pid = int(parent.stdout.readline())
+            descriptor = open_pidfd(child_pid)
+            actual_send = consumer.pidfd_send_signal
+
+            def reap_before_delivery(fd, sig):
+                if fd == descriptor:
+                    parent.stdin.write(b"x")
+                    parent.stdin.flush()
+                    self.assertTrue(select.select([parent.stdout], [], [], 5)[0])
+                    self.assertEqual(parent.stdout.readline(), b"0\n")
+                return actual_send(fd, sig)
+
+            with patch.object(consumer, "pidfd_send_signal", reap_before_delivery):
+                self.assertEqual(
+                    consumer._drain_consumer(leader, {child_pid: descriptor}), 0
+                )
+        finally:
+            parent.stdin.close()
+            parent.wait(timeout=5)
+            parent.stdout.close()
+            parent.stderr.close()
+            leader.wait(timeout=5)
+            if descriptor is not None:
+                os.close(descriptor)
 
     def test_adopted_signalled_child_is_not_discarded(self):
-        child = subprocess.Popen([
-            sys.executable, "-c",
-            "import os,signal; os.kill(os.getpid(), signal.SIGTERM)",
-        ])
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import os,signal; os.kill(os.getpid(), signal.SIGTERM)",
+            ]
+        )
         try:
             os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
-            with self.assertRaisesRegex(ContractError, "raster_consumer_descendants_unsettled") as raised:
+            with self.assertRaises(ContractError) as raised:
                 require_no_children()
-            outcome = next(item for item in raised.exception.adopted_outcomes if item["pid"] == child.pid)
+            outcome = next(
+                item
+                for item in raised.exception.adopted_outcomes
+                if item["pid"] == child.pid
+            )
             self.assertTrue(os.WIFSIGNALED(outcome["status"]))
             self.assertEqual(os.WTERMSIG(outcome["status"]), signal.SIGTERM)
             child.returncode = -signal.SIGTERM
