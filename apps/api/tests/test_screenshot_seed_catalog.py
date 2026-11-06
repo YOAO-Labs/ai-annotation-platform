@@ -19,6 +19,7 @@ from app.db.models.fixture_run import FixtureRunResource
 from app.db.models.prediction import Prediction, PredictionMeta
 from app.db.models.project import Project
 from app.db.models.task import Task
+from app.db.models.user import User
 from app.services import screenshot_seed_catalog as catalog
 from app.services.annotation_evidence import assert_review_evidence_current
 from app.services.screenshot_seed_spec import (
@@ -37,13 +38,11 @@ from scripts.seed_screenshot_profile import (
 
 pytest_plugins = ("tests.screenshot_seed_support",)
 
-pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.skipif(
-        os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
-        reason="requires the owned module-data verifier and screenshot runtime",
-    ),
-]
+pytestmark = pytest.mark.asyncio
+requires_screenshot_runtime = pytest.mark.skipif(
+    os.getenv("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data verifier and screenshot runtime",
+)
 
 
 @pytest.fixture
@@ -81,8 +80,11 @@ async def _catalog(db, seed, requirements=None):
     )
 
 
+@requires_screenshot_runtime
 async def test_catalog_returns_real_logical_resources(screenshot_seed, owner_db):
-    body = await _catalog(owner_db, screenshot_seed)
+    response = await screenshot_seed.catalog()
+    assert response.status_code == 200, response.text
+    body = response.json()
     assert body["run_id"] == str(screenshot_seed.run_id)
     assert body["schema_version"] == 1
     assert body["seed_revision"] == SEED_REVISION
@@ -104,6 +106,48 @@ async def test_catalog_returns_real_logical_resources(screenshot_seed, owner_db)
     assert video["front_truck_f4"]["frame_index"] == 4
 
 
+@requires_screenshot_runtime
+async def test_private_catalog_protocol_denies_invalid_and_drifted_scope(
+    screenshot_seed,
+):
+    invalid = await screenshot_seed.catalog(backend_requirements="not-a-backend")
+    assert invalid.status_code == 422
+    assert "unknown screenshot backend requirements" in invalid.json()["detail"]
+
+    async with screenshot_seed.sessions() as db:
+        actor_id = await _owned_id(db, screenshot_seed, "user", "annotator")
+        actor = await db.get(User, actor_id)
+        assert actor is not None and actor.is_active
+    failure = None
+    try:
+        async with screenshot_seed.sessions.begin() as db:
+            actor = await db.get(User, actor_id)
+            actor.is_active = False
+        response = await screenshot_seed.catalog()
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["code"] == "screenshot_seed_not_ready"
+        assert any("must be active" in issue for issue in detail["issues"])
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        try:
+            async with screenshot_seed.sessions.begin() as db:
+                actor = await db.get(User, actor_id)
+                actor.is_active = True
+        except BaseException as restore_failure:
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Private catalog request and actor restoration failed",
+                    [failure, restore_failure],
+                ) from None
+            raise
+    recovered = await screenshot_seed.catalog()
+    assert recovered.status_code == 200, recovered.text
+
+
+@requires_screenshot_runtime
 async def test_catalog_ignores_soft_deleted_annotations(screenshot_seed, owner_db):
     body = await _catalog(owner_db, screenshot_seed)
     project = body["projects"]["pointcloud_demo"]
@@ -135,6 +179,7 @@ async def test_catalog_ignores_soft_deleted_annotations(screenshot_seed, owner_d
     )
 
 
+@requires_screenshot_runtime
 async def test_catalog_rejects_incomplete_optional_large_image(screenshot_seed, owner_db):
     body = await _catalog(owner_db, screenshot_seed)
     owner_db.add(
@@ -157,6 +202,7 @@ async def test_catalog_rejects_incomplete_optional_large_image(screenshot_seed, 
     )
 
 
+@requires_screenshot_runtime
 async def test_catalog_rejects_unexpected_task(screenshot_seed, owner_db):
     project_id = await _owned_id(owner_db, screenshot_seed, "project", "ocr_demo")
     owner_db.add(
@@ -174,6 +220,7 @@ async def test_catalog_rejects_unexpected_task(screenshot_seed, owner_db):
     assert any("unexpected or missing tasks" in issue for issue in error.value.issues)
 
 
+@requires_screenshot_runtime
 async def test_catalog_backend_scope_does_not_hide_fixture_drift(
     screenshot_seed, owner_db
 ):
@@ -199,6 +246,7 @@ async def test_catalog_backend_scope_does_not_hide_fixture_drift(
     assert any("file_count is stale" in issue for issue in error.value.issues)
 
 
+@requires_screenshot_runtime
 async def test_catalog_fails_closed_for_changed_original(screenshot_seed, owner_db):
     dataset_id = await _owned_id(owner_db, screenshot_seed, "dataset", "image_demo")
     item = await owner_db.scalar(
@@ -211,6 +259,7 @@ async def test_catalog_fails_closed_for_changed_original(screenshot_seed, owner_
     assert any("unavailable in storage" in issue for issue in error.value.issues)
 
 
+@requires_screenshot_runtime
 async def test_catalog_rejects_multicamera_without_calibration(
     screenshot_seed, owner_db
 ):
@@ -234,6 +283,7 @@ async def test_catalog_rejects_multicamera_without_calibration(
     assert any("has no valid calibration" in issue for issue in error.value.issues)
 
 
+@requires_screenshot_runtime
 async def test_reconcile_is_idempotent_and_preserves_neighbor(screenshot_seed, owner_db):
     body = await _catalog(owner_db, screenshot_seed)
     actor = uuid.UUID(body["users"]["project_admin"]["id"])
@@ -291,6 +341,7 @@ async def test_reconcile_is_idempotent_and_preserves_neighbor(screenshot_seed, o
         assert unknown_review.value.detail == {"reason": "review_contributors_unknown"}
 
 
+@requires_screenshot_runtime
 async def test_reconcile_refuses_task_id_collision_and_preserves_neighbor(
     screenshot_seed, owner_db
 ):
@@ -327,6 +378,7 @@ async def test_reconcile_refuses_task_id_collision_and_preserves_neighbor(
     assert other.file_path == "user/user.jpg"
 
 
+@requires_screenshot_runtime
 async def test_reconcile_preserves_prediction_metadata(screenshot_seed, owner_db):
     body = await _catalog(owner_db, screenshot_seed)
     task_id = uuid.UUID(body["projects"]["image_demo"]["tasks"]["predicted"]["id"])
@@ -368,6 +420,7 @@ async def test_reconcile_preserves_prediction_metadata(screenshot_seed, owner_db
         assert metadata.extra == {"import_format": "yolo"}
 
 
+@requires_screenshot_runtime
 async def test_final_timestamps_preserve_later_seed_updates(screenshot_seed, owner_db):
     body = await _catalog(owner_db, screenshot_seed)
     project = await owner_db.get(Project, uuid.UUID(body["projects"]["image_demo"]["id"]))
@@ -392,6 +445,7 @@ async def test_final_timestamps_preserve_later_seed_updates(screenshot_seed, own
     assert task.skip_reason == "updated by a later seed stage"
 
 
+@requires_screenshot_runtime
 async def test_nuscenes_storage_resolves_only_its_dataset(screenshot_seed, owner_db):
     dataset_id = await _owned_id(owner_db, screenshot_seed, "dataset", "pointcloud_demo")
     dataset = await owner_db.get(Dataset, dataset_id)
@@ -408,15 +462,14 @@ async def test_nuscenes_storage_resolves_only_its_dataset(screenshot_seed, owner
     assert frame["file_path"] == task.file_path == item.file_path
 
 
+@requires_screenshot_runtime
 async def test_screenshot_retirement_preserves_another_owned_run(screenshot_seed):
-    from scripts.seed import seed
-
     second = uuid.uuid4()
     owner = screenshot_seed.owner
     await owner.prepare_suite(second, "screenshot")
     failure = None
     try:
-        await seed(profile="screenshots", run_id=second, offline=True)
+        await screenshot_seed.seed_run(second)
         async with screenshot_seed.sessions() as db:
             first = await _catalog(db, screenshot_seed)
             before = await catalog.build_screenshot_seed_catalog(db, run_id=second)
@@ -452,6 +505,7 @@ async def test_screenshot_retirement_preserves_another_owned_run(screenshot_seed
             raise
 
 
+@requires_screenshot_runtime
 async def test_real_media_preparation(screenshot_seed):
     from scripts.seed import _seed_session
 

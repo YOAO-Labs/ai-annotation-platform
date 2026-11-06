@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import uuid
 
 import pytest
 from sqlalchemy import event, select, text
+from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.core.security import hash_password, verify_password
@@ -17,6 +19,7 @@ from app.db.models.fixture_run import FixtureRunResource
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services import screenshot_seed_catalog as catalog
+from app.services.identity_commands import IdentityCommandService
 from app.services.screenshot_seed_spec import USER_SPECS, fixture_persona_email
 from scripts import (
     seed_coco8,
@@ -270,6 +273,79 @@ async def test_screenshot_personas_use_exact_owned_accounts(screenshot_seed, sce
             }[scenario]
             assert any(issue in item for item in error.value.issues)
         await db.rollback()
+
+
+@pytest.mark.parametrize("scenario", ["valid", "missing", "wrong_role", "inactive"])
+async def test_restricted_identity_reads_run_owned_personas(
+    media_world, screenshot_seed, scenario
+):
+    _, producer = media_world
+    run_id = screenshot_seed.run_id
+    async with screenshot_seed.sessions() as owner:
+        user_id = await owner.scalar(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "user",
+                FixtureRunResource.logical_key == "annotator",
+                FixtureRunResource.state == "published",
+            )
+        )
+        user = await owner.get(User, user_id)
+        assert user is not None
+        original = (user.email, user.role, user.is_active)
+
+    failure = None
+    try:
+        async with screenshot_seed.sessions.begin() as owner:
+            user = await owner.get(User, user_id)
+            if scenario == "missing":
+                user.email = f"absent-{run_id.hex}"
+            elif scenario == "wrong_role":
+                user.role = "viewer"
+            elif scenario == "inactive":
+                user.is_active = False
+
+        async with producer() as db:
+            for query in (
+                "SELECT id FROM public.users LIMIT 1",
+                "SELECT resource_id FROM yoao_fixture_v1.fixture_run_resources LIMIT 1",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    await db.execute(text(query))
+                assert getattr(denied.value.orig, "sqlstate", None) == "42501"
+                await db.rollback()
+
+            commits = _commits(db)
+            rows = await IdentityCommandService(db).lookup_seed_account_facts(
+                original[0]
+            )
+            if scenario == "missing":
+                assert rows == []
+            else:
+                assert rows == [
+                    (
+                        user_id,
+                        original[0],
+                        "viewer" if scenario == "wrong_role" else original[1],
+                        False if scenario == "inactive" else original[2],
+                    )
+                ]
+            assert commits[0] == 0
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        try:
+            async with screenshot_seed.sessions.begin() as owner:
+                user = await owner.get(User, user_id)
+                user.email, user.role, user.is_active = original
+        except BaseException as restore_failure:
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Restricted Identity read and persona restoration failed",
+                    [failure, restore_failure],
+                ) from None
+            raise
 
 
 @pytest.mark.parametrize(
