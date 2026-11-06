@@ -1507,6 +1507,7 @@ def destroy_with_images_role(backend, owner, confirmation):
             retire_provider(owner, backend)
             backend._accept_retired_raster_provider(prepared, owner)
             backend._retire_prepared_raster_redis(prepared, owner)
+            backend._stop_prepared_raster_fixture_source(prepared, owner)
             owner.data["raster"]["images"]["state"] = "database_drop_intent"
             owner.save()
             backend._destroy_prepared_database(prepared)

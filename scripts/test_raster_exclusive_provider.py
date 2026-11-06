@@ -270,6 +270,9 @@ class RasterGuardOrderingTests(unittest.TestCase):
             def _retire_prepared_raster_redis(self, _prepared, _owner):
                 events.append("redis-retired")
 
+            def _stop_prepared_raster_fixture_source(self, _prepared, _owner):
+                events.append("source-stopped")
+
             def _destroy_prepared_database(self, _prepared):
                 events.append("database-dropped")
 
@@ -292,6 +295,6 @@ class RasterGuardOrderingTests(unittest.TestCase):
             runner.destroy_with_images_role(Backend(), owner, "owned")
         self.assertEqual(events, [
             "fence", "verify", "role-check", "fixture-guards", "provider-retired",
-            "provider-receipt", "redis-retired", "database-dropped", "services-removed",
+            "provider-receipt", "redis-retired", "source-stopped", "database-dropped", "services-removed",
             "role-drop", "local-removed",
         ])

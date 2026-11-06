@@ -8,6 +8,7 @@ in the existing exact-ID owner manifest for explicit inspection and recovery.
 from __future__ import annotations
 from contextlib import closing
 
+import datetime as dt
 import hashlib
 import ipaddress
 import json
@@ -936,3 +937,239 @@ def retain_receipt(owner, destination):
         )
     else:
         private_write(destination, receipt)
+
+
+def _raster_destroy_items(owner, resources):
+    """Bind the private Raster teardown to the published, fenced source owner."""
+    from worktree_env import state_path
+
+    store = owner.data["fixture_store"]
+    teardown = owner.data.get("fixture_teardown") or {}
+    require(
+        isinstance(owner, Owner) and resources["mode"] == "e2e"
+        and owner.path == state_path(Path(resources["root"]), "e2e", "fixture-store-owner.json")
+        and owner.data["checkout"] == resources["root"]
+        and owner.private == owner.path.parent / ("private-" + owner.data["nonce"])
+        and owner.data["cleaned"] is False
+        and store["state"] == "published"
+        and owner.data["fixture_intent"]["database"] == store["database"]
+        and store["database"]["database"] == resources["database"]
+        and store["database"]["ownership"] == resources["owner"]
+        and store["database"]["resource_root"] == resources["root"]
+        and teardown.get("state") == "ready"
+        and not teardown.get("partial")
+        and all(session.get("closed") for session in owner.data["browser_sessions"]),
+        "fixture_raster_destroy_identity_changed",
+    )
+    archived_receipt = state_path(
+        Path(resources["root"]), "e2e",
+        "fixture-original-receipt-" + owner.data["nonce"] + ".json",
+    )
+    require(
+        hashlib.sha256(_private_bytes(archived_receipt)).hexdigest() == store["receipt_sha256"],
+        "fixture_receipt_changed",
+    )
+    items = owner.data["resources"]
+    require(
+        len(items) == 3 and {(item["kind"], item["id"]) for item in items}
+        == {("container", store["container_id"]), ("volume", store["volume_id"]),
+            ("network", store["network_id"])},
+        "fixture_inventory_changed",
+    )
+    return {item["kind"]: item for item in items}
+
+
+def _raster_volume_users(volume):
+    return command([
+        "docker", "ps", "-a", "--no-trunc", "--filter",
+        "volume=" + volume["id"], "--format", "{{.ID}}",
+    ]).splitlines()
+
+
+def _raster_stop_for_destroy(owner, resources):
+    """Signal the exact already-fenced fixture source; retain uncertainty."""
+    items = _raster_destroy_items(owner, resources)
+    teardown = owner.data["fixture_teardown"]
+    require("raster_shutdown" not in teardown, "fixture_raster_shutdown_already_started")
+    container, network = _physical(owner, owner.data["fixture_store"])
+    volume = owner.verified(items["volume"])
+    state = container.get("State") or {}
+    mounts = container.get("Mounts") or []
+    require(
+        state.get("Status") == "running" and state.get("Running") is True
+        and isinstance(state.get("Pid"), int) and state["Pid"] > 0
+        and bool(state.get("StartedAt")) and container.get("RestartCount") == 0
+        and (container.get("HostConfig", {}).get("RestartPolicy") or {}).get("Name") == "no"
+        and container.get("HostConfig", {}).get("AutoRemove") is False
+        and container.get("Config", {}).get("Cmd")
+            == ["server", "/data", "--console-address", ":9001"]
+        and len(mounts) == 1 and mounts[0].get("Type") == "volume"
+        and mounts[0].get("Name") == items["volume"]["id"]
+        and mounts[0].get("Destination") == "/data" and mounts[0].get("RW") is True
+        and volume.get("Driver") == "local"
+        and set((container.get("NetworkSettings") or {}).get("Networks") or {})
+            == {owner.data["fixture_store"]["network_name"]}
+        and set(network.get("Containers") or {}) == {items["container"]["id"]}
+        and _raster_volume_users(items["volume"]) == [items["container"]["id"]],
+        "fixture_raster_shutdown_topology_changed",
+    )
+    receipt = {
+        "state": "signal_intent",
+        "container_id": items["container"]["id"],
+        "volume_id": items["volume"]["id"],
+        "network_id": items["network"]["id"],
+        "pid": state["Pid"], "started_at": state["StartedAt"],
+    }
+    teardown["raster_shutdown"] = receipt
+    owner.save()
+    acknowledgement = command(["docker", "kill", "--signal", "SIGTERM", items["container"]["id"]])
+    require(acknowledgement in {items["container"]["id"], items["container"]["name"]},
+            "fixture_raster_signal_unconfirmed")
+    receipt.update(state="signal_acknowledged", signal="SIGTERM", signal_ack=acknowledgement)
+    owner.save()
+    result = command(["docker", "wait", items["container"]["id"]])
+    require(result.isdecimal() and int(result) <= 255, "fixture_raster_wait_invalid")
+    receipt.update(state="wait_acknowledged", wait_exit=int(result))
+    owner.save()
+    require(result == "0", "fixture_raster_exit_unsettled")
+    observed = owner.verified(items["container"])
+    state = observed.get("State") or {}
+    require(
+        state.get("Status") == "exited" and state.get("Running") is False
+        and state.get("Pid") == 0 and state.get("ExitCode") == 0
+        and state.get("OOMKilled") is False and not state.get("Error")
+        and state.get("StartedAt") == receipt["started_at"]
+        and bool(state.get("FinishedAt")) and observed.get("RestartCount") == 0,
+        "fixture_raster_exit_unsettled",
+    )
+    receipt.update(
+        state="stopped", finished_at=state["FinishedAt"],
+        exit_state={"status": state["Status"], "running": state["Running"],
+                    "pid": state["Pid"], "exit_code": state["ExitCode"],
+                    "oom_killed": state["OOMKilled"], "error_empty": not state.get("Error"),
+                    "restart_count": observed["RestartCount"]},
+    )
+    owner.save()
+    _raster_require_stopped_for_destroy(owner, resources)
+
+
+def _raster_require_stopped_for_destroy(owner, resources):
+    """Recheck affirmative stop evidence and the original physical identities."""
+    items = _raster_destroy_items(owner, resources)
+    receipt = owner.data["fixture_teardown"].get("raster_shutdown") or {}
+    container = owner.verified(items["container"])
+    volume = owner.verified(items["volume"])
+    network = owner.verified(items["network"])
+    state = container.get("State") or {}
+    mounts = container.get("Mounts") or []
+    require(
+        receipt.get("state") == "stopped"
+        and receipt.get("container_id") == items["container"]["id"]
+        and receipt.get("volume_id") == items["volume"]["id"]
+        and receipt.get("network_id") == items["network"]["id"]
+        and receipt.get("signal") == "SIGTERM"
+        and receipt.get("signal_ack") in {items["container"]["id"], items["container"]["name"]}
+        and receipt.get("wait_exit") == 0 and isinstance(receipt.get("pid"), int)
+        and receipt["pid"] > 0 and bool(receipt.get("started_at"))
+        and bool(receipt.get("finished_at"))
+        and receipt.get("exit_state") == {
+            "status": "exited", "running": False, "pid": 0, "exit_code": 0,
+            "oom_killed": False, "error_empty": True, "restart_count": 0,
+        }
+        and state.get("Status") == "exited" and state.get("Running") is False
+        and state.get("Pid") == 0 and state.get("ExitCode") == 0
+        and state.get("OOMKilled") is False and not state.get("Error")
+        and state.get("StartedAt") == receipt["started_at"]
+        and state.get("FinishedAt") == receipt["finished_at"]
+        and container.get("RestartCount") == 0
+        and container.get("Config", {}).get("Image") == MINIO_IMAGE
+        and len(mounts) == 1 and mounts[0].get("Type") == "volume"
+        and mounts[0].get("Name") == items["volume"]["id"]
+        and mounts[0].get("Destination") == "/data" and mounts[0].get("RW") is True
+        and volume.get("Name") == items["volume"]["id"]
+        and volume.get("Driver") == "local"
+        and set((container.get("NetworkSettings") or {}).get("Networks") or {})
+            == {owner.data["fixture_store"]["network_name"]}
+        and network.get("Name") == owner.data["fixture_store"]["network_name"]
+        and network.get("Driver") == "bridge"
+        and set(network.get("Containers") or {}).issubset({items["container"]["id"]})
+        and _raster_volume_users(items["volume"]) == [items["container"]["id"]],
+        "fixture_raster_stop_unproven",
+    )
+    return items
+
+
+def _raster_remove_stopped_for_destroy(owner, resources):
+    """Remove only the stopped source container and its exact private topology."""
+    items = _raster_require_stopped_for_destroy(owner, resources)
+    receipt = owner.data["fixture_teardown"]["raster_shutdown"]
+    container, volume, network = (items[kind] for kind in ("container", "volume", "network"))
+    receipt["state"] = "container_remove_intent"
+    owner.save()
+    removed = command(["docker", "rm", container["id"]])
+    require(removed in {container["id"], container["name"]}, "fixture_raster_remove_unconfirmed")
+    receipt.update(state="container_remove_acknowledged", container_removed=removed)
+    owner.save()
+    require(owner.inspect(container) is None, "fixture_raster_container_present")
+    container["state"] = "absent"
+    receipt["state"] = "container_removed"
+    owner.save()
+    owner.verified(volume)
+    require(not _raster_volume_users(volume), "fixture_raster_volume_shared")
+    receipt["state"] = "volume_remove_intent"
+    owner.save()
+    removed = command(["docker", "volume", "rm", volume["id"]])
+    require(removed == volume["id"], "fixture_raster_volume_remove_unconfirmed")
+    receipt.update(state="volume_remove_acknowledged", volume_removed=removed)
+    owner.save()
+    require(owner.inspect(volume) is None, "fixture_raster_volume_present")
+    volume["state"] = "absent"
+    receipt["state"] = "volume_removed"
+    owner.save()
+    observed_network = owner.verified(network)
+    require(not observed_network.get("Containers"), "fixture_raster_network_in_use")
+    receipt["state"] = "network_remove_intent"
+    owner.save()
+    removed = command(["docker", "network", "rm", network["id"]])
+    require(removed in {network["id"], network["name"]}, "fixture_raster_network_remove_unconfirmed")
+    receipt.update(state="network_remove_acknowledged", network_removed=removed)
+    owner.save()
+    require(owner.inspect(network) is None, "fixture_raster_network_present")
+    network["state"] = "absent"
+    receipt["state"] = "retired"
+    owner.save()
+
+
+def _raster_finish_removed_for_destroy(owner, resources):
+    """Finish this source owner without invoking generic forced container cleanup."""
+    items = _raster_destroy_items(owner, resources)
+    receipt = owner.data["fixture_teardown"].get("raster_shutdown") or {}
+    require(
+        receipt.get("state") == "retired"
+        and receipt.get("signal") == "SIGTERM"
+        and receipt.get("signal_ack") in {items["container"]["id"], items["container"]["name"]}
+        and receipt.get("wait_exit") == 0
+        and isinstance(receipt.get("pid"), int) and receipt["pid"] > 0
+        and bool(receipt.get("started_at")) and bool(receipt.get("finished_at"))
+        and receipt.get("exit_state") == {
+            "status": "exited", "running": False, "pid": 0, "exit_code": 0,
+            "oom_killed": False, "error_empty": True, "restart_count": 0,
+        }
+        and receipt.get("container_id") == items["container"]["id"]
+        and receipt.get("volume_id") == items["volume"]["id"]
+        and receipt.get("network_id") == items["network"]["id"]
+        and receipt.get("container_removed") in {items["container"]["id"], items["container"]["name"]}
+        and receipt.get("volume_removed") == items["volume"]["id"]
+        and receipt.get("network_removed") in {items["network"]["id"], items["network"]["name"]}
+        and all(item.get("state") == "absent" for item in items.values()),
+        "fixture_raster_retirement_unproven",
+    )
+    for item in items.values():
+        require(owner.inspect(item) is None, "fixture_raster_retirement_identity_changed")
+    if owner.private.exists():
+        require(owner.private.is_dir() and not owner.private.is_symlink(), "private_directory_type")
+        shutil.rmtree(owner.private)
+    owner.data["cleaned"] = True
+    owner.data["cleanup_verified_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
+    owner.data["cleanup_errors"] = []
+    owner.save()

@@ -660,6 +660,7 @@ class _WorktreeDestroyPreparation:
         self.storage = None
         self.raster_owner = None
         self.raster_redis_retired = False
+        self.raster_source_stopped = False
 
 
 class LocalResources:
@@ -2658,10 +2659,32 @@ class LocalResources:
         owner.save()
         prepared.raster_redis_retired = True
 
+    def _stop_prepared_raster_fixture_source(self, prepared, owner):
+        """Use the already-guarded source owner while both destruction locks remain held."""
+        self._require_destroy_preparation(prepared, "prepared")
+        if (
+            prepared.storage != "raster_provider_retired"
+            or prepared.raster_owner is not owner
+            or not prepared.raster_redis_retired
+            or prepared.raster_source_stopped
+            or prepared.fixture_owner is None
+        ):
+            raise WorktreeError("Raster 原始存储退休顺序不一致；保留资源")
+        from fixture_store import _raster_stop_for_destroy
+
+        _raster_stop_for_destroy(prepared.fixture_owner, self.resources)
+        prepared.raster_source_stopped = True
+
     def _destroy_prepared_database(self, prepared):
         self._require_destroy_preparation(prepared, "prepared")
         if prepared.storage == "raster_provider_retired" and not prepared.raster_redis_retired:
             raise WorktreeError("Raster Redis 未证明退休；保留数据库")
+        if prepared.storage == "raster_provider_retired":
+            if not prepared.raster_source_stopped or prepared.fixture_owner is None:
+                raise WorktreeError("Raster 原始存储未证明停止；保留数据库")
+            from fixture_store import _raster_require_stopped_for_destroy
+
+            _raster_require_stopped_for_destroy(prepared.fixture_owner, self.resources)
         prepared.phase = "database_intent"
         # Recheck each exact owner at the write boundary; never force DROP.
         asyncio.run(self.database("drop"))
@@ -2674,6 +2697,14 @@ class LocalResources:
             if prepared.raster_owner is not None:
                 prepared.raster_owner.data["raster"]["fixture_source_finalization"] = "intent"
                 prepared.raster_owner.save()
+            if prepared.storage == "raster_provider_retired":
+                from fixture_store import (
+                    _raster_finish_removed_for_destroy,
+                    _raster_remove_stopped_for_destroy,
+                )
+
+                _raster_remove_stopped_for_destroy(prepared.fixture_owner, self.resources)
+                _raster_finish_removed_for_destroy(prepared.fixture_owner, self.resources)
             finalize_store_destruction(prepared.fixture_owner, self.resources)
             if prepared.raster_owner is not None:
                 prepared.raster_owner.data["raster"]["fixture_source_finalization"] = "completed"
