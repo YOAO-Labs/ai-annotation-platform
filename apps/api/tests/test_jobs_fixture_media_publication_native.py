@@ -121,6 +121,13 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                         ),
                         {"run": run.run_id, "delivery": delivery_id, "digest": receipt["payload_digest"]},
                     )
+                    assert await db.scalar(
+                        text(
+                            "SELECT aap_jobs_v1.fixture_media_publication_retirement_outcome("
+                            ":run,:delivery,:digest)"
+                        ),
+                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt["payload_digest"]},
+                    ) is None
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
                         await prepare(uuid.uuid4())
@@ -179,3 +186,10 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                     text("SELECT aap_jobs_v1.fixture_media_publication_retired(:run,:delivery,:digest)"),
                     params,
                 )
+                assert await db.scalar(
+                    text(
+                        "SELECT aap_jobs_v1.fixture_media_publication_retirement_outcome("
+                        ":run,:delivery,:digest)"
+                    ),
+                    params,
+                ) is None

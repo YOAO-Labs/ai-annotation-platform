@@ -332,3 +332,44 @@ SET search_path = pg_catalog, pg_temp AS $function$
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_jobs_v1.fixture_media_publication_retired(uuid,uuid,text) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.fixture_media_publication_retirement_outcome(
+    p_run uuid, p_delivery uuid, p_digest text
+) RETURNS text LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF p_run IS NULL OR p_delivery IS NULL OR p_digest IS NULL THEN RETURN NULL; END IF;
+    PERFORM pg_catalog.pg_advisory_xact_lock_shared(
+        pg_catalog.hashtextextended('aap-jobs:fixture-media:' || p_delivery::text, 0)
+    );
+    RETURN (
+        SELECT retirement.outcome
+        FROM aap_jobs_v1.fixture_media_publication_retirements AS retirement
+        JOIN aap_jobs_v1.fixture_media_deliveries AS delivery
+          ON delivery.delivery_id = retirement.delivery_id
+         AND delivery.run_id = retirement.run_id
+         AND delivery.payload_digest = retirement.payload_digest
+        WHERE retirement.run_id = p_run AND retirement.delivery_id = p_delivery
+          AND retirement.payload_digest = p_digest
+          AND NOT EXISTS (
+              SELECT 1 FROM aap_jobs_v1.fixture_media_publication_attempts AS attempt
+              WHERE attempt.delivery_id = p_delivery AND attempt.state = 'entered'
+          )
+          AND (
+              (retirement.outcome = 'accepted' AND EXISTS (
+                  SELECT 1 FROM aap_jobs_v1.fixture_media_publication_attempts AS attempt
+                  WHERE attempt.delivery_id = p_delivery AND attempt.state = 'accepted'
+              ))
+              OR (retirement.outcome = 'not_sent' AND EXISTS (
+                  SELECT 1 FROM aap_jobs_v1.fixture_media_publication_attempts AS attempt
+                  WHERE attempt.delivery_id = p_delivery AND attempt.state = 'not_sent'
+              ) AND NOT EXISTS (
+                  SELECT 1 FROM aap_jobs_v1.fixture_media_publication_attempts AS attempt
+                  WHERE attempt.delivery_id = p_delivery AND attempt.state = 'accepted'
+              ))
+          )
+    );
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text) FROM PUBLIC;

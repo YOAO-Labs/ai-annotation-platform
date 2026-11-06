@@ -310,8 +310,12 @@ Assets validates the source and payload before Jobs records it. The worker
 waits on the same publication fence and requires a positive accepted receipt
 before Assets admits physical work. A sealed run can retire an exact delivery
 only after all its publication attempts have definite outcomes; no attempts or
-any unknown attempt remain blocked. Assets execution/no-start proof is
-independent of this publication tombstone.
+any unknown attempt remain blocked. Assets reads the exact, shared-fenced
+retirement outcome for the run, delivery and envelope digest: `accepted` still
+requires positive settlement of the matching physical execution, while
+`not_sent` requires positive proof that no execution started. A missing or
+mismatched tombstone, or any entered publication attempt, yields no outcome;
+the publication tombstone alone never proves execution or no-start.
 
 ## Package verification
 
