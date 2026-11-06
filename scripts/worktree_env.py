@@ -157,8 +157,21 @@ def isolated_environment(
     if (runtime.port or 5432) != (migration.port or 5432):
         raise WorktreeError("API 与迁移必须连接同一个本机 PostgreSQL 实例")
     endpoint = urlsplit("http://" + minio_endpoint)
-    if endpoint.hostname not in local or endpoint.username or endpoint.path:
+    if endpoint.username or endpoint.path:
         raise WorktreeError("独立开发环境只接受本机 MinIO endpoint")
+    if endpoint.hostname not in local:
+        selector = inherited.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
+        if (
+            resources["mode"] != "test"
+            or not selector
+            or selector != os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
+        ):
+            raise WorktreeError("独立开发环境只接受本机 MinIO endpoint")
+        from worktree_resources import verified_shared_bootstrap_minio
+
+        scheme = "https" if minio_use_ssl else "http"
+        if verified_shared_bootstrap_minio(f"{scheme}://{minio_endpoint}") is None:
+            raise WorktreeError("独立开发环境只接受已验证的测试 MinIO endpoint")
     if not 1 <= redis_port <= 65535:
         raise WorktreeError("无效的独立 Redis 端口")
     runtime = runtime.set(database=resources["database"])
