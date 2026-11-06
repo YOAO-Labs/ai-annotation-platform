@@ -36,15 +36,44 @@ async def test_native_source_reader_fence_conflicts_with_python_reclaim_key(
 
 
 async def test_audit_receipts_keep_native_ids_and_neighbor_events(test_engine):
+    from contextlib import asynccontextmanager
+
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.services.audit import AuditService
     from app.services.audit_origin_contract import AuditOriginContext
-    from tests.seed_owner_support import private_owned_suite
+    from tests.seed_owner_support import OwnedSuite, private_seed_owner
+
+    @asynccontextmanager
+    async def audit_suite():
+        async with private_seed_owner() as owner:
+            suite = OwnedSuite(owner, uuid.uuid4())
+            await owner.prepare_suite(suite.suite_id, "owned")
+            failure = None
+            try:
+                yield suite
+            except BaseException as exc:
+                failure = exc
+                raise
+            finally:
+                if owner.failure is not None:
+                    if failure is None:
+                        raise owner.failure
+                else:
+                    try:
+                        await suite.finish()
+                        await owner.shutdown_authority(suite.suite_id)
+                    except BaseException as cleanup_failure:
+                        if failure is not None:
+                            raise BaseExceptionGroup(
+                                "Fixture operation and suite cleanup failed",
+                                [failure, cleanup_failure],
+                            ) from None
+                        raise
 
     async with (
-        private_owned_suite() as first_suite,
-        private_owned_suite() as second_suite,
+        audit_suite() as first_suite,
+        audit_suite() as second_suite,
     ):
         namespace = uuid.uuid4().hex[:10]
         runs = [suite.new_run(namespace) for suite in (first_suite, second_suite)]

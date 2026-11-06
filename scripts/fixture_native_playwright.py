@@ -324,10 +324,20 @@ def _drain(process, descriptor):
 class NativeSuiteControl:
     """Own one suite's stable listener and each real control incarnation."""
 
-    def __init__(self, environment, suite, resources, directory, journal, journal_path, raster_owner=None):
+    def __init__(
+        self, environment, suite, resources, directory, journal, journal_path,
+        raster_owner=None, *, authority_owned=False,
+    ):
         self.environment, self.suite, self.resources = environment, suite, resources
         self.directory, self.journal, self.journal_path = directory, journal, journal_path
         self.raster_owner = raster_owner
+        self.authority_owned = authority_owned
+        self.api_owned = journal.get("api_owned")
+        _require(
+            type(self.api_owned) is bool
+            and (self.api_owned or (authority_owned and resources["mode"] == "test")),
+            "fixture_native_topology_invalid",
+        )
         self.process = self.pidfd = self.stopped = self.listener = None
         self.api = self.api_pidfd = None
 
@@ -340,7 +350,7 @@ class NativeSuiteControl:
         self.listener.listen(128)
         self.port = self.listener.getsockname()[1]
         self.origin = f"http://127.0.0.1:{self.port}"
-        if self.raster_owner is not None:
+        if self.authority_owned:
             os.environ.update(ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token)
             self.environment.update(ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token)
         resources, self.identity, self.admin, self.business, self.resolver, self.profile = await _prepare(
@@ -418,7 +428,7 @@ class NativeSuiteControl:
         await self.start()
 
     def start_api(self, port):
-        _require(self.api is None and type(port) is int and 1 <= port <= 65535, "fixture_native_api_invalid")
+        _require(self.api_owned and self.api is None and type(port) is int and 1 <= port <= 65535, "fixture_native_api_invalid")
         environment = _api_environment(self.environment, self.origin, self.token)
         if self.raster_owner is not None:
             environment.update(RASTER_MASK_READ_ENABLED="true", RASTER_MASK_CREATE_ENABLED="true")
@@ -478,17 +488,24 @@ class NativeSuiteControl:
         run_ids = await _suite_settled(self.environment, self.suite)
         _verify_run_receipts(self.directory, self.suite, run_ids)
         self.journal["native_run_ids"] = run_ids
-        disposition = self.journal.get("api_disposition")
-        if disposition is None:
-            await _settled(asyncio.create_task(self._retire_api()))
+        if self.api_owned:
+            disposition = self.journal.get("api_disposition")
+            if disposition is None:
+                await _settled(asyncio.create_task(self._retire_api()))
+            else:
+                _require(
+                    isinstance(disposition, dict) and self.api is None and self.api_pidfd is None
+                    and disposition.get("pid") == self.journal["api"]["pid"]
+                    and disposition.get("start") == self.journal["api"]["start"]
+                    and disposition.get("exit_code") == 0 and disposition.get("pidfd_exit") is True
+                    and disposition.get("lifespan_shutdown") is True and disposition.get("descendants_drained") is True,
+                    "fixture_native_process_unsettled",
+                )
         else:
             _require(
-                isinstance(disposition, dict) and self.api is None and self.api_pidfd is None
-                and disposition.get("pid") == self.journal["api"]["pid"]
-                and disposition.get("start") == self.journal["api"]["start"]
-                and disposition.get("exit_code") == 0 and disposition.get("pidfd_exit") is True
-                and disposition.get("lifespan_shutdown") is True and disposition.get("descendants_drained") is True,
-                "fixture_native_process_unsettled",
+                "api" not in self.journal and "api_disposition" not in self.journal
+                and self.api is None and self.api_pidfd is None,
+                "fixture_native_topology_invalid",
             )
         control_disposition = self.journal.get("control_disposition")
         if control_disposition is None:
@@ -542,7 +559,7 @@ def run(port):
     directory = root / ("suite-" + suite.hex)
     directory.mkdir(mode=0o700)
     journal_path = directory / "native-supervisor.json"
-    journal = {"schema": "aap-fixture-native-supervisor/v1", "suite_id": str(suite), "resources": resources, "pid": os.getpid(), "start": _start_ticks(os.getpid()), "state": "preparing"}
+    journal = {"schema": "aap-fixture-native-supervisor/v1", "suite_id": str(suite), "resources": resources, "pid": os.getpid(), "start": _start_ticks(os.getpid()), "state": "preparing", "api_owned": True}
     atomic_json(journal_path, journal, exclusive=True)
     control = NativeSuiteControl(environment, suite, resources, directory, journal, journal_path)
     try:

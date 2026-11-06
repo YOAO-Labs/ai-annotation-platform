@@ -1449,7 +1449,7 @@ def inside_with_inference(path, arguments, inference):
         retain_unsettled("raster_consumer_shutdown_failed")
     if api is not None:
         try:
-            disposition = seed_once(owner, restricted, {"operation": "owner_native_api_retire"})
+            disposition = seed_once(owner, restricted, {"operation": "owner_native_suite_retire"})
             require(
                 disposition.get("state") == "retired" and api.poll() is not None,
                 "raster_api_exit_unsettled",

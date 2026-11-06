@@ -219,6 +219,24 @@ class SeedOwner:
             "family": family,
         }
 
+    async def verify_suite(self, suite_id: uuid.UUID, family: str):
+        result = await self._request(
+            {
+                "operation": "verify_fixture_suite",
+                "data": {"suite_id": str(suite_id), "family": family},
+            }
+        )
+        assert result["status"] == 200
+        assert json.loads(result["body"]) == {
+            "suite_id": str(suite_id),
+            "family": family,
+        }
+
+    async def retire_native_suite(self):
+        result = await self._request({"operation": "owner_native_suite_retire"})
+        if result["status"] != 200 or json.loads(result["body"]) != {"state": "retired"}:
+            raise RuntimeError("Fixture native suite retirement is unsettled")
+
     async def shutdown_authority(self, suite_id: uuid.UUID | None = None) -> str:
         payload = {"operation": "owner_shutdown"}
         if suite_id is not None:
@@ -256,14 +274,23 @@ class OwnedSuite:
 
 
 @asynccontextmanager
-async def private_seed_owner():
+async def private_seed_owner(*, native_suite_id: uuid.UUID | None = None):
     """Launch the private owner process without passing its DSN to product HTTP."""
     errors = tempfile.TemporaryFile()
+    environment = None
+    if native_suite_id is not None:
+        environment = {
+            **os.environ,
+            "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
+            "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(native_suite_id),
+            "PLAYWRIGHT_FIXTURE_RUN_ID": str(native_suite_id),
+        }
     try:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
             str(_ROOT / "apps/web/e2e/fixtures/seed-request.py"),
             cwd=_ROOT / "apps/api",
+            env=environment,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=errors,
@@ -307,9 +334,10 @@ async def private_seed_owner():
 @asynccontextmanager
 async def private_owned_suite():
     """Prepare one fresh suite and finalize its exact registered child runs."""
-    async with private_seed_owner() as owner:
-        suite = OwnedSuite(owner, uuid.uuid4())
-        await owner.prepare_suite(suite.suite_id, "owned")
+    suite_id = uuid.uuid4()
+    async with private_seed_owner(native_suite_id=suite_id) as owner:
+        suite = OwnedSuite(owner, suite_id)
+        await owner.verify_suite(suite_id, "owned")
         failure = None
         try:
             yield suite
@@ -323,6 +351,7 @@ async def private_owned_suite():
             else:
                 try:
                     await suite.finish()
+                    await owner.retire_native_suite()
                     await owner.shutdown_authority(suite.suite_id)
                 except BaseException as cleanup_failure:
                     if failure is not None:

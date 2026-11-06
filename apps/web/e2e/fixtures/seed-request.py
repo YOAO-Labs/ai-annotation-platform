@@ -110,9 +110,25 @@ def process_start(pid):
     return int(text[text.rfind(")") + 2 :].split()[19])
 
 
+def authority_native_mode():
+    value = os.environ.get("AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE")
+    if value is None:
+        return False
+    if (
+        value != "1"
+        or os.environ.get("AAP_WORKTREE_MODE") != "test"
+        or os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
+    ):
+        raise SeedSetupRefused("Invalid authority-native fixture topology")
+    return True
+
+
 def supervised_suite():
+    authority_native = authority_native_mode()
     value = os.environ.get("AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE")
     if not value:
+        if authority_native:
+            raise SeedSetupRefused("Authority-native fixture suite is missing")
         return None
     try:
         suite = UUID(value)
@@ -188,7 +204,7 @@ def bind_supervised_control():
     from linux_pidfd import pidfd_alive
 
     resources, directory = owner_paths()
-    if os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") and not (directory / "native-control.json").exists():
+    if (os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") or authority_native_mode()) and not (directory / "native-control.json").exists():
         if not os.path.lexists(directory / "owner.json"):
             return
         raise SeedSetupRefused("Fixture native control binding is missing")
@@ -544,7 +560,7 @@ def finish_authority(record):
 
 
 async def serve_authority(ready_fd):
-    if not os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
+    if not (os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") or authority_native_mode()):
         bind_supervised_control()
     os.environ["DEBUG"] = "false"
     resources, directory = owner_paths()
@@ -592,22 +608,22 @@ async def serve_authority(ready_fd):
         raise SeedSetupRefused("Fixture authority database changed")
     native_control = None
     raster_owner = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
-    if raster_owner:
+    if raster_owner or authority_native_mode():
         from fixture_native_playwright import NativeSuiteControl
 
         suite = supervised_suite()
         if suite is None:
-            raise SeedSetupRefused("Raster native suite identity is missing")
+            raise SeedSetupRefused("Authority-native suite identity is missing")
         journal_path = directory / "native-supervisor.json"
         journal = {
             "schema": "aap-fixture-native-supervisor/v1", "suite_id": str(suite),
             "resources": resources, "pid": os.getpid(), "start": process_start(os.getpid()),
-            "state": "preparing",
+            "state": "preparing", "api_owned": bool(raster_owner),
         }
         atomic_json(journal_path, journal, exclusive=True)
         native_control = NativeSuiteControl(
             original_environment, suite, resources, directory, journal, journal_path,
-            raster_owner=Path(raster_owner),
+            raster_owner=Path(raster_owner) if raster_owner else None, authority_owned=True,
         )
         await native_control.prepare()
         original_environment = dict(os.environ)
@@ -1079,16 +1095,17 @@ async def serve_authority(ready_fd):
                             response = {"status": 200, "body": "{}"}
                         elif operation == "owner_native_api_start":
                             if (
-                                native_control is None or set(payload) != {"operation", "port"}
+                                native_control is None or not native_control.api_owned
+                                or set(payload) != {"operation", "port"}
                                 or type(payload["port"]) is not int
                                 or str(payload["port"]) != original_environment.get("PLAYWRIGHT_ISOLATED_API_PORT")
                             ):
                                 raise SeedSetupRefused("Invalid Raster native API start")
                             api = native_control.start_api(payload["port"])
                             response = {"status": 200, "body": json.dumps(api)}
-                        elif operation == "owner_native_api_retire":
+                        elif operation == "owner_native_suite_retire":
                             if native_control is None or set(payload) != {"operation"}:
-                                raise SeedSetupRefused("Invalid Raster native API retirement")
+                                raise SeedSetupRefused("Invalid native suite retirement")
                             if any(
                                 key != operation_id and not item["acknowledged"]
                                 for key, item in operations.items()
@@ -1290,7 +1307,7 @@ def validate_client_payload(payload):
         "owner_offline_resume",
         "owner_offline_status",
         "owner_native_api_start",
-        "owner_native_api_retire",
+        "owner_native_suite_retire",
     }:
         return
     keys = (
