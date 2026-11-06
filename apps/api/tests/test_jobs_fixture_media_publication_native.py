@@ -1,5 +1,6 @@
 """Jobs publication fences against a real owned fixture source and run."""
 
+import asyncio
 import json
 import os
 import uuid
@@ -123,11 +124,58 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
                         await prepare(uuid.uuid4())
+                async with test_engine.connect() as waiting, test_engine.connect() as observer:
+                    waiting_pid = await waiting.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
+                    pending = asyncio.create_task(
+                        waiting.scalar(
+                            text(
+                                "SELECT aap_jobs_v1.fixture_media_publication_accepted("
+                                ":run,:delivery,:digest)"
+                            ),
+                            {
+                                "run": run.run_id,
+                                "delivery": first_id,
+                                "digest": first["payload_digest"],
+                            },
+                        )
+                    )
+                    try:
+                        blocked = False
+                        deadline = asyncio.get_running_loop().time() + 3
+                        while asyncio.get_running_loop().time() < deadline:
+                            blocked = await observer.scalar(
+                                text(
+                                    "SELECT wait_event_type='Lock' AND wait_event='advisory' "
+                                    "FROM pg_catalog.pg_stat_activity WHERE pid=:pid"
+                                ),
+                                {"pid": waiting_pid},
+                            )
+                            if blocked:
+                                break
+                            await asyncio.sleep(0.01)
+                        assert blocked, "worker acceptance did not wait for the publisher fence"
+                    finally:
+                        await db.rollback()
+                        accepted = await asyncio.wait_for(pending, 3)
+                    assert accepted is False
             finally:
                 await db.rollback()
         async with sessions() as db:
-            for delivery_id in (first_id, second_id):
+            for delivery_id, receipt in ((first_id, first), (second_id, second)):
                 assert await db.scalar(
                     text("SELECT aap_jobs_v1.fixture_media_delivery(:delivery)"),
                     {"delivery": delivery_id},
                 ) is None
+                params = {
+                    "run": run.run_id,
+                    "delivery": delivery_id,
+                    "digest": receipt["payload_digest"],
+                }
+                assert not await db.scalar(
+                    text("SELECT aap_jobs_v1.fixture_media_publication_accepted(:run,:delivery,:digest)"),
+                    params,
+                )
+                assert not await db.scalar(
+                    text("SELECT aap_jobs_v1.fixture_media_publication_retired(:run,:delivery,:digest)"),
+                    params,
+                )
