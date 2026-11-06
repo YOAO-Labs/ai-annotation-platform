@@ -334,15 +334,19 @@ class S3MediaStorage:
             from .original_read import fixture_original_active
 
             fixture = fixture_original_active()
-            if fixture:
+            uncertain = fixture and (
+                isinstance(exc, asyncio.CancelledError)
+                or getattr(exc, "storage_operation_unsettled", False)
+            )
+            if uncertain:
                 exc.storage_operation_unsettled = True
             if isinstance(exc, MediaFailure):
                 raise
-            if fixture and isinstance(exc, BaseExceptionGroup):
+            if uncertain and isinstance(exc, BaseExceptionGroup):
                 raise
             if isinstance(exc, Exception):
                 failure = _storage_error(exc)
-                if fixture:
+                if uncertain:
                     failure.storage_operation_unsettled = True
                 raise failure from None
             raise
@@ -357,22 +361,29 @@ class S3MediaStorage:
             raise MediaFailure("invalid_response")
         digest = _sha256_file(path)
         byte_size = path.stat().st_size
-        self._client.upload_file(
-            str(path),
-            self.cache_bucket,
-            key,
-            ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": digest}},
-        )
-        head = self._client.head_object(Bucket=self.cache_bucket, Key=key)
-        identity = _identity(head)
-        metadata = head.get("Metadata")
-        if (
-            identity.byte_size != byte_size
-            or not isinstance(metadata, dict)
-            or metadata.get("sha256") != digest
-        ):
-            raise MediaFailure("storage_unavailable")
-        return Artifact(key=key, byte_size=byte_size, sha256=digest)
+        try:
+            self._client.upload_file(
+                str(path),
+                self.cache_bucket,
+                key,
+                ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": digest}},
+            )
+            head = self._client.head_object(Bucket=self.cache_bucket, Key=key)
+            identity = _identity(head)
+            metadata = head.get("Metadata")
+            if (
+                identity.byte_size != byte_size
+                or not isinstance(metadata, dict)
+                or metadata.get("sha256") != digest
+            ):
+                raise MediaFailure("storage_unavailable")
+            return Artifact(key=key, byte_size=byte_size, sha256=digest)
+        except BaseException as exc:
+            from .original_read import fixture_original_active
+
+            if fixture_original_active():
+                exc.storage_operation_unsettled = True
+            raise
 
     async def delete_cache_keys(self, keys: list[str]) -> int:
         if len(keys) > 500 or len(set(keys)) != len(keys):
