@@ -710,6 +710,15 @@ def _native_output_policy(bucket, *, role):
                         }
                     },
                 },
+                {
+                    "Effect": "Allow",
+                    "Action": ["s3:DeleteObject"],
+                    "Resource": objects,
+                    "Condition": {
+                        "StringLike": {"s3:versionid": "*?*"},
+                        "StringNotEquals": {"s3:versionid": "null"},
+                    },
+                },
             ]
         )
     return {"Version": "2012-10-17", "Statement": statements}
