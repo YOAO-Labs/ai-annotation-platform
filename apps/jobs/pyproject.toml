@@ -66,6 +66,7 @@ packages = ["src/yoao_jobs"]
 "src/yoao_jobs/action_idempotency.schema.json" = "yoao_jobs/action_idempotency.schema.json"
 "src/yoao_jobs/sql/0332_jobs_action_idempotency.sql" = "yoao_jobs/sql/0332_jobs_action_idempotency.sql"
 "src/yoao_jobs/dispatch.schema.json" = "yoao_jobs/dispatch.schema.json"
+"src/yoao_jobs/media_preparation.schema.json" = "yoao_jobs/media_preparation.schema.json"
 "src/yoao_jobs/sql/0368_jobs_dispatch_ledger.sql" = "yoao_jobs/sql/0368_jobs_dispatch_ledger.sql"
 "src/yoao_jobs/sql/0447_jobs_publication_execution.sql" = "yoao_jobs/sql/0447_jobs_publication_execution.sql"
 "src/yoao_jobs/sql/0447_jobs_fixture_media_publication.sql" = "yoao_jobs/sql/0447_jobs_fixture_media_publication.sql"

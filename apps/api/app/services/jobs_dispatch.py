@@ -12,6 +12,7 @@ from typing import Any
 
 from yoao_jobs.dispatch_contract import (
     JOBS_DISPATCH_FUNCTIONS,
+    JOBS_MEDIA_PREPARE_FUNCTION,
     DispatchLease,
     DispatchPurpose,
     JobsDispatchRejected,
@@ -30,7 +31,7 @@ from app.application.preannotation_contract import BatchPredictionRequest
 log = logging.getLogger(__name__)
 _JSON_FUNCTIONS = frozenset(
     JOBS_DISPATCH_FUNCTIONS[name] for name in ("prepare", "claim", "finish")
-)
+) | {JOBS_MEDIA_PREPARE_FUNCTION}
 
 
 def jobs_dispatch_data(db: AsyncSession) -> JobsDispatchDataClient:

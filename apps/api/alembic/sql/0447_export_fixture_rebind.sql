@@ -200,3 +200,9 @@ AS $function$
           AND aap_export_v1.publications_retired(owner.job_id)
     );
 $function$;
+-- aap-statement-break
+DROP FUNCTION public.fixture_export_execution_admitted(uuid);
+-- aap-statement-break
+DROP FUNCTION public.begin_fixture_export_execution(uuid,uuid,uuid);
+-- aap-statement-break
+DROP FUNCTION public.finish_fixture_export_execution(uuid,uuid);

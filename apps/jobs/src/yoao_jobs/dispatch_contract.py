@@ -15,6 +15,7 @@ JOBS_DISPATCH_FUNCTIONS = {
     "finish": "aap_jobs_v1.finish_dispatch",
     "status": "aap_jobs_v1.dispatch_status",
 }
+JOBS_MEDIA_PREPARE_FUNCTION = "aap_jobs_v1.prepare_media_delivery"
 
 DispatchPurpose = Literal["execution", "frame_canvas", "tracker_retirement"]
 DispatchState = Literal["leased", "pending", "submitted", "retired"]
@@ -52,6 +53,14 @@ class DispatchLease(_ClosedModel):
     lease_token: UUID | None
     generation: StrictInt = Field(ge=1)
     state: DispatchState
+
+
+class MediaPreparation(_ClosedModel):
+    schema_: Literal["aap-jobs-media-preparation/v1"] = Field(alias="schema")
+    ownership: Literal["ordinary", "fixture"]
+    delivery_id: UUID
+    envelope: dict[str, Any]
+    payload_digest: StrictStr | None
 
 
 class DispatchStatus(_ClosedModel):

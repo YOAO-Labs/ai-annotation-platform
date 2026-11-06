@@ -158,7 +158,13 @@ BEGIN
        OR p_envelope->>'execution_id' IS DISTINCT FROM p_delivery::text
        OR pg_catalog.jsonb_typeof(p_envelope->'args') IS DISTINCT FROM 'array'
        OR pg_catalog.jsonb_typeof(p_envelope->'kwargs') IS DISTINCT FROM 'object'
-       OR p_envelope->'options' IS DISTINCT FROM pg_catalog.jsonb_build_object('queue', p_queue)
+       OR pg_catalog.jsonb_typeof(p_envelope->'options') IS DISTINCT FROM 'object'
+       OR (p_envelope->'options' - ARRAY['queue','soft_time_limit']) <> '{}'::jsonb
+       OR p_envelope->'options'->>'queue' IS DISTINCT FROM p_queue
+       OR (p_envelope->'options' ? 'soft_time_limit' AND
+           CASE WHEN pg_catalog.jsonb_typeof(p_envelope->'options'->'soft_time_limit') = 'number'
+                THEN (p_envelope->'options'->>'soft_time_limit')::numeric > 0
+                ELSE false END IS NOT TRUE)
        OR aap_assets_v1.fixture_independent_source_matches(
            p_run, p_dataset, p_item, p_owner_kind, p_owner_id, p_producer_kind, p_source, p_envelope
        ) IS DISTINCT FROM true THEN
@@ -200,6 +206,167 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.prepare_media_delivery(p_request jsonb)
+RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+DECLARE
+    v_owner_kind text;
+    v_owner uuid;
+    v_delivery uuid;
+    v_producer text;
+    v_task text;
+    v_ordinary_queue text;
+    v_queue text;
+    v_source jsonb;
+    v_envelope jsonb;
+    v_options jsonb;
+    v_binding jsonb;
+    v_receipt jsonb;
+    v_run uuid;
+    v_dataset uuid;
+    v_item uuid;
+BEGIN
+    IF pg_catalog.jsonb_typeof(p_request) IS DISTINCT FROM 'object'
+       OR NOT (p_request ?& ARRAY['schema','owner_kind','owner_id','producer_kind','delivery_id','source','envelope'])
+       OR (p_request - ARRAY['schema','owner_kind','owner_id','producer_kind','delivery_id','source','envelope']) <> '{}'::jsonb
+       OR p_request->>'schema' IS DISTINCT FROM 'aap-jobs-media-prepare/v1'
+       OR pg_catalog.jsonb_typeof(p_request->'owner_kind') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(p_request->'owner_id') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(p_request->'producer_kind') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(p_request->'delivery_id') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(p_request->'source') IS DISTINCT FROM 'object'
+       OR pg_catalog.jsonb_typeof(p_request->'envelope') IS DISTINCT FROM 'object' THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
+    END IF;
+    v_owner_kind := p_request->>'owner_kind';
+    v_owner := (p_request->>'owner_id')::uuid;
+    v_delivery := (p_request->>'delivery_id')::uuid;
+    v_producer := p_request->>'producer_kind';
+    v_source := p_request->'source';
+    v_envelope := p_request->'envelope';
+    v_task := CASE v_producer
+        WHEN 'pyramid' THEN 'app.workers.image_pyramid.generate_image_pyramid'
+        WHEN 'thumbnail' THEN 'app.workers.media.generate_thumbnail'
+        WHEN 'task_thumbnail' THEN 'app.workers.media.generate_task_thumbnail'
+        WHEN 'video_metadata' THEN 'app.workers.media.generate_video_metadata'
+        WHEN 'video_derivatives' THEN 'app.workers.media.generate_video_derivatives'
+    END;
+    v_ordinary_queue := CASE WHEN v_producer = 'pyramid' THEN 'image-pyramid' ELSE 'media' END;
+    IF v_owner_kind NOT IN ('task','dataset_item')
+       OR p_request->>'owner_id' IS DISTINCT FROM v_owner::text
+       OR p_request->>'delivery_id' IS DISTINCT FROM v_delivery::text
+       OR v_task IS NULL
+       OR NOT (v_envelope ?& ARRAY['schema','operation','task_name','execution_id','args','kwargs','options'])
+       OR (v_envelope - ARRAY['schema','operation','task_name','execution_id','args','kwargs','options']) <> '{}'::jsonb
+       OR v_envelope->>'schema' IS DISTINCT FROM 'aap-jobs-queue/v2'
+       OR v_envelope->>'operation' IS DISTINCT FROM 'dispatch'
+       OR v_envelope->>'task_name' IS DISTINCT FROM v_task
+       OR v_envelope->>'execution_id' IS DISTINCT FROM v_delivery::text
+       OR pg_catalog.jsonb_typeof(v_envelope->'args') IS DISTINCT FROM 'array'
+       OR pg_catalog.jsonb_typeof(v_envelope->'kwargs') IS DISTINCT FROM 'object'
+       OR pg_catalog.jsonb_typeof(v_envelope->'options') IS DISTINCT FROM 'object' THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
+    END IF;
+    v_options := v_envelope->'options';
+    IF (v_options - ARRAY['queue','soft_time_limit']) <> '{}'::jsonb
+       OR (v_options ? 'queue' AND v_options->'queue' IS DISTINCT FROM pg_catalog.to_jsonb(v_ordinary_queue))
+       OR (v_options ? 'soft_time_limit' AND
+           CASE WHEN pg_catalog.jsonb_typeof(v_options->'soft_time_limit') = 'number'
+                THEN (v_options->>'soft_time_limit')::numeric > 0 ELSE false END IS NOT TRUE) THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
+    END IF;
+    IF (v_producer = 'pyramid' AND (
+            pg_catalog.jsonb_array_length(v_envelope->'args') <> 4
+            OR v_envelope->'args'->>0 IS DISTINCT FROM v_owner_kind
+            OR v_envelope->'args'->>1 IS DISTINCT FROM v_owner::text
+            OR pg_catalog.jsonb_typeof(v_envelope->'args'->2) IS DISTINCT FROM 'boolean'
+            OR pg_catalog.jsonb_typeof(v_envelope->'args'->3) IS DISTINCT FROM 'object'
+            OR v_envelope->'kwargs' <> '{}'::jsonb))
+       OR (v_producer IN ('thumbnail','task_thumbnail') AND (
+            v_owner_kind IS DISTINCT FROM CASE WHEN v_producer = 'thumbnail' THEN 'dataset_item' ELSE 'task' END
+            OR v_envelope->'args' IS DISTINCT FROM pg_catalog.jsonb_build_array(v_owner::text)
+            OR v_envelope->'kwargs' <> '{}'::jsonb))
+       OR (v_producer = 'video_metadata' AND (
+            v_owner_kind IS DISTINCT FROM 'dataset_item'
+            OR v_envelope->'args' IS DISTINCT FROM pg_catalog.jsonb_build_array(v_owner::text)
+            OR NOT (v_envelope->'kwargs' ? 'delegation')
+            OR (v_envelope->'kwargs' - 'delegation') <> '{}'::jsonb))
+       OR (v_producer = 'video_derivatives' AND (
+            pg_catalog.jsonb_array_length(v_envelope->'args') <> 1
+            OR pg_catalog.jsonb_typeof(v_envelope->'args'->0) IS DISTINCT FROM 'array'
+            OR v_envelope->'kwargs' <> '{}'::jsonb)) THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
+    END IF;
+    IF v_producer = 'video_derivatives' THEN
+        IF NOT (v_source ?& ARRAY['schema','outputs'])
+           OR (v_source - ARRAY['schema','outputs']) <> '{}'::jsonb
+           OR v_source->>'schema' IS DISTINCT FROM 'aap-video-derivative-inputs/v1'
+           OR pg_catalog.jsonb_typeof(v_source->'outputs') IS DISTINCT FROM 'array' THEN
+            RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
+        END IF;
+        IF pg_catalog.jsonb_array_length(v_source->'outputs') = 0
+           OR EXISTS (
+               SELECT 1 FROM pg_catalog.jsonb_array_elements(v_source->'outputs') AS output(value)
+               WHERE pg_catalog.jsonb_typeof(output.value) IS DISTINCT FROM 'object'
+                  OR NOT (output.value ?& ARRAY['output_id','original'])
+                  OR (output.value - ARRAY['output_id','original']) <> '{}'::jsonb
+                  OR pg_catalog.jsonb_typeof(output.value->'output_id') IS DISTINCT FROM 'string'
+                  OR pg_catalog.jsonb_typeof(output.value->'original') IS DISTINCT FROM 'object'
+           )
+           OR (SELECT pg_catalog.jsonb_agg(output.value->'output_id' ORDER BY output.ordinality)
+               FROM pg_catalog.jsonb_array_elements(v_source->'outputs') WITH ORDINALITY AS output(value, ordinality))
+              IS DISTINCT FROM v_envelope->'args'->0 THEN
+            RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
+        END IF;
+    END IF;
+    v_binding := aap_assets_v1.media_producer_binding(v_owner_kind, v_owner, v_producer, v_source);
+    IF pg_catalog.jsonb_typeof(v_binding) IS DISTINCT FROM 'object'
+       OR NOT (v_binding ?& ARRAY['schema','ownership','run_id','dataset_id','item_id'])
+       OR (v_binding - ARRAY['schema','ownership','run_id','dataset_id','item_id']) <> '{}'::jsonb
+       OR v_binding->>'schema' IS DISTINCT FROM 'aap-assets-media-producer-binding/v1' THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_binding_invalid';
+    END IF;
+    IF v_binding->>'ownership' = 'ordinary' THEN
+        IF v_binding->'run_id' IS DISTINCT FROM 'null'::jsonb
+           OR v_binding->'dataset_id' IS DISTINCT FROM 'null'::jsonb
+           OR v_binding->'item_id' IS DISTINCT FROM 'null'::jsonb THEN
+            RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_binding_invalid';
+        END IF;
+        RETURN pg_catalog.jsonb_build_object(
+            'schema', 'aap-jobs-media-preparation/v1', 'ownership', 'ordinary',
+            'delivery_id', v_delivery, 'envelope', v_envelope, 'payload_digest', NULL
+        );
+    END IF;
+    IF v_binding->>'ownership' IS DISTINCT FROM 'fixture'
+       OR pg_catalog.jsonb_typeof(v_binding->'run_id') IS DISTINCT FROM 'string'
+       OR pg_catalog.jsonb_typeof(v_binding->'dataset_id') NOT IN ('string','null')
+       OR pg_catalog.jsonb_typeof(v_binding->'item_id') NOT IN ('string','null')
+       OR (v_binding->'dataset_id' = 'null'::jsonb) IS DISTINCT FROM (v_binding->'item_id' = 'null'::jsonb) THEN
+        RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_binding_invalid';
+    END IF;
+    v_run := (v_binding->>'run_id')::uuid;
+    v_dataset := (v_binding->>'dataset_id')::uuid;
+    v_item := (v_binding->>'item_id')::uuid;
+    v_queue := 'aap_workspace_worker_' || pg_catalog.replace(v_run::text, '-', '') ||
+        CASE WHEN v_producer = 'pyramid' THEN '_pyramid' ELSE '_media' END;
+    v_envelope := pg_catalog.jsonb_set(v_envelope, '{options,queue}', pg_catalog.to_jsonb(v_queue), true);
+    IF v_producer = 'video_derivatives' THEN
+        v_source := v_source->'outputs'->0->'original';
+    END IF;
+    v_receipt := aap_jobs_v1.prepare_fixture_media_delivery(
+        v_run, v_dataset, v_item, v_owner_kind, v_owner, v_producer, v_delivery,
+        v_queue, v_source, v_envelope
+    );
+    RETURN pg_catalog.jsonb_build_object(
+        'schema', 'aap-jobs-media-preparation/v1', 'ownership', 'fixture',
+        'delivery_id', v_delivery, 'envelope', v_receipt->'envelope',
+        'payload_digest', v_receipt->>'payload_digest'
+    );
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.prepare_media_delivery(jsonb) FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_jobs_v1.fixture_media_delivery(p_delivery uuid)
 RETURNS jsonb LANGUAGE sql STABLE SECURITY DEFINER

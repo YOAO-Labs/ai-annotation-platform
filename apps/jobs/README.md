@@ -302,6 +302,19 @@ timeouts and lost responses do not establish that outcome. Preserve the
 associated queue, results, objects, credentials and evidence until the remaining
 physical obligations are resolved.
 
+Standalone media producers call `prepare_media_delivery` in the existing
+business transaction with their actual subject, original receipt, delivery ID
+and ordinary v2 envelope. The Assets owner validates and locks the source and
+establishes either ordinary ownership or one exact open fixture run; unknown,
+ambiguous, sealed and mismatched ownership is refused. Ordinary ownership
+preserves the original envelope and publication path. For fixture ownership,
+Jobs selects the private queue, preserves the remaining options and atomically
+records the publication with its Assets execution birth. Neither a fixture run
+nor a private queue or executor credential is accepted from the producer.
+The packaged `media_preparation.schema.json` describes the finite request and
+result; derivative batches additionally bind every output ID to its actual
+original receipt.
+
 Fixture-owned pyramid, thumbnail and video deliveries without an AsyncJob use
 the same Jobs publication-control credential but a separate immutable delivery
 record. The producer transaction binds the actual run, DatasetItem or

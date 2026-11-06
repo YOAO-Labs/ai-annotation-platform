@@ -42,9 +42,6 @@ def upgrade() -> None:
     )
     _execute("0447_export_execution.sql")
     _execute("0447_export_fixture_rebind.sql")
-    op.execute("DROP FUNCTION public.fixture_export_execution_admitted(uuid)")
-    op.execute("DROP FUNCTION public.begin_fixture_export_execution(uuid,uuid,uuid)")
-    op.execute("DROP FUNCTION public.finish_fixture_export_execution(uuid,uuid)")
 
 
 def downgrade() -> None:

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from yoao_jobs.queue_contract import encode_dispatch_request
 
 from app.services import fixture_run_ownership, image_pyramid_originals
-from app.services.jobs_fixture_media import prepare_fixture_media_delivery
+from app.services.jobs_dispatch import jobs_dispatch_data
 from tests.seed_owned_scenarios import _build_owned
 from tests.seed_owner_support import private_owned_suite
 
@@ -53,27 +53,21 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                 delegation = image_pyramid_originals.system_authorization(
                     "dataset_item", item_id, original
                 )
-                queue = f"aap_workspace_worker_{run.run_id.hex}_pyramid"
 
-                async def prepare(delivery_id, *, target=item_id):
+                async def prepare(delivery_id, *, target=item_id, queue="image-pyramid"):
                     envelope = json.loads(
                         encode_dispatch_request(
                             "app.workers.image_pyramid.generate_image_pyramid",
                             str(delivery_id),
                             ["dataset_item", str(target), False, delegation],
-                            options={"queue": queue},
+                            options={"queue": queue, "soft_time_limit": 60},
                         )
                     )
-                    return await prepare_fixture_media_delivery(
-                        db,
-                        run_id=run.run_id,
-                        dataset_id=dataset_id,
-                        item_id=item_id,
+                    return await jobs_dispatch_data(db).prepare_media(
                         owner_kind="dataset_item",
                         owner_id=item_id,
                         producer_kind="pyramid",
                         delivery_id=delivery_id,
-                        queue=queue,
                         source=source,
                         envelope=envelope,
                     )
@@ -81,10 +75,67 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                 first_id, second_id = uuid.uuid4(), uuid.uuid4()
                 first = await prepare(first_id)
                 second = await prepare(second_id)
+                assert first.ownership == "fixture"
+                assert first.envelope["options"] == {
+                    "queue": f"aap_workspace_worker_{run.run_id.hex}_pyramid",
+                    "soft_time_limit": 60,
+                }
                 assert await prepare(first_id) == first
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
                         await prepare(first_id, target=uuid.uuid4())
+                with pytest.raises(DBAPIError):
+                    async with db.begin_nested():
+                        await prepare(
+                            uuid.uuid4(),
+                            queue=f"aap_workspace_worker_{run.run_id.hex}_pyramid",
+                        )
+                private_override = {
+                    "schema": "aap-jobs-media-prepare/v1",
+                    "owner_kind": "dataset_item",
+                    "owner_id": str(item_id),
+                    "producer_kind": "pyramid",
+                    "delivery_id": str(first_id),
+                    "source": source,
+                    "envelope": {
+                        **first.envelope,
+                        "options": {"queue": "image-pyramid", "soft_time_limit": 60},
+                    },
+                    "run_id": str(run.run_id),
+                }
+                with pytest.raises(DBAPIError):
+                    async with db.begin_nested():
+                        await db.scalar(
+                            text("SELECT aap_jobs_v1.prepare_media_delivery(CAST(:request AS jsonb))"),
+                            {"request": json.dumps(private_override)},
+                        )
+                output_id, other_output_id = uuid.uuid4(), uuid.uuid4()
+                mismatched_outputs = {
+                    "schema": "aap-jobs-media-prepare/v1",
+                    "owner_kind": "dataset_item",
+                    "owner_id": str(item_id),
+                    "producer_kind": "video_derivatives",
+                    "delivery_id": str(uuid.uuid4()),
+                    "source": {
+                        "schema": "aap-video-derivative-inputs/v1",
+                        "outputs": [{"output_id": str(output_id), "original": source}],
+                    },
+                    "envelope": {
+                        "schema": "aap-jobs-queue/v2",
+                        "operation": "dispatch",
+                        "task_name": "app.workers.media.generate_video_derivatives",
+                        "args": [[str(other_output_id)]],
+                        "kwargs": {},
+                        "options": {"queue": "media"},
+                    },
+                }
+                mismatched_outputs["envelope"]["execution_id"] = mismatched_outputs["delivery_id"]
+                with pytest.raises(DBAPIError):
+                    async with db.begin_nested():
+                        await db.scalar(
+                            text("SELECT aap_jobs_v1.prepare_media_delivery(CAST(:request AS jsonb))"),
+                            {"request": json.dumps(mismatched_outputs)},
+                        )
                 await db.execute(
                     text(
                         "SELECT pg_catalog.pg_advisory_xact_lock("
@@ -103,7 +154,7 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                         "SELECT aap_jobs_v1.fixture_media_publication_accepted("
                         ":run,:delivery,:digest)"
                     ),
-                    {"run": run.run_id, "delivery": first_id, "digest": first["payload_digest"]},
+                    {"run": run.run_id, "delivery": first_id, "digest": first.payload_digest},
                 )
                 await fixture_run_ownership.seal(db, run.run_id, family="owned")
                 for delivery_id, receipt in ((first_id, first), (second_id, second)):
@@ -112,21 +163,21 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                             "SELECT aap_jobs_v1.retire_fixture_media_publication("
                             ":run,:delivery,:digest)"
                         ),
-                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt["payload_digest"]},
+                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt.payload_digest},
                     ) == "blocked"
                     assert not await db.scalar(
                         text(
                             "SELECT aap_jobs_v1.fixture_media_publication_retired("
                             ":run,:delivery,:digest)"
                         ),
-                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt["payload_digest"]},
+                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt.payload_digest},
                     )
                     assert await db.scalar(
                         text(
                             "SELECT aap_jobs_v1.fixture_media_publication_retirement_outcome("
                             ":run,:delivery,:digest)"
                         ),
-                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt["payload_digest"]},
+                        {"run": run.run_id, "delivery": delivery_id, "digest": receipt.payload_digest},
                     ) is None
                 with pytest.raises(DBAPIError):
                     async with db.begin_nested():
@@ -142,7 +193,7 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                             {
                                 "run": run.run_id,
                                 "delivery": first_id,
-                                "digest": first["payload_digest"],
+                                "digest": first.payload_digest,
                             },
                         )
                     )
@@ -176,7 +227,7 @@ async def test_fixture_media_birth_and_seal_do_not_infer_publication_settlement(
                 params = {
                     "run": run.run_id,
                     "delivery": delivery_id,
-                    "digest": receipt["payload_digest"],
+                    "digest": receipt.payload_digest,
                 }
                 assert not await db.scalar(
                     text("SELECT aap_jobs_v1.fixture_media_publication_accepted(:run,:delivery,:digest)"),
