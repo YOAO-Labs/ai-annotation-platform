@@ -713,7 +713,10 @@ class IdentityModuleStack:
 
     def _bootstrap_minio(self) -> dict:
         from app.config import settings
-        from tests.test_asset_storage_cleanup_runtime import _verified_resource_manifest
+        from tests.test_asset_storage_cleanup_runtime import (
+            _shared_bootstrap_minio,
+            _verified_resource_manifest,
+        )
 
         resources = _verified_resource_manifest(self.test_engine, self.test_engine.url)
         manifest_path = Path(self._required_environment("TMPDIR")).resolve().parents[
@@ -729,13 +732,17 @@ class IdentityModuleStack:
             raise RuntimeError("Bootstrap MinIO differs from the owned manifest")
         endpoint = urlsplit(f"http://{settings.minio_endpoint}")
         container_id = self._required_environment("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+        shared = _shared_bootstrap_minio(settings, container_id=container_id)
         if (
-            endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
-            or endpoint.port is None
+            endpoint.port is None
             or re.fullmatch(r"[0-9a-f]{64}", container_id) is None
+            or (
+                shared is None
+                and endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+            )
         ):
             raise RuntimeError("Bootstrap MinIO selector is invalid")
-        details = self._inspect(container_id)
+        details = shared if shared is not None else self._inspect(container_id)
         image_id = details.get("Image")
         bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get(
             "9000/tcp"
@@ -751,7 +758,10 @@ class IdentityModuleStack:
             )
             == "minio"
             and len(bindings) == 1
-            and bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
+            and (
+                shared is not None
+                or bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
+            )
             and bindings[0].get("HostPort") == str(endpoint.port)
         ):
             raise RuntimeError("Bootstrap MinIO identity or loopback binding differs")
@@ -761,7 +771,27 @@ class IdentityModuleStack:
             "image_id": image_id,
             "host_port": endpoint.port,
             "service_port": 9000,
+            "shared": shared is not None,
+            "endpoint": settings.minio_endpoint,
         }
+
+    def _verify_bootstrap_minio(self, details):
+        if not self._minio["shared"]:
+            from tests.test_labeling_module_api_cold import _verify_minio_identity
+
+            _verify_minio_identity(details, self._minio)
+            return
+        from app.config import settings
+        from tests.test_asset_storage_cleanup_runtime import _shared_bootstrap_minio
+
+        shared = _shared_bootstrap_minio(settings, container_id=self._minio["id"])
+        if shared is None or any(
+            details.get(name) != shared.get(name) for name in ("Id", "Name", "Image")
+        ) or any(
+            details.get(name) != self._minio[key]
+            for name, key in (("Id", "id"), ("Name", "name"), ("Image", "image_id"))
+        ):
+            raise RuntimeError("Shared bootstrap MinIO identity changed")
 
     def _dependency_network(self):
         name = self.project_name + "_default"
@@ -807,10 +837,8 @@ class IdentityModuleStack:
                     ],
                     operation="owned dependency attachment",
                 )
-        from tests.test_labeling_module_api_cold import _verify_minio_identity
-
         details = self._inspect(self._minio["id"])
-        _verify_minio_identity(details, self._minio)
+        self._verify_bootstrap_minio(details)
         if network_name in details["NetworkSettings"]["Networks"]:
             raise RuntimeError("Bootstrap MinIO already has an unowned attachment")
         self._docker(
@@ -827,7 +855,7 @@ class IdentityModuleStack:
             operation="bootstrap storage attachment",
         )
         details = self._inspect(self._minio["id"])
-        _verify_minio_identity(details, self._minio)
+        self._verify_bootstrap_minio(details)
         endpoint = details["NetworkSettings"]["Networks"].get(network_name) or {}
         if (
             endpoint.get("NetworkID") != network_id
@@ -842,10 +870,8 @@ class IdentityModuleStack:
         if network is None:
             return
         network_name, network_id = network["Name"], network["Id"]
-        from tests.test_labeling_module_api_cold import _verify_minio_identity
-
         details = self._inspect(self._minio["id"])
-        _verify_minio_identity(details, self._minio)
+        self._verify_bootstrap_minio(details)
         endpoint = details["NetworkSettings"]["Networks"].get(network_name)
         if endpoint:
             if (
@@ -860,7 +886,7 @@ class IdentityModuleStack:
                 operation="bootstrap storage detachment",
             )
             detached = self._inspect(self._minio["id"])
-            _verify_minio_identity(detached, self._minio)
+            self._verify_bootstrap_minio(detached)
             if network_name in detached["NetworkSettings"]["Networks"]:
                 raise RuntimeError("Bootstrap MinIO remained attached")
             self._minio_attachment = None
@@ -1146,15 +1172,24 @@ class IdentityModuleStack:
         ):
             values[env_name] = os.environ.get(env_name, default)
         public_url = os.environ.get("MINIO_PUBLIC_URL", "")
-        values["MINIO_PUBLIC_URL"] = (
-            self._docker_http_url(public_url)
-            if public_url.startswith("http")
-            else public_url
-            or (
+        if self._minio["shared"]:
+            shared_url = (
                 f"{'https' if values['MINIO_USE_SSL'].lower() == 'true' else 'http'}://"
-                f"{self._required_environment('MINIO_ENDPOINT')}"
+                f"{self._minio['endpoint']}"
             )
-        )
+            if public_url not in {"", "/minio", shared_url, shared_url + "/"}:
+                raise RuntimeError("Public MinIO URL differs from the shared bootstrap")
+            values["MINIO_PUBLIC_URL"] = shared_url
+        else:
+            values["MINIO_PUBLIC_URL"] = (
+                self._docker_http_url(public_url)
+                if public_url.startswith("http")
+                else public_url
+                or (
+                    f"{'https' if values['MINIO_USE_SSL'].lower() == 'true' else 'http'}://"
+                    f"{self._required_environment('MINIO_ENDPOINT')}"
+                )
+            )
         for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES:
             values[name] = ""
         values["IDENTITY_RECOVERY_MAIL_KEY"] = ""
@@ -1970,12 +2005,16 @@ class IdentityModuleStack:
         except (TypeError, ValueError):
             raise ValueError("Verifier supplied an invalid service URL") from None
 
-    @staticmethod
-    def _docker_endpoint(value: str) -> str:
+    def _docker_endpoint(self, value: str) -> str:
         parsed = urlsplit(value if "://" in value else "http://" + value)
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Verifier supplied an invalid object storage endpoint")
         _ = parsed.port
+        if self._minio["shared"]:
+            if value != self._minio["endpoint"]:
+                raise ValueError("Shared bootstrap MinIO endpoint changed")
+            self._verify_bootstrap_minio(self._inspect(self._minio["id"]))
+            return value
         return f"{_BOOTSTRAP_MINIO_ALIAS}:9000"
 
     @classmethod

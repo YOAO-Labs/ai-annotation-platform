@@ -6,6 +6,7 @@ import ast
 import asyncio
 from contextlib import contextmanager
 import fcntl
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -18,6 +19,7 @@ import subprocess
 import sys
 import time
 import warnings
+from urllib.parse import urlsplit
 
 import boto3
 from botocore.config import Config as BotoConfig
@@ -606,6 +608,109 @@ def docker(*arguments: str) -> str:
     if result.returncode:
         raise WorktreeError(f"Docker {arguments[0]} 失败；请检查本机 Docker 是否可用")
     return result.stdout.strip()
+
+
+def verified_shared_bootstrap_minio(endpoint_url: str, *, container_id=None):
+    """Verify the explicitly selected private bootstrap owner without modifying it."""
+    selector = os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
+    if not selector:
+        return None
+
+    from fixture_store import MINIO_IMAGE
+    from verify_storage_candidates import Owner
+
+    path = Path(selector)
+    if (
+        not path.is_absolute()
+        or path.is_symlink()
+        or not path.is_file()
+        or path.stat().st_uid != os.getuid()
+        or path.stat().st_mode & 0o077
+    ):
+        raise WorktreeError("Shared bootstrap owner manifest is not a private owned file")
+    owner = Owner(path)
+    verification = owner.data.get("verification")
+    if (
+        owner.data.get("cleaned") is not False
+        or not isinstance(verification, dict)
+        or verification.get("state") != "running"
+        or verification.get("endpoint") != endpoint_url
+    ):
+        raise WorktreeError("Shared bootstrap owner is not live for this endpoint")
+    endpoint = urlsplit(endpoint_url)
+    if (
+        endpoint.scheme not in {"http", "https"}
+        or not endpoint.hostname
+        or endpoint.username is not None
+        or endpoint.password is not None
+        or endpoint.path
+        or endpoint.query
+        or endpoint.fragment
+        or endpoint.port is None
+        or endpoint.port == 0
+        or endpoint_url != f"{endpoint.scheme}://{endpoint.netloc}"
+    ):
+        raise WorktreeError("Shared bootstrap endpoint is invalid")
+    containers = [
+        item
+        for item in owner.data["resources"]
+        if item.get("kind") == "container" and item.get("image") == MINIO_IMAGE
+    ]
+    networks = [
+        item for item in owner.data["resources"] if item.get("kind") == "network"
+    ]
+    if (
+        len(containers) != 1
+        or len(networks) != 1
+        or containers[0].get("state") != "created"
+        or networks[0].get("state") != "created"
+        or (container_id is not None and containers[0].get("id") != container_id)
+    ):
+        raise WorktreeError("Shared bootstrap resource identity is ambiguous")
+    network = owner.verified(networks[0])
+    container = owner.verified(containers[0])
+    gateways = [
+        ipaddress.ip_address(item["Gateway"])
+        for item in (network.get("IPAM", {}).get("Config") or [])
+        if item.get("Gateway") and ipaddress.ip_address(item["Gateway"]).version == 4
+    ]
+    if (
+        network.get("Driver") != "bridge"
+        or len(gateways) != 1
+        or not gateways[0].is_private
+        or gateways[0].is_loopback
+        or gateways[0].is_link_local
+        or gateways[0].is_multicast
+        or gateways[0].is_reserved
+        or gateways[0].is_unspecified
+        or endpoint.hostname != str(gateways[0])
+    ):
+        raise WorktreeError("Shared bootstrap gateway differs from the owned bridge")
+    bindings = (container.get("NetworkSettings", {}).get("Ports") or {}).get(
+        "9000/tcp"
+    ) or []
+    attachments = [
+        item
+        for item in (container.get("NetworkSettings", {}).get("Networks") or {}).values()
+        if item.get("NetworkID") == networks[0]["id"]
+    ]
+    member = (network.get("Containers") or {}).get(containers[0]["id"]) or {}
+    if (
+        container.get("State", {}).get("Running") is not True
+        or not re.fullmatch(r"sha256:[0-9a-f]{64}", container.get("Image", ""))
+        or (container.get("Config", {}).get("Labels") or {}).get(
+            "com.docker.compose.service"
+        ) != "minio"
+        or len(bindings) != 1
+        or bindings[0].get("HostIp") != str(gateways[0])
+        or bindings[0].get("HostPort") != str(endpoint.port)
+        or len(attachments) != 1
+        or attachments[0].get("Gateway") != str(gateways[0])
+        or not attachments[0].get("EndpointID")
+        or member.get("EndpointID") != attachments[0]["EndpointID"]
+    ):
+        raise WorktreeError("Shared bootstrap container or bridge attachment changed")
+    return container
 
 
 def unused_loopback_port() -> int:

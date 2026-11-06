@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -169,10 +170,25 @@ def _verified_resource_manifest(test_engine, cleanup_url: URL) -> dict:
     return resource
 
 
+def _shared_bootstrap_minio(settings, *, container_id=None):
+    scripts = str(_REPO_ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from worktree_resources import verified_shared_bootstrap_minio
+
+    scheme = "https" if settings.minio_use_ssl else "http"
+    return verified_shared_bootstrap_minio(
+        f"{scheme}://{settings.minio_endpoint}", container_id=container_id
+    )
+
+
 def _local_s3_client(settings, access_key: str, secret_key: str):
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = urlsplit(f"{scheme}://{settings.minio_endpoint}")
-    if endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}:
+    shared = _shared_bootstrap_minio(
+        settings, container_id=os.environ.get("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+    )
+    if shared is None and endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}:
         pytest.fail("acceptance MinIO endpoint must be loopback-only")
     if not access_key or not secret_key:
         pytest.fail("the verifier did not provide scoped MinIO credentials")
@@ -194,6 +210,11 @@ def _local_s3_client(settings, access_key: str, secret_key: str):
 def _container_s3_endpoint(settings) -> str:
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = urlsplit(f"{scheme}://{settings.minio_endpoint}")
+    shared = _shared_bootstrap_minio(
+        settings, container_id=os.environ.get("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+    )
+    if shared is not None:
+        return endpoint.geturl()
     if endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}:
         pytest.fail("acceptance MinIO endpoint must be loopback-only")
     return f"{scheme}://host.docker.internal:{endpoint.port or 9000}"

@@ -2681,26 +2681,34 @@ def _node_failure_diagnostic(
 
 
 def _cleanup_storage_scope(backend) -> dict:
-    from worktree_resources import docker
+    from worktree_resources import docker, verified_shared_bootstrap_minio
 
-    endpoint = urlsplit(f"http://{backend.settings.minio_endpoint}")
+    scheme = "https" if backend.settings.minio_use_ssl else "http"
+    endpoint_url = f"{scheme}://{backend.settings.minio_endpoint}"
+    endpoint = urlsplit(endpoint_url)
+    shared = verified_shared_bootstrap_minio(endpoint_url)
     matches = []
-    for candidate in docker(
-        "ps",
-        "--filter",
-        "label=com.docker.compose.service=minio",
-        "--format",
-        "{{.ID}}",
-    ).splitlines():
-        observed = json.loads(docker("inspect", candidate))[0]
-        bindings = (observed.get("NetworkSettings", {}).get("Ports") or {}).get(
-            "9000/tcp"
-        ) or []
-        if any(
-            int(binding.get("HostPort", 0)) == (endpoint.port or 9000)
-            for binding in bindings
-        ):
-            matches.append(observed)
+    if shared is not None:
+        matches.append(shared)
+    else:
+        if endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise RuntimeError("The local MinIO endpoint must be loopback-only")
+        for candidate in docker(
+            "ps",
+            "--filter",
+            "label=com.docker.compose.service=minio",
+            "--format",
+            "{{.ID}}",
+        ).splitlines():
+            observed = json.loads(docker("inspect", candidate))[0]
+            bindings = (observed.get("NetworkSettings", {}).get("Ports") or {}).get(
+                "9000/tcp"
+            ) or []
+            if any(
+                int(binding.get("HostPort", 0)) == (endpoint.port or 9000)
+                for binding in bindings
+            ):
+                matches.append(observed)
     if len(matches) != 1:
         raise RuntimeError("The local MinIO admin container is not uniquely identified")
     bucket = backend.resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
