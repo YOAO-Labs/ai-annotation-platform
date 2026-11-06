@@ -10,6 +10,7 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.video_tracker_job import VideoTrackerJob
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.factory import create_project, create_task, create_user
@@ -306,7 +307,6 @@ async def test_refused_publication_is_distinct_from_acceptance_and_allows_exact_
     assert await db_session.scalar(begin, first) == "entered"
     assert not await db_session.scalar(refuse, {**first, "lease_token": str(uuid.uuid4())})
     assert await db_session.scalar(refuse, first)
-    assert not await db_session.scalar(retire, retire_args)
     assert _data(await _finish(db_session, first, accepted=False))["state"] == "pending"
     await db_session.execute(
         text(
@@ -333,6 +333,163 @@ async def test_refused_publication_is_distinct_from_acceptance_and_allows_exact_
     ).scalars().all()
     assert states == ["not_sent", "settled"]
     assert await db_session.scalar(retire, retire_args)
+    assert not await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.job_publications_not_sent("
+            "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+        ),
+        retire_args,
+    )
+
+
+async def test_terminal_refusal_tombstone_fences_new_publication(db_session):
+    job = _job()
+    db_session.add(job)
+    await db_session.flush()
+    envelope = _dispatch(str(uuid.uuid4()))
+    first = _data(await _prepare(db_session, job.id, envelope))
+    assert await db_session.scalar(
+        text(
+            "SELECT pg_catalog.pg_try_advisory_xact_lock("
+            "pg_catalog.hashtextextended('aap-jobs:publication:' || "
+            "CAST(CAST(:intent_id AS uuid) AS text), 0))"
+        ),
+        {"intent_id": first["intent_id"]},
+    )
+    arguments = (
+        "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
+        ":generation, CAST(:lease_token AS uuid)"
+    )
+    begin = text(f"SELECT aap_jobs_v1.begin_dispatch_publication({arguments})")
+    refuse = text(f"SELECT aap_jobs_v1.refuse_dispatch_publication({arguments})")
+    retire = text(
+        "SELECT aap_jobs_v1.retire_job_publications("
+        "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+    )
+    not_sent = text(
+        "SELECT aap_jobs_v1.job_publications_not_sent("
+        "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+    )
+    exact = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
+    assert not await db_session.scalar(retire, exact)
+    assert await db_session.scalar(begin, first) == "entered"
+    assert not await db_session.scalar(retire, exact)
+    assert await db_session.scalar(refuse, first)
+    assert not await db_session.scalar(
+        retire, {**exact, "execution_ids": [str(uuid.uuid4())]}
+    )
+    assert await db_session.scalar(retire, exact)
+    assert await db_session.scalar(not_sent, exact)
+    assert await db_session.scalar(begin, first) == "blocked"
+    assert _data(await _claim(db_session)) == []
+    with pytest.raises(IntegrityError):
+        async with db_session.begin_nested():
+            await _prepare(db_session, job.id, _dispatch(str(uuid.uuid4())))
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
+                "WHERE intent_id=CAST(:intent_id AS uuid)"
+            ),
+            {"intent_id": first["intent_id"]},
+        )
+    ) == "not_sent"
+
+
+@pytest.mark.parametrize("settled", [False, True])
+async def test_terminal_refusal_rejects_any_retry_publication(db_session, settled):
+    job = _job()
+    db_session.add(job)
+    await db_session.flush()
+    envelope = _dispatch(str(uuid.uuid4()))
+    first = _data(await _prepare(db_session, job.id, envelope))
+    assert await db_session.scalar(
+        text(
+            "SELECT pg_catalog.pg_try_advisory_xact_lock("
+            "pg_catalog.hashtextextended('aap-jobs:publication:' || "
+            "CAST(CAST(:intent_id AS uuid) AS text), 0))"
+        ),
+        {"intent_id": first["intent_id"]},
+    )
+    args = (
+        "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
+        ":generation, CAST(:lease_token AS uuid)"
+    )
+    assert await db_session.scalar(
+        text(f"SELECT aap_jobs_v1.begin_dispatch_publication({args})"), first
+    ) == "entered"
+    assert await db_session.scalar(
+        text(f"SELECT aap_jobs_v1.refuse_dispatch_publication({args})"), first
+    )
+    retry = {
+        **first,
+        "task_name": envelope["task_name"],
+        "args": json.dumps(envelope["args"]),
+        "kwargs": json.dumps(envelope["kwargs"]),
+        "retry": 1,
+        "nonce": str(uuid.uuid4()),
+    }
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.begin_retry_publication("
+            "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, :task_name, "
+            "CAST(:args AS jsonb), CAST(:kwargs AS jsonb), :retry, CAST(:nonce AS uuid))"
+        ),
+        retry,
+    ) == "entered"
+    if settled:
+        assert await db_session.scalar(
+            text(
+                "SELECT aap_jobs_v1.finish_retry_publication("
+                "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
+                ":retry, CAST(:nonce AS uuid))"
+            ),
+            retry,
+        )
+    assert not await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.retire_job_publications("
+            "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+        ),
+        {"job_id": str(job.id), "execution_ids": [first["execution_id"]]},
+    )
+
+
+async def test_terminal_refusal_rejects_mixed_published_and_unsent_intents(db_session):
+    job = _job()
+    db_session.add(job)
+    await db_session.flush()
+    first = _data(await _prepare(db_session, job.id, _dispatch(str(uuid.uuid4()))))
+    second = _data(await _prepare(db_session, job.id, _dispatch(str(uuid.uuid4()))))
+    args = (
+        "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
+        ":generation, CAST(:lease_token AS uuid)"
+    )
+    for lease, outcome in ((first, "refuse"), (second, "finish")):
+        assert await db_session.scalar(
+            text(
+                "SELECT pg_catalog.pg_try_advisory_xact_lock("
+                "pg_catalog.hashtextextended('aap-jobs:publication:' || "
+                "CAST(CAST(:intent_id AS uuid) AS text), 0))"
+            ),
+            {"intent_id": lease["intent_id"]},
+        )
+        assert await db_session.scalar(
+            text(f"SELECT aap_jobs_v1.begin_dispatch_publication({args})"), lease
+        ) == "entered"
+        assert await db_session.scalar(
+            text(f"SELECT aap_jobs_v1.{outcome}_dispatch_publication({args})"), lease
+        )
+    assert not await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.retire_job_publications("
+            "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+        ),
+        {
+            "job_id": str(job.id),
+            "execution_ids": sorted([first["execution_id"], second["execution_id"]]),
+        },
+    )
 
 
 async def test_concurrent_dispatch_claims_are_single_winner_and_skip_locked(

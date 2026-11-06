@@ -253,7 +253,9 @@ and `dispatch.schema.json` define the Native ABI:
 - API: `prepare_dispatch(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
 - Relay: `claim_dispatches(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
 
-Preparation borrows the caller transaction and never commits it. Publication
+Preparation borrows the caller transaction and never commits it. Jobs and
+immutable dispatch births are recorded in that transaction; historical Jobs and
+intents are not backfilled with invented no-publication proof. Publication
 happens only after acceptance commits, under a separate function-only,
 session-held publication fence. Each generation records physical entry before
 the broker call and settles only on the publisher's positive acknowledgement.
@@ -292,9 +294,13 @@ exactly-once execution or a general historical-writer retirement system.
 Retirement is separate from replay: the owner must fence the exact Job and all
 delivery identities, then obtain a Jobs publication tombstone. Every entered
 generation and Celery retry must have its own positive settlement; a later
-successful replay never settles or erases an earlier unknown attempt. Preserve
-the associated queue, results, objects, credentials and evidence until the
-remaining physical obligations are resolved.
+successful replay never settles or erases an earlier unknown attempt. An
+explicit terminal `not_sent` tombstone is also possible when every intent has
+a positively refused attempt and no accepted or entered attempt or retry; it
+permanently fences later publication without claiming acceptance. No attempts,
+timeouts and lost responses do not establish that outcome. Preserve the
+associated queue, results, objects, credentials and evidence until the remaining
+physical obligations are resolved.
 
 ## Package verification
 

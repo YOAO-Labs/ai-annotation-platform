@@ -51,6 +51,7 @@ FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.guard_publication_attempt();
 CREATE TABLE aap_jobs_v1.dispatch_publication_retirements (
     job_id uuid PRIMARY KEY,
     execution_ids text[] NOT NULL,
+    outcome text NOT NULL CHECK (outcome IN ('published', 'not_sent')),
     retired_at timestamptz NOT NULL DEFAULT pg_catalog.clock_timestamp()
 );
 -- aap-statement-break
@@ -70,6 +71,67 @@ CREATE TRIGGER guard_publication_retirement BEFORE UPDATE OR DELETE
 ON aap_jobs_v1.dispatch_publication_retirements
 FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.guard_publication_retirement();
 -- aap-statement-break
+-- These births are never backfilled: older Jobs or intents may already have sent work.
+CREATE TABLE aap_jobs_v1.publication_job_births (
+    job_id uuid PRIMARY KEY
+);
+-- aap-statement-break
+CREATE TABLE aap_jobs_v1.publication_intent_births (
+    intent_id uuid PRIMARY KEY,
+    job_id uuid NOT NULL,
+    execution_id text NOT NULL,
+    envelope jsonb NOT NULL
+);
+-- aap-statement-break
+REVOKE ALL ON aap_jobs_v1.publication_job_births, aap_jobs_v1.publication_intent_births FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.guard_publication_birth()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'publication birth is immutable';
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.guard_publication_birth() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER guard_publication_job_birth BEFORE UPDATE OR DELETE
+ON aap_jobs_v1.publication_job_births
+FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.guard_publication_birth();
+-- aap-statement-break
+CREATE TRIGGER guard_publication_intent_birth BEFORE UPDATE OR DELETE
+ON aap_jobs_v1.publication_intent_births
+FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.guard_publication_birth();
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.capture_publication_job_birth()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    INSERT INTO aap_jobs_v1.publication_job_births(job_id) VALUES (NEW.id);
+    RETURN NEW;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.capture_publication_job_birth() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER capture_publication_job_birth AFTER INSERT ON public.async_jobs
+FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.capture_publication_job_birth();
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.capture_publication_intent_birth()
+RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    INSERT INTO aap_jobs_v1.publication_intent_births(intent_id, job_id, execution_id, envelope)
+    VALUES (NEW.intent_id, NEW.job_id, NEW.execution_id, NEW.envelope);
+    RETURN NEW;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.capture_publication_intent_birth() FROM PUBLIC;
+-- aap-statement-break
+CREATE TRIGGER capture_publication_intent_birth AFTER INSERT ON aap_jobs_v1.dispatch_intents
+FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.capture_publication_intent_birth();
+-- aap-statement-break
 CREATE FUNCTION aap_jobs_v1.job_publications_retired(p_job uuid, p_execution_ids text[])
 RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
@@ -80,6 +142,17 @@ SET search_path = pg_catalog, pg_temp AS $function$
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_jobs_v1.job_publications_retired(uuid,text[]) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.job_publications_not_sent(p_job uuid, p_execution_ids text[])
+RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+    SELECT EXISTS (
+        SELECT 1 FROM aap_jobs_v1.dispatch_publication_retirements
+        WHERE job_id = p_job AND execution_ids = p_execution_ids AND outcome = 'not_sent'
+    );
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.job_publications_not_sent(uuid,text[]) FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_jobs_v1.publication_session_owns(p_intent uuid)
 RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER
@@ -118,7 +191,12 @@ BEGIN
     WHERE intent_id = p_intent FOR UPDATE;
     IF NOT FOUND OR v_dispatch.job_id <> p_job OR v_dispatch.execution_id <> p_execution
        OR v_dispatch.state <> 'leased' OR v_dispatch.generation <> p_generation
-       OR v_dispatch.lease_token IS DISTINCT FROM p_token THEN
+       OR v_dispatch.lease_token IS DISTINCT FROM p_token
+       OR NOT EXISTS (
+           SELECT 1 FROM aap_jobs_v1.publication_intent_births AS birth
+           WHERE birth.intent_id = p_intent AND birth.job_id = p_job
+             AND birth.execution_id = p_execution AND birth.envelope = v_dispatch.envelope
+       ) THEN
         RETURN 'blocked';
     END IF;
     IF EXISTS (SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
@@ -193,7 +271,13 @@ BEGIN
     );
     IF EXISTS (SELECT 1 FROM aap_jobs_v1.dispatch_publication_retirements WHERE job_id = p_job)
        OR aap_jobs_v1.retry_publication_intent(p_job, p_execution, p_task, p_args, p_kwargs)
-          IS DISTINCT FROM p_intent THEN
+          IS DISTINCT FROM p_intent
+       OR NOT EXISTS (
+           SELECT 1 FROM aap_jobs_v1.publication_intent_births AS birth
+           JOIN aap_jobs_v1.dispatch_intents AS intent USING (intent_id)
+           WHERE birth.intent_id = p_intent AND birth.job_id = p_job
+             AND birth.execution_id = p_execution AND birth.envelope = intent.envelope
+       ) THEN
         RETURN 'blocked';
     END IF;
     IF EXISTS (
@@ -248,7 +332,10 @@ FOR EACH ROW EXECUTE FUNCTION aap_jobs_v1.guard_retired_dispatch();
 CREATE FUNCTION aap_jobs_v1.retire_job_publications(p_job uuid, p_execution_ids text[])
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
-DECLARE v_intent record;
+DECLARE
+    v_intent record;
+    v_published boolean := true;
+    v_not_sent boolean := true;
 BEGIN
     IF p_job IS NULL OR p_execution_ids IS NULL OR pg_catalog.cardinality(p_execution_ids) = 0
        OR pg_catalog.array_position(p_execution_ids, NULL::text) IS NOT NULL
@@ -263,9 +350,17 @@ BEGIN
                        WHERE job_id = p_job AND execution_ids = p_execution_ids);
     END IF;
     IF NOT EXISTS (SELECT 1 FROM public.async_jobs WHERE id = p_job)
+       OR NOT EXISTS (SELECT 1 FROM aap_jobs_v1.publication_job_births WHERE job_id = p_job)
        OR p_execution_ids IS DISTINCT FROM ARRAY(
            SELECT DISTINCT execution_id FROM aap_jobs_v1.dispatch_intents
            WHERE job_id = p_job ORDER BY execution_id
+       ) OR EXISTS (
+           SELECT 1 FROM aap_jobs_v1.dispatch_intents AS intent
+           WHERE intent.job_id = p_job AND NOT EXISTS (
+               SELECT 1 FROM aap_jobs_v1.publication_intent_births AS birth
+               WHERE birth.intent_id = intent.intent_id AND birth.job_id = intent.job_id
+                 AND birth.execution_id = intent.execution_id AND birth.envelope = intent.envelope
+           )
        ) OR EXISTS (
            SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts AS attempt
            WHERE attempt.job_id = p_job AND NOT EXISTS (
@@ -293,17 +388,32 @@ BEGIN
         ) OR EXISTS (
             SELECT 1 FROM aap_jobs_v1.dispatch_retry_publications
             WHERE intent_id = v_intent.intent_id AND state = 'entered'
-        ) OR NOT EXISTS (
+        ) THEN RETURN false; END IF;
+        IF NOT EXISTS (
             SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
             WHERE intent_id = v_intent.intent_id AND state = 'settled'
-        ) THEN RETURN false; END IF;
+        ) THEN
+            v_published := false;
+        END IF;
+        IF NOT EXISTS (
+            SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
+            WHERE intent_id = v_intent.intent_id AND state = 'not_sent'
+        ) OR EXISTS (
+            SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
+            WHERE intent_id = v_intent.intent_id AND state = 'settled'
+        ) OR EXISTS (
+            SELECT 1 FROM aap_jobs_v1.dispatch_retry_publications
+            WHERE intent_id = v_intent.intent_id
+        ) THEN
+            v_not_sent := false;
+        END IF;
     END LOOP;
-    IF NOT FOUND THEN RETURN false; END IF;
+    IF NOT FOUND OR NOT (v_published OR v_not_sent) THEN RETURN false; END IF;
     UPDATE aap_jobs_v1.dispatch_intents SET state = 'retired', lease_token = NULL,
         lease_expires_at = NULL, next_attempt_at = NULL, accepted_at = NULL,
         updated_at = pg_catalog.clock_timestamp() WHERE job_id = p_job;
-    INSERT INTO aap_jobs_v1.dispatch_publication_retirements(job_id, execution_ids)
-    VALUES (p_job, p_execution_ids);
+    INSERT INTO aap_jobs_v1.dispatch_publication_retirements(job_id, execution_ids, outcome)
+    VALUES (p_job, p_execution_ids, CASE WHEN v_published THEN 'published' ELSE 'not_sent' END);
     RETURN true;
 END;
 $function$;
