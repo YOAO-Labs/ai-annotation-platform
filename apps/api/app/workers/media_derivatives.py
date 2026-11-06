@@ -253,7 +253,7 @@ def build(storage, output, stage, metadata=None, *, accounting=None):
         contract.validate_result(output, result, inventory)
         return result, inventory
     except BaseException as exc:
-        unsettled = bool(getattr(exc, "storage_operation_unsettled", False))
+        unsettled = storage_access.failure_unsettled(exc)
         raise
     finally:
         if unsettled:
@@ -261,11 +261,17 @@ def build(storage, output, stage, metadata=None, *, accounting=None):
             # and permit retain responsibility; no destructor may erase them.
             directory._finalizer.detach()
         else:
+            primary = sys.exception()
             try:
                 directory.cleanup()
             except BaseException as exc:
                 directory._finalizer.detach()
-                raise storage_access.mark_unsettled(exc)
+                storage_access.mark_unsettled(exc)
+                if primary is not None:
+                    raise BaseExceptionGroup(
+                        "Video derivative and temporary cleanup failed", [primary, exc]
+                    ) from None
+                raise
 
 
 @dataclass(frozen=True)

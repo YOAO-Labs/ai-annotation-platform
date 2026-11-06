@@ -8,7 +8,7 @@ import os
 import re
 import subprocess
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import uuid
 from urllib.parse import urlsplit
 
@@ -185,6 +185,46 @@ async def test_unsettled_derivative_never_retires_the_claim(monkeypatch, phase):
         await worker.run_outputs([str(identifier)])
     assert storage_access.failure_unsettled(rejected.value)
     retire.assert_not_awaited()
+
+
+def test_nested_uncertainty_retains_video_temporary_output(monkeypatch):
+    from app.services import media_process
+
+    uncertain = storage_access.mark_unsettled(OSError("native drain failed"))
+    failure = ExceptionGroup("decoder", [uncertain])
+    directory = SimpleNamespace(
+        name="/private/video-stage", cleanup=Mock(), _finalizer=SimpleNamespace(detach=Mock())
+    )
+    monkeypatch.setattr(media_process, "decoder_input", lambda _stage: ("source", ()))
+    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: directory)
+    monkeypatch.setattr(worker, "_metadata", Mock(side_effect=failure))
+    output = SimpleNamespace(id=uuid.uuid4(), kind="metadata")
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        worker.build(None, output, object())
+    assert rejected.value is failure
+    directory.cleanup.assert_not_called()
+    directory._finalizer.detach.assert_called_once()
+
+
+def test_video_temporary_cleanup_keeps_the_primary_failure(monkeypatch):
+    from app.services import media_process
+
+    directory = SimpleNamespace(
+        name="/private/video-stage",
+        cleanup=Mock(side_effect=OSError("cleanup failed")),
+        _finalizer=SimpleNamespace(detach=Mock()),
+    )
+    monkeypatch.setattr(media_process, "decoder_input", lambda _stage: ("source", ()))
+    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: directory)
+    monkeypatch.setattr(worker, "_metadata", Mock(side_effect=ValueError("decode failed")))
+    output = SimpleNamespace(id=uuid.uuid4(), kind="metadata")
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        worker.build(None, output, object())
+    assert [type(exc) for exc in rejected.value.exceptions] == [ValueError, OSError]
+    assert storage_access.failure_unsettled(rejected.value)
+    directory._finalizer.detach.assert_called_once()
 
 
 async def test_newer_metadata_attempt_prevents_old_publication(world, db_session):
