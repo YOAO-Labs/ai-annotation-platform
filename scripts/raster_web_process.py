@@ -2,6 +2,7 @@
 
 import builtins
 import os
+import select
 import subprocess
 import time
 
@@ -35,26 +36,48 @@ class RasterWebServer:
             )
         self.child = None
         self.descriptor = None
+        self.ready_fd = None
         self.tracked = {}
 
     def __enter__(self):
-        self.child = subprocess.Popen(
-            [
-                "node",
-                "./scripts/raster-vite.mjs",
-                "preview" if self.preview else "dev",
-            ],
-            cwd=self.cwd,
-            env=self.environment,
-            start_new_session=True,
-            stdin=subprocess.PIPE,
-        )
+        self.ready_fd, ready_writer = os.pipe()
+        try:
+            self.child = subprocess.Popen(
+                [
+                    "node",
+                    "./scripts/raster-vite.mjs",
+                    "preview" if self.preview else "dev",
+                ],
+                cwd=self.cwd,
+                env={**self.environment, "RASTER_WEB_READY_FD": str(ready_writer)},
+                start_new_session=True,
+                stdin=subprocess.PIPE,
+                pass_fds=(ready_writer,),
+            )
+        except BaseException:
+            os.close(self.ready_fd)
+            self.ready_fd = None
+            raise
+        finally:
+            os.close(ready_writer)
         try:
             self.descriptor = open_pidfd(self.child.pid)
             deadline = time.monotonic() + 120
+            readiness = b""
+            ready = False
             while True:
                 self.observe()
-                if http_ready(
+                if not ready and select.select([self.ready_fd], [], [], 0)[0]:
+                    part = os.read(self.ready_fd, 7)
+                    if part:
+                        readiness += part
+                        require(len(readiness) <= 6, "raster_web_readiness_invalid")
+                    else:
+                        require(readiness == b"ready\n", "raster_web_readiness_invalid")
+                        os.close(self.ready_fd)
+                        self.ready_fd = None
+                        ready = True
+                if ready and http_ready(
                     self.port, "/" if self.preview else "/e2e/fixtures/mask-worker.html"
                 ):
                     return self
@@ -93,6 +116,9 @@ class RasterWebServer:
             raise
         else:
             self.child.stdin.close()
+            if self.ready_fd is not None:
+                os.close(self.ready_fd)
+                self.ready_fd = None
             for descriptor in self.tracked.values():
                 os.close(descriptor)
             if self.descriptor is not None:

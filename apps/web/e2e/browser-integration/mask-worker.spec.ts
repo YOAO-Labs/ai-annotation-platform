@@ -1,4 +1,5 @@
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "../fixtures/raster-browser";
 
 // Browser runtime integration: direct Vite source imports, not built-product E2E.
 test.describe("Mask Worker browser integration", () => {

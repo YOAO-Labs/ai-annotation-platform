@@ -1,7 +1,10 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { openSelectedMaskEditor } from "../helpers/mask-selection";
-import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
-import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
+import { mergeTests, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
+import { expect, test as seedTest, type SeedAPI, type SeedData } from "../fixtures/seed";
+import { test as browserTest } from "../fixtures/raster-browser";
+
+const test = mergeTests(seedTest, browserTest);
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 // The corrupt fixture pins its own saved object and then removes those bytes, so

@@ -45,7 +45,13 @@ Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
 源码 Worker 使用 `playwright.browser-integration.config.ts` 独立报告，
 不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
 两阶段的 Vite 都由 Raster 启动器直接管理，配置不再自行启动 `webServer`；
-收尾通过私有控制管道等待真实 `server.close()` 和准确进程退出，不向整个进程组发信号。
+只有准确 Node 子进程在绑定端口后发出的私有就绪握手才能接纳 HTTP 检查，
+其他进程的 HTTP 200 不算启动成功。收尾通过私有控制管道等待真实
+`server.close()` 和准确进程退出，不向整个进程组发信号。
+Raster 原生／只读矩阵与源码 Worker 使用独占本地 `BrowserServer`，
+不接入外部浏览器；关闭时检查真实 `ChildProcess` 退出结果。
+Playwright 的关闭 Promise 成功并不足以通过验收：强制回退导致的信号退出、
+非零退出以及关闭请求前已观察到的退出都必须失败。
 该入口在启动 API、浏览器前准备专用版本化存储及故障夹具。测试进程仅持有本次
 suite 的本地夹具通道和公开 manifest 路径；数据库 owner、连接器密钥与存储写入
 凭据只进入启动器、受限 API 和私有夹具进程。通道限制为本 suite 的固定夹具

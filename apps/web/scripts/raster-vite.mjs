@@ -1,3 +1,4 @@
+import { closeSync, writeSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { createServer, preview } from "vite";
 
@@ -14,6 +15,9 @@ if (mode !== "preview" && mode !== "dev") {
 const server =
   mode === "preview" ? await preview({ preview: listen }) : await createServer({ server: listen });
 if (mode === "dev") await server.listen();
+const readyFd = Number(process.env.RASTER_WEB_READY_FD);
+writeSync(readyFd, "ready\n");
+closeSync(readyFd);
 
 const input = createInterface({ input: process.stdin, terminal: false });
 let closed = false;

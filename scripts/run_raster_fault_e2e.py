@@ -1292,7 +1292,7 @@ def inside_with_inference(path, arguments, inference):
             retain_unsettled("raster_api_shutdown_failed")
     if failure is not None:
         shutdown_failures.insert(0, failure)
-    elif result and shutdown_failures:
+    if result and shutdown_failures:
         shutdown_failures.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
     if shutdown_failures:
         if len(shutdown_failures) == 1:

@@ -1,6 +1,7 @@
 """Exercise exact web-owner closure without substituting process outcomes."""
 
 import ctypes
+import http.server
 import os
 from pathlib import Path
 import platform
@@ -8,7 +9,9 @@ import select
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
+from unittest.mock import patch
 
 from linux_pidfd import open_pidfd, pidfd_alive
 from raster_web_process import RasterWebServer, _unsettled_web_servers
@@ -55,6 +58,51 @@ class RasterWebShutdownTests(unittest.TestCase):
             _unsettled_web_servers.remove(web)
             for descriptor in (*web.tracked.values(), web.descriptor):
                 os.close(descriptor)
+            if web.ready_fd is not None:
+                os.close(web.ready_fd)
+
+    def test_occupied_http_port_cannot_admit_an_unready_owner(self):
+        class ForeignHandler(http.server.BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"not-the-owned-web-server")
+
+            def log_message(self, *_args):
+                pass
+
+        foreign = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ForeignHandler)
+        thread = threading.Thread(target=foreign.serve_forever)
+        thread.start()
+        web = RasterWebServer(
+            {"PLAYWRIGHT_ISOLATED_WEB_PORT": str(foreign.server_port)},
+            cwd="/",
+            preview=False,
+        )
+        actual_popen = subprocess.Popen
+
+        def delayed_owner(_command, **options):
+            return actual_popen(
+                [sys.executable, "-c", "import os, time; time.sleep(0.5); os._exit(7)"],
+                stdout=subprocess.PIPE,
+                **options,
+            )
+
+        admitted = False
+        try:
+            with patch("raster_web_process.subprocess.Popen", delayed_owner):
+                with self.assertRaises(BaseExceptionGroup):
+                    with web:
+                        admitted = True
+            self.assertFalse(admitted)
+            self.assertEqual(web.child.wait(timeout=5), 7)
+            self.assertTrue(thread.is_alive())
+        finally:
+            if web.child is not None:
+                self.clean_owner(web)
+            foreign.shutdown()
+            foreign.server_close()
+            thread.join()
 
     def test_close_waits_for_children_and_preserves_owner_exit_status(self):
         child_code = """

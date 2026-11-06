@@ -1,8 +1,16 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { openSelectedMaskEditor } from "../helpers/mask-selection";
-import type { APIRequestContext, APIResponse, Page, Response } from "@playwright/test";
+import {
+  mergeTests,
+  type APIRequestContext,
+  type APIResponse,
+  type Page,
+  type Response,
+} from "@playwright/test";
+import { expect, test as seedTest, type SeedAPI, type SeedData } from "../fixtures/seed";
+import { test as browserTest } from "../fixtures/raster-browser";
 
-import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
+const test = mergeTests(seedTest, browserTest);
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const IMAGE_WIDTH = 64;
