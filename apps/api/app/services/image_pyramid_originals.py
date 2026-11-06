@@ -485,11 +485,7 @@ async def _capture(plan, admission, **read_options):
 
 
 @asynccontextmanager
-async def media(db, authority, source, *, guard=None):
-    """Yield a verified file while retaining admission through native/close work."""
-    receipt(source)
-    await _fresh(db, authority, source, guard)
-    plan = original_sources.read_plan(source)
+async def _read_media(db, authority, source, guard, plan, fixture_options=None):
     async with _session(db) as owned:
         permit = await storage_access.acquire(
             owned,
@@ -502,7 +498,11 @@ async def media(db, authority, source, *, guard=None):
         admission = Admission()
         try:
             await _fresh(db, authority, source, guard)
-            read_options = await original_sources.read_options(db, source)
+            read_options = (
+                fixture_options
+                if fixture_options is not None
+                else await original_sources.read_options(db, source)
+            )
             stage = await _capture(plan, admission, **read_options)
             yield stage
         except BaseException as exc:
@@ -525,3 +525,25 @@ async def media(db, authority, source, *, guard=None):
                     raise
             if failure is None:
                 await _fresh(db, authority, source, guard)
+
+
+@asynccontextmanager
+async def media(db, authority, source, *, guard=None):
+    """Yield a verified file while retaining admission through native/close work."""
+    from app.services import fixture_original_read
+
+    receipt(source)
+    await _fresh(db, authority, source, guard)
+    plan = original_sources.read_plan(source)
+    if await fixture_original_read.is_fixture(db, source):
+        async with fixture_original_read.admitted_system(db, source, plan.spec) as (
+            spec,
+            options,
+        ):
+            async with _read_media(
+                db, authority, source, guard, replace(plan, spec=spec), options
+            ) as stage:
+                yield stage
+    else:
+        async with _read_media(db, authority, source, guard, plan) as stage:
+            yield stage

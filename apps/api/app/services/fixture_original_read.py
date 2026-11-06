@@ -55,6 +55,31 @@ def _client(config, permit):
         storage_access.close_registered(target)
 
 
+def _fixture_transport(source, spec, permit):
+    if permit.ownership != "fixture":
+        raise ContentError("content_binding_changed")
+    config = load_additional_original_config()
+    if (
+        config is None
+        or source.replica_facts is None
+        or permit.creation_id != source.replica_facts.creation_id
+        or permit.location_id != source.location_id
+        or permit.endpoint_url != source.endpoint_url
+        or permit.bucket != source.bucket
+        or permit.object_key != source.object_key
+        or permit.sha256 != source.sha256
+        or permit.size_bytes != source.size_bytes
+        or config.endpoint != permit.endpoint_url
+        or config.bucket != permit.bucket
+        or physical_identity(config.endpoint, config.bucket) != permit.storage_identity
+    ):
+        raise ContentError("content_binding_changed")
+    return (
+        replace(spec, expected_version_id=permit.version_id, expected_etag=permit.etag),
+        {"client_context": partial(_client, config, permit)},
+    )
+
+
 @asynccontextmanager
 async def admitted(db, source, actor_id, spec):
     """Yield a version-bound read while the durable Media permit remains open.
@@ -81,35 +106,41 @@ async def admitted(db, source, actor_id, spec):
                 ),
                 "finish_media_original_read",
             ) as permit:
-                if permit.ownership != "fixture":
-                    raise ContentError("content_binding_changed")
-                config = load_additional_original_config()
-                if (
-                    config is None
-                    or source.replica_facts is None
-                    or permit.creation_id != source.replica_facts.creation_id
-                    or permit.location_id != source.location_id
-                    or permit.endpoint_url != source.endpoint_url
-                    or permit.bucket != source.bucket
-                    or permit.object_key != source.object_key
-                    or permit.sha256 != source.sha256
-                    or permit.size_bytes != source.size_bytes
-                    or config.endpoint != permit.endpoint_url
-                    or config.bucket != permit.bucket
-                    or physical_identity(config.endpoint, config.bucket)
-                    != permit.storage_identity
-                ):
-                    raise ContentError("content_binding_changed")
-                yield (
-                    replace(
-                        spec,
-                        expected_version_id=permit.version_id,
-                        expected_etag=permit.etag,
-                    ),
-                    {"client_context": partial(_client, config, permit)},
-                )
+                yield _fixture_transport(source, spec, permit)
     except media.MediaFailure as exc:
         failure = ContentError(exc.code, error_status(exc.code))
         if getattr(exc, "storage_operation_unsettled", False):
+            storage_access.mark_unsettled(failure)
+        raise failure from None
+
+
+@asynccontextmanager
+async def admitted_system(db, source, spec):
+    """Use the Media system owner for the exact saved Item original."""
+    try:
+        async with media_gateway(db) as database:
+            current = await database.call(
+                "resolve_internal_media_source",
+                media.InternalSourceRequest(dataset_item_id=source.item_id),
+            )
+            if (
+                current.dataset_item_id != source.item_id
+                or current.file_path != source.object_key
+            ):
+                raise ContentError("content_binding_changed")
+            async with original_permit(
+                database,
+                "begin_media_original_system",
+                media.SystemOriginalReadRequest(
+                    dataset_item_id=source.item_id,
+                    source_snapshot=current.source_snapshot,
+                    object_key=source.object_key,
+                ),
+                "finish_media_original_system",
+            ) as permit:
+                yield _fixture_transport(source, spec, permit)
+    except media.MediaFailure as exc:
+        failure = ContentError(exc.code, error_status(exc.code))
+        if storage_access.failure_unsettled(exc):
             storage_access.mark_unsettled(failure)
         raise failure from None

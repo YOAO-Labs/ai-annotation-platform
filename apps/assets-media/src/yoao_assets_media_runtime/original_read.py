@@ -25,6 +25,14 @@ def blocks_physical_source(permit, endpoint, bucket):
     )
 
 
+def _unsettled(failure):
+    if getattr(failure, "storage_operation_unsettled", False):
+        return True
+    return isinstance(failure, BaseExceptionGroup) and any(
+        _unsettled(child) for child in failure.exceptions
+    )
+
+
 async def _finish(database, operation, permit):
     task = asyncio.create_task(
         database.call(
@@ -72,9 +80,7 @@ async def original_permit(database, operation, request, finish_operation):
     finally:
         # Uncertain provider handles retain the durable operation even if local
         # cancellation or process death makes a later settlement impossible.
-        if permit.ownership == "fixture" and not getattr(
-            failure, "storage_operation_unsettled", False
-        ):
+        if permit.ownership == "fixture" and not _unsettled(failure):
             try:
                 await _finish(database, finish_operation, permit)
             except BaseException as finish_error:

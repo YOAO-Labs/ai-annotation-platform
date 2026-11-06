@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from contextlib import AsyncExitStack
 import uuid
 
@@ -29,6 +30,62 @@ from tests.seed_owned_scenarios import A, B, _build_owned, _cleanup_owned
 from tests.test_trained_models import seed_source
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.mark.parametrize("kind", ["image", "video"])
+async def test_fixture_derivative_source_reader_blocks_exact_retirement(
+    fixture_and_fenced_http, owner_fault_http, test_engine, kind
+):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.services import image_pyramid_originals, video_derivative_originals
+
+    suite = fixture_and_fenced_http.owner_suite
+    run = suite.new_run(A)
+    neighbor = suite.new_run(B)
+    world = await _build_owned(owner_fault_http, run)
+    other = await _build_owned(owner_fault_http, neighbor)
+    if kind == "video":
+        response = await owner_fault_http.post(
+            "/api/v1/__test/seed/video-task",
+            json={**run.payload(), "project_id": world["project_id"]},
+        )
+        assert response.status_code == 200, response.text
+        task_id = uuid.UUID(response.json()["task_id"])
+        originals = video_derivative_originals
+    else:
+        task_id = uuid.UUID(world["task_ids"][0])
+        originals = image_pyramid_originals
+
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with factory() as db:
+        source = await originals.pin(db, "task", task_id)
+        authority = await originals.delegated(
+            db, originals.system_authorization("task", task_id, source)
+        )
+        await db.rollback()
+        async with originals.media(db, authority, source) as stage:
+            assert os.pread(stage.file.fileno(), 4, 0)
+            async with test_engine.connect() as observer:
+                pending = await observer.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations "
+                        "WHERE purpose = :purpose AND node_id = 'aap-assets-media'"
+                    ),
+                    {"purpose": f"media_original_{source.replica_facts.creation_id.hex}"},
+                )
+                assert pending == 1
+            blocked = await _cleanup_owned(owner_fault_http, run)
+            assert blocked.status_code == 409, blocked.text
+            async with factory() as observer:
+                assert (await observer.get(FixtureRun, neighbor.run_id)).state == "open"
+                assert await observer.get(Project, uuid.UUID(other["project_id"]))
+
+    response = await _cleanup_owned(owner_fault_http, run)
+    assert response.status_code == 200, response.text
+    response = await _cleanup_owned(owner_fault_http, neighbor)
+    assert response.status_code == 200, response.text
 
 
 @pytest.mark.parametrize("arrival", ["existing", "during_cleanup"])
