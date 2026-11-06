@@ -77,6 +77,23 @@ class RasterFixtureIntentTests(unittest.TestCase):
         with self.assertRaises(ContractError):
             self.request("inject-raster-mask", {"run_id": RUN, "task_id": "foreign"})
 
+    def test_image_preparation_cannot_escape_owned_project_or_actor(self):
+        self.request("owned", self.scope)
+        self.relay._register(RUN, NAMESPACE, SEED)
+        request = {
+            "run_id": RUN,
+            "project_id": PROJECT,
+            "user_email": SEED["annotator_email"],
+        }
+        self.request("prepare-raster-images", request)
+        for changed in (
+            {"run_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"},
+            {"project_id": "ffffffff-ffff-4fff-8fff-ffffffffffff"},
+            {"user_email": "foreign@example.invalid"},
+        ):
+            with self.assertRaises(ContractError):
+                self.request("prepare-raster-images", {**request, **changed})
+
 
 class RasterFixtureShutdownTests(unittest.TestCase):
     def setUp(self):

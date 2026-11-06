@@ -122,6 +122,7 @@ async function openTask(
     toStatus: "pending",
     annotatorEmail: data.annotator_email,
   });
+  await seed.prepareRasterImages(data);
   await seed.injectToken(page, data.annotator_email);
   await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
   await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 15_000 });

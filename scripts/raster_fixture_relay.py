@@ -23,6 +23,7 @@ from storage_s3_contract import ContractError, require
 ROOT = Path(__file__).resolve().parents[1]
 PREFIX = "/api/v1/__test/seed/"
 RUN_SCOPED = {
+    "prepare-raster-images",
     "configure-raster-mask",
     "inject-raster-mask",
     "inject-raster-prediction",

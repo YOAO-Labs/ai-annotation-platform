@@ -5285,6 +5285,188 @@ async def _fixture_raster_task(db, scope, run_id, task_id, user_email=None):
     return task, user, item
 
 
+class PrepareRasterImagesRequest(BaseModel):
+    run_id: UUID
+    project_id: UUID
+    user_email: str
+
+
+@router.post(
+    "/seed/prepare-raster-images", response_model=SeedCleanup, include_in_schema=False
+)
+async def prepare_raster_images(
+    payload: PrepareRasterImagesRequest, db: AsyncSession = Depends(get_db)
+) -> SeedCleanup:
+    """Settle the current thumbnail work for every Task in the opened list."""
+    from app.db.models.fixture_run import FixtureImageWorkIntent, FixtureRunResource
+    from app.services.assets_images import image_gateway, image_policy
+    from yoao_assets_images.contract import (
+        PrepareImageMediaRequest,
+        ReadImageSourceRequest,
+        ReadImageWorkRequest,
+    )
+
+    async def build(scope, admission_id):
+        resolved = await _resolve_fixture_scope(db, scope)
+        if payload.project_id not in resolved.project_ids:
+            raise HTTPException(422, detail="expected run-owned raster project")
+        task_ids = list(
+            await db.scalars(
+                select(task_row.id)
+                .where(task_row.project_id == payload.project_id)
+                .order_by(task_row.id)
+            )
+        )
+        if not task_ids:
+            raise HTTPException(422, detail="expected run-owned raster tasks")
+        targets = []
+        for task_id in task_ids:
+            resource = await db.get(
+                FixtureRunResource, (payload.run_id, "task", task_id)
+            )
+            if resource is None or resource.state != "published":
+                raise HTTPException(422, detail="expected run-owned raster task")
+            task, actor, item = await _fixture_raster_task(
+                db, scope, payload.run_id, task_id, payload.user_email
+            )
+            targets.append((task.id, actor.id, item.id, item.dataset_id))
+        await db.commit()
+
+        pending = []
+        for task_id, actor_id, item_id, dataset_id in targets:
+            intent = FixtureImageWorkIntent(
+                operation_id=uuid4(),
+                run_id=payload.run_id,
+                admission_id=admission_id,
+                dataset_id=dataset_id,
+                state="prepared",
+            )
+            db.add(intent)
+            await db.commit()
+            async with image_gateway() as owner:
+                before = await owner.call(
+                    "read_image_source",
+                    ReadImageSourceRequest(actor_id=actor_id, task_id=task_id),
+                )
+                purpose = (
+                    "pyramid"
+                    if before.thumbnail_current
+                    and before.thumbnail_path.startswith("image-pyramids/")
+                    else "thumbnail"
+                )
+                accepted = await owner.call(
+                    "prepare_image_media",
+                    PrepareImageMediaRequest(
+                        operation_id=intent.operation_id,
+                        actor_id=actor_id,
+                        task_id=task_id,
+                        purpose=purpose,
+                        expected_source_snapshot=before.source_snapshot,
+                        policy=image_policy(),
+                    ),
+                )
+            source = accepted.source
+            work = accepted.work
+            if (
+                source is None
+                or source.task_id != task_id
+                or source.project_id != payload.project_id
+                or source.item_id != item_id
+                or source.dataset_id != dataset_id
+                or source.source_drifted
+                or work.owner != source.owner
+                or work.kind != purpose
+                or work.source_generation != source.source_generation
+                or accepted.spec.expected_source_snapshot != source.source_snapshot
+            ):
+                raise RuntimeError("Fixture image preparation source changed")
+            previous = await db.scalar(
+                select(FixtureImageWorkIntent).where(
+                    FixtureImageWorkIntent.job_id == work.job_id
+                )
+            )
+            if previous is not None:
+                if previous.run_id != payload.run_id or previous.state != "settled":
+                    raise RuntimeError("Fixture image work ownership changed")
+            else:
+                intent.job_id = work.job_id
+                intent.generation = work.generation
+                intent.state = "admitted"
+                await db.commit()
+            pending.append((intent, previous is not None, actor_id, task_id, source, work))
+
+        deadline = asyncio.get_running_loop().time() + 45
+        for intent, reused, actor_id, task_id, source, work in pending:
+            while True:
+                async with image_gateway() as owner:
+                    status = await owner.call(
+                        "read_image_work",
+                        ReadImageWorkRequest(actor_id=actor_id, job_id=work.job_id),
+                    )
+                if (
+                    status.work.job_id != work.job_id
+                    or status.work.generation != work.generation
+                    or status.work.owner != work.owner
+                    or status.work.kind != work.kind
+                    or status.work.source_generation != work.source_generation
+                    or status.spec.expected_source_snapshot != source.source_snapshot
+                ):
+                    raise RuntimeError("Fixture image work generation changed")
+                if status.work.status in {"failed", "canceled"}:
+                    raise RuntimeError(
+                        f"Fixture image work {status.work.status}: {status.error_code}"
+                    )
+                if status.work.status == "ready":
+                    break
+                if asyncio.get_running_loop().time() >= deadline:
+                    raise RuntimeError("Fixture image work is not ready")
+                await asyncio.sleep(0.25)
+
+        # Recheck all exact receipts after the last job: an earlier source or
+        # generation must not have changed while another Task was settling.
+        for intent, reused, actor_id, task_id, source, work in pending:
+            async with image_gateway() as owner:
+                status = await owner.call(
+                    "read_image_work",
+                    ReadImageWorkRequest(actor_id=actor_id, job_id=work.job_id),
+                )
+                current = await owner.call(
+                    "read_image_source",
+                    ReadImageSourceRequest(actor_id=actor_id, task_id=task_id),
+                )
+            if (
+                status.work.job_id != work.job_id
+                or status.work.generation != work.generation
+                or status.work.status != "ready"
+                or status.work.owner != work.owner
+                or status.work.kind != work.kind
+                or status.work.source_generation != source.source_generation
+                or status.spec.expected_source_snapshot != source.source_snapshot
+                or current.owner != source.owner
+                or current.task_id != task_id
+                or current.project_id != payload.project_id
+                or current.item_id != source.item_id
+                or current.dataset_id != source.dataset_id
+                or current.object_identity != source.object_identity
+                or not current.upload_ready
+                or current.source_generation != source.source_generation
+                or current.source_snapshot != source.source_snapshot
+                or current.source_drifted
+                or not current.thumbnail_current
+            ):
+                raise RuntimeError("Fixture image publication changed")
+            if reused:
+                await db.delete(intent)
+            else:
+                intent.state = "settled"
+        await db.commit()
+        return SeedCleanup()
+
+    return await _run_existing_fixture_seed(
+        db, payload.run_id, "raster_image_prepare", build
+    )
+
+
 @router.post(
     "/seed/raster-fault-verify", response_model=SeedCleanup, include_in_schema=False
 )

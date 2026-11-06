@@ -80,6 +80,7 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
       score: 0.92,
     });
 
+    await seed.prepareRasterImages(data);
     await seed.injectToken(page, data.annotator_email);
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
     await openPredictionRefinement(page, predictionId);
@@ -157,6 +158,7 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
       toStatus: "pending",
       annotatorEmail: data.annotator_email,
     });
+    await seed.prepareRasterImages(data);
     await seed.injectToken(page, data.annotator_email);
     await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
     await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");

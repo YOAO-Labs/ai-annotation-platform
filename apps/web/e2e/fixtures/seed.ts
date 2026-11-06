@@ -929,6 +929,21 @@ export class SeedAPI {
     return (await res.json()) as SeedLidarData;
   }
 
+  /** Settle current owner-backed thumbnail work before opening the Raster task list. */
+  async prepareRasterImages(data: SeedData): Promise<void> {
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/prepare-raster-images`, {
+      data: {
+        run_id: this.projectScope(data.project_id).run_id,
+        project_id: data.project_id,
+        user_email: data.admin_email,
+      },
+      timeout: 60_000,
+    });
+    if (!res.ok()) {
+      throw new Error(`seed/prepare-raster-images failed: ${res.status()} ${await res.text()}`);
+    }
+  }
+
   /** 只切项目 opt-in；部署级 read/create 总闸由 API 进程环境决定。 */
   async configureRasterMask(projectId: string, enabled: boolean, runId?: string): Promise<void> {
     const ownedRunId = runId ?? this.projectScope(projectId).run_id;
