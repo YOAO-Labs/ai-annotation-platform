@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import secrets
 import shutil
+import sys
 import uuid
 from urllib.parse import urlsplit
 
@@ -37,9 +38,7 @@ class _TrackerRetention:
         return bool(self.pending)
 
     def arm(self, name: str) -> None:
-        if name in self.pending:
-            raise RuntimeError("Tracker submission is already retained")
-        self.pending[name] = {"job_id": None, "execution_ids": []}
+        self.pending.setdefault(name, {"job_id": None, "execution_ids": []})
 
     def bind(self, name: str, job_id: str, execution_ids: list[str]) -> None:
         self.pending[name] = {"job_id": job_id, "execution_ids": execution_ids}
@@ -961,11 +960,21 @@ async def _exercise_api_tracker_phase(
             )
         raise
     finally:
+        primary = sys.exception()
         if not keep() and (
-            worker_started or worker.container_id is not None or worker.network_id is not None
+            worker_started
+            or worker.container_id is not None
+            or worker.network_id is not None
         ):
-            await asyncio.to_thread(worker.stop)
-            workers.remove(worker)
+            try:
+                await asyncio.to_thread(worker.stop)
+            except BaseException as cleanup_error:
+                retention.arm(f"{phase}:worker-teardown")
+                if primary is None:
+                    raise
+                primary.add_note(f"Tracker worker teardown failed: {type(cleanup_error).__name__}")
+            else:
+                workers.remove(worker)
 
 
 def _media_runtime_stack(
@@ -1130,6 +1139,7 @@ async def exercise_video_tracker_queue_and_restore(
             try:
                 yield restored_database
             finally:
+                primary = sys.exception()
                 try:
                     if not keep():
                         for worker in reversed(workers):
@@ -1137,6 +1147,11 @@ async def exercise_video_tracker_queue_and_restore(
                         workers.clear()
                         if stack is not None:
                             await stack.stop()
+                except BaseException as cleanup_error:
+                    retention.arm("restored:teardown")
+                    if primary is None:
+                        raise
+                    primary.add_note(f"Restored tracker teardown failed: {type(cleanup_error).__name__}")
                 finally:
                     if clone_engine is not None:
                         await clone_engine.dispose()
@@ -1173,8 +1188,15 @@ async def exercise_video_tracker_queue_and_restore(
                     try:
                         yield login_url, publisher_url
                     finally:
+                        primary = sys.exception()
                         if stack is not None and not keep():
-                            await stack.stop()
+                            try:
+                                await stack.stop()
+                            except BaseException as cleanup_error:
+                                retention.arm("stack:teardown")
+                                if primary is None:
+                                    raise
+                                primary.add_note(f"Tracker stack teardown failed: {type(cleanup_error).__name__}")
 
         async with redis_users_with_stack_cleanup() as (
             login_url,
@@ -1548,6 +1570,8 @@ async def exercise_video_tracker_queue_and_restore(
                 workers.clear()
                 if stack is not None:
                     await stack.stop()
+                if any(process.poll() is None for process in media_processes):
+                    raise RuntimeError("Tracker Media process termination is unconfirmed")
                 if guide_scope is not None and destroy_guide_scope is not None:
                     destroy_guide_scope(guide_scope)
                 await source_peer_stack.aclose()
