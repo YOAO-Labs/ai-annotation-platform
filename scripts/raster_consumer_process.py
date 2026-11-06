@@ -213,7 +213,7 @@ def _drain_consumer(child, tracked, *, request_stop=True):
     return result
 
 
-def run_product(command, environment, api, relay, *, cwd, web=None):
+def run_product(command, environment, api, relay, *, cwd, web=None, images=None):
     tracked = {}
     observed = None
     retain = False
@@ -238,6 +238,8 @@ def run_product(command, environment, api, relay, *, cwd, web=None):
                 _track_consumer_descendants(child.pid, tracked)
                 if web is not None:
                     web.observe()
+                if images is not None:
+                    images.observe()
                 observed = os.waitid(
                     os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
                 )

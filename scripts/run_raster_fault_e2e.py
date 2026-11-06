@@ -43,6 +43,12 @@ from fixture_store import (  # noqa: E402
 )
 from raster_consumer_process import run_product  # noqa: E402
 from raster_web_process import RasterWebServer  # noqa: E402
+from raster_images_process import (  # noqa: E402
+    RasterImagesProcess,
+    image_environment,
+    image_role,
+    make_credentials,
+)
 from storage_s3_contract import ContractError, require  # noqa: E402
 from verify_storage_candidates import Owner, command, host_port, private_write  # noqa: E402
 from worktree_env import load_identity, state_path, topology  # noqa: E402
@@ -389,6 +395,13 @@ def provision(resources, owner):
         json.dumps({"access_key": access, "secret_key": secret}).encode(),
     )
     owner.data["raster"] = {"state": "creating", "resources": resources}
+    images = make_credentials(owner)
+    owner.data["raster"]["images"] = {
+        "state": "credentials_created",
+        "database_role": images["database_role"],
+        "s3_user": images["access_key"],
+        "s3_policy": "raster-images-" + owner.data["nonce"],
+    }
     owner.save()
     volume = owner.create("volume")
     network = owner.create("network")
@@ -524,6 +537,43 @@ def provision(resources, owner):
             ],
             env=mc_env,
         )
+        from verify_module_data_boundary import _image_worker_storage_policy
+
+        buckets = resources["buckets"]
+        image_policy = _image_worker_storage_policy(
+            {
+                "bucket": buckets["MINIO_MEDIA_CACHE_BUCKET"],
+                "datasets_bucket": buckets["MINIO_DATASETS_BUCKET"],
+                "legacy_bucket": buckets["MINIO_BUCKET"],
+                "inputs_bucket": buckets["MINIO_INPUTS_BUCKET"],
+            }
+        )
+        image_policy_file = owner.private / "images-policy.json"
+        private_write(image_policy_file, json.dumps(image_policy).encode())
+        owner.data["raster"]["images"]["state"] = "s3_creation_intent"
+        owner.save()
+        command(
+            ["mc", "admin", "user", "add", "raster"],
+            input_data=f"{images['access_key']}\n{images['secret_key']}\n".encode(),
+            env=mc_env,
+        )
+        command(
+            [
+                "mc", "admin", "policy", "create", "raster",
+                owner.data["raster"]["images"]["s3_policy"], str(image_policy_file),
+            ],
+            env=mc_env,
+        )
+        command(
+            [
+                "mc", "admin", "policy", "attach", "raster",
+                owner.data["raster"]["images"]["s3_policy"], "--user",
+                images["access_key"],
+            ],
+            env=mc_env,
+        )
+        owner.data["raster"]["images"]["state"] = "s3_ready"
+        owner.save()
         from botocore.exceptions import ClientError
 
         canary = "raster-canary-" + owner.data["nonce"]
@@ -1199,6 +1249,7 @@ def inside_with_inference(path, arguments, inference):
         record_seed_failure,
         record_seed_intent,
     )
+    images = None
     api = None
     result = None
     failure = None
@@ -1216,7 +1267,16 @@ def inside_with_inference(path, arguments, inference):
         except BaseException as error:
             shutdown_failures.append(error)
 
+    def record_images(state, outcome):
+        recorded = Owner(path)
+        recorded.data["raster"]["images"].update({"state": state, **outcome})
+        recorded.save()
+
     try:
+        images = RasterImagesProcess(
+            image_environment(owner, restricted), root=ROOT, journal=record_images
+        )
+        images.start()
         api = subprocess.Popen(
             [
                 sys.executable,
@@ -1229,6 +1289,7 @@ def inside_with_inference(path, arguments, inference):
         )
         deadline = time.monotonic() + 120
         while not http_ready(api_port, "/health/db"):
+            images.observe()
             require(
                 api.poll() is None and relay.seed.poll() is None,
                 "raster_api_start_failed",
@@ -1256,6 +1317,7 @@ def inside_with_inference(path, arguments, inference):
                 relay,
                 cwd=ROOT / "apps/web",
                 web=web,
+                images=images,
             )
     except BaseException as error:
         failure = error
@@ -1273,6 +1335,12 @@ def inside_with_inference(path, arguments, inference):
         shutdown_failures.append(error)
         if not relay.unsettled:
             retain_unsettled("raster_fixture_shutdown_failed")
+    if images is not None and images.child is not None:
+        try:
+            images.close()
+        except BaseException as error:
+            shutdown_failures.append(error)
+            retain_unsettled("raster_images_shutdown_failed")
     if api is not None:
         try:
             api_result = api.wait(timeout=3)
@@ -1418,6 +1486,8 @@ def failure_evidence(error):
         value["api_outcome"] = error.api_outcome
     if hasattr(error, "web_outcome"):
         value["web_outcome"] = error.web_outcome
+    if hasattr(error, "images_outcome"):
+        value["images_outcome"] = error.images_outcome
     if isinstance(error, OSError) and error.errno is not None:
         value["errno"] = error.errno
     if error.__cause__ is not None:
@@ -1521,6 +1591,11 @@ def outer(arguments):
 
             backend.prepare(skip_migrations=options.skip_migrations)
             asyncio.run(backend.prepare_fixture_inference_database())
+            owner.data["raster"]["images"]["state"] = "database_role_creation_intent"
+            owner.save()
+            asyncio.run(image_role(backend, owner, "create"))
+            owner.data["raster"]["images"]["state"] = "database_role_ready"
+            owner.save()
             inference = FixtureInferenceServices(backend, code_root=ROOT)
             inference.start()
             phase = NativePhaseControl(inference, resources)
@@ -1544,6 +1619,11 @@ def outer(arguments):
             inference.close()
             phase.close()
             require_no_children()
+            owner.data["raster"]["images"]["state"] = "database_role_drop_intent"
+            owner.save()
+            asyncio.run(image_role(backend, owner, "drop"))
+            owner.data["raster"]["images"]["state"] = "database_role_removed"
+            owner.save()
             verify_store_physical(owner)
             backend.destroy(resources["confirmation"])
             owner.data["raster"]["state"] = "worktree_destroyed"
