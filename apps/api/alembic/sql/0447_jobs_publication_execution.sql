@@ -39,7 +39,7 @@ CREATE TABLE aap_jobs_v1.dispatch_retry_publications (
     nonce uuid NOT NULL,
     backend_pid integer NOT NULL,
     state text NOT NULL CHECK (state IN ('entered', 'settled')),
-    PRIMARY KEY (intent_id, retry_number)
+    PRIMARY KEY (intent_id, retry_number, nonce)
 );
 -- aap-statement-break
 REVOKE ALL ON aap_jobs_v1.dispatch_retry_publications FROM PUBLIC;
@@ -122,10 +122,6 @@ BEGIN
         RETURN 'blocked';
     END IF;
     IF EXISTS (SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
-               WHERE intent_id = p_intent AND state = 'entered') THEN
-        RETURN 'blocked';
-    END IF;
-    IF EXISTS (SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
                WHERE intent_id = p_intent AND state = 'settled') THEN
         RETURN 'settled';
     END IF;
@@ -173,7 +169,6 @@ CREATE FUNCTION aap_jobs_v1.begin_retry_publication(
     p_kwargs jsonb, p_retry integer, p_nonce uuid
 ) RETURNS text LANGUAGE plpgsql VOLATILE SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
-DECLARE v_state text;
 BEGIN
     IF p_nonce IS NULL OR p_retry NOT BETWEEN 1 AND 120
        OR NOT aap_jobs_v1.publication_session_owns(p_intent) THEN RETURN 'blocked'; END IF;
@@ -185,15 +180,15 @@ BEGIN
           IS DISTINCT FROM p_intent THEN
         RETURN 'blocked';
     END IF;
-    SELECT state INTO v_state FROM aap_jobs_v1.dispatch_retry_publications
-    WHERE intent_id = p_intent AND retry_number = p_retry;
-    IF FOUND THEN
-        RETURN CASE WHEN v_state = 'settled' THEN 'settled' ELSE 'blocked' END;
-    END IF;
+    IF EXISTS (
+        SELECT 1 FROM aap_jobs_v1.dispatch_retry_publications
+        WHERE intent_id = p_intent AND retry_number = p_retry AND state = 'settled'
+    ) THEN RETURN 'settled'; END IF;
     INSERT INTO aap_jobs_v1.dispatch_retry_publications
         (intent_id, job_id, execution_id, retry_number, nonce, backend_pid, state)
-    VALUES (p_intent, p_job, p_execution, p_retry, p_nonce, pg_catalog.pg_backend_pid(), 'entered');
-    RETURN 'entered';
+    VALUES (p_intent, p_job, p_execution, p_retry, p_nonce, pg_catalog.pg_backend_pid(), 'entered')
+    ON CONFLICT DO NOTHING;
+    RETURN CASE WHEN FOUND THEN 'entered' ELSE 'blocked' END;
 END;
 $function$;
 -- aap-statement-break

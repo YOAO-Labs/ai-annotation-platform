@@ -254,12 +254,15 @@ and `dispatch.schema.json` define the Native ABI:
 - Relay: `claim_dispatches(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
 
 Preparation borrows the caller transaction and never commits it. Publication
-happens only after acceptance commits; a separate short transaction records
-the fenced acknowledgement. Unknown publication or a lost acknowledgement
-keeps the same envelope and IDs recoverable. The separate relay claims one
-item immediately before publishing, so queued items do not lose their lease
-while waiting behind network calls. Expired generations cannot acknowledge
-new claims. Confirmed submissions are not automatically replayed.
+happens only after acceptance commits, under a separate function-only,
+session-held publication fence. Each generation records physical entry before
+the broker call and settles only on the publisher's positive acknowledgement.
+The relay claims one item immediately before publishing. A later valid generation
+may replay the exact frozen envelope and IDs while an earlier attempt remains
+unknown; replay or lease expiry does not settle that earlier physical obligation.
+If a prior generation already has a positive publication receipt, the relay
+reconciles the same intent without another broker call. Expired generations
+cannot acknowledge new dispatch leases.
 
 The API's input admission and domain failure policies remain authoritative:
 unfinished HTTP input admission is not reconstructed from summary metadata;
@@ -268,20 +271,27 @@ unsubmitted intents, while tracker retirement has the narrow canonical proof
 above. A lease timeout never proves physical execution stopped.
 
 The relay uses the same immutable image with the `yoao-jobs-dispatch-relay`
-entrypoint. Install `infra/docker/jobs-dispatch-grants.sql` for an explicit
-database and distinct function-only relay LOGIN, then combine
-`docker-compose.jobs-dispatch-relay.yml` with the queue assembly. Queue secrets
-are broker plus bearer; relay secrets are the narrow DSN plus bearer, never
-broker or API/migration credentials. Neither role has direct ledger access.
+entrypoint. Install the Jobs owner grants for distinct function-only dispatch
+and publication LOGINs, then combine `docker-compose.jobs-dispatch-relay.yml`
+with the queue assembly. The queue holds broker plus bearer; the relay holds
+both narrow database credentials plus bearer, never broker or migration
+credentials. Neither database LOGIN has direct ledger access.
 
 Outside Compose, set `JOBS_DISPATCH_RELAY_ENABLED=true`,
-`JOBS_DISPATCH_RELAY_DATABASE_URL[_FILE]`, `JOBS_QUEUE_URL` and
-`JOBS_QUEUE_TOKEN[_FILE]`. Direct and file selectors conflict. Optional bounded
-settings are `JOBS_DISPATCH_RELAY_BATCH_SIZE`, `JOBS_DISPATCH_RELAY_LEASE_SECONDS`
+`JOBS_DISPATCH_RELAY_DATABASE_URL[_FILE]`, `JOBS_PUBLICATION_DATABASE_URL[_FILE]`,
+`JOBS_QUEUE_URL` and `JOBS_QUEUE_TOKEN[_FILE]`. Direct and file selectors conflict.
+Optional bounded settings are `JOBS_DISPATCH_RELAY_BATCH_SIZE`, `JOBS_DISPATCH_RELAY_LEASE_SECONDS`
 and `JOBS_DISPATCH_RELAY_POLL_SECONDS`. Frame recovery reuses the frozen logical
 segment IDs and completes only from the full canonical receipt set, not from
 duplicate chord header results. This is at-least-once publication, not
 exactly-once execution or a general historical-writer retirement system.
+
+Retirement is separate from replay: the owner must fence the exact Job and all
+delivery identities, then obtain a Jobs publication tombstone. Every entered
+generation and Celery retry must have its own positive settlement; a later
+successful replay never settles or erases an earlier unknown attempt. Preserve
+the associated queue, results, objects, credentials and evidence until the
+remaining physical obligations are resolved.
 
 ## Package verification
 

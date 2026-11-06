@@ -161,6 +161,21 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     await db_session.flush()
     envelope = _dispatch(str(uuid.uuid4()))
     inline = _data(await _prepare(db_session, job.id, envelope))
+    # This savepoint-only state-machine test never publishes physical I/O.
+    assert await db_session.scalar(
+        text(
+            "SELECT pg_catalog.pg_try_advisory_xact_lock("
+            "pg_catalog.hashtextextended('aap-jobs:publication:' || "
+            "CAST(CAST(:intent_id AS uuid) AS text), 0))"
+        ),
+        {"intent_id": inline["intent_id"]},
+    )
+    begin_publication = text(
+        "SELECT aap_jobs_v1.begin_dispatch_publication("
+        "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
+        ":generation, CAST(:lease_token AS uuid))"
+    )
+    assert await db_session.scalar(begin_publication, inline) == "entered"
 
     await db_session.execute(
         text(
@@ -178,6 +193,51 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     assert claimed["envelope"] == inline["envelope"] == envelope
     assert claimed["generation"] == inline["generation"] + 1
     assert claimed["lease_token"] != inline["lease_token"]
+    assert await db_session.scalar(begin_publication, claimed) == "entered"
+    attempts = (
+        await db_session.execute(
+            text(
+                "SELECT generation, state FROM aap_jobs_v1.dispatch_publication_attempts "
+                "WHERE intent_id=CAST(:intent_id AS uuid) ORDER BY generation"
+            ),
+            {"intent_id": inline["intent_id"]},
+        )
+    ).all()
+    assert attempts == [
+        (inline["generation"], "entered"),
+        (claimed["generation"], "entered"),
+    ]
+    retry_publication = text(
+        "SELECT aap_jobs_v1.begin_retry_publication("
+        "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, :task_name, "
+        "CAST(:args AS jsonb), CAST(:kwargs AS jsonb), :retry, CAST(:nonce AS uuid))"
+    )
+    retry_args = {
+        **inline,
+        "task_name": envelope["task_name"],
+        "args": json.dumps(envelope["args"]),
+        "kwargs": json.dumps(envelope["kwargs"]),
+        "retry": 1,
+        "nonce": str(uuid.uuid4()),
+    }
+    assert await db_session.scalar(retry_publication, retry_args) == "entered"
+    assert await db_session.scalar(
+        retry_publication, {**retry_args, "nonce": str(uuid.uuid4())}
+    ) == "entered"
+    assert await db_session.scalar(
+        retry_publication,
+        {**retry_args, "nonce": str(uuid.uuid4()), "args": json.dumps(["changed"])},
+    ) == "blocked"
+    retry_attempts = (
+        await db_session.execute(
+            text(
+                "SELECT state FROM aap_jobs_v1.dispatch_retry_publications "
+                "WHERE intent_id=CAST(:intent_id AS uuid) AND retry_number=1"
+            ),
+            {"intent_id": inline["intent_id"]},
+        )
+    ).scalars().all()
+    assert retry_attempts == ["entered", "entered"]
 
     _refused(await _finish(db_session, inline, accepted=True), "stale_lease")
     pending = _data(await _finish(db_session, claimed, accepted=False))
@@ -205,6 +265,13 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     assert submitted["state"] == "submitted"
     status = await db_session.scalar(_STATUS, {"intent_id": inline["intent_id"]})
     assert _data(status)["state"] == "submitted"
+    assert not await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.retire_job_publications("
+            "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+        ),
+        {"job_id": str(job.id), "execution_ids": [inline["execution_id"]]},
+    )
     assert _data(await _claim(db_session)) == []
 
 
