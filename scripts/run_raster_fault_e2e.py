@@ -48,8 +48,8 @@ from raster_images_process import (  # noqa: E402
     image_environment,
     image_role,
     make_credentials,
-    require_native_image_retirement,
 )
+from raster_exclusive_provider import retire_provider, verify_exclusive_provider  # noqa: E402
 from storage_s3_contract import ContractError, require  # noqa: E402
 from verify_storage_candidates import Owner, command, host_port, private_write  # noqa: E402
 from worktree_env import load_identity, state_path, topology  # noqa: E402
@@ -1499,29 +1499,24 @@ def failure_evidence(error):
 
 
 def destroy_with_images_role(backend, owner, confirmation):
-    """Keep the original LOGIN through every guarded-destruction refusal."""
+    """Retire the exact private provider after all existing destruction guards."""
     with backend.fixture_authority_fence():
-        try:
-            asyncio.run(require_native_image_retirement(backend))
-        except BaseException as error:
-            owner.data["raster"]["images"]["artifact_retirement"] = {
-                "state": "unproven",
-                "reason": (
-                    str(error) if isinstance(error, ContractError)
-                    else type(error).__name__
-                ),
-                "obligations": getattr(error, "image_retirement_obligations", None),
-            }
+        verify_exclusive_provider(owner, backend)
+        asyncio.run(image_role(backend, owner, "check"))
+        with backend._prepare_owned_destruction(confirmation) as prepared:
+            retire_provider(owner, backend)
+            backend._accept_retired_raster_provider(prepared, owner)
+            backend._retire_prepared_raster_redis(prepared, owner)
+            owner.data["raster"]["images"]["state"] = "database_drop_intent"
             owner.save()
-            raise
-        owner.data["raster"]["images"]["state"] = "guarded_destroy_intent"
-        owner.save()
-        backend._destroy_owned(confirmation)
-        owner.data["raster"]["images"]["state"] = "database_role_drop_intent"
-        owner.save()
-        asyncio.run(image_role(backend, owner, "drop"))
-        owner.data["raster"]["images"]["state"] = "database_role_removed"
-        owner.save()
+            backend._destroy_prepared_database(prepared)
+            backend._destroy_prepared_services(prepared)
+            owner.data["raster"]["images"]["state"] = "database_role_drop_intent"
+            owner.save()
+            asyncio.run(image_role(backend, owner, "drop"))
+            owner.data["raster"]["images"]["state"] = "database_role_removed"
+            owner.save()
+            backend._finish_prepared_destruction(prepared)
 
 
 def outer(arguments):

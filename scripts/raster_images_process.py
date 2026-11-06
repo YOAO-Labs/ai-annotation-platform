@@ -53,23 +53,23 @@ def _credentials(owner):
 
 
 async def image_role(backend, owner, action):
-    """Create the LOGIN in its owned DB or drop its original OID after destruction."""
+    """Manage only the recorded function-only LOGIN and its exact OID."""
     from yoao_assets_images_runtime.health import _expected_signatures
 
     credentials = _credentials(owner)
     role = credentials["database_role"]
-    require(action in {"create", "drop"}, "raster_images_role_action_invalid")
-    if action == "create":
+    require(action in {"create", "check", "drop"}, "raster_images_role_action_invalid")
+    if action in {"create", "check"}:
         database = await backend.database()
         require(
             database is not None and database.get("owner") == backend.resources["owner"],
             "raster_images_database_owner_changed",
         )
-    target = backend.url if action == "create" else backend.url.set(database="postgres")
+    target = backend.url.set(database="postgres") if action == "drop" else backend.url
     engine = create_async_engine(target, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.begin() as connection:
-            if action == "create":
+            if action in {"create", "check"}:
                 db_owner = await connection.scalar(
                     text(
                         "SELECT shobj_description(oid,'pg_database') FROM pg_database "
@@ -158,93 +158,22 @@ async def image_role(backend, owner, action):
                     or (operator["rolcreaterole"] and observed["operator_admin"]),
                     "raster_images_role_drop_denied",
                 )
-                # All grants in the exact worktree database disappeared with it.
-                # DROP ROLE refuses any remaining dependency in another database.
-                await connection.exec_driver_sql(f"DROP ROLE {quote(role)}")
-                require(
-                    not await connection.scalar(
-                        text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE oid=:oid)"),
-                        {"oid": observed["oid"]},
-                    ),
-                    "raster_images_role_drop_unconfirmed",
-                )
+                if action == "drop":
+                    # DROP ROLE refuses any remaining external dependency.
+                    await connection.exec_driver_sql(f"DROP ROLE {quote(role)}")
+                    require(
+                        not await connection.scalar(
+                            text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE oid=:oid)"),
+                            {"oid": observed["oid"]},
+                        ),
+                        "raster_images_role_drop_unconfirmed",
+                    )
     finally:
         await engine.dispose()
     if action == "create":
         return original_oid
 
 
-async def require_native_image_retirement(backend):
-    """Inventory owner evidence and refuse without a final Native retirement receipt."""
-    require(backend.resources["mode"] == "e2e", "raster_images_retirement_scope_invalid")
-    database = await backend.database()
-    require(
-        database is not None and database.get("owner") == backend.resources["owner"],
-        "raster_images_database_owner_changed",
-    )
-    tables = (
-        "asset_image_jobs",
-        "image_pyramid_assets",
-        "image_pyramid_generations",
-        "asset_image_garbage",
-        "asset_storage_deletions",
-        "image_pyramid_outputs",
-        "thumbnail_outputs",
-        "asset_accepted_image_inputs",
-        "asset_accepted_image_input_attempts",
-        "asset_accepted_input_garbage",
-    )
-    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
-    try:
-        async with engine.connect() as connection:
-            async with connection.begin():
-                await connection.exec_driver_sql(
-                    "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"
-                )
-                owner = await connection.scalar(
-                    text(
-                        "SELECT shobj_description(oid,'pg_database') FROM pg_database "
-                        "WHERE datname=current_database()"
-                    )
-                )
-                require(
-                    owner == backend.resources["owner"],
-                    "raster_images_database_owner_changed",
-                )
-                require(
-                    not await connection.scalar(
-                        text(
-                            "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
-                            "WHERE datname=current_database() AND pid<>pg_backend_pid() "
-                            "AND backend_type='client backend')"
-                        )
-                    ),
-                    "raster_images_retirement_sessions_active",
-                )
-                obligations = []
-                for table in tables:
-                    name = "public." + table
-                    require(
-                        await connection.scalar(text("SELECT to_regclass(:name)"), {"name": name})
-                        is not None,
-                        "raster_images_retirement_schema_missing",
-                    )
-                    if await connection.scalar(text(f"SELECT EXISTS (SELECT 1 FROM {name})")):
-                        obligations.append(name)
-                for table in ("dataset_items", "tasks"):
-                    if await connection.scalar(
-                        text(f"SELECT EXISTS (SELECT 1 FROM public.{table} WHERE thumbnail_path IS NOT NULL)")
-                    ):
-                        obligations.append(f"public.{table}.thumbnail_path")
-                if obligations:
-                    error = ContractError("raster_images_artifact_retirement_unproven")
-                    error.image_retirement_obligations = obligations
-                    raise error
-                # An empty ledger is not a physical-retirement receipt: it
-                # cannot exclude an unrecorded or late provider write.
-                raise ContractError("raster_images_retirement_capability_missing")
-    finally:
-        await engine.dispose()
 
 
 def make_credentials(owner):
