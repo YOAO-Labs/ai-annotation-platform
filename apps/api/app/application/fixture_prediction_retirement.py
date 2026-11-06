@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from uuid import UUID, uuid5
+
+import asyncpg
 
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
@@ -76,6 +79,85 @@ async def _inventory(session_factory, run_id, project_ids, task_ids):
         seen.add(scope_id)
         scopes.append(request)
     return scopes
+
+
+# The individual private request has a 60-second transport deadline. The
+# suite caller supplies its own shorter, shared absolute deadline.
+_READER_DRAIN_SECONDS = 45
+
+
+async def wait_for_fixture_original_readers(
+    session_factory: async_sessionmaker[AsyncSession],
+    run_id: UUID,
+    *,
+    deadline: float | None = None,
+) -> None:
+    """Wait only for owner-settled reads, using the fixture owner's engine."""
+    channel = f"aap_fixture_reader_{run_id.hex}"
+    engine = session_factory.kw["bind"]
+    wake = asyncio.Event()
+
+    def notified(_connection, _pid, _channel, _payload):
+        wake.set()
+
+    def disconnected(_connection):
+        wake.set()
+
+    if deadline is None:
+        deadline = asyncio.get_running_loop().time() + _READER_DRAIN_SECONDS
+    try:
+        async with asyncio.timeout_at(deadline):
+            async with engine.connect() as listener:
+                raw = (await listener.get_raw_connection()).driver_connection
+                raw.add_termination_listener(disconnected)
+                try:
+                    # asyncpg commits LISTEN outside a transaction. Subscribe
+                    # before the first fresh status snapshot.
+                    await raw.add_listener(channel, notified)
+                    while True:
+                        wake.clear()
+                        if raw.is_closed():
+                            raise FixturePredictionRetirementBlocked(
+                                "original_reader_listener_unavailable"
+                            )
+                        async with session_factory() as db:
+                            await db.execute(
+                                text("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+                            )
+                            empty = await db.scalar(
+                                text(
+                                    "SELECT aap_assets_v1.fixture_original_readers_empty("
+                                    "CAST(:run_id AS uuid))"
+                                ),
+                                {"run_id": run_id},
+                            )
+                        if raw.is_closed():
+                            raise FixturePredictionRetirementBlocked(
+                                "original_reader_listener_unavailable"
+                            )
+                        if empty is True:
+                            return
+                        if empty is not False:
+                            raise FixturePredictionRetirementBlocked(
+                                "original_reader_scope_invalid"
+                            )
+                        await wake.wait()
+                finally:
+                    raw.remove_termination_listener(disconnected)
+                    if not raw.is_closed():
+                        await raw.remove_listener(channel, notified)
+    except TimeoutError as exc:
+        raise FixturePredictionRetirementBlocked("original_reader_pending") from exc
+    except (
+        SQLAlchemyError,
+        asyncpg.PostgresError,
+        asyncpg.InterfaceError,
+        OSError,
+        ConnectionError,
+    ) as exc:
+        raise FixturePredictionRetirementBlocked(
+            "original_reader_status_unavailable"
+        ) from exc
 
 
 async def retire_fixture_prediction_work(

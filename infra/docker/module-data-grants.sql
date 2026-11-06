@@ -4270,9 +4270,12 @@ ALTER FUNCTION aap_assets_v1.guard_fixture_operator_source_receipt() OWNER TO :"
 ALTER FUNCTION aap_assets_v1.require_fixture_operator_manifest() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_original_readers_empty(uuid) OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])
     TO :"jobs_owner", :"inference_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_original_readers_empty(uuid)
+    TO :"migration_role";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.prediction_mask_object_retained(uuid)
     TO :"labeling_owner";
 

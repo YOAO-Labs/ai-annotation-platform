@@ -591,11 +591,10 @@ FUNCTION_BODY_ARTIFACTS = {
     },
     **{
         signature: "0432_assets_media_source_admission.sql"
-        for signature in (
-            "aap_assets_v1._begin_media_original_read(uuid,uuid,text)",
-            "aap_assets_v1._finish_media_original_read(uuid,uuid)",
-        )
+        for signature in ("aap_assets_v1._begin_media_original_read(uuid,uuid,text)",)
     },
+    "aap_assets_v1._finish_media_original_read(uuid,uuid)": "0445_assets_fixture_reader_completion.sql",
+    "aap_assets_v1.fixture_original_readers_empty(uuid)": "0445_assets_fixture_reader_completion.sql",
     **{
         signature: "0432_assets_spatial_original_admission.sql"
         for signature in (
@@ -1620,8 +1619,10 @@ SQL_ARTIFACTS = (
     "0443_fixture_dataset_retired_jobs.sql",
     "0444_image_export_scope.sql",
     "0444_image_export_dataset_scope.sql",
+    "0445_assets_fixture_reader_completion.sql",
 )
 SCHEMA_ARTIFACTS = (
+    "0445_assets_fixture_reader_completion.schema.json",
     "0437_fixture_audit_cleanup.schema.json",
     "0434_prediction_execution_routing.schema.json",
     "0434_prediction_output_ownership.schema.json",

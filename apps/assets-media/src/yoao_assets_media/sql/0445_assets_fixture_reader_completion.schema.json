@@ -1,0 +1,15 @@
+{
+  "schema": "aap-assets-fixture-reader-completion/v1",
+  "scope": "Private fixture owner in the verified disposable database only; not a Media or Images runtime API.",
+  "status": {
+    "function": "aap_assets_v1.fixture_original_readers_empty(uuid)",
+    "result": "True only if the named owned child is sealing and has no creation-bound original-read operation; false means operations remain; null means the child is not sealed or is invalid.",
+    "privileges": "The Assets NOLOGIN owner owns this function. PUBLIC and ordinary runtime roles have no execute grant; only the private fixture migration/database owner is granted execute."
+  },
+  "notification": {
+    "channel": "aap_fixture_reader_ followed by the lowercase run UUID without hyphens",
+    "payload": "",
+    "delivery": "The common Assets finish emits only after its exact operation deletion succeeds, in the same transaction; PostgreSQL delivers on commit.",
+    "authority": "A notification is only a wakeup. A fresh status and the unchanged final retirement guard remain authoritative."
+  }
+}

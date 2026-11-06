@@ -22,8 +22,13 @@ import pytest
 from botocore.exceptions import ClientError
 from PIL import Image
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.application import fixture_prediction_retirement
+from app.application.fixture_prediction_retirement import (
+    wait_for_fixture_original_readers,
+)
 from app.config import settings
 from app.db.models.task import Task
 from app.db.models.user import User
@@ -303,6 +308,18 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             "asset_media_worker_client",
             "public.asset_media_jobs",
         )
+        restricted = create_async_engine(worker_url, hide_parameters=True)
+        try:
+            async with restricted.connect() as connection:
+                with pytest.raises(DBAPIError) as denied_status:
+                    await connection.execute(
+                        text(
+                            "SELECT aap_assets_v1.fixture_original_readers_empty(NULL)"
+                        )
+                    )
+                assert getattr(denied_status.value.orig, "sqlstate", None) == "42501"
+        finally:
+            await restricted.dispose()
         owner_log = tempfile.TemporaryFile()
         owner_process = subprocess.Popen(
             [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
@@ -339,7 +356,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
         with closing(fixture_original_reader()) as reader:
             bytes_a = await asyncio.to_thread(_read_versions, reader, versions_a)
             bytes_b = await asyncio.to_thread(_read_versions, reader, versions_b)
-            frame_a, job_a = await _prepare_frame(
+            _, job_a = await _prepare_frame(
                 media,
                 test_engine,
                 env,
@@ -382,8 +399,112 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 operations[0]["node_id"] == "aap-assets-media"
                 and operations[0]["revision"] is not None
             )
-            denied = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
-            assert denied.status_code == 409, denied.text
+            frame_b, job_b = await _prepare_frame(
+                media,
+                test_engine,
+                env,
+                tmp_path,
+                req_b,
+                item_b,
+                "b",
+                streams,
+                processes,
+            )
+            gate_b = tmp_path / "neighbor-original-gate"
+            _, env_b = _worker_environment(media, test_engine, tmp_path, gate=gate_b)
+            worker_b, stream_b, log_b = await _worker(
+                media, env_b, tmp_path, "neighbor-reader", job_b["job_id"]
+            )
+            processes.append(worker_b)
+            streams.append(stream_b)
+
+            async def neighbor_entered():
+                assert worker_b.poll() is None, log_b.read_text(errors="replace")[
+                    -4000:
+                ]
+                return (gate_b / "entered").is_file()
+
+            await _eventually(
+                "neighbor actual S3 response body read", neighbor_entered, timeout=90
+            )
+            operations_b = await _operations(test_engine, creation_b["id"])
+            assert len(operations_b) == 1
+            assert operations_b[0]["location_id"] == creation_b["location_id"]
+            cleanup = asyncio.create_task(_cleanup_owned(owner, run_a))
+
+            async def sealed():
+                async with test_engine.connect() as db:
+                    return await db.scalar(
+                        text(
+                            "SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"
+                        ),
+                        {"run": run_a.run_id},
+                    )
+
+            await _eventually("sealed child", sealed, timeout=30)
+            assert not cleanup.done()
+            factory = async_sessionmaker(test_engine, expire_on_commit=False)
+            with pytest.raises(
+                fixture_prediction_retirement.FixturePredictionRetirementBlocked,
+                match="original_reader_scope_invalid",
+            ):
+                await wait_for_fixture_original_readers(factory, uuid.uuid4())
+            channel = "aap_fixture_reader_" + run_a.run_id.hex
+            extra_wait = asyncio.create_task(
+                wait_for_fixture_original_readers(factory, run_a.run_id)
+            )
+
+            async def two_listeners():
+                async with test_engine.connect() as db:
+                    return (
+                        await db.scalar(
+                            text(
+                                "SELECT count(*) FROM pg_catalog.pg_stat_activity "
+                                "WHERE datname=current_database() AND query LIKE 'LISTEN %' "
+                                "AND position(:channel in query)>0"
+                            ),
+                            {"channel": channel},
+                        )
+                        >= 2
+                    )
+
+            await _eventually(
+                "two subscribed reader waiters", two_listeners, timeout=30
+            )
+            async with test_engine.begin() as db:
+                sent_at = await db.scalar(
+                    text(
+                        "SELECT clock_timestamp() FROM (SELECT pg_notify(:channel, '')) AS n"
+                    ),
+                    {"channel": channel},
+                )
+
+            async def rechecked():
+                async with test_engine.connect() as db:
+                    return await db.scalar(
+                        text(
+                            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
+                            "WHERE datname=current_database() AND pid<>pg_backend_pid() "
+                            "AND query_start >= :sent_at "
+                            "AND query LIKE 'SELECT aap_assets_v1.fixture_original_readers_empty(%')"
+                        ),
+                        {"sent_at": sent_at},
+                    )
+
+            await _eventually("spurious wake status recheck", rechecked, timeout=30)
+            assert not cleanup.done() and not extra_wait.done()
+            extra_wait.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await extra_wait
+            assert await _operations(test_engine, creation_a["id"]) == operations
+            with monkeypatch.context() as patch:
+                patch.setattr(fixture_prediction_retirement, "_READER_DRAIN_SECONDS", 1)
+                with pytest.raises(
+                    fixture_prediction_retirement.FixturePredictionRetirementBlocked,
+                    match="original_reader_pending",
+                ):
+                    await wait_for_fixture_original_readers(factory, run_a.run_id)
+            assert await _operations(test_engine, creation_a["id"]) == operations
             async with test_engine.connect() as db:
                 state = await db.scalar(
                     text(
@@ -404,42 +525,52 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             assert (
                 await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
             )
-            late = await _build_late(owner, run_a)
-            assert late.status_code == 409, late.text
             late_read = await _post(
                 media.control_client, media.control_token, "/v1/source-reference", req_a
             )
             assert late_read.status_code == 409, late_read.text
-            (gate / "release").touch()
+            # Hold the status relation lock until the owner finishes. This
+            # forces completion after LISTEN but before the first status result.
+            async with test_engine.begin() as blocker:
+                await blocker.execute(
+                    text(
+                        "LOCK TABLE yoao_fixture_v1.fixture_runs IN ACCESS EXCLUSIVE MODE"
+                    )
+                )
+                raced_wait = asyncio.create_task(
+                    wait_for_fixture_original_readers(factory, run_a.run_id)
+                )
+
+                async def status_blocked():
+                    async with test_engine.connect() as db:
+                        return await db.scalar(
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
+                                "WHERE datname=current_database() AND wait_event_type='Lock' "
+                                "AND query LIKE '%fixture_original_readers_empty%')"
+                            )
+                        )
+
+                await _eventually(
+                    "post-subscription status lock", status_blocked, timeout=30
+                )
+                (gate / "release").touch()
+
+                async def owner_finished():
+                    return not await _operations(test_engine, creation_a["id"])
+
+                await _eventually(
+                    "exact owner finish committed", owner_finished, timeout=90
+                )
+                assert not raced_wait.done()
+            await asyncio.wait_for(raced_wait, 30)
             await _wait_worker(worker_a, log)
             assert (gate / "resumed").is_file()
             assert not await _operations(test_engine, creation_a["id"])
-            assert (await _job_for_frame(test_engine, item_a, 1, 96))[
-                "status"
-            ] == "ready"
-            # A's admission is now sealed, so validate its real output directly in the cache.
-            async with test_engine.connect() as db:
-                key = await db.scalar(
-                    text(
-                        "SELECT storage_key FROM public.video_frame_cache WHERE dataset_item_id=:item AND frame_index=1 AND width=96 AND format='webp' AND status='ready'"
-                    ),
-                    {"item": item_a},
-                )
-            assert key
-            obj = await asyncio.to_thread(
-                media.owner_s3.get_object, Bucket=media.cache_bucket, Key=key
-            )
-            with closing(obj["Body"]) as body:
-                raw = body.read()
-            with Image.open(BytesIO(raw)) as decoded:
-                decoded.load()
-                assert (
-                    decoded.format == "WEBP"
-                    and decoded.width == 96
-                    and decoded.height > 0
-                )
-            retired = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
+            retired = await asyncio.wait_for(cleanup, 120)
             assert retired.status_code == 200, retired.text
+            late = await _build_late(owner, run_a)
+            assert late.status_code == 409, late.text
             for bucket, key, version in bytes_a:
                 with pytest.raises(ClientError) as missing:
                     await asyncio.to_thread(
@@ -454,28 +585,15 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             assert (
                 await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
             )
-            frame_b, job_b = await _prepare_frame(
-                media,
-                test_engine,
-                env,
-                tmp_path,
-                req_b,
-                item_b,
-                "b",
-                streams,
-                processes,
-            )
-            worker_b, stream, log_b = await _worker(
-                media, env, tmp_path, "neighbor-reader", job_b["job_id"]
-            )
-            processes.append(worker_b)
-            streams.append(stream)
+            assert worker_b.poll() is None
+            assert await _operations(test_engine, creation_b["id"]) == operations_b
+            (gate_b / "release").touch()
             await _wait_worker(worker_b, log_b)
             assert (await _job_for_frame(test_engine, item_b, 1, 96))[
                 "status"
             ] == "ready"
             assert not await _operations(test_engine, creation_b["id"])
-            assert await _assert_frame(media, frame_b) == raw
+            await _assert_frame(media, frame_b)
             assert (
                 await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
             )

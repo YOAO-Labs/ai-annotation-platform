@@ -1525,7 +1525,7 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
             )
 
 
-async def _retire_fixture_execution_work(db, owned):
+async def _retire_fixture_execution_work(db, owned, *, family="owned", deadline=None):
     """Retire native work before any sibling Dataset can be reclaimed."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -1533,6 +1533,7 @@ async def _retire_fixture_execution_work(db, owned):
     from app.application.fixture_prediction_retirement import (
         FixturePredictionRetirementBlocked,
         retire_fixture_prediction_work,
+        wait_for_fixture_original_readers,
     )
     from app.db.models.async_job import AsyncJob
     from app.db.models.fixture_run import FixturePresentationJob
@@ -1542,10 +1543,15 @@ async def _retire_fixture_execution_work(db, owned):
     scope = await _resolve_fixture_scope(db, owned)
     await db.rollback()
     try:
+        session_factory = async_sessionmaker(
+            storage_access.engine(db), expire_on_commit=False
+        )
+        if family == "owned":
+            await wait_for_fixture_original_readers(
+                session_factory, run_id, deadline=deadline
+            )
         await retire_fixture_prediction_work(
-            session_factory=async_sessionmaker(
-                storage_access.engine(db), expire_on_commit=False
-            ),
+            session_factory=session_factory,
             run_id=run_id,
             project_ids=scope.project_ids,
             task_ids=scope.task_ids,
@@ -1605,7 +1611,7 @@ async def _retire_fixture_execution_work(db, owned):
 
 
 async def _cleanup_owned_e2e_fixtures(
-    db, owned, *, family="owned", registry=None, providers=None
+    db, owned, *, family="owned", registry=None, providers=None, deadline=None
 ):
     """Seal and reclaim one exact run through the existing fixture cleanup owners."""
     from app.api.v1 import _test_seed_attachments as attachments
@@ -1658,7 +1664,9 @@ async def _cleanup_owned_e2e_fixtures(
             if providers is not None:
                 await providers.retire(run_id)
             return
-        scope = await _retire_fixture_execution_work(db, owned)
+        scope = await _retire_fixture_execution_work(
+            db, owned, family=family, deadline=deadline
+        )
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
                 FixtureMaintenanceWindow.run_id == run_id,
@@ -1964,6 +1972,10 @@ async def seed_cleanup(
     from app.db.models.fixture_run import FixtureRun
     from app.services import fixture_run_ownership as ownership
 
+    # The global-teardown transport has a five-second deadline; do not restart
+    # the reader budget for each child.
+    reader_deadline = asyncio.get_running_loop().time() + 3
+
     root = await db.get(FixtureRun, payload.suite_id, populate_existing=True)
     if root is None or root.parent_run_id is not None or root.family != "owned":
         raise HTTPException(404, detail={"code": "fixture_suite_not_found"})
@@ -1998,13 +2010,14 @@ async def seed_cleanup(
             raise HTTPException(409, detail={"code": "fixture_run_unsettled"})
         run = await db.get(FixtureRun, scope.run_id, populate_existing=True)
         if run.state != "retired":
-            await _retire_fixture_execution_work(db, scope)
+            await _retire_fixture_execution_work(db, scope, deadline=reader_deadline)
     for scope in scopes:
         await _cleanup_owned_e2e_fixtures(
             db,
             owned=scope,
             registry=getattr(request.app.state, "original_playback_registry", None),
             providers=providers,
+            deadline=reader_deadline,
         )
     root = await ownership._lock_run(db, payload.suite_id)
     if root.state != "retired":
@@ -2581,6 +2594,7 @@ async def seed_owned_cleanup(
     """
     from app.db.models.fixture_run import FixtureRun
 
+    reader_deadline = asyncio.get_running_loop().time() + 45
     scope = _request_owned_scope(payload)
     run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
     if (
@@ -2595,6 +2609,7 @@ async def seed_owned_cleanup(
         owned=scope,
         registry=getattr(request.app.state, "original_playback_registry", None),
         providers=getattr(request.app.state, "fixture_backends", None),
+        deadline=reader_deadline,
     )
     await db.commit()
     return SeedCleanup()

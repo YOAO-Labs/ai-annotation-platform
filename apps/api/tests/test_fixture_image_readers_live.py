@@ -47,10 +47,10 @@ from tests.test_assets_media_live import (
     _wait_process_exit,
 )
 from tests.test_fixture_inference_retirement_live import (
+    _eventually,
     _PreservedSeedOwner,
     _ownership_evidence,
     _start_media_runtime,
-    _stop_known_process,
     _stop_media_runtime,
 )
 
@@ -288,7 +288,6 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
         with closing(fixture_original_reader()) as reader:
             bytes_a = await asyncio.to_thread(_read_versions, reader, versions_a)
             bytes_b = await asyncio.to_thread(_read_versions, reader, versions_b)
-            key_a = (row_a["bucket"], row_a["object_key"], row_a["version_id"])
             key_b = (row_b["bucket"], row_b["object_key"], row_b["version_id"])
             job_a = await _prepare(media, actor_a, task_a)
             monkeypatch.setenv("AAP_IMAGE_READER_GATE_KEY", row_a["object_key"])
@@ -322,8 +321,19 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             assert len(operations) == 1
             assert operations[0]["location_id"] == row_a["location_id"]
             assert operations[0]["node_id"] == "aap-assets-media"
-            denied = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
-            assert denied.status_code == 409, denied.text
+            cleanup = asyncio.create_task(_cleanup_owned(owner, run_a))
+
+            async def sealed():
+                async with test_engine.connect() as db:
+                    return await db.scalar(
+                        text(
+                            "SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"
+                        ),
+                        {"run": run_a.run_id},
+                    )
+
+            await _eventually("sealed child", sealed, timeout=30)
+            assert not cleanup.done()
             async with test_engine.connect() as db:
                 assert (
                     await db.scalar(
@@ -362,9 +372,14 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             assert late.json()["error"]["code"] == "source_busy", late.text
             assert await _operations(test_engine, row_a["id"]) == operations
             (state / "release").touch()
-            await _thumbnail(media, test_engine, worker_a, log_a, job_a, bytes_a[key_a])
+            assert (
+                await _wait_process_exit(
+                    worker_a, timeout=120, message="Images worker did not exit"
+                )
+                == 0
+            ), _process_log(log_a)
             assert await _operations(test_engine, row_a["id"]) == []
-            retired = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
+            retired = await asyncio.wait_for(cleanup, 120)
             assert retired.status_code == 200, retired.text
             for bucket, key, version in bytes_a:
                 with pytest.raises(ClientError) as missing:
