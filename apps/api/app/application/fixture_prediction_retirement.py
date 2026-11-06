@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from uuid import UUID, uuid5
 
 import asyncpg
@@ -84,6 +85,7 @@ async def _inventory(session_factory, run_id, project_ids, task_ids):
 # The individual private request has a 60-second transport deadline. The
 # suite caller supplies its own shorter, shared absolute deadline.
 _READER_DRAIN_SECONDS = 45
+_LISTENER_CLOSE_SECONDS = 0.25
 
 
 async def wait_for_fixture_original_readers(
@@ -105,15 +107,19 @@ async def wait_for_fixture_original_readers(
 
     if deadline is None:
         deadline = asyncio.get_running_loop().time() + _READER_DRAIN_SECONDS
+    observed_pending = False
     try:
         async with asyncio.timeout_at(deadline):
             async with engine.connect() as listener:
-                raw = (await listener.get_raw_connection()).driver_connection
+                proxy = await listener.get_raw_connection()
+                raw = proxy.driver_connection
                 raw.add_termination_listener(disconnected)
+                subscribed = False
                 try:
                     # asyncpg commits LISTEN outside a transaction. Subscribe
                     # before the first fresh status snapshot.
                     await raw.add_listener(channel, notified)
+                    subscribed = True
                     while True:
                         wake.clear()
                         if raw.is_closed():
@@ -131,6 +137,7 @@ async def wait_for_fixture_original_readers(
                                 ),
                                 {"run_id": run_id},
                             )
+                        observed_pending = empty is False
                         if raw.is_closed():
                             raise FixturePredictionRetirementBlocked(
                                 "original_reader_listener_unavailable"
@@ -143,11 +150,38 @@ async def wait_for_fixture_original_readers(
                             )
                         await wake.wait()
                 finally:
+                    failure = sys.exception()
                     raw.remove_termination_listener(disconnected)
-                    if not raw.is_closed():
-                        await raw.remove_listener(channel, notified)
+                    try:
+                        if not subscribed or raw.is_closed():
+                            raise FixturePredictionRetirementBlocked(
+                                "original_reader_listener_unavailable"
+                            )
+                        # asyncpg updates its local listener map before the
+                        # server acknowledges UNLISTEN.
+                        async with asyncio.timeout(_LISTENER_CLOSE_SECONDS):
+                            await raw.remove_listener(channel, notified)
+                        if raw.is_closed():
+                            raise FixturePredictionRetirementBlocked(
+                                "original_reader_listener_unavailable"
+                            )
+                    except BaseException as close_error:
+                        # Never return an unproved subscription to the pool.
+                        proxy.detach()
+                        raw.terminate()
+                        if failure is None or not isinstance(close_error, Exception):
+                            if not isinstance(close_error, Exception) or isinstance(
+                                close_error, FixturePredictionRetirementBlocked
+                            ):
+                                raise
+                            raise FixturePredictionRetirementBlocked(
+                                "original_reader_listener_unavailable"
+                            ) from close_error
     except TimeoutError as exc:
-        raise FixturePredictionRetirementBlocked("original_reader_pending") from exc
+        reason = (
+            "original_reader_pending" if observed_pending else "original_reader_deadline"
+        )
+        raise FixturePredictionRetirementBlocked(reason) from exc
     except (
         SQLAlchemyError,
         asyncpg.PostgresError,

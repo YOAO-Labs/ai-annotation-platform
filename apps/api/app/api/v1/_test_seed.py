@@ -65,6 +65,8 @@ async def _require_e2e_seed_database(db: AsyncSession = Depends(get_db)) -> None
 
 
 router = APIRouter(dependencies=[Depends(_require_e2e_seed_database)])
+_SUITE_READER_WAIT_SECONDS = 3
+_SUITE_READER_OVERALL_SECONDS = 4.5
 _LABELING_FIXTURE_DELETE_SQL = (
     "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
 )
@@ -1525,7 +1527,9 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
             )
 
 
-async def _retire_fixture_execution_work(db, owned, *, family="owned", deadline=None):
+async def _retire_fixture_execution_work(
+    db, owned, *, family="owned", deadline=None, drained_runs=frozenset()
+):
     """Retire native work before any sibling Dataset can be reclaimed."""
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -1546,7 +1550,7 @@ async def _retire_fixture_execution_work(db, owned, *, family="owned", deadline=
         session_factory = async_sessionmaker(
             storage_access.engine(db), expire_on_commit=False
         )
-        if family == "owned":
+        if family == "owned" and run_id not in drained_runs:
             await wait_for_fixture_original_readers(
                 session_factory, run_id, deadline=deadline
             )
@@ -1611,7 +1615,14 @@ async def _retire_fixture_execution_work(db, owned, *, family="owned", deadline=
 
 
 async def _cleanup_owned_e2e_fixtures(
-    db, owned, *, family="owned", registry=None, providers=None, deadline=None
+    db,
+    owned,
+    *,
+    family="owned",
+    registry=None,
+    providers=None,
+    deadline=None,
+    drained_runs=frozenset(),
 ):
     """Seal and reclaim one exact run through the existing fixture cleanup owners."""
     from app.api.v1 import _test_seed_attachments as attachments
@@ -1665,7 +1676,7 @@ async def _cleanup_owned_e2e_fixtures(
                 await providers.retire(run_id)
             return
         scope = await _retire_fixture_execution_work(
-            db, owned, family=family, deadline=deadline
+            db, owned, family=family, deadline=deadline, drained_runs=drained_runs
         )
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
@@ -1972,9 +1983,11 @@ async def seed_cleanup(
     from app.db.models.fixture_run import FixtureRun
     from app.services import fixture_run_ownership as ownership
 
-    # The global-teardown transport has a five-second deadline; do not restart
-    # the reader budget for each child.
-    reader_deadline = asyncio.get_running_loop().time() + 3
+    # Retain a margin for returning the result before the five-second suite
+    # transport deadline. Each reader gets at most three seconds within it.
+    suite_deadline = (
+        asyncio.get_running_loop().time() + _SUITE_READER_OVERALL_SECONDS
+    )
 
     root = await db.get(FixtureRun, payload.suite_id, populate_existing=True)
     if root is None or root.parent_run_id is not None or root.family != "owned":
@@ -2003,22 +2016,37 @@ async def seed_cleanup(
         )
         for run_id, namespace in children
     ]
+    # Only successful same-request preflights contribute sealed run IDs.
+    # Phase two still executes the final Routing, input and export guards.
+    drained_runs = set()
     for scope in scopes:
+        if asyncio.get_running_loop().time() >= suite_deadline:
+            raise HTTPException(409, detail={"code": "fixture_cleanup_deadline"})
         blockers = await ownership.seal(db, scope.run_id, family="owned")
         await db.commit()
         if blockers:
             raise HTTPException(409, detail={"code": "fixture_run_unsettled"})
         run = await db.get(FixtureRun, scope.run_id, populate_existing=True)
         if run.state != "retired":
+            reader_deadline = min(
+                suite_deadline,
+                asyncio.get_running_loop().time() + _SUITE_READER_WAIT_SECONDS,
+            )
             await _retire_fixture_execution_work(db, scope, deadline=reader_deadline)
+            drained_runs.add(scope.run_id)
     for scope in scopes:
+        if asyncio.get_running_loop().time() >= suite_deadline:
+            raise HTTPException(409, detail={"code": "fixture_cleanup_deadline"})
         await _cleanup_owned_e2e_fixtures(
             db,
             owned=scope,
             registry=getattr(request.app.state, "original_playback_registry", None),
             providers=providers,
-            deadline=reader_deadline,
+            deadline=suite_deadline,
+            drained_runs=frozenset(drained_runs),
         )
+    if asyncio.get_running_loop().time() >= suite_deadline:
+        raise HTTPException(409, detail={"code": "fixture_cleanup_deadline"})
     root = await ownership._lock_run(db, payload.suite_id)
     if root.state != "retired":
         if (

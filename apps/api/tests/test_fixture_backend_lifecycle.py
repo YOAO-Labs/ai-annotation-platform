@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import AsyncExitStack
 import uuid
 
 import pytest
@@ -23,7 +25,7 @@ from tests.identity_e2e_support import (
     fixture_and_fenced_http as fixture_and_fenced_http,
     owner_fault_http as owner_fault_http,
 )
-from tests.seed_owned_scenarios import A, _build_owned, _cleanup_owned
+from tests.seed_owned_scenarios import A, B, _build_owned, _cleanup_owned
 from tests.test_trained_models import seed_source
 
 pytestmark = pytest.mark.asyncio
@@ -171,3 +173,98 @@ async def test_suite_cleanup_retries_provider_close_after_durable_retirement(
     assert provider.process.returncode == 0
     assert run.run_id not in providers.runs
     assert (await committed_owner.get(FixtureRun, run.suite_id)).state == "retired"
+
+
+@pytest.mark.parametrize("held", [False, True])
+async def test_suite_reader_budget_does_not_expire_between_children(
+    fixture_and_fenced_http, owner_fault_http, test_engine, monkeypatch, held
+):
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.application import fixture_prediction_retirement as retirement
+    from app.services import fixture_original_read, original_sources
+
+    suite = fixture_and_fenced_http.owner_suite
+    runs = [suite.new_run(A), suite.new_run(B)]
+    worlds = {
+        run.run_id: await _build_owned(owner_fault_http, run) for run in runs
+    }
+    first, second = sorted(runs, key=lambda run: run.run_id)
+    factory = async_sessionmaker(test_engine, expire_on_commit=False)
+    preflight_blocked = asyncio.Event()
+    release_preflight = asyncio.Event()
+    second_waiting = asyncio.Event()
+    real_retirement = retirement.retire_fixture_prediction_work
+    real_wait = retirement.wait_for_fixture_original_readers
+    delayed = False
+
+    async def delay_real_routing(**kwargs):
+        nonlocal delayed
+        result = await real_retirement(**kwargs)
+        if kwargs["run_id"] == first.run_id and not delayed:
+            delayed = True
+            preflight_blocked.set()
+            await release_preflight.wait()
+        return result
+
+    async def observe_real_reader(factory, run_id, **kwargs):
+        if run_id == second.run_id:
+            second_waiting.set()
+        return await real_wait(factory, run_id, **kwargs)
+
+    # The transport margin is widened only for this in-process test so real
+    # multi-child reclaim can finish after deliberately crossing three seconds.
+    monkeypatch.setattr(_test_seed, "_SUITE_READER_OVERALL_SECONDS", 30)
+    monkeypatch.setattr(retirement, "retire_fixture_prediction_work", delay_real_routing)
+    monkeypatch.setattr(retirement, "wait_for_fixture_original_readers", observe_real_reader)
+    async with AsyncExitStack() as stack:
+        if held:
+            db = await stack.enter_async_context(factory())
+            world = worlds[second.run_id]
+            actor = await db.scalar(select(User.id).where(User.email == world["admin_email"]))
+            assert actor is not None
+            source = await original_sources.resolve_task(
+                db, uuid.UUID(world["task_ids"][0])
+            )
+            await db.rollback()
+            await stack.enter_async_context(
+                fixture_original_read.admitted(
+                    db, source, actor, original_sources.read_plan(source).spec
+                )
+            )
+        cleanup = asyncio.create_task(
+            owner_fault_http.post(
+                "/api/v1/__test/seed/cleanup", json={"suite_id": str(suite.suite_id)}
+            )
+        )
+        try:
+            await asyncio.wait_for(preflight_blocked.wait(), 20)
+            late = await owner_fault_http.post(
+                "/api/v1/__test/seed/owned", json=first.payload()
+            )
+            assert late.status_code == 409, late.text
+            # Actual Routing preflight is held beyond the reader budget.
+            with pytest.raises(TimeoutError):
+                await asyncio.wait_for(asyncio.Event().wait(), 3.1)
+            release_preflight.set()
+            await asyncio.wait_for(second_waiting.wait(), 10)
+            if held:
+                async with test_engine.connect() as observer:
+                    empty = await observer.scalar(
+                        text("SELECT aap_assets_v1.fixture_original_readers_empty(:run)"),
+                        {"run": second.run_id},
+                    )
+                assert empty is False and not cleanup.done()
+                await stack.aclose()
+            response = await asyncio.wait_for(cleanup, 30)
+            assert response.status_code == 200, response.text
+        finally:
+            release_preflight.set()
+            if not cleanup.done():
+                cleanup.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await cleanup
+    async with factory() as db:
+        for run in runs:
+            assert (await db.get(FixtureRun, run.run_id)).state == "retired"

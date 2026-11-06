@@ -18,10 +18,11 @@ import sys
 import tempfile
 import uuid
 
+import asyncpg
 import pytest
 from botocore.exceptions import ClientError
 from PIL import Image
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -282,6 +283,92 @@ async def _assert_frame(media, request):
     return image.content
 
 
+async def _check_listener_teardown(test_engine, run_id, monkeypatch):
+    """Gate deregistration while retaining a real PostgreSQL LISTEN socket."""
+    engine = create_async_engine(test_engine.url, pool_size=2, max_overflow=0)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    add_listener = asyncpg.Connection.add_listener
+    fetch = asyncpg.Connection.fetch
+    channel = "aap_fixture_reader_" + run_id.hex
+    subscribed = asyncio.Event()
+    listeners = []
+
+    async def capture(connection, name, callback):
+        await add_listener(connection, name, callback)
+        if name == channel:
+            listeners.append(connection)
+            subscribed.set()
+
+    try:
+        with monkeypatch.context() as patch:
+            patch.setattr(asyncpg.Connection, "add_listener", capture)
+            wait = asyncio.create_task(wait_for_fixture_original_readers(factory, run_id))
+            await asyncio.wait_for(subscribed.wait(), 10)
+            wait.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await asyncio.wait_for(wait, 3)
+            clean = listeners.pop()
+            assert not clean.is_closed()
+            async with engine.connect() as first, engine.connect() as second:
+                raw_first = (await first.get_raw_connection()).driver_connection
+                raw_second = (await second.get_raw_connection()).driver_connection
+                assert clean in (raw_first, raw_second)
+                for connection in (first, second):
+                    assert not await connection.scalar(
+                        text("SELECT EXISTS (SELECT 1 FROM pg_listening_channels())")
+                    )
+
+            for mode in ("timeout", "cancel_during_unlisten"):
+                subscribed.clear()
+                deregistering = asyncio.Event()
+                release = asyncio.Event()
+
+                async def hold_unlisten(connection, query, *args, **kwargs):
+                    if query == f'UNLISTEN "{channel}"':
+                        deregistering.set()
+                        await release.wait()
+                    return await fetch(connection, query, *args, **kwargs)
+
+                with patch.context() as fault:
+                    fault.setattr(asyncpg.Connection, "fetch", hold_unlisten)
+                    fault.setattr(
+                        fixture_prediction_retirement, "_LISTENER_CLOSE_SECONDS", 0.1
+                    )
+                    deadline = asyncio.get_running_loop().time() + (
+                        5 if mode == "timeout" else 10
+                    )
+                    wait = asyncio.create_task(
+                        wait_for_fixture_original_readers(
+                            factory, run_id, deadline=deadline
+                        )
+                    )
+                    await asyncio.wait_for(subscribed.wait(), 10)
+                    if mode == "cancel_during_unlisten":
+                        wait.cancel()
+                    await asyncio.wait_for(deregistering.wait(), 10)
+                    if mode == "cancel_during_unlisten":
+                        wait.cancel()
+                        with pytest.raises(asyncio.CancelledError):
+                            await asyncio.wait_for(wait, 3)
+                    else:
+                        with pytest.raises(
+                            fixture_prediction_retirement.FixturePredictionRetirementBlocked,
+                            match="original_reader_(pending|deadline)",
+                        ):
+                            await asyncio.wait_for(wait, 3)
+                    unproved = listeners.pop()
+                    assert unproved.is_closed()
+                    async with engine.connect() as first, engine.connect() as second:
+                        for connection in (first, second):
+                            raw = (await connection.get_raw_connection()).driver_connection
+                            assert raw is not unproved
+                            assert not await connection.scalar(
+                                text("SELECT EXISTS (SELECT 1 FROM pg_listening_channels())")
+                            )
+    finally:
+        await engine.dispose()
+
+
 async def test_independent_media_reader_fences_exact_fixture_retirement(
     test_engine, monkeypatch, tmp_path
 ):
@@ -450,6 +537,15 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             ):
                 await wait_for_fixture_original_readers(factory, uuid.uuid4())
             channel = "aap_fixture_reader_" + run_a.run_id.hex
+            status_seen = asyncio.Event()
+
+            def observe_status(_connection, _cursor, statement, _parameters, _context, _many):
+                if statement.startswith(
+                    "SELECT aap_assets_v1.fixture_original_readers_empty("
+                ):
+                    status_seen.set()
+
+            event.listen(test_engine.sync_engine, "after_cursor_execute", observe_status)
             extra_wait = asyncio.create_task(
                 wait_for_fixture_original_readers(factory, run_a.run_id)
             )
@@ -471,32 +567,29 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             await _eventually(
                 "two subscribed reader waiters", two_listeners, timeout=30
             )
+            await asyncio.wait_for(status_seen.wait(), 30)
+            status_seen.clear()
             async with test_engine.begin() as db:
-                sent_at = await db.scalar(
-                    text(
-                        "SELECT clock_timestamp() FROM (SELECT pg_notify(:channel, '')) AS n"
-                    ),
+                await db.execute(
+                    text("SELECT pg_notify(:channel, '')"),
                     {"channel": channel},
                 )
-
-            async def rechecked():
-                async with test_engine.connect() as db:
-                    return await db.scalar(
-                        text(
-                            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
-                            "WHERE datname=current_database() AND pid<>pg_backend_pid() "
-                            "AND query_start >= :sent_at "
-                            "AND query LIKE 'SELECT aap_assets_v1.fixture_original_readers_empty(%')"
-                        ),
-                        {"sent_at": sent_at},
-                    )
-
-            await _eventually("spurious wake status recheck", rechecked, timeout=30)
+            await asyncio.wait_for(status_seen.wait(), 30)
+            event.remove(test_engine.sync_engine, "after_cursor_execute", observe_status)
             assert not cleanup.done() and not extra_wait.done()
             extra_wait.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await extra_wait
             assert await _operations(test_engine, creation_a["id"]) == operations
+            await _check_listener_teardown(test_engine, run_a.run_id, monkeypatch)
+            assert await _operations(test_engine, creation_a["id"]) == operations
+            with pytest.raises(
+                fixture_prediction_retirement.FixturePredictionRetirementBlocked,
+                match="original_reader_deadline",
+            ):
+                await wait_for_fixture_original_readers(
+                    factory, run_a.run_id, deadline=asyncio.get_running_loop().time() - 1
+                )
             with monkeypatch.context() as patch:
                 patch.setattr(fixture_prediction_retirement, "_READER_DRAIN_SECONDS", 1)
                 with pytest.raises(
