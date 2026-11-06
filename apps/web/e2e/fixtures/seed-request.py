@@ -40,11 +40,24 @@ class SeedSetupRefused(RuntimeError):
     pass
 
 
-def prepare(payload):
+def require_fixture_environment():
     if os.environ.get("AAP_WORKTREE_MODE") == "dev":
         raise SeedSetupRefused("Development mode cannot prepare E2E fixtures")
     if os.environ.get("ENVIRONMENT", "development") != "development":
         raise SeedSetupRefused("Fixture setup requires development mode")
+
+
+def select_fixture_owner(owner):
+    os.environ["FIXTURE_RUNTIME_DATABASE_URL"] = _RUNTIME_DATABASE_URL
+    os.environ["DATABASE_URL"] = owner.render_as_string(hide_password=False)
+    os.environ["MIGRATION_DATABASE_URL"] = ""
+    os.environ["ENVIRONMENT"] = "development"
+    os.environ["E2E_SEED_ENABLED"] = "true"
+    os.environ["STORAGE_MAINTENANCE_PROTOCOL_ENABLED"] = "true"
+
+
+def prepare(payload):
+    require_fixture_environment()
     owner = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
     runtime = make_url(_RUNTIME_DATABASE_URL)
     if (
@@ -96,12 +109,7 @@ def prepare(payload):
             method == "GET" and path.path == "/api/v1/__test/seed/catalog"
         ):
             raise SeedSetupRefused("Fixture owner method is not permitted")
-    os.environ["FIXTURE_RUNTIME_DATABASE_URL"] = _RUNTIME_DATABASE_URL
-    os.environ["DATABASE_URL"] = owner.render_as_string(hide_password=False)
-    os.environ["MIGRATION_DATABASE_URL"] = ""
-    os.environ["ENVIRONMENT"] = "development"
-    os.environ["E2E_SEED_ENABLED"] = "true"
-    os.environ["STORAGE_MAINTENANCE_PROTOCOL_ENABLED"] = "true"
+    select_fixture_owner(owner)
     return payload
 
 
@@ -603,9 +611,13 @@ async def serve_authority(ready_fd):
     sys.path.insert(0, str(root / "apps/api"))
     from fixture_suite_coordinator import _settled, _verified_database, prepare_fixture_suite
 
-    _, checked_resources, identity = await _verified_database()
+    require_fixture_environment()
+    owner_url, checked_resources, identity = await _verified_database(original_environment)
     if checked_resources != resources:
         raise SeedSetupRefused("Fixture authority database changed")
+    # Models imported by native suite preparation must bind the private owner engine.
+    # Keep original_environment unchanged except for the native control binding.
+    select_fixture_owner(owner_url)
     native_control = None
     raster_owner = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
     if raster_owner or authority_native_mode():
@@ -626,7 +638,6 @@ async def serve_authority(ready_fd):
             raster_owner=Path(raster_owner) if raster_owner else None, authority_owned=True,
         )
         await native_control.prepare()
-        original_environment = dict(os.environ)
     config_digest = authority_config_digest()
     socket_dir = Path(tempfile.mkdtemp(prefix="aap-fixture-owner-", dir="/tmp"))
     socket_path = socket_dir / "owner.sock"
