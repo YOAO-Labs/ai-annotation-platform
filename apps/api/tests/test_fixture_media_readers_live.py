@@ -586,9 +586,9 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 processes,
             )
             gate_b = tmp_path / "neighbor-original-gate"
-            _, env_b = _worker_environment(media, test_engine, tmp_path, gate=gate_b)
+            _, gated_env_b = _worker_environment(media, test_engine, tmp_path, gate=gate_b)
             worker_b, stream_b, log_b = await _worker(
-                media, env_b, tmp_path, "neighbor-reader", job_b["job_id"]
+                media, gated_env_b, tmp_path, "neighbor-reader", job_b["job_id"]
             )
             processes.append(worker_b)
             streams.append(stream_b)

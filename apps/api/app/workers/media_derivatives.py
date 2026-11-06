@@ -4,13 +4,12 @@ from copy import deepcopy
 from dataclasses import dataclass
 import asyncio
 import logging
-from pathlib import Path
 import re
 import subprocess
 import sys
-import tempfile
 import uuid
 
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.exc import DBAPIError
 
@@ -196,16 +195,13 @@ def _chunk(output, metadata, input_path, fds, directory):
     }, [(path, "chunk.mp4", "video/mp4")]
 
 
-def build(storage, output, stage, metadata=None, *, accounting=None):
+def build(storage, output, stage, metadata=None, *, accounting=None, native_stage):
     """No ORM or remote-original I/O; the caller retains both durable permits."""
     from app.services.media_process import decoder_input
     from app.workers.media_frames import extract_video_frame_image
 
     input_path, fds = decoder_input(stage)
-    directory = tempfile.TemporaryDirectory(prefix=f"anno-video-derived-{output.id}-")
-    unsettled = False
-    try:
-        temporary = Path(directory.name)
+    with native_stage as temporary:
         if output.kind == "metadata":
             result, paths = _metadata(output, input_path, fds, temporary)
         elif output.kind == "chunk":
@@ -252,26 +248,6 @@ def build(storage, output, stage, metadata=None, *, accounting=None):
         physical.verify_inventory(storage, output, inventory)
         contract.validate_result(output, result, inventory)
         return result, inventory
-    except BaseException as exc:
-        unsettled = storage_access.failure_unsettled(exc)
-        raise
-    finally:
-        if unsettled:
-            # An unconfirmed child may still own output files. Its durable owner
-            # and permit retain responsibility; no destructor may erase them.
-            directory._finalizer.detach()
-        else:
-            primary = sys.exception()
-            try:
-                directory.cleanup()
-            except BaseException as exc:
-                directory._finalizer.detach()
-                storage_access.mark_unsettled(exc)
-                if primary is not None:
-                    raise BaseExceptionGroup(
-                        "Video derivative and temporary cleanup failed", [primary, exc]
-                    ) from None
-                raise
 
 
 @dataclass(frozen=True)
@@ -343,6 +319,11 @@ async def _claim(factory, identifier):
             return None
         authority = await originals.delegated(db, output.auth_ref)
         source = await originals.check(db, authority)
+        from app.services import fixture_media_execution
+
+        execution = fixture_media_execution.current()
+        if execution is not None:
+            execution.require_source(originals.receipt(source))
         _, _, current, _ = await contract.check(
             db, output, authority, building=True, write=True
         )
@@ -408,8 +389,18 @@ async def run_outputs(identifiers, *, propagate_failure=False):
     groups = {}
     failure = None
     try:
+        from app.services import fixture_media_execution
+
+        execution = fixture_media_execution.current()
         for raw in dict.fromkeys(identifiers):
             identifier = uuid.UUID(str(raw))
+            if execution is None:
+                async with factory() as scope:
+                    fixture_owned = await scope.scalar(
+                        select(func.aap_assets_v1.fixture_media_owner_exists("video_output", identifier))
+                    )
+                if fixture_owned:
+                    raise RuntimeError("fixture_media_scope_untracked")
             try:
                 claimed = await claim_with_retry(factory, identifier)
             except Exception as exc:
@@ -434,6 +425,15 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                 continue
             if claimed is None:
                 continue
+            if execution is not None:
+                if execution.kind not in {"backfill", "independent"}:
+                    raise storage_access.mark_unsettled(
+                        RuntimeError("fixture_media_scope_mismatch")
+                    )
+                try:
+                    await execution.record_video_attempt(claimed.output.id, claimed.token)
+                except BaseException as exc:
+                    raise storage_access.mark_unsettled(exc)
             key = originals.encoded(
                 [
                     claimed.output.original_ref,
@@ -452,6 +452,16 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                     ) as stage:
                         for claimed in claims:
                             revisions = []
+                            native_stage = None
+
+                            async def stage_owner(permit):
+                                nonlocal native_stage
+                                from app.services.media_native_stage import NativeStage
+
+                                native_stage = NativeStage(
+                                    admission, permit, "video_output", claimed.output.id
+                                )
+
 
                             async def guard(revision, claimed=claimed):
                                 async with factory() as fresh:
@@ -481,6 +491,7 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                     claimed.output,
                                     guard,
                                     single_attempt=True,
+                                    on_acquired=stage_owner,
                                 ) as storage:
                                     result, inventory = await originals.physical(
                                         build,
@@ -489,6 +500,7 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                         stage,
                                         claimed.metadata,
                                         accounting=recorder,
+                                        native_stage=native_stage,
                                         timeout=originals.JOB_SECONDS,
                                     )
                             except BaseException as exc:
@@ -500,10 +512,11 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                     await recorder.finish(settled=settled)
                                 except BaseException as accounting_error:
                                     if primary is not None:
-                                        raise BaseExceptionGroup(
+                                        originals._raise_drain_failure(
+                                            primary,
+                                            accounting_error,
                                             "Video derivative and accounting failed",
-                                            [primary, accounting_error],
-                                        ) from None
+                                        )
                                     raise
                             completed.append((claimed, result, inventory, revisions[0]))
                 # Every decoder, output file/client and the shared source stage
@@ -552,13 +565,9 @@ async def run_outputs(identifiers, *, propagate_failure=False):
         except BaseException as disposal_failure:
             storage_access.mark_unsettled(disposal_failure)
             if failure is not None:
-                combined = BaseExceptionGroup(
-                    "Video derivative and engine disposal failed",
-                    [failure, disposal_failure],
+                originals._raise_drain_failure(
+                    failure, disposal_failure, "Video derivative and engine disposal failed"
                 )
-                if storage_access.failure_unsettled(combined):
-                    storage_access.mark_unsettled(combined)
-                raise combined from None
             raise
 
 
@@ -585,6 +594,11 @@ async def run_legacy(
         async with factory() as db:
             authority = await originals.delegated(db, delegation)
             source = await originals.check(db, authority)
+            from app.services import fixture_media_execution
+
+            execution = fixture_media_execution.current()
+            if execution is not None:
+                execution.require_source(originals.receipt(source))
             identifier = uuid.UUID(item_id)
             if source.item_id != identifier:
                 contract.reject("content_binding_changed")
@@ -631,8 +645,7 @@ async def run_legacy(
         except BaseException as disposal_failure:
             storage_access.mark_unsettled(disposal_failure)
             if failure is not None:
-                raise BaseExceptionGroup(
-                    "Video derivative and engine disposal failed",
-                    [failure, disposal_failure],
-                ) from None
+                originals._raise_drain_failure(
+                    failure, disposal_failure, "Video derivative and engine disposal failed"
+                )
             raise

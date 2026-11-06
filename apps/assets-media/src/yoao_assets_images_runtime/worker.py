@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import builtins
-from contextlib import suppress
+from contextlib import AsyncExitStack, suppress
 import hashlib
 import json
 import logging
@@ -24,6 +24,7 @@ from yoao_assets_inputs_runtime.database import AsyncpgInputDatabase
 from yoao_assets_inputs_runtime.storage import S3InputStorage
 from yoao_assets_inputs_runtime.worker import InputExecutor
 from yoao_assets_inputs.contract import InputFailure
+from yoao_assets_media_runtime.fixture_native_outputs import FixtureNativeRunSealed
 from yoao_assets_images.policy import image_policy_from_environment
 
 from yoao_assets_images.contract import (
@@ -310,6 +311,25 @@ class ImageExecutor:
     async def execute_once(
         self, *, job_id: UUID | None = None
     ) -> ImageWorkOutcome | None:
+        from yoao_assets_media_runtime.fixture_native_outputs import native_execution, native_job_candidates
+
+        if job_id is None:
+            candidates = await native_job_candidates(self.database, "image")
+            if candidates is not None:
+                for candidate in candidates:
+                    result = await self.execute_once(job_id=candidate)
+                    if result is not None:
+                        return result
+                return None
+
+        async with native_execution(self.database, "image", job_id) as admitted:
+            if not admitted:
+                return None
+            return await self._execute_once(job_id=job_id)
+
+    async def _execute_once(
+        self, *, job_id: UUID | None = None
+    ) -> ImageWorkOutcome | None:
         if self._closed:
             raise RuntimeError("image executor is closed")
         default_policy = ImagePolicy()
@@ -344,6 +364,8 @@ class ImageExecutor:
             if isinstance(claim.spec, ImageBackfillSpec):
                 return await self._advance_backfill(claim, heartbeat)
             return await self._execute_source_claim(claim, heartbeat)
+        except FixtureNativeRunSealed:
+            return None
         except ImageFailure as exc:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise
@@ -416,19 +438,27 @@ class ImageExecutor:
         if not source.upload_ready:
             raise ImageFailure("source_not_ready")
         heartbeat.check()
-        async with admitted_original(
-            self.database,
-            self.storage,
-            "begin_image_original_worker",
-            WorkerOriginalReadRequest(
-                job_id=claim.job_id,
-                generation=claim.generation,
-                lease_token=claim.lease_token,
-                source_snapshot=source.source_snapshot,
-                object_key=source.file_path,
+        from yoao_assets_media_runtime.fixture_native_outputs import output_scope
+        from .original_read import fixture_original_permit
+
+        async with (
+            admitted_original(
+                self.database,
+                self.storage,
+                "begin_image_original_worker",
+                WorkerOriginalReadRequest(
+                    job_id=claim.job_id,
+                    generation=claim.generation,
+                    lease_token=claim.lease_token,
+                    source_snapshot=source.source_snapshot,
+                    object_key=source.file_path,
+                ),
+                "finish_image_original_worker",
+            ) as source_storage,
+            output_scope(
+                self.database, self.storage, claim, "image", fixture_original_permit()
             ),
-            "finish_image_original_worker",
-        ) as source_storage:
+        ):
             result = await self._execute_admitted_source_claim(
                 claim, heartbeat, source, source_storage
             )
@@ -1067,13 +1097,14 @@ class ImageExecutor:
         # The native call first prepares a bounded candidate batch without moving
         # its cursor. S3 observations then happen without transaction-held locks.
         previous_cursor: tuple[str, int] | None = None
+        private_fixture = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
         for _ in range(_BACKFILL_CALL_LIMIT):
             heartbeat.check()
             request = AdvanceImageBackfillRequest(
                 job_id=claim.job_id,
                 generation=claim.generation,
                 lease_token=claim.lease_token,
-                batch_size=500,
+                batch_size=_MAX_UPLOAD_CONCURRENCY if private_fixture else 500,
             )
             progress = await self.database.call("advance_image_backfill", request)
             if not isinstance(progress, ImageBackfillProgress):
@@ -1087,16 +1118,29 @@ class ImageExecutor:
                     progress.candidates,
                     previous_cursor=previous_cursor,
                 )
-                observations = await self._observe_backfill_candidates(
-                    claim,
-                    progress.candidates,
-                    progress.batch_token,
-                    heartbeat,
-                )
-                request = request.model_copy(update={"observations": observations})
-                progress = await self.database.call("advance_image_backfill", request)
-                if not isinstance(progress, ImageBackfillProgress):
-                    raise ImageFailure("invalid_response")
+                if private_fixture:
+                    async with AsyncExitStack() as source_permits:
+                        observations = await self._observe_fixture_backfill_candidates(
+                            claim, progress.candidates, progress.batch_token, heartbeat, source_permits
+                        )
+                        request = request.model_copy(update={"observations": observations})
+                        try:
+                            progress = await self.database.call("advance_image_backfill", request)
+                            if not isinstance(progress, ImageBackfillProgress):
+                                raise ImageFailure("invalid_response")
+                        except FixtureNativeRunSealed:
+                            raise
+                        except BaseException as exc:
+                            exc.storage_operation_unsettled = True
+                            raise
+                else:
+                    observations = await self._observe_backfill_candidates(
+                        claim, progress.candidates, progress.batch_token, heartbeat
+                    )
+                    request = request.model_copy(update={"observations": observations})
+                    progress = await self.database.call("advance_image_backfill", request)
+                    if not isinstance(progress, ImageBackfillProgress):
+                        raise ImageFailure("invalid_response")
                 heartbeat.check()
             if progress.complete:
                 return ImageWorkOutcome(
@@ -1146,6 +1190,60 @@ class ImageExecutor:
             wanted = set(selection.owner_ids)
             if any(source.owner.id not in wanted for source in candidates):
                 raise ImageFailure("invalid_response")
+
+    async def _observe_fixture_backfill_candidates(
+        self, claim, candidates, batch_token, heartbeat, source_permits
+    ) -> ImageBackfillObservations:
+        """Retain each real fixture source permit through the owner's advance commit."""
+        observed = []
+        for source in candidates:
+            heartbeat.check()
+            source_storage = await source_permits.enter_async_context(
+                admitted_original(
+                    self.database,
+                    self.storage,
+                    "begin_image_original_backfill",
+                    BackfillOriginalReadRequest(
+                        job_id=claim.job_id,
+                        generation=claim.generation,
+                        lease_token=claim.lease_token,
+                        batch_token=batch_token,
+                        owner_kind=source.owner.kind,
+                        owner_id=source.owner.id,
+                        source_snapshot=source.source_snapshot,
+                        object_key=source.file_path,
+                    ),
+                    "finish_image_original_worker",
+                )
+            )
+            try:
+                identity = await _job_storage_call(heartbeat, source_storage.head_source, source)
+            except ImageFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
+                if exc.code not in {"object_missing", "source_changed"}:
+                    raise
+                observed.append(ImageBackfillSourceObservation(
+                    owner=source.owner, source_snapshot=source.source_snapshot,
+                    object_identity=None,
+                    error_code="source_missing" if exc.code == "object_missing" else "source_changed",
+                ))
+                continue
+            heartbeat.check()
+            if not source.upload_ready:
+                raise ImageFailure("source_not_ready")
+            changed = source.source_drifted or (
+                source.file_size is not None and identity.byte_size != source.file_size
+            )
+            observed.append(ImageBackfillSourceObservation(
+                owner=source.owner,
+                source_snapshot=source.source_snapshot,
+                object_identity=None if changed else identity,
+                error_code="source_changed" if changed else None,
+            ))
+        heartbeat.check()
+        return ImageBackfillObservations(batch_token=batch_token, items=observed)
+
 
     async def _observe_backfill_candidates(
         self,
@@ -1575,6 +1673,10 @@ async def _run_worker(
         once or job_id is not None or input_id is not None or not strict
     ):
         raise ValueError("readiness requires both strict unselected worker lanes")
+    private = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
+    strict = strict or private
+    if private and input_id is not None:
+        raise ValueError("fixture native worker cannot claim ordinary inputs")
     config: ImageWorkerConfig = load_config()
     database = await _connect_worker_database(config)
     try:
@@ -1593,19 +1695,28 @@ async def _run_worker(
         )
         input_storage = None
         try:
-            input_storage = S3InputStorage(config.storage, source_storage=storage)
-            policy = image_policy_from_environment()
-            inputs = InputExecutor(
-                AsyncpgInputDatabase(database.pool, allowed_roles={"worker"}),
-                input_storage,
-                policy=policy,
-                worker_id=executor.worker_id,
-            )
+            inputs = None
+            if private:
+                from yoao_assets_media_runtime.fixture_native_outputs import native_producer_ready
+
+                await native_producer_ready(database, "image")
+            else:
+                input_storage = S3InputStorage(config.storage, source_storage=storage)
+                policy = image_policy_from_environment()
+                inputs = InputExecutor(
+                    AsyncpgInputDatabase(database.pool, allowed_roles={"worker"}),
+                    input_storage,
+                    policy=policy,
+                    worker_id=executor.worker_id,
+                )
             stopped = shutdown_event or asyncio.Event()
             ready = False
             unsettled = False
+            if private and ready_callback is not None:
+                ready_callback()
+                ready = True
             if once:
-                if job_id is not None:
+                if job_id is not None or private:
                     await executor.execute_once(job_id=job_id)
                 else:
                     result = await inputs.execute_once(input_id=input_id)
@@ -1616,7 +1727,7 @@ async def _run_worker(
             while not stopped.is_set():
                 try:
                     now = asyncio.get_running_loop().time()
-                    if input_id is None and now >= next_reconcile:
+                    if not private and input_id is None and now >= next_reconcile:
                         await executor.reconcile_once()
                         next_reconcile = (
                             asyncio.get_running_loop().time()
@@ -1626,13 +1737,13 @@ async def _run_worker(
                         break
                     input_work = (
                         await inputs.execute_once(input_id=input_id)
-                        if job_id is None
+                        if not private and job_id is None
                         else None
                     )
-                    if inputs.unsettled_claim or (
+                    if inputs is not None and (inputs.unsettled_claim or (
                         input_work is not None
                         and input_work.status not in {"ready", "failed"}
-                    ):
+                    )):
                         unsettled = True
                         if strict:
                             raise RuntimeError("Assets image input claim is unsettled")

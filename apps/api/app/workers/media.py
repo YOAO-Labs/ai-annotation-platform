@@ -87,12 +87,17 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
         dimensions = width, height
     except ImagePyramidError as exc:
         failure = ImagePyramidError(exc.code)
+        failure.add_note(f"Image probe failed: {type(exc).__name__}")
         if failure_unsettled(exc):
             mark_unsettled(failure)
     except Exception as exc:
         failure = ImagePyramidError("decode_failed")
+        failure.add_note(f"Image probe failed: {type(exc).__name__}")
         if failure_unsettled(exc):
             mark_unsettled(failure)
+    except asyncio.CancelledError as exc:
+        failure = mark_unsettled(asyncio.CancelledError())
+        failure.add_note(f"Image probe interrupted: {type(exc).__name__}")
     except BaseException as exc:
         failure = mark_unsettled(exc)
     finally:
@@ -102,15 +107,17 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
             pyvips.cache_set_max_mem(0)
             pyvips.cache_set_max_files(0)
             gc.collect()
-        except BaseException:
+        except BaseException as exc:
             cleanup = mark_unsettled(ImagePyramidError("decode_failed"))
-            failure = (
-                cleanup
-                if failure is None
-                else BaseExceptionGroup(
+            cleanup.add_note(f"Image probe cleanup failed: {type(exc).__name__}")
+            if failure is None:
+                failure = cleanup
+            elif isinstance(failure, asyncio.CancelledError):
+                failure.__cause__ = cleanup
+            else:
+                failure = BaseExceptionGroup(
                     "Image probe and native cleanup failed", [failure, cleanup]
                 )
-            )
     if failure is not None:
         # An exception raised inside a libvips method may retain its image in
         # traceback frames. Export only the stable error after those frames end.
@@ -122,6 +129,11 @@ async def _pyramid_dimensions(db, kind, identifier) -> tuple[int, int]:
     from app.services import image_pyramid_originals as originals
 
     source = await originals.pin(db, kind, identifier)
+    from app.services import fixture_media_execution
+
+    execution = fixture_media_execution.current()
+    if execution is not None:
+        execution.require_source(originals.receipt(source))
     authority = await originals.delegated(
         db, originals.system_authorization(kind, identifier, source)
     )
@@ -624,19 +636,62 @@ async def _refresh_video_asset_bytes(db) -> None:
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="chunk").set(chunk_bytes)
 
 
+async def _dispatch_independent_media(task_name, delivery_id, queue, args, kwargs, run, *, soft_time_limit=None):
+    from app.services import fixture_media_execution
+
+    if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_media"):
+        async with fixture_media_execution.admitted_independent(
+            delivery_id, task_name, queue, args, kwargs, soft_time_limit=soft_time_limit
+        ) as started:
+            if started:
+                await run()
+        return
+    if await fixture_media_execution.is_fixture("independent", delivery_id):
+        raise RuntimeError("fixture_media_scope_untracked")
+    await run()
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_thumbnail(self, item_id: str) -> None:
-    asyncio.run(_generate_thumbnail(item_id))
+    from app.services.fixture_media_execution import request_soft_limit
+    asyncio.run(_dispatch_independent_media(
+        "app.workers.media.generate_thumbnail", self.request.id,
+        self.request.delivery_info.get("routing_key"), [item_id], {},
+        lambda: _generate_thumbnail(item_id), soft_time_limit=request_soft_limit(self.request),
+    ))
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_video_metadata(self, item_id: str, delegation=None) -> None:
-    asyncio.run(_generate_video_metadata(item_id, delegation=delegation))
+    from app.services.fixture_media_execution import request_soft_limit
+    asyncio.run(_dispatch_independent_media(
+        "app.workers.media.generate_video_metadata", self.request.id,
+        self.request.delivery_info.get("routing_key"), [item_id], {"delegation": delegation},
+        lambda: _generate_video_metadata(item_id, delegation=delegation), soft_time_limit=request_soft_limit(self.request),
+    ))
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_task_thumbnail(self, task_id: str) -> None:
-    asyncio.run(_generate_task_thumbnail(task_id))
+    from app.services.fixture_media_execution import request_soft_limit
+    asyncio.run(_dispatch_independent_media(
+        "app.workers.media.generate_task_thumbnail", self.request.id,
+        self.request.delivery_info.get("routing_key"), [task_id], {},
+        lambda: _generate_task_thumbnail(task_id), soft_time_limit=request_soft_limit(self.request),
+    ))
+
+
+async def _dispatch_media_backfill(job_id, delivery_id, queue):
+    from app.services import fixture_media_execution
+
+    if not await fixture_media_execution.is_fixture("backfill", job_id):
+        await _run_media_backfill_job(job_id)
+        return
+    async with fixture_media_execution.admitted(
+        "backfill", job_id, queue, delivery_id=delivery_id
+    ) as started:
+        if started:
+            await _run_media_backfill_job(job_id)
 
 
 @celery_app.task(
@@ -644,7 +699,13 @@ def generate_task_thumbnail(self, task_id: str) -> None:
 )
 def run_media_backfill(self, async_job_id: str) -> None:
     """Jobs-owned durable dataset media backfill; the row is the only queue."""
-    asyncio.run(_run_media_backfill_job(uuid.UUID(async_job_id)))
+    asyncio.run(
+        _dispatch_media_backfill(
+            uuid.UUID(async_job_id),
+            self.request.id,
+            self.request.delivery_info.get("routing_key"),
+        )
+    )
 
 
 @celery_app.task(bind=True, max_retries=1, queue="media")
@@ -671,10 +732,30 @@ def cleanup_video_frame_assets(self) -> None:
     asyncio.run(_cleanup_video_frame_assets())
 
 
+async def _dispatch_video_outputs(delivery_id, queue, output_ids, soft_time_limit):
+    from app.services import fixture_media_execution
+    from app.workers.media_derivatives import run_outputs
+
+    if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_media"):
+        async with fixture_media_execution.admitted_independent(
+            delivery_id, "app.workers.media.generate_video_derivatives", queue,
+            [output_ids], {}, soft_time_limit=soft_time_limit,
+        ) as started:
+            if started:
+                await run_outputs(output_ids, propagate_failure=True)
+        return
+    if await fixture_media_execution.is_fixture("independent", delivery_id):
+        raise RuntimeError("fixture_media_scope_untracked")
+    await run_outputs(output_ids)
+
+
 @celery_app.task(
     bind=True, max_retries=0, queue="media", soft_time_limit=1800, time_limit=0
 )
 def generate_video_derivatives(self, output_ids: list[str]) -> None:
-    from app.workers.media_derivatives import run_outputs
+    from app.services.fixture_media_execution import request_soft_limit
 
-    asyncio.run(run_outputs(output_ids))
+    asyncio.run(_dispatch_video_outputs(
+        self.request.id, self.request.delivery_info.get("routing_key"),
+        output_ids, request_soft_limit(self.request),
+    ))

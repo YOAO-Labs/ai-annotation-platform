@@ -152,6 +152,9 @@ class ClaimTrackingDatabase:
             self.claimed = result.claim is not None
         return result
 
+    def fixture_business_connection(self):
+        return self.database.fixture_business_connection()
+
     def begin_poll(self) -> None:
         self.claimed = False
 

@@ -7,6 +7,7 @@ import builtins
 from hashlib import sha256
 from pathlib import Path
 import re
+import sys
 from typing import Protocol
 
 from yoao_assets_media.contract import (
@@ -173,10 +174,12 @@ class S3MediaStorage:
         additional_original_client=None,
         client=None,
         signer=None,
+        fixture_cache_resolver=None,
     ) -> None:
         self.datasets_bucket = datasets_bucket
         self._endpoint = endpoint.rstrip("/")
         self.cache_bucket = cache_bucket
+        self._fixture_cache_resolver = fixture_cache_resolver
         if client is None or signer is None:
             import boto3
             from botocore.config import Config
@@ -310,6 +313,19 @@ class S3MediaStorage:
     async def head_cache(self, key: str) -> ObjectIdentity | None:
         _validate_cache_read_key(key)
         try:
+            fixture_url = (
+                await self._fixture_cache_resolver.url(key, 300)
+                if self._fixture_cache_resolver is not None else None
+            )
+            if fixture_url is not None:
+                response = await self._fixture_cache_resolver.http.head(fixture_url)
+                if response.status_code != 200:
+                    raise MediaFailure("storage_unavailable")
+                return _identity({
+                    "ETag": response.headers.get("etag"),
+                    "ContentLength": int(response.headers["content-length"]),
+                    "VersionId": response.headers.get("x-amz-version-id"),
+                })
             response = await asyncio.to_thread(
                 self._client.head_object,
                 Bucket=self.cache_bucket,
@@ -328,28 +344,16 @@ class S3MediaStorage:
 
     async def upload_cache(self, path: Path, key: str) -> Artifact:
         _validate_cache_key(key)
+        from .original_read import fixture_original_active
+
+        if fixture_original_active():
+            return await self._upload_fixture_cache(Path(path), key)
         try:
             return await _run_blocking(self._upload_cache, path, key)
-        except BaseException as exc:
-            from .original_read import fixture_original_active
-
-            fixture = fixture_original_active()
-            uncertain = fixture and (
-                isinstance(exc, asyncio.CancelledError)
-                or getattr(exc, "storage_operation_unsettled", False)
-            )
-            if uncertain:
-                exc.storage_operation_unsettled = True
-            if isinstance(exc, MediaFailure):
-                raise
-            if uncertain and isinstance(exc, BaseExceptionGroup):
-                raise
-            if isinstance(exc, Exception):
-                failure = _storage_error(exc)
-                if uncertain:
-                    failure.storage_operation_unsettled = True
-                raise failure from None
+        except MediaFailure:
             raise
+        except Exception as exc:
+            raise _storage_error(exc) from None
 
     def _upload_cache(self, path: Path, key: str) -> Artifact:
         content_type = {
@@ -361,30 +365,129 @@ class S3MediaStorage:
             raise MediaFailure("invalid_response")
         digest = _sha256_file(path)
         byte_size = path.stat().st_size
-        from .original_read import fixture_upload_started
+        self._client.upload_file(
+            str(path),
+            self.cache_bucket,
+            key,
+            ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": digest}},
+        )
+        head = self._client.head_object(Bucket=self.cache_bucket, Key=key)
+        identity = _identity(head)
+        metadata = head.get("Metadata")
+        if (
+            identity.byte_size != byte_size
+            or not isinstance(metadata, dict)
+            or metadata.get("sha256") != digest
+        ):
+            raise MediaFailure("storage_unavailable")
+        return Artifact(key=key, byte_size=byte_size, sha256=digest)
 
-        fixture_upload_started()
+
+    def _fixture_key_absent(self, client, bucket, key):
+        cursor = None
+        visited = set()
+        while True:
+            params = {"Bucket": bucket, "Prefix": key, "MaxKeys": 1000}
+            if cursor is not None:
+                params["ContinuationToken"] = cursor
+            page = client.list_objects_v2(**params)
+            entries = page.get("Contents", [])
+            if (
+                page.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+                or type(page.get("IsTruncated")) is not bool
+                or not isinstance(entries, list)
+                or any(
+                    not isinstance(entry, dict)
+                    or not isinstance(entry.get("Key"), str)
+                    or not entry["Key"].startswith(key)
+                    for entry in entries
+                )
+            ):
+                raise RuntimeError("fixture native cache absence is unproven")
+            if any(entry["Key"] == key for entry in entries):
+                raise RuntimeError("fixture native cache key already exists")
+            if not page["IsTruncated"]:
+                return
+            cursor = page.get("NextContinuationToken")
+            if not isinstance(cursor, str) or not cursor or cursor in visited:
+                raise RuntimeError("fixture native cache absence is unproven")
+            visited.add(cursor)
+
+    def _fixture_put(self, client, bucket, path, key, content_type, digest):
+        from boto3.s3.transfer import TransferConfig
+
+        receipts = []
+
+        def capture(http_response, parsed, **_kwargs):
+            if http_response.status_code == 200 and isinstance(parsed, dict):
+                receipts.append(dict(parsed))
+
+        events = client.meta.events
+        events.register("after-call.s3.PutObject", capture)
+        events.register("after-call.s3.CompleteMultipartUpload", capture)
         try:
-            self._client.upload_file(
+            client.upload_file(
                 str(path),
-                self.cache_bucket,
+                bucket,
                 key,
                 ExtraArgs={"ContentType": content_type, "Metadata": {"sha256": digest}},
+                Config=TransferConfig(use_threads=False),
             )
-            head = self._client.head_object(Bucket=self.cache_bucket, Key=key)
-            identity = _identity(head)
-            metadata = head.get("Metadata")
-            if (
-                identity.byte_size != byte_size
-                or not isinstance(metadata, dict)
-                or metadata.get("sha256") != digest
-            ):
-                raise MediaFailure("storage_unavailable")
-            return Artifact(key=key, byte_size=byte_size, sha256=digest)
-        except BaseException as exc:
-            from .original_read import fixture_original_active
+        finally:
+            events.unregister("after-call.s3.PutObject", capture)
+            events.unregister("after-call.s3.CompleteMultipartUpload", capture)
+        if len(receipts) != 1:
+            raise RuntimeError("fixture native cache PUT receipt is unavailable")
+        response = receipts[0]
+        etag, version = response.get("ETag"), response.get("VersionId")
+        if (
+            response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+            or not isinstance(etag, str)
+            or not etag
+            or not isinstance(version, str)
+            or not version
+            or version == "null"
+        ):
+            raise RuntimeError("fixture native cache PUT receipt is invalid")
+        return etag, version
 
-            if fixture_original_active():
+    async def _upload_fixture_cache(self, path, key):
+        from .fixture_native_outputs import current, verify_object
+        from .original_read import fixture_upload_started
+
+        writer = current()
+        if writer is None:
+            raise RuntimeError("fixture native cache control is unavailable")
+        content_type = {
+            ".webp": "image/webp",
+            ".jpeg": "image/jpeg",
+            ".mp4": "video/mp4",
+        }.get(path.suffix.lower())
+        if content_type is None or not path.is_file():
+            raise MediaFailure("invalid_response")
+        digest = await _run_blocking(_sha256_file, path)
+        size = path.stat().st_size
+        if size <= 0:
+            raise MediaFailure("invalid_response")
+        await writer.prepare()
+        client, bucket = writer.client, writer.bucket
+        attempted = False
+        try:
+            await _run_blocking(self._fixture_key_absent, client, bucket, key)
+            intent = await writer.begin(key, digest, size)
+            fixture_upload_started()
+            attempted = True
+            etag, version = await _run_blocking(
+                self._fixture_put, client, bucket, path, key, content_type, digest
+            )
+            await writer.advance(intent, "written", etag, version)
+            await _run_blocking(
+                verify_object, client, bucket, key, digest, size, etag, version
+            )
+            await writer.advance(intent, "verified", etag, version)
+            return Artifact(key=key, byte_size=size, sha256=digest)
+        except BaseException as exc:
+            if attempted:
                 exc.storage_operation_unsettled = True
             raise
 
@@ -459,11 +562,19 @@ class S3MediaStorage:
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
         _validate_cache_read_key(key)
+        expiry = _valid_expiry(expires_in, maximum=3600)
+        if self._fixture_cache_resolver is not None:
+            try:
+                fixture_url = await self._fixture_cache_resolver.url(key, expiry)
+            except Exception as exc:
+                raise _storage_error(exc) from None
+            if fixture_url is not None:
+                return fixture_url
         return await asyncio.to_thread(
             self._signer.generate_presigned_url,
             "get_object",
             Params={"Bucket": self.cache_bucket, "Key": key},
-            ExpiresIn=_valid_expiry(expires_in, maximum=3600),
+            ExpiresIn=expiry,
         )
 
 

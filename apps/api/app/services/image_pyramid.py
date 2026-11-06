@@ -323,6 +323,16 @@ async def prepare_generation(
     ).scalar_one_or_none()
     now = utcnow()
     if inflight is not None:
+        from app.services import fixture_media_execution
+
+        execution = fixture_media_execution.current()
+        if execution is not None:
+            if execution.kind not in {"pyramid", "independent"}:
+                raise ImagePyramidError("fixture_media_scope_mismatch")
+            # A reuser records the real generation and leaves its lease and
+            # initiating authority untouched, even when that lease has expired.
+            await execution.bind_generation(inflight.asset_id, inflight.generation)
+            return None
         if (
             inflight.status == "building"
             and inflight.lease_expires_at is not None

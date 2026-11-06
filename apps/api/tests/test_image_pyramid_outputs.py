@@ -10,7 +10,6 @@ import asyncio
 from datetime import timedelta
 import hashlib
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.config import Config
@@ -40,7 +39,6 @@ from app.services.content_snapshot import ContentError
 from app.services.dataset_assets import LEGACY_LOCATION_ID, ensure_legacy_bindings
 from app.services.managed_original_retirement import managed_storage_identity
 from app.services.storage import storage_service
-from app.workers import image_pyramid as worker
 from tests.test_image_pyramid_storage import Provider
 from tests.training_original_fixtures import image_bytes
 
@@ -736,98 +734,3 @@ async def test_gc_retains_owner_when_physical_delete_cannot_verify_empty(
     await db_session.refresh(row)
     assert row.state == "retiring"
     assert provider.objects[(row.storage_ref["bucket"], key)] == b"retained-by-provider"
-
-
-async def test_worker_rejects_unrecorded_delegation_before_storage_construction(
-    monkeypatch,
-):
-    class Session:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-    engine = SimpleNamespace(dispose=AsyncMock())
-    monkeypatch.setattr(worker, "create_async_engine", lambda *args, **kwargs: engine)
-    monkeypatch.setattr(worker, "async_sessionmaker", lambda *args, **kwargs: Session)
-    monkeypatch.setattr(
-        worker,
-        "StorageService",
-        lambda: pytest.fail("unrecorded delegation must not construct storage"),
-    )
-
-    async def reject(db, value):
-        assert value is None
-        raise ContentError("pyramid_authority_unrecorded", 403)
-
-    monkeypatch.setattr(originals, "delegated", reject)
-    await worker._run_image_pyramid(
-        "task", str(uuid.uuid4()), force=True, delegation=None
-    )
-    engine.dispose.assert_awaited_once()
-
-
-async def test_worker_preserves_nested_unsettled_failure(monkeypatch):
-    class Session:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *args):
-            return False
-
-    engine = SimpleNamespace(dispose=AsyncMock())
-    monkeypatch.setattr(worker, "create_async_engine", lambda *args, **kwargs: engine)
-    monkeypatch.setattr(worker, "async_sessionmaker", lambda *args, **kwargs: Session)
-    failure = ExceptionGroup(
-        "source",
-        [storage_access.mark_unsettled(OSError("source close unconfirmed"))],
-    )
-    monkeypatch.setattr(originals, "delegated", AsyncMock(side_effect=failure))
-    fail_generation = AsyncMock()
-    monkeypatch.setattr(worker, "fail_generation", fail_generation)
-
-    with pytest.raises(ExceptionGroup) as rejected:
-        await worker._run_image_pyramid(
-            "dataset_item", str(uuid.uuid4()), force=False, delegation={}
-        )
-    assert storage_access.failure_unsettled(rejected.value)
-    fail_generation.assert_not_awaited()
-
-
-def test_pyramid_temporary_output_survives_nested_uncertainty(monkeypatch):
-    temporary = SimpleNamespace(
-        name="/private/pyramid-stage",
-        cleanup=Mock(),
-        _finalizer=SimpleNamespace(detach=Mock()),
-    )
-    clear_cache = Mock()
-    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: temporary)
-    monkeypatch.setattr(worker, "_clear_vips_cache", clear_cache)
-    uncertain = storage_access.mark_unsettled(OSError("native drain failed"))
-    failure = ExceptionGroup("generation", [uncertain])
-
-    with pytest.raises(ExceptionGroup) as rejected:
-        with worker._temporary_directory():
-            raise failure
-    assert rejected.value is failure
-    clear_cache.assert_not_called()
-    temporary.cleanup.assert_not_called()
-    temporary._finalizer.detach.assert_called_once()
-
-
-def test_pyramid_temporary_cleanup_keeps_the_primary_failure(monkeypatch):
-    temporary = SimpleNamespace(
-        name="/private/pyramid-stage",
-        cleanup=Mock(side_effect=OSError("cleanup failed")),
-        _finalizer=SimpleNamespace(detach=Mock()),
-    )
-    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: temporary)
-    monkeypatch.setattr(worker, "_clear_vips_cache", Mock())
-
-    with pytest.raises(ExceptionGroup) as rejected:
-        with worker._temporary_directory():
-            raise ValueError("generation failed")
-    assert [type(exc) for exc in rejected.value.exceptions] == [ValueError, OSError]
-    assert storage_access.failure_unsettled(rejected.value)
-    temporary._finalizer.detach.assert_called_once()

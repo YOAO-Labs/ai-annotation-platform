@@ -83,7 +83,7 @@ async def generate(
     allow_pyramid=True,
 ):
     """No source/output I/O runs while final business publication locks are held."""
-    source, revision = None, None
+    source, revision, source_guard = None, None, None
     try:
         row = await _business(db, kind, identifier)
         if row is None or row.file_type != "image":
@@ -96,6 +96,11 @@ async def generate(
             dataset = await require_writable(db, row.dataset_id)
             revision = dataset.lifecycle_revision
         source = await originals.pin(db, kind, identifier)
+        from app.services import fixture_media_execution
+
+        execution = fixture_media_execution.current()
+        if execution is not None:
+            execution.require_source(originals.receipt(source))
         dimensions = (row.width, row.height) if kind == "dataset_item" else None
         missing = kind == "dataset_item" and None in dimensions
         await db.rollback()
@@ -112,14 +117,23 @@ async def generate(
                 await db.rollback()
         if dimensions and pyramid_eligible(*dimensions):
             if allow_pyramid and settings.image_pyramid_auto_generate:
-                from app.workers.image_pyramid import enqueue_image_pyramid
+                from app.services import fixture_media_execution
 
-                enqueue_image_pyramid(
-                    kind,
-                    identifier,
-                    **({"force": True} if kind == "task" else {}),
-                    delegation=originals.system_authorization(kind, identifier, source),
-                )
+                delegation = originals.system_authorization(kind, identifier, source)
+                execution = fixture_media_execution.current()
+                if execution is not None and execution.kind == "backfill":
+                    if kind != "dataset_item":
+                        raise ContentError("fixture_media_scope_mismatch")
+                    await fixture_media_execution.enqueue_pyramid(db, identifier, delegation)
+                else:
+                    from app.workers.image_pyramid import enqueue_image_pyramid
+
+                    await enqueue_image_pyramid(
+                        db, kind,
+                        identifier,
+                        **({"force": True} if kind == "task" else {}),
+                        delegation=delegation,
+                    )
             return
         if source.size_bytes > max_source_bytes:
             raise ContentError("thumbnail_source_too_large", 413)
@@ -127,13 +141,15 @@ async def generate(
             db, originals.system_authorization(kind, identifier, source)
         )
         await db.rollback()
-        async with originals.media(db, authority, source) as stage:
-            encoded = await originals.physical(
-                _encode,
-                stage,
-                encode,
-                inspect_dimensions=kind == "task" and not allow_pyramid,
-            )
+        pending_guard = originals.media(db, authority, source)
+        stage = await pending_guard.__aenter__()
+        source_guard = pending_guard
+        encoded = await originals.physical(
+            _encode,
+            stage,
+            encode,
+            inspect_dimensions=kind == "task" and not allow_pyramid,
+        )
         await db.rollback()
         if encoded is None:
             return
@@ -190,17 +206,33 @@ async def generate(
         row.blurhash = blurhash
         await db.commit()
     except Exception as exc:
-        if storage_access.failure_unsettled(exc):
+        from app.services import fixture_media_execution
+
+        if (
+            storage_access.failure_unsettled(exc)
+            or fixture_media_execution.current() is not None
+        ):
             raise
         await _error(db, kind, identifier, source, revision, exc)
     finally:
         failure = sys.exception()
+        errors = []
         try:
             await db.rollback()
         except BaseException as rollback_error:
+            errors.append(rollback_error)
+        if source_guard is not None:
+            try:
+                await source_guard.__aexit__(
+                    type(failure) if failure is not None else None,
+                    failure,
+                    failure.__traceback__ if failure is not None else None,
+                )
+            except BaseException as close_error:
+                errors.append(storage_access.mark_unsettled(close_error))
+        if errors:
             if failure is not None:
-                raise BaseExceptionGroup(
-                    "Thumbnail generation and rollback failed",
-                    [failure, rollback_error],
-                ) from None
-            raise
+                errors.insert(0, failure)
+            combined = BaseExceptionGroup("Thumbnail generation and cleanup failed", errors)
+            storage_access.mark_unsettled(combined)
+            raise combined from None

@@ -248,8 +248,8 @@ async def get_image_pyramid(
         await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         if settings.image_pyramid_auto_generate:
-            enqueue_image_pyramid(
-                "task",
+            await enqueue_image_pyramid(
+                db, "task",
                 task.id,
                 force=True,
                 delegation=originals.authorization(authority),
@@ -301,8 +301,8 @@ async def get_image_pyramid(
         if settings.image_pyramid_auto_generate:
             await originals.check(db, authority, lock=True)
             await db.commit()
-            enqueue_image_pyramid(
-                "task",
+            await enqueue_image_pyramid(
+                db, "task",
                 task.id,
                 force=True,
                 delegation=originals.authorization(authority),
@@ -625,8 +625,8 @@ async def retry_image_pyramid(
 
     await originals.check(db, authority, lock=True)
     await db.commit()
-    celery_task_id = enqueue_image_pyramid(
-        "task", task.id, force=True, delegation=originals.authorization(authority)
+    celery_task_id = await enqueue_image_pyramid(
+        db, "task", task.id, force=True, delegation=originals.authorization(authority)
     )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="retry", outcome="queued").inc()
     return ImagePyramidRetryResponse(

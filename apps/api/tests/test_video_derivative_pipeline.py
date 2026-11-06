@@ -1,20 +1,22 @@
 """Publication races, precise packet bounds and a real owned video pipeline."""
 
+import asyncio
 from copy import deepcopy
-from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import os
 import re
 import subprocess
+import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 import uuid
 from urllib.parse import urlsplit
 
 from PIL import Image
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import Dataset, DatasetItem, VideoFrameIndex
@@ -143,88 +145,6 @@ async def test_unsettled_claim_is_not_retried(monkeypatch):
     assert rejected.value is failure
     assert claim.await_count == 1
 
-
-@pytest.mark.parametrize("phase", ["claim", "capture"])
-async def test_unsettled_derivative_never_retires_the_claim(monkeypatch, phase):
-    identifier = uuid.uuid4()
-    physical_failure = storage_access.mark_unsettled(OSError("unconfirmed close"))
-    failure = ExceptionGroup("media", [physical_failure])
-    engine = SimpleNamespace(dispose=AsyncMock())
-    monkeypatch.setattr(worker, "create_async_engine", lambda *args, **kwargs: engine)
-
-    @asynccontextmanager
-    async def session():
-        yield object()
-
-    monkeypatch.setattr(worker, "async_sessionmaker", lambda *args, **kwargs: session)
-    claim = SimpleNamespace(
-        output=SimpleNamespace(
-            id=identifier, original_ref={}, auth_ref={}, metadata_output_id=None
-        ),
-        authority=object(),
-        source=object(),
-        token=uuid.uuid4(),
-    )
-
-    async def claim_output(_factory, _identifier):
-        if phase == "claim":
-            raise failure
-        return claim
-
-    @asynccontextmanager
-    async def capture(*_args):
-        raise failure
-        yield
-
-    monkeypatch.setattr(worker, "claim_with_retry", claim_output)
-    monkeypatch.setattr(worker.originals, "media", capture)
-    retire = AsyncMock()
-    monkeypatch.setattr(worker, "fail_with_retry", retire)
-
-    with pytest.raises(ExceptionGroup) as rejected:
-        await worker.run_outputs([str(identifier)])
-    assert storage_access.failure_unsettled(rejected.value)
-    retire.assert_not_awaited()
-
-
-def test_nested_uncertainty_retains_video_temporary_output(monkeypatch):
-    from app.services import media_process
-
-    uncertain = storage_access.mark_unsettled(OSError("native drain failed"))
-    failure = ExceptionGroup("decoder", [uncertain])
-    directory = SimpleNamespace(
-        name="/private/video-stage", cleanup=Mock(), _finalizer=SimpleNamespace(detach=Mock())
-    )
-    monkeypatch.setattr(media_process, "decoder_input", lambda _stage: ("source", ()))
-    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: directory)
-    monkeypatch.setattr(worker, "_metadata", Mock(side_effect=failure))
-    output = SimpleNamespace(id=uuid.uuid4(), kind="metadata")
-
-    with pytest.raises(ExceptionGroup) as rejected:
-        worker.build(None, output, object())
-    assert rejected.value is failure
-    directory.cleanup.assert_not_called()
-    directory._finalizer.detach.assert_called_once()
-
-
-def test_video_temporary_cleanup_keeps_the_primary_failure(monkeypatch):
-    from app.services import media_process
-
-    directory = SimpleNamespace(
-        name="/private/video-stage",
-        cleanup=Mock(side_effect=OSError("cleanup failed")),
-        _finalizer=SimpleNamespace(detach=Mock()),
-    )
-    monkeypatch.setattr(media_process, "decoder_input", lambda _stage: ("source", ()))
-    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: directory)
-    monkeypatch.setattr(worker, "_metadata", Mock(side_effect=ValueError("decode failed")))
-    output = SimpleNamespace(id=uuid.uuid4(), kind="metadata")
-
-    with pytest.raises(ExceptionGroup) as rejected:
-        worker.build(None, output, object())
-    assert [type(exc) for exc in rejected.value.exceptions] == [ValueError, OSError]
-    assert storage_access.failure_unsettled(rejected.value)
-    directory._finalizer.detach.assert_called_once()
 
 
 async def test_newer_metadata_attempt_prevents_old_publication(world, db_session):
@@ -450,6 +370,47 @@ async def real_video(test_engine, tmp_path, monkeypatch):
         )
 
 
+async def test_real_active_output_claim_survives_expiry(real_video, monkeypatch):
+    context = real_video
+    async with context.factory() as db:
+        output, _ = await core.prepare(db, context.item_id, context.authority, "metadata")
+        identifier = output.id
+        await db.commit()
+
+    entered, release = threading.Event(), threading.Event()
+    build = worker.build
+
+    def held_build(*args, **kwargs):
+        entered.set()
+        if not release.wait(30):
+            raise RuntimeError("video output test gate was not released")
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(worker, "build", held_build)
+    running = asyncio.create_task(worker.run_outputs([str(identifier)]))
+    try:
+        assert await asyncio.to_thread(entered.wait, 30)
+        async with context.factory() as db:
+            output = await db.get(Output, identifier, with_for_update=True)
+            token, expires = output.lease_token, output.lease_expires_at
+            assert token is not None and await objects._in_use(db, identifier)
+            output.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await db.commit()
+        async with context.factory() as db:
+            output = await db.get(Output, identifier, with_for_update=True)
+            assert await objects.claim(db, output) is None
+            assert output.state == "building" and output.lease_token == token
+            assert await objects._in_use(db, identifier)
+            output.lease_expires_at = expires
+            await db.commit()
+    finally:
+        release.set()
+        await running
+    async with context.factory() as db:
+        output = await db.get(Output, identifier)
+        assert output.state == "ready", output.error_code
+
+
 async def test_real_registered_original_native_generation_and_complete_readback(
     real_video,
 ):
@@ -505,6 +466,19 @@ async def test_real_registered_original_native_generation_and_complete_readback(
             for identifier in [metadata_id, *prepared]
         ]
     for output in outputs:
+        async with context.factory() as db:
+            native = (
+                await db.execute(
+                    text(
+                        "SELECT path,state,device,inode FROM aap_assets_v1.media_native_stages "
+                        "WHERE output_kind='video_output' AND output_id=:id"
+                    ),
+                    {"id": output.id},
+                )
+            ).one()
+            assert native.state == "settled"
+            assert native.device and native.inode
+            assert not os.path.lexists(native.path)
         assert output.state == "ready", output.error_code
         core.validate_result(output, output.result, output.inventory)
         async with context.factory() as db:

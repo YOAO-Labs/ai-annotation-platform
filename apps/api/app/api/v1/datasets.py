@@ -20,6 +20,7 @@ from fastapi import (
 from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.datastructures import FormData, UploadFile as StarletteUploadFile
 from starlette.requests import parse_options_header
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1077,6 +1078,10 @@ async def _schedule_media_backfill(
             payload=payload,
         )
     execution_id = str(job.id)
+    queue = await db.scalar(
+        text("SELECT aap_jobs_v1.fixture_media_backfill_route(:job_id)"),
+        {"job_id": job.id},
+    )
     dispatch_args = [str(job.id)]
     dispatch_kwargs: dict = {}
     lease = await prepare_job_dispatch(
@@ -1086,7 +1091,7 @@ async def _schedule_media_backfill(
         execution_id=execution_id,
         args=dispatch_args,
         kwargs=dispatch_kwargs,
-        options={"queue": "media"},
+        options={"queue": queue},
     )
     await recheck_directory_write(request, db, dataset_id)
     # The worker must see the durable row before Celery can start. A concurrent
@@ -1100,7 +1105,7 @@ async def _schedule_media_backfill(
             execution_id=execution_id,
             args=dispatch_args,
             kwargs=dispatch_kwargs,
-            options={"queue": "media"},
+            options={"queue": queue},
         ),
     )
     return _media_backfill_response(job)

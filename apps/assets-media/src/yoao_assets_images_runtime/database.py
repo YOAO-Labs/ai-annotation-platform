@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import re
 from typing import Any, Collection, Protocol, runtime_checkable
 
@@ -152,6 +153,9 @@ class AsyncpgImageDatabase:
     def pool(self) -> Any:
         return self._pool
 
+    def fixture_business_connection(self):
+        return self._pool.acquire()
+
     @classmethod
     async def connect(
         cls,
@@ -183,13 +187,20 @@ class AsyncpgImageDatabase:
         if isinstance(request, FinishImageMediaRequest):
             _validate_finish_request(request)
         async with self._pool.acquire() as connection:
-            async with connection.transaction():
-                raw = await connection.fetchval(statement, *parameters)
-                return validate_native_result(
-                    name,
-                    request,
-                    raw,
-                )
+            from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+
+            if name == "begin_image_original_worker":
+                scope = source_admission(connection, "image", request)
+            elif name == "claim_image_media":
+                scope = claim_admission(connection, "image", request)
+            elif name == "advance_image_backfill":
+                scope = scan_admission(connection, "image", request)
+            else:
+                scope = nullcontext()
+            async with scope:
+                async with connection.transaction():
+                    raw = await connection.fetchval(statement, *parameters)
+                    return validate_native_result(name, request, raw)
 
     async def close(self) -> None:
         await self._pool.close()

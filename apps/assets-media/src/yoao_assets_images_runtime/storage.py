@@ -167,8 +167,10 @@ class S3ImageStorage:
         signer=None,
         http_client=None,
         additional_original_client=None,
+        fixture_cache_resolver=None,
     ) -> None:
         self.config = config
+        self._fixture_cache_resolver = fixture_cache_resolver
         self._http_client = http_client
         self._owns_http_client = http_client is None
         if client is None or signer is None:
@@ -289,6 +291,15 @@ class S3ImageStorage:
     async def head_cache(self, key: str) -> ObjectIdentity | None:
         _validate_cache_key(key)
         try:
+            fixture_url = (
+                await self._fixture_cache_resolver.url(key, 300)
+                if self._fixture_cache_resolver is not None else None
+            )
+            if fixture_url is not None:
+                response = await self._fixture_cache_resolver.http.head(fixture_url)
+                if response.status_code != 200:
+                    raise ImageFailure("storage_unavailable")
+                return _http_identity(response.headers)
             identity, _headers = await self._head_object(
                 self._get_http_client(), self.config.cache_bucket, key
             )
@@ -308,12 +319,18 @@ class S3ImageStorage:
         if type(limit) is not int or not 1 <= limit <= 16 * 1024 * 1024:
             raise ImageFailure("resource_budget_exceeded")
         client = self._get_http_client()
-        url = self._presigned_http_url(
+        fixture_url = (
+            await self._fixture_cache_resolver.url(key, 300)
+            if self._fixture_cache_resolver is not None else None
+        )
+        url = fixture_url or self._presigned_http_url(
             "get_object", {"Bucket": self.config.cache_bucket, "Key": key}
         )
         try:
             async with client.stream("GET", url) as response:
                 if response.status_code != 200:
+                    if fixture_url is not None:
+                        raise ImageFailure("storage_unavailable")
                     _raise_http_failure(response, missing_is_object=True)
                 identity = _http_identity(response.headers)
                 if identity.byte_size > limit:
@@ -355,16 +372,23 @@ class S3ImageStorage:
             "ContentLength": info.st_size,
             "Metadata": {"sha256": digest},
         }
-        url = self._presigned_http_url("put_object", params)
+        from yoao_assets_media_runtime.fixture_native_outputs import current
+        from .original_read import fixture_original_active
+
+        writer = current()
+        if fixture_original_active() and writer is None:
+            raise RuntimeError("fixture native cache control is unavailable")
+        if writer is not None:
+            return await self._upload_fixture_cache(
+                path, key, digest, info.st_size, content_type, writer
+            )
         headers = {
             "Content-Type": content_type,
             "Content-Length": str(info.st_size),
             "x-amz-meta-sha256": digest,
         }
+        url = self._presigned_http_url("put_object", params)
         body = _FileBody(path, info.st_size, digest)
-        from .original_read import fixture_upload_started
-
-        fixture_upload_started()
         try:
             response = await self._get_http_client().put(
                 url,
@@ -386,9 +410,7 @@ class S3ImageStorage:
             _mark_fixture_upload_uncertain(exc)
             raise
         except Exception:
-            raise _mark_fixture_upload_uncertain(
-                ImageFailure("storage_unavailable")
-            ) from None
+            raise ImageFailure("storage_unavailable") from None
         finally:
             failure = sys.exception()
             try:
@@ -410,9 +432,60 @@ class S3ImageStorage:
                     raise combined from None
                 raise
 
+    @staticmethod
+    def _fixture_put(writer, path, key, digest, size, content_type):
+        with path.open("rb") as source:
+            result = writer.client.put_object(
+                Bucket=writer.bucket,
+                Key=key,
+                Body=source,
+                ContentLength=size,
+                ContentType=content_type,
+                Metadata={"sha256": digest},
+                IfNoneMatch="*",
+            )
+        etag, version = result.get("ETag"), result.get("VersionId")
+        if (
+            result.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+            or not isinstance(etag, str)
+            or not etag
+            or not isinstance(version, str)
+            or not version
+            or version == "null"
+        ):
+            raise RuntimeError("fixture native cache PUT receipt is invalid")
+        return etag, version
+
+    async def _upload_fixture_cache(self, path, key, digest, size, content_type, writer):
+        from yoao_assets_media_runtime.fixture_native_outputs import verify_object
+        from yoao_assets_media_runtime.storage import _run_blocking
+        from .original_read import fixture_upload_started
+
+        intent = await writer.begin(key, digest, size)
+        fixture_upload_started()
+        try:
+            etag, version = await _run_blocking(
+                self._fixture_put, writer, path, key, digest, size, content_type
+            )
+            await writer.advance(intent, "written", etag, version)
+            await _run_blocking(
+                verify_object, writer.client, writer.bucket, key, digest, size, etag, version
+            )
+            await writer.advance(intent, "verified", etag, version)
+            return Artifact(key=key, byte_size=size, sha256=digest)
+        except BaseException as exc:
+            exc.storage_operation_unsettled = True
+            raise
+
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
         _validate_cache_key(key)
         try:
+            fixture_url = (
+                await self._fixture_cache_resolver.url(key, expires_in)
+                if self._fixture_cache_resolver is not None else None
+            )
+            if fixture_url is not None:
+                return fixture_url
             return await asyncio.to_thread(
                 self._signer.generate_presigned_url,
                 "get_object",

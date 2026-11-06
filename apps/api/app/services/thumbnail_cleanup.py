@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from datetime import timedelta
 from types import SimpleNamespace
+import uuid
 
 from botocore.exceptions import ClientError
 from sqlalchemy import String, cast, exists, func, or_, select
@@ -57,9 +58,18 @@ def absent(exc):
     }
 
 
-def remove(target, output, *, accounting=None):
+def remove(target, output, *, accounting=None, fixture=None):
     """Read back the receipt, then delete and prove absence of that exact version."""
     saved = outputs.owner(output)
+    if fixture is not None:
+        retirement, permit, versions = fixture
+        with target.client(read_timeout=30, single_attempt=True, owned=True) as client:
+            return outputs.media_cache_storage.retire_fixture_versions(
+                client, saved, versions,
+                lambda identifier, state: retirement.physical_checkpoint(
+                    uuid.UUID(identifier), permit, state
+                ),
+            )
     params = {"Bucket": saved.bucket, "Key": saved.key(outputs.RELATIVE_KEY)}
     if output.version_id not in (None, "null"):
         params["VersionId"] = output.version_id
@@ -139,6 +149,16 @@ def remove(target, output, *, accounting=None):
     return 1
 
 
+async def retire_fixture(db, control, identifier):
+    """Use this thumbnail owner for one sealed, exactly born fixture output."""
+    from app.services.fixture_media_retirement import _retire_output
+
+    def retire(target, output, fixture):
+        return remove(target, output, fixture=fixture)
+
+    await _retire_output(db, control, "thumbnail", identifier, Output, retire)
+
+
 async def reconcile(db, *, limit=100, grace_seconds=3600):
     if (
         type(limit) is not int
@@ -157,6 +177,7 @@ async def reconcile(db, *, limit=100, grace_seconds=3600):
                 select(Output.id)
                 .where(
                     Output.state.in_(["ready", "retiring", "failed"]),
+                    func.aap_assets_v1.fixture_media_ordinary_gc("thumbnail", Output.id, 0),
                     Output.uncertain_write.is_(False),
                     ~exists().where(
                         StorageOperation.purpose

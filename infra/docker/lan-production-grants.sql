@@ -150,6 +150,10 @@ GRANT EXECUTE ON FUNCTION aap_learning_v1.registry_evaluation_reference_exists(u
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.is_fixture_original_source(text,text)
     TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_owner_exists(text,uuid)
+    TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_ordinary_gc(text,uuid,integer)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_operator_auxiliary(jsonb),
     aap_assets_v1.open_operator_storage_operation(uuid),
     aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
@@ -815,6 +819,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_jobs_v1.bind_prediction_mask_object(uuid,uuid),
     aap_jobs_v1.finish_prediction_mask_producer(uuid),
     aap_jobs_v1.prediction_mask_object_retained(uuid),
+    aap_jobs_v1.fixture_media_backfill_route(uuid),
+    aap_jobs_v1.fixture_media_work_exists(text,text),
     public.fixture_export_execution_admitted(uuid),
     public.begin_fixture_export_execution(uuid,uuid,uuid),
     public.finish_fixture_export_execution(uuid,uuid),

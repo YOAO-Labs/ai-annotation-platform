@@ -1,6 +1,7 @@
 """Saved thumbnail responsibility shared by directory and ordinary image previews."""
 
 import asyncio
+from contextlib import nullcontext
 from copy import deepcopy
 from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
@@ -10,7 +11,7 @@ import uuid
 
 from botocore.exceptions import BotoCoreError, ClientError
 from sqlalchemy import select
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.thumbnail_output import ThumbnailOutput
@@ -203,22 +204,38 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
         "sha256": hashlib.sha256(body).hexdigest(),
         "size_bytes": len(body),
     }
-    async with factory() as current:
-        reference = await media_cache_storage.allocate(current, prefix_for(identifier))
-        output = ThumbnailOutput(
-            id=identifier,
-            owner_kind=owner_kind,
-            owner_id=owner_id,
-            path_digest=path_digest,
-            input_ref=frozen,
-            storage_ref=reference,
-            state="building",
-            writer_until=allocated_at + timedelta(seconds=WRITE_SECONDS),
-            next_check_at=allocated_at + timedelta(seconds=WRITE_SECONDS),
-            uncertain_write=True,
-        )
-        current.add(output)
-        await current.commit()
+    async with storage_access.engine(db).connect() as business, AsyncSession(
+        bind=business, expire_on_commit=False
+    ) as current:
+        from app.services import fixture_media_execution
+
+        execution = fixture_media_execution.current()
+        scope = nullcontext()
+        if execution is not None:
+            item_value = input_ref["source"]["item_id"]
+            item_id = uuid.UUID(item_value) if item_value else None
+            dataset_id = (
+                await current.scalar(select(DatasetItem.dataset_id).where(DatasetItem.id == item_id))
+                if item_id else None
+            )
+            task_id = owner_id if item_id is None and owner_kind == "task_thumbnail" else None
+            scope = execution.birth_scope(business, dataset_id, item_id, task_id)
+        async with scope:
+            reference = await media_cache_storage.allocate(current, prefix_for(identifier))
+            output = ThumbnailOutput(
+                id=identifier,
+                owner_kind=owner_kind,
+                owner_id=owner_id,
+                path_digest=path_digest,
+                input_ref=frozen,
+                storage_ref=reference,
+                state="building",
+                writer_until=allocated_at + timedelta(seconds=WRITE_SECONDS),
+                next_check_at=allocated_at + timedelta(seconds=WRITE_SECONDS),
+                uncertain_write=True,
+            )
+            current.add(output)
+            await current.commit()
     recorder = media_cache_accounting.Recorder(
         factory,
         "thumbnail_outputs",

@@ -754,10 +754,20 @@ def signed_url(storage, output, key, expires=3600):
         raise _translate(exc) from None
 
 
-def delete_output(storage, output, *, accounting=None):
+def delete_output(storage, output, *, accounting=None, fixture=None):
     """Delete only the saved UUID prefix after the caller retires its owner."""
     owner = resolve(output)
     client = _client(storage, owner)
+    if fixture is not None:
+        from app.services import media_cache_storage
+
+        retirement, permit, versions = fixture
+        return media_cache_storage.retire_fixture_versions(
+            client, owner, versions,
+            lambda identifier, state: retirement.physical_checkpoint(
+                uuid.UUID(identifier), permit, state
+            ),
+        )
     try:
         objects = _objects(client, owner)
         for key in objects:

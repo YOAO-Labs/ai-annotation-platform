@@ -651,10 +651,20 @@ def signed_url(storage, output, key, expires):
     )
 
 
-def delete(storage, output, *, accounting=None):
+def delete(storage, output, *, accounting=None, fixture=None):
     """Delete only this saved UUID prefix and prove it is empty afterwards."""
     owner = resolve(output)
     client = _client(storage, owner)
+    if fixture is not None:
+        from app.services import media_cache_storage
+
+        retirement, permit, versions = fixture
+        return media_cache_storage.retire_fixture_versions(
+            client, owner, versions,
+            lambda identifier, state: retirement.physical_checkpoint(
+                uuid.UUID(identifier), permit, state
+            ),
+        )
     deadline = time.monotonic() + settings.image_pyramid_job_timeout_seconds
     try:
         objects = _objects(client, owner, deadline)

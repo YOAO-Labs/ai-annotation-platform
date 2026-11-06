@@ -17,6 +17,11 @@ def fixture_original_active():
     return _fixture_original.get() is not None
 
 
+def fixture_original_permit():
+    context = _fixture_original.get()
+    return context["permit"] if context is not None else None
+
+
 def fixture_upload_started():
     context = _fixture_original.get()
     if context is not None:
@@ -72,7 +77,7 @@ async def admitted_original(database, storage, operation, request, finish_operat
     if not isinstance(permit, c.OriginalRead):
         raise c.ImageFailure("invalid_response")
     failure = None
-    evidence = {"write_started": False} if permit.ownership == "fixture" else None
+    evidence = {"write_started": False, "permit": permit} if permit.ownership == "fixture" else None
     context = _fixture_original.set(evidence)
     try:
         yield storage.bind_original(permit)

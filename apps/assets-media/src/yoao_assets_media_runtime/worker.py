@@ -6,6 +6,7 @@ import argparse
 import asyncio
 import builtins
 import logging
+import os
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
 import hashlib
@@ -17,6 +18,7 @@ import sys
 import tempfile
 from typing import AsyncIterator, Sequence, get_args
 from uuid import UUID, uuid4
+from .fixture_native_outputs import FixtureNativeRunSealed
 
 from yoao_assets_video_inputs import execution as video_contract
 from yoao_assets_media.contract import (
@@ -325,6 +327,27 @@ class MediaExecutor:
         job_id: UUID | None = None,
         kinds: Sequence[str] | None = None,
     ) -> WorkOutcome | None:
+        from .fixture_native_outputs import native_execution, native_job_candidates
+
+        if job_id is None:
+            candidates = await native_job_candidates(self.database, "media")
+            if candidates is not None:
+                for candidate in candidates:
+                    result = await self.execute_once(job_id=candidate, kinds=kinds)
+                    if result is not None:
+                        return result
+                return None
+
+        async with native_execution(self.database, "media", job_id) as admitted:
+            if not admitted:
+                return None
+            return await self._execute_once(job_id=job_id, kinds=kinds)
+
+    async def _execute_once(
+        self,
+        job_id: UUID | None = None,
+        kinds: Sequence[str] | None = None,
+    ) -> WorkOutcome | None:
         request = ClaimRequest(
             worker_id=self.worker_id,
             job_id=job_id,
@@ -345,6 +368,8 @@ class MediaExecutor:
             if isinstance(claim.spec, BackfillSpec):
                 return await self._advance_backfill(claim, heartbeat)
             return await self._execute_claim(claim, heartbeat)
+        except FixtureNativeRunSealed:
+            return None
         except MediaProcessingError as exc:
             return await self._fail_claim(claim, heartbeat, exc.code, exc.detail)
         except MediaFailure as exc:
@@ -395,19 +420,27 @@ class MediaExecutor:
             and expected_snapshot != source.source_snapshot
         ):
             raise MediaFailure("source_changed")
-        async with admitted_original(
-            self.database,
-            self.storage,
-            "begin_media_original_worker",
-            WorkerOriginalReadRequest(
-                job_id=claim.job_id,
-                generation=claim.generation,
-                lease_token=claim.lease_token,
-                source_snapshot=source.source_snapshot,
-                object_key=source.file_path,
+        from .fixture_native_outputs import output_scope
+        from .original_read import fixture_original_permit
+
+        async with (
+            admitted_original(
+                self.database,
+                self.storage,
+                "begin_media_original_worker",
+                WorkerOriginalReadRequest(
+                    job_id=claim.job_id,
+                    generation=claim.generation,
+                    lease_token=claim.lease_token,
+                    source_snapshot=source.source_snapshot,
+                    object_key=source.file_path,
+                ),
+                "finish_media_original_worker",
+            ) as source_storage,
+            output_scope(
+                self.database, self.storage, claim, "media", fixture_original_permit()
             ),
-            "finish_media_original_worker",
-        ) as source_storage:
+        ):
             return await self._execute_admitted_claim(
                 claim, heartbeat, source, source_storage
             )
@@ -683,6 +716,8 @@ async def _run_worker(
     frame_id: UUID | None = None,
     tracker_input_id: UUID | None = None,
     shutdown_event: asyncio.Event | None = None,
+    ready_callback=None,
+    strict: bool = False,
 ) -> None:
     if (
         sum(
@@ -692,6 +727,14 @@ async def _run_worker(
         > 1
     ):
         raise ValueError("worker selectors are mutually exclusive")
+    private = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
+    strict = strict or private
+    if private and any(value is not None for value in (input_id, frame_id, tracker_input_id)):
+        raise ValueError("fixture native worker cannot claim ordinary input lanes")
+    if ready_callback is not None and (
+        not strict or once or any(value is not None for value in (job_id, input_id, frame_id, tracker_input_id))
+    ):
+        raise ValueError("readiness requires a strict unselected worker")
     config = load_config()
     runtime = await create_worker_runtime(config)
     poller = FairWorkerPoller(
@@ -701,21 +744,30 @@ async def _run_worker(
     )
     stop_requested = shutdown_event or asyncio.Event()
     try:
+        if private:
+            from .fixture_native_outputs import native_producer_ready
+
+            await native_producer_ready(runtime.database, "media")
+        if ready_callback is not None:
+            ready_callback()
         if once:
             if stop_requested.is_set():
                 return
-            await poller.execute_once(
-                job_id=job_id,
-                input_id=input_id,
-                frame_id=frame_id,
-                tracker_input_id=tracker_input_id,
-            )
+            if private:
+                await runtime.media_executor.execute_once(job_id=job_id)
+            else:
+                await poller.execute_once(
+                    job_id=job_id,
+                    input_id=input_id,
+                    frame_id=frame_id,
+                    tracker_input_id=tracker_input_id,
+                )
             return
         next_maintenance = 0.0
         while not stop_requested.is_set():
             did_work = None
             now = asyncio.get_running_loop().time()
-            if now >= next_maintenance:
+            if not private and now >= next_maintenance:
                 try:
                     await runtime.media_executor.maintenance_once()
                 except Exception as exc:
@@ -734,13 +786,25 @@ async def _run_worker(
             if stop_requested.is_set():
                 break
             try:
-                did_work = await poller.execute_once(
-                    job_id=job_id,
-                    input_id=input_id,
-                    frame_id=frame_id,
-                    tracker_input_id=tracker_input_id,
-                )
+                if private:
+                    did_work = FairWorkerPoller._claimed(
+                        await runtime.media_executor.execute_once(job_id=job_id)
+                    )
+                    if (
+                        did_work is not None and did_work.value is not None
+                        and did_work.value.outcome not in {"published", "replayed", "failed"}
+                    ):
+                        raise RuntimeError("fixture native media execution is unsettled")
+                else:
+                    did_work = await poller.execute_once(
+                        job_id=job_id,
+                        input_id=input_id,
+                        frame_id=frame_id,
+                        tracker_input_id=tracker_input_id,
+                    )
             except Exception as exc:
+                if strict:
+                    raise
                 _log_iteration_failure(exc)
             if stop_requested.is_set():
                 break
@@ -780,11 +844,20 @@ async def _run_worker_cli(
     input_id: UUID | None = None,
     frame_id: UUID | None = None,
     tracker_input_id: UUID | None = None,
+    ready_fd: int | None = None,
+    stopped_fd: int | None = None,
 ) -> None:
     """Install CLI-only SIGTERM handling and drain the current claimed unit."""
     loop = asyncio.get_running_loop()
     stop_requested = asyncio.Event()
     loop.add_signal_handler(signal.SIGTERM, stop_requested.set)
+    if ready_fd is not None:
+        loop.add_signal_handler(signal.SIGINT, stop_requested.set)
+
+    def ready():
+        os.write(ready_fd, b"ready\n")
+        os.close(ready_fd)
+
     try:
         await _run_worker(
             once=once,
@@ -793,9 +866,16 @@ async def _run_worker_cli(
             frame_id=frame_id,
             tracker_input_id=tracker_input_id,
             shutdown_event=stop_requested,
+            ready_callback=ready if ready_fd is not None else None,
+            strict=ready_fd is not None,
         )
+        if stopped_fd is not None and stop_requested.is_set():
+            os.write(stopped_fd, b"settled\n")
+            os.close(stopped_fd)
     finally:
         loop.remove_signal_handler(signal.SIGTERM)
+        if ready_fd is not None:
+            loop.remove_signal_handler(signal.SIGINT)
 
 
 async def _healthcheck() -> None:
@@ -836,12 +916,23 @@ def main() -> None:
     parser.add_argument(
         "--healthcheck", action="store_true", help="verify the worker SQL login"
     )
+    parser.add_argument("--ready-fd", type=int)
+    parser.add_argument("--stopped-fd", type=int)
     args = parser.parse_args()
+    if (args.ready_fd is None) != (args.stopped_fd is None):
+        parser.error("ready and stopped descriptors must be supplied together")
+    if args.ready_fd is not None and (
+        args.ready_fd < 0 or args.stopped_fd < 0 or args.ready_fd == args.stopped_fd
+        or args.once or args.job_id or args.input_id or args.frame_id or args.tracker_input_id
+        or args.healthcheck
+    ):
+        parser.error("supervised readiness requires a continuous unselected worker")
     if args.healthcheck:
         asyncio.run(_healthcheck())
         return
     # Leave SIGINT to asyncio.run; only container SIGTERM requests a drain.
     previous_sigterm = signal.getsignal(signal.SIGTERM)
+    previous_sigint = signal.getsignal(signal.SIGINT)
     try:
         asyncio.run(
             _run_worker_cli(
@@ -850,10 +941,14 @@ def main() -> None:
                 input_id=args.input_id,
                 frame_id=args.frame_id,
                 tracker_input_id=args.tracker_input_id,
+                ready_fd=args.ready_fd,
+                stopped_fd=args.stopped_fd,
             )
         )
     finally:
         signal.signal(signal.SIGTERM, previous_sigterm)
+        if args.ready_fd is not None:
+            signal.signal(signal.SIGINT, previous_sigint)
 
 
 if __name__ == "__main__":

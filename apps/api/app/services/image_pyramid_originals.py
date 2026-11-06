@@ -6,7 +6,7 @@ system authority. Metadata helpers never commit the caller's transaction.
 """
 
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from contextvars import copy_context
 from dataclasses import asdict, dataclass, field, replace
 from datetime import datetime
@@ -386,6 +386,13 @@ async def delegated(db, value):
     return authority
 
 
+def _raise_drain_failure(interrupted, late, message):
+    if isinstance(interrupted, asyncio.CancelledError):
+        storage_access.mark_unsettled(interrupted)
+        raise interrupted from late
+    raise BaseExceptionGroup(message, [interrupted, late]) from None
+
+
 async def physical(call, *args, timeout=None, **kwargs):
     """Do not release source files or permits before real native work settles."""
     try:
@@ -405,10 +412,9 @@ async def physical(call, *args, timeout=None, **kwargs):
             await storage_access.finish(pending)
         except BaseException as late:
             if storage_access.failure_unsettled(late) and late is not interrupted:
-                raise BaseExceptionGroup(
-                    "Image work interrupted and native drain failed",
-                    [interrupted, late],
-                ) from None
+                _raise_drain_failure(
+                    interrupted, late, "Image work interrupted and native drain failed"
+                )
         raise
 
 
@@ -468,32 +474,36 @@ async def _capture(plan, admission, **read_options):
             late_stage = await storage_access.finish(pending)
         except BaseException as late:
             if storage_access.failure_unsettled(late) and late is not interrupted:
-                raise BaseExceptionGroup(
-                    "Image capture interrupted and reader drain failed",
-                    [interrupted, late],
-                ) from None
+                _raise_drain_failure(
+                    interrupted, late, "Image capture interrupted and reader drain failed"
+                )
         else:
             try:
                 await physical(late_stage.close)
             except BaseException as closing:
                 if storage_access.failure_unsettled(closing):
-                    raise BaseExceptionGroup(
-                        "Image capture interrupted and stage close failed",
-                        [interrupted, closing],
-                    ) from None
+                    _raise_drain_failure(
+                        interrupted, closing, "Image capture interrupted and stage close failed"
+                    )
         raise
 
 
 @asynccontextmanager
 async def _read_media(db, authority, source, guard, plan, fixture_options=None):
-    async with _session(db) as owned:
-        permit = await storage_access.acquire(
-            owned,
-            plan.location_id,
-            plan.purpose("image_pyramid_original"),
-            expected_revision=plan.maintenance_revision,
-        )
-    async with permit:
+    async with AsyncExitStack() as permits:
+        async with _session(db) as owned:
+            permit = await storage_access.acquire(
+                owned, plan.location_id, original_sources.media_permit_purpose(source, "image"),
+                expected_revision=plan.maintenance_revision,
+            )
+        await permits.enter_async_context(permit)
+        if plan.read_route is not None:
+            async with _session(db) as owned:
+                migration = await storage_access.acquire(
+                    owned, plan.location_id, plan.read_route.purpose,
+                    expected_revision=plan.maintenance_revision,
+                )
+            await permits.enter_async_context(migration)
         stage, failure = None, None
         admission = Admission()
         try:
@@ -518,10 +528,9 @@ async def _read_media(db, authority, source, guard, plan, fixture_options=None):
                     if storage_access.failure_unsettled(failure):
                         storage_access.mark_unsettled(closing)
                     if failure is not None:
-                        raise BaseExceptionGroup(
-                            "Image source work and stage close failed",
-                            [failure, closing],
-                        ) from None
+                        _raise_drain_failure(
+                            failure, closing, "Image source work and stage close failed"
+                        )
                     raise
             if failure is None:
                 await _fresh(db, authority, source, guard)

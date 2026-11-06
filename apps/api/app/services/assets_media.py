@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
+import os
 import time
 from uuid import UUID, uuid4
 
@@ -12,7 +13,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from yoao_assets_media import contract as c
 from yoao_assets_media.client import MediaClient
@@ -23,9 +24,12 @@ from app.config import settings
 class SqlAlchemyMediaDatabase:
     """An explicit same-connection binding; the caller may retain its transaction."""
 
-    def __init__(self, db: AsyncSession, *, commit: bool = True):
+    def __init__(
+        self, db: AsyncSession, *, commit: bool = True, source_connection_pinned: bool = False
+    ):
         self.db = db
         self.commit = commit
+        self.source_connection_pinned = source_connection_pinned
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
         definition = c.OPERATIONS.get(operation)
@@ -46,28 +50,49 @@ class SqlAlchemyMediaDatabase:
         )
         try:
             await self.db.flush()
-            async with self.db.begin_nested():
-                raw = (
-                    await self.db.execute(
-                        text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
-                        parameters,
-                    )
-                ).scalar_one()
-                result = validate_native_result(operation, request, raw)
-            if self.commit:
-                await self.db.commit()
-            return result
+            scope = nullcontext()
+            if operation in {"begin_media_original_worker", "claim_video_media", "advance_video_backfill"} and self.commit and os.environ.get(
+                "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+            ):
+                if not self.source_connection_pinned:
+                    raise c.MediaFailure("storage_unavailable")
+                from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+
+                connection = await self.db.connection()
+                raw_connection = await connection.get_raw_connection()
+                if operation == "begin_media_original_worker":
+                    scope = source_admission(raw_connection.driver_connection, "media", request)
+                elif operation == "claim_video_media":
+                    scope = claim_admission(raw_connection.driver_connection, "media", request)
+                else:
+                    scope = scan_admission(raw_connection.driver_connection, "media", request)
+            async with scope:
+                async with self.db.begin_nested():
+                    raw = (
+                        await self.db.execute(
+                            text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
+                            parameters,
+                        )
+                    ).scalar_one()
+                    result = validate_native_result(operation, request, raw)
+                if self.commit:
+                    await self.db.commit()
+                return result
         except c.MediaFailure:
             if self.commit:
                 await self.db.rollback()
             raise
-        except SQLAlchemyError:
+        except SQLAlchemyError as exc:
             if self.commit:
                 await self.db.rollback()
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise c.MediaFailure("storage_unavailable") from None
-        except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
             if self.commit:
                 await self.db.rollback()
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise c.MediaFailure("invalid_response") from None
 
 
@@ -79,8 +104,30 @@ class _IndependentMediaDatabase:
         from app.db.base import async_session
 
         factory = self.session_factory or async_session
+        if operation in {"begin_media_original_worker", "claim_video_media", "advance_video_backfill"} and os.environ.get(
+            "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+        ):
+            async with factory() as template:
+                if not isinstance(template.bind, AsyncEngine):
+                    raise c.MediaFailure("storage_unavailable")
+                async with template.bind.connect() as connection:
+                    async with AsyncSession(bind=connection) as db:
+                        return await SqlAlchemyMediaDatabase(
+                            db, source_connection_pinned=True
+                        ).call(operation, request)
+
         async with factory() as db:
             return await SqlAlchemyMediaDatabase(db).call(operation, request)
+
+    @asynccontextmanager
+    async def fixture_business_connection(self):
+        from app.db.base import async_session
+
+        factory = self.session_factory or async_session
+        async with factory() as db:
+            connection = await db.connection()
+            raw_connection = await connection.get_raw_connection()
+            yield raw_connection.driver_connection
 
 
 def media_storage(*, control: bool = False):
