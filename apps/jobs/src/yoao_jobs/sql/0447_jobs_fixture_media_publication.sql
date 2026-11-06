@@ -227,6 +227,7 @@ BEGIN
     PERFORM pg_catalog.pg_advisory_xact_lock_shared(
         pg_catalog.hashtextextended('aap-jobs:fixture-media:' || p_delivery::text, 0)
     );
+    -- Historical unknown attempts block retirement, not admission of an accepted replay.
     RETURN EXISTS (
         SELECT 1 FROM aap_jobs_v1.fixture_media_deliveries AS delivery
         WHERE delivery.run_id = p_run AND delivery.delivery_id = p_delivery
@@ -234,10 +235,6 @@ BEGIN
           AND EXISTS (
               SELECT 1 FROM aap_jobs_v1.fixture_media_publication_attempts AS attempt
               WHERE attempt.delivery_id = p_delivery AND attempt.state = 'accepted'
-          )
-          AND NOT EXISTS (
-              SELECT 1 FROM aap_jobs_v1.fixture_media_publication_attempts AS attempt
-              WHERE attempt.delivery_id = p_delivery AND attempt.state = 'entered'
           )
     );
 END;

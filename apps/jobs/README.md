@@ -308,10 +308,13 @@ record. The producer transaction binds the actual run, DatasetItem or
 TaskOriginal subject, source receipt, private queue and complete v2 envelope;
 Assets validates the source and payload before Jobs records it. The worker
 waits on the same publication fence and requires a positive accepted receipt
-before Assets admits physical work. A sealed run can retire an exact delivery
-only after all its publication attempts have definite outcomes; no attempts or
-any unknown attempt remain blocked. Assets reads the exact, shared-fenced
-retirement outcome for the run, delivery and envelope digest: `accepted` still
+before Assets admits physical work. An earlier unknown publication attempt
+does not prevent admission of a later accepted replay of the same delivery,
+but it remains evidence that prevents physical retirement. A sealed run can
+retire an exact delivery only after all its publication attempts have definite
+outcomes; no attempts or any unknown attempt remain blocked. Assets reads the
+exact, shared-fenced retirement outcome for the run, delivery and envelope
+digest: `accepted` still
 requires positive settlement of the matching physical execution, while
 `not_sent` requires positive proof that no execution started. A missing or
 mismatched tombstone, or any entered publication attempt, yields no outcome;
