@@ -83,6 +83,8 @@ NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
 JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
 JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
 JOBS_DISPATCH_RELAY_ROLE = "jobs_dispatch_relay_client"
+JOBS_PUBLICATION_ROLE = "jobs_publication_client"
+EXPORT_EXECUTION_ROLE = "export_execution_client"
 JOBS_DOMAIN_QUERY_FUNCTIONS = (
     "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
     "aap_jobs_v1.active_cross_frame_job(uuid,text)",
@@ -461,12 +463,12 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
     "aap_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
     "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
-    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0444_image_export_dataset_scope.sql",
+    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0446_fixture_media_dataset_guards.sql",
     "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
     "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0444_image_export_dataset_scope.sql",
     "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
     "yoao_fixture_v1.guard_jobs_anchor()": "0436_fixture_jobs_join.sql",
-    "yoao_fixture_v1.guard_dataset_job_anchor()": "0444_image_export_dataset_scope.sql",
+    "yoao_fixture_v1.guard_dataset_job_anchor()": "0446_fixture_media_dataset_guards.sql",
     **{
         signature: "0444_image_export_scope.sql"
         for signature in (
@@ -542,28 +544,25 @@ FUNCTION_BODY_ARTIFACTS = {
             "public.guard_fixture_export_zip_receipt()",
         )
     },
+    "public.fixture_export_session_owns_job(uuid)": "0435_fixture_export_execution.sql",
     **{
-        signature: "0435_fixture_export_execution.sql"
+        signature: "0447_export_fixture_rebind.sql"
         for signature in (
             "public.guard_fixture_export_execution()",
             "public.record_fixture_export_execution()",
             "public.guard_fixture_export_job_identity()",
-            "public.fixture_export_session_owns_job(uuid)",
-            "public.fixture_export_execution_admitted(uuid)",
-            "public.begin_fixture_export_execution(uuid,uuid,uuid)",
-            "public.finish_fixture_export_execution(uuid,uuid)",
             "public.retire_fixture_export_execution(uuid,uuid,uuid)",
             "public.fixture_export_execution_retired(uuid,uuid,uuid)",
+            "public.capture_fixture_native_export()",
+            "public.capture_fixture_native_export_output()",
+            "public.fixture_native_export_cleanup_eligible(uuid)",
         )
     },
     **{
         signature: "0435_fixture_native_export.sql"
         for signature in (
             "public.guard_fixture_native_export_evidence()",
-            "public.capture_fixture_native_export()",
             "public.fixture_native_export_lifetime(uuid,uuid)",
-            "public.capture_fixture_native_export_output()",
-            "public.fixture_native_export_cleanup_eligible(uuid)",
             "public.fixture_export_retired(uuid,uuid,uuid)",
         )
     },
@@ -580,6 +579,59 @@ FUNCTION_BODY_ARTIFACTS = {
             "public.guard_fixture_zip_retirement_proof()",
         )
     },
+    **{
+        signature: "0447_export_execution.sql"
+        for signature in (
+            "aap_export_v1.publications_retired(uuid)",
+            "aap_export_v1.capture_execution_birth()",
+            "aap_export_v1.capture_execution_delivery()",
+            "aap_export_v1.session_holds_lock(text,uuid,integer)",
+            "aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer)",
+            "aap_export_v1.enter_execution_io(uuid,uuid)",
+            "aap_export_v1.quiesce_execution_io(uuid,uuid)",
+            "aap_export_v1.finish_execution(uuid,uuid)",
+            "aap_export_v1.retire_execution(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0447_jobs_publication_execution.sql"
+        for signature in (
+            "aap_jobs_v1.guard_publication_attempt()",
+            "aap_jobs_v1.guard_publication_retirement()",
+            "aap_jobs_v1.guard_publication_birth()",
+            "aap_jobs_v1.capture_publication_job_birth()",
+            "aap_jobs_v1.capture_publication_intent_birth()",
+            "aap_jobs_v1.job_publications_retired(uuid,text[])",
+            "aap_jobs_v1.job_publications_not_sent(uuid,text[])",
+            "aap_jobs_v1.publication_session_owns(uuid)",
+            "aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "aap_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb)",
+            "aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)",
+            "aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)",
+            "aap_jobs_v1.guard_retired_dispatch()",
+            "aap_jobs_v1.retire_job_publications(uuid,text[])",
+        )
+    },
+    **{
+        signature: "0447_jobs_fixture_media_publication.sql"
+        for signature in (
+            "aap_jobs_v1.guard_fixture_media_publication_record()",
+            "aap_jobs_v1.guard_fixture_media_publication_attempt()",
+            "aap_jobs_v1.lock_fixture_media_run(uuid,boolean)",
+            "aap_jobs_v1.fixture_media_publisher_owns(uuid)",
+            "aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)",
+            "aap_jobs_v1.fixture_media_delivery(uuid)",
+            "aap_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text)",
+            "aap_jobs_v1.begin_fixture_media_publication(uuid,uuid)",
+            "aap_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)",
+            "aap_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)",
+            "aap_jobs_v1.fixture_media_publication_retired(uuid,uuid,text)",
+            "aap_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)",
+            "aap_jobs_v1.prepare_media_delivery(jsonb)",
+        )
+    },
     "aap_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0436_fixture_jobs_join.sql",
     "aap_jobs_v1.preserve_fixture_export_dispatch()": "0436_fixture_jobs_join.sql",
     **{
@@ -594,7 +646,7 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in ("aap_assets_v1._begin_media_original_read(uuid,uuid,text)",)
     },
     "aap_assets_v1._finish_media_original_read(uuid,uuid)": "0445_assets_fixture_reader_completion.sql",
-    "aap_assets_v1.fixture_original_readers_empty(uuid)": "0445_assets_fixture_reader_completion.sql",
+    "aap_assets_v1.fixture_original_readers_empty(uuid)": "0446_fixture_original_readers.sql",
     **{
         signature: "0432_assets_spatial_original_admission.sql"
         for signature in (
@@ -657,6 +709,49 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
             "aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
             "aap_assets_v1.finish_tracker_control_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0446_fixture_native_media_sources.sql"
+        for signature in (
+            "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+        )
+    },
+    "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)": "0446_fixture_native_media_backfill_source.sql",
+    **{
+        signature: "0446_fixture_native_media_scans.sql"
+        for signature in (
+            "aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
+            "aap_assets_v1.scan_video_backfill(jsonb,uuid,integer)",
+            "aap_assets_v1._media_backfill_snapshot(jsonb,timestamptz)",
+            "aap_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)",
+            "aap_labeling_v1.scan_image_task_sources(jsonb,uuid,integer)",
+        )
+    },
+    **{
+        signature: "0446_fixture_native_media_claims.sql"
+        for signature in (
+            "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+            "aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])",
+        )
+    },
+    **{
+        signature: "0446_fixture_native_media_garbage.sql"
+        for signature in (
+            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "aap_assets_v1.claim_video_media_garbage(uuid,integer,integer)",
+        )
+    },
+    **{
+        signature: "0448_fixture_external_pyramid_reuse.sql"
+        for signature in (
+            "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
+            "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
+            "aap_assets_v1.fixture_external_image_attempt_sources_settled(uuid,uuid,uuid,uuid,bigint,uuid)",
+            "aap_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,integer)",
+            "aap_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer)",
+            "aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)",
         )
     },
 }
@@ -1271,7 +1366,13 @@ MODULE_ROLES = (
     JOBS_LIST_QUERY_ROLE,
     JOBS_LIFECYCLE_ROLE,
     JOBS_DISPATCH_RELAY_ROLE,
+    JOBS_PUBLICATION_ROLE,
+    EXPORT_EXECUTION_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
+)
+JOBS_SQL_ARTIFACTS = (
+    "0447_jobs_publication_execution.sql",
+    "0447_jobs_fixture_media_publication.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -1620,6 +1721,63 @@ SQL_ARTIFACTS = (
     "0444_image_export_scope.sql",
     "0444_image_export_dataset_scope.sql",
     "0445_assets_fixture_reader_completion.sql",
+    "0446_fixture_media_births.sql",
+    "0446_fixture_original_readers.sql",
+    "0446_fixture_independent_source.sql",
+    "0446_media_producer_binding.sql",
+    "0446_fixture_independent_birth.sql",
+    "0446_fixture_native_source_ownership.sql",
+    "0446_fixture_native_media_jobs.sql",
+    "0446_fixture_media_references.sql",
+    "0446_fixture_media_jobs.sql",
+    "0446_fixture_media_execution.sql",
+    "0446_fixture_native_media_admissions.sql",
+    "0446_fixture_native_media_sources.sql",
+    "0446_fixture_native_media_outputs.sql",
+    "0446_fixture_native_target_fence.sql",
+    "0446_fixture_native_target_references.sql",
+    "0446_fixture_native_media_execution.sql",
+    "0446_fixture_native_media_scan.sql",
+    "0446_fixture_native_media_scans.sql",
+    "0446_fixture_native_media_backfill_source.sql",
+    "0446_fixture_native_media_claims.sql",
+    "0446_fixture_native_media_reads.sql",
+    "0446_fixture_native_runtime_ready.sql",
+    "0446_fixture_native_media_resolver.sql",
+    "0446_fixture_native_media_garbage.sql",
+    "0446_fixture_media_children.sql",
+    "0446_fixture_media_pyramid_attempts.sql",
+    "0446_fixture_native_pyramid.sql",
+    "0446_fixture_media_video_attempts.sql",
+    "0446_fixture_media_dispatch.sql",
+    "0446_fixture_media_versions.sql",
+    "0446_fixture_independent_execution.sql",
+    "0446_fixture_legacy_birth_admission.sql",
+    "0446_fixture_screenshot_producer.sql",
+    "0446_fixture_independent_pyramids.sql",
+    "0446_fixture_independent_video.sql",
+    "0446_fixture_screenshot_output_receipt.sql",
+    "0446_media_native_stages.sql",
+    "0446_fixture_media_permit_fence.sql",
+    "0446_fixture_media_retirement.sql",
+    "0446_fixture_independent_retirement.sql",
+    "0446_fixture_native_media_retirement.sql",
+    "0446_fixture_native_job_retirement.sql",
+    "0446_fixture_media_output_permits.sql",
+    "0446_fixture_media_version_retirement.sql",
+    "0446_fixture_media_output_inventory.sql",
+    "0446_fixture_media_output_fence.sql",
+    "0446_fixture_media_no_birth.sql",
+    "0446_fixture_media_retired.sql",
+    "0446_fixture_media_jobs_retired.sql",
+    "0446_fixture_native_target_retirement.sql",
+    "0446_fixture_video_anchors.sql",
+    "0446_fixture_native_target_ack.sql",
+    "0446_fixture_media_dataset_guards.sql",
+    *JOBS_SQL_ARTIFACTS,
+    "0447_export_execution.sql",
+    "0447_export_fixture_rebind.sql",
+    "0448_fixture_external_pyramid_reuse.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0445_assets_fixture_reader_completion.schema.json",
@@ -3885,6 +4043,15 @@ def _assert_psql_permission_denied(
     )
 
 
+def _sql_artifact_path(name: str) -> Path:
+    directory = (
+        ROOT / "apps/jobs/src/yoao_jobs/sql"
+        if name in JOBS_SQL_ARTIFACTS
+        else ROOT / "apps/api/alembic/sql"
+    )
+    return directory / name
+
+
 def _installed_function_body_sha256(
     container_id: str,
     container_name: str,
@@ -3895,7 +4062,7 @@ def _installed_function_body_sha256(
     signature: str,
     sql_name: str,
 ) -> str:
-    source = (ROOT / "apps/api/alembic/sql" / sql_name).read_text(encoding="utf-8")
+    source = _sql_artifact_path(sql_name).read_text(encoding="utf-8")
     function_name = re.escape(signature.split("(", 1)[0])
     match = re.search(
         rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
@@ -4615,6 +4782,8 @@ def _create_module_roles(
     jobs_list_query_password: str,
     jobs_lifecycle_password: str,
     jobs_dispatch_relay_password: str,
+    jobs_publication_password: str,
+    export_execution_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -4725,6 +4894,12 @@ def _create_module_roles(
             f"CREATE ROLE {JOBS_DISPATCH_RELAY_ROLE} LOGIN "
             f"PASSWORD '{jobs_dispatch_relay_password}' NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_PUBLICATION_ROLE} LOGIN "
+            f"PASSWORD '{jobs_publication_password}' NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {EXPORT_EXECUTION_ROLE} LOGIN "
+            f"PASSWORD '{export_execution_password}' NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT CONNECT ON DATABASE :"expected_database" TO '
             f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
@@ -4759,6 +4934,8 @@ def _create_module_roles(
                         JOBS_LIST_QUERY_ROLE,
                         JOBS_LIFECYCLE_ROLE,
                         JOBS_DISPATCH_RELAY_ROLE,
+                        JOBS_PUBLICATION_ROLE,
+                        EXPORT_EXECUTION_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -6017,6 +6194,7 @@ def main(
         jobs_list_query_grants_path = ROOT / "infra/docker/jobs-list-query-grants.sql"
         jobs_lifecycle_grants_path = ROOT / "infra/docker/jobs-lifecycle-grants.sql"
         jobs_dispatch_grants_path = ROOT / "infra/docker/jobs-dispatch-grants.sql"
+        execution_grants_path = ROOT / "infra/docker/module-execution-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -6024,9 +6202,7 @@ def main(
         identity_consumer_grants_path = (
             ROOT / "infra/docker/identity-consumer-grants.sql"
         )
-        artifacts = tuple(
-            ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
-        )
+        artifacts = tuple(_sql_artifact_path(name) for name in SQL_ARTIFACTS)
         schema_paths = tuple(
             ROOT / "apps/api/alembic/sql" / name for name in SCHEMA_ARTIFACTS
         )
@@ -6058,6 +6234,7 @@ def main(
             or not jobs_list_query_grants_path.is_file()
             or not jobs_lifecycle_grants_path.is_file()
             or not jobs_dispatch_grants_path.is_file()
+            or not execution_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -6366,6 +6543,8 @@ def main(
         jobs_list_query_password = f"jobs-list-{secrets.token_hex(16)}"
         jobs_lifecycle_password = f"jobs-lifecycle-{secrets.token_hex(16)}"
         jobs_dispatch_relay_password = secrets.token_hex(24)
+        jobs_publication_password = secrets.token_hex(24)
+        export_execution_password = secrets.token_hex(24)
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         inference_owner_passwords = {
@@ -6761,6 +6940,22 @@ def main(
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        jobs_publication_url = URL.create(
+            "postgresql+asyncpg",
+            username=JOBS_PUBLICATION_ROLE,
+            password=jobs_publication_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        export_execution_url = URL.create(
+            "postgresql+asyncpg",
+            username=EXPORT_EXECUTION_ROLE,
+            password=export_execution_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         audit_append_url = URL.create(
             "postgresql",
             username=AUDIT_APPEND_ROLE,
@@ -6850,6 +7045,8 @@ def main(
             jobs_list_query_password,
             jobs_lifecycle_password,
             jobs_dispatch_relay_password,
+            jobs_publication_password,
+            export_execution_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -7115,6 +7312,25 @@ def main(
                 },
             )
 
+        def apply_execution_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=execution_grants_path.read_text(encoding="utf-8"),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "export_owner": "export_code",
+                    "jobs_publication_role": JOBS_PUBLICATION_ROLE,
+                    "export_execution_role": EXPORT_EXECUTION_ROLE,
+                },
+            )
+
         def apply_identity_actor_status_grants() -> None:
             _psql(
                 container_id,
@@ -7261,6 +7477,137 @@ def main(
         apply_jobs_lifecycle_grants()
         phase = "install-jobs-dispatch-grants"
         apply_jobs_dispatch_grants()
+        phase = "install-execution-grants"
+        apply_execution_grants()
+
+        async def verify_execution_and_fixture_roles() -> None:
+            import asyncpg
+            from fixture_media_control import _ASSETS, _JOBS
+            from fixture_native_read_control import _READER_FUNCTIONS, _RESOLVER_FUNCTIONS
+            from yoao_owner_data.postgres import verify_function_only_role
+
+            profiles = (
+                (jobs_publication_url, JOBS_PUBLICATION_ROLE, "aap_jobs_v1", {
+                    ("begin_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+                    ("finish_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+                    ("refuse_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
+                    ("retry_publication_intent", "uuid, text, text, jsonb, jsonb"),
+                    ("begin_retry_publication", "uuid, uuid, text, text, jsonb, jsonb, integer, uuid"),
+                    ("finish_retry_publication", "uuid, uuid, text, integer, uuid"),
+                    ("begin_fixture_media_publication", "uuid, uuid"),
+                    ("finish_fixture_media_publication", "uuid, uuid, text"),
+                }),
+                (export_execution_url, EXPORT_EXECUTION_ROLE, "aap_export_v1", {
+                    ("begin_execution", "uuid, uuid, text, uuid, integer"),
+                    ("enter_execution_io", "uuid, uuid"),
+                    ("quiesce_execution_io", "uuid, uuid"),
+                    ("finish_execution", "uuid, uuid"),
+                }),
+            )
+            for url, role, schema, signatures in profiles:
+                connection = await asyncpg.connect(
+                    url.replace("postgresql+asyncpg://", "postgresql://", 1), timeout=5
+                )
+                try:
+                    await verify_function_only_role(
+                        connection, schema=schema, functions=signatures, role=role
+                    )
+                finally:
+                    await connection.close()
+
+            connection = await asyncpg.connect(
+                host="127.0.0.1", port=port, user="owner",
+                password=owner_password, database=database, timeout=5,
+            )
+            try:
+                private_signatures = (
+                    _JOBS + _ASSETS + _READER_FUNCTIONS + _RESOLVER_FUNCTIONS
+                    + (
+                        "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
+                        "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
+                    )
+                )
+                if await connection.fetchval(
+                    """SELECT EXISTS (
+                        SELECT FROM pg_catalog.unnest($1::text[]) AS signature
+                        WHERE pg_catalog.has_function_privilege(
+                            'legacy_runtime',pg_catalog.to_regprocedure(signature),'EXECUTE')
+                    )""",
+                    list(private_signatures),
+                ):
+                    raise RuntimeError("ordinary API can execute private fixture capabilities")
+                transaction = connection.transaction()
+                await transaction.start()
+                try:
+                    for role, schemas, signatures in (
+                        ("fixture_media_acl_probe", ("aap_jobs_v1", "aap_assets_v1"), _JOBS + _ASSETS),
+                        ("fixture_reader_acl_probe", ("aap_assets_v1",), _READER_FUNCTIONS),
+                        ("fixture_resolver_acl_probe", ("aap_assets_v1",), _RESOLVER_FUNCTIONS),
+                    ):
+                        await connection.execute(
+                            f"CREATE ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB "
+                            "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                        )
+                        await connection.execute(f"GRANT USAGE ON SCHEMA {','.join(schemas)} TO {role}")
+                        await connection.execute(f"GRANT EXECUTE ON FUNCTION {','.join(signatures)} TO {role}")
+                        expected = await connection.fetch(
+                            """SELECT p.oid, n.nspname, pg_catalog.pg_get_userbyid(p.proowner) AS owner
+                            FROM pg_catalog.unnest($1::text[]) AS signature
+                            LEFT JOIN pg_catalog.pg_proc AS p
+                              ON p.oid=pg_catalog.to_regprocedure(signature)
+                            LEFT JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace""",
+                            list(signatures),
+                        )
+                        if any(
+                            row["owner"] != {
+                                "aap_assets_v1": "assets_code",
+                                "aap_jobs_v1": "jobs_code",
+                            }.get(row["nspname"])
+                            for row in expected
+                        ):
+                            raise RuntimeError(f"fixture capability owner differs: {role}")
+                        expected_oids = {row["oid"] for row in expected}
+                        actual = await connection.fetch(
+                            """SELECT p.oid FROM pg_catalog.pg_proc AS p
+                            JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace
+                            WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+                              AND n.nspname NOT LIKE 'pg_toast%'
+                              AND n.nspname NOT LIKE 'pg_temp_%'
+                              AND (n.nspname LIKE 'aap\\_%' ESCAPE '\\'
+                                   OR n.nspname='yoao_fixture_v1' OR p.prosecdef)
+                              AND p.prorettype NOT IN (
+                                  'pg_catalog.trigger'::pg_catalog.regtype,
+                                  'pg_catalog.event_trigger'::pg_catalog.regtype)
+                              AND NOT EXISTS (
+                                  SELECT FROM pg_catalog.pg_depend AS d
+                                  WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass
+                                    AND d.objid=p.oid
+                                    AND d.refclassid='pg_catalog.pg_extension'::pg_catalog.regclass
+                                    AND d.deptype='e')
+                              AND pg_catalog.has_function_privilege($1,p.oid,'EXECUTE')""",
+                            role,
+                        )
+                        if None in expected_oids or expected_oids != {row["oid"] for row in actual}:
+                            raise RuntimeError(f"fixture capability profile differs: {role}")
+                        if await connection.fetchval(
+                            """SELECT EXISTS (
+                                SELECT FROM pg_catalog.pg_class AS c
+                                JOIN pg_catalog.pg_namespace AS n ON n.oid=c.relnamespace
+                                WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+                                  AND n.nspname NOT LIKE 'pg_toast%'
+                                  AND n.nspname NOT LIKE 'pg_temp_%'
+                                  AND c.relkind IN ('r','p','v','m','f')
+                                  AND (pg_catalog.has_table_privilege($1,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                                    OR pg_catalog.has_any_column_privilege($1,c.oid,'SELECT,INSERT,UPDATE,REFERENCES'))
+                            )""", role,
+                        ):
+                            raise RuntimeError(f"fixture role has relation privileges: {role}")
+                finally:
+                    await transaction.rollback()
+            finally:
+                await connection.close()
+
+        asyncio.run(verify_execution_and_fixture_roles())
         evidence["jobs_list_query"]["function_only_grants"] = True
         phase = "install-notification-delivery-read-grants"
         apply_notification_delivery_read_grants()
@@ -10346,6 +10693,8 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
                 "AAP_MODULE_DATA_JOBS_LIFECYCLE_URL": jobs_lifecycle_url,
                 "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL": jobs_dispatch_relay_url,
+                "AAP_MODULE_DATA_JOBS_PUBLICATION_URL": jobs_publication_url,
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL": export_execution_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
@@ -10538,6 +10887,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_jobs_list_query_grants()
                 apply_jobs_lifecycle_grants()
                 apply_jobs_dispatch_grants()
+                apply_execution_grants()
                 apply_identity_actor_status_grants()
                 apply_audit_append_grants()
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)

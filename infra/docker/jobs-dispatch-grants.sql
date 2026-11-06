@@ -1,7 +1,7 @@
 -- Grant caller-UOW preparation to API and claim/finish/status only to the
 -- separately configured durable-dispatch relay LOGIN. Neither role can touch
 -- the private ledger table directly.
--- Run after migration 0368 and module-data-grants.sql as the migration role.
+-- Run after migrations and module-data-grants.sql as the migration role.
 -- psql -v expected_database=annotation_test -v migration_role=owner \
 --   -v jobs_owner=jobs_code -v api_role=api_runtime \
 --   -v dispatch_relay_role=jobs_dispatch_relay \
@@ -52,6 +52,8 @@ BEGIN
     FOR v_function IN
         SELECT * FROM (VALUES
             ('aap_jobs_v1.prepare_dispatch(jsonb)', 'jsonb', false, 'v'),
+            ('aap_jobs_v1.prepare_media_delivery(jsonb)', 'jsonb', false, 'v'),
+            ('aap_jobs_v1.fixture_media_backfill_route(uuid)', 'text', false, 'v'),
             ('aap_jobs_v1.claim_dispatches(jsonb)', 'jsonb', false, 'v'),
             ('aap_jobs_v1.finish_dispatch(jsonb)', 'jsonb', false, 'v'),
             ('aap_jobs_v1.dispatch_status(uuid)', 'jsonb', false, 's')
@@ -90,11 +92,17 @@ REVOKE ALL ON ALL TABLES IN SCHEMA aap_jobs_v1, public FROM :"dispatch_relay_rol
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"dispatch_relay_role";
 REVOKE ALL ON FUNCTION
     aap_jobs_v1.prepare_dispatch(jsonb),
+    aap_jobs_v1.prepare_media_delivery(jsonb),
+    aap_jobs_v1.fixture_media_backfill_route(uuid),
     aap_jobs_v1.claim_dispatches(jsonb),
     aap_jobs_v1.finish_dispatch(jsonb),
     aap_jobs_v1.dispatch_status(uuid)
     FROM PUBLIC;
 REVOKE ALL ON FUNCTION aap_jobs_v1.claim_dispatches(jsonb)
+    FROM :"api_role";
+REVOKE ALL ON FUNCTION
+    aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb),
+    aap_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb)
     FROM :"api_role";
 REVOKE ALL ON TABLE aap_jobs_v1.dispatch_intents
     FROM :"api_role", :"dispatch_relay_role";
@@ -108,6 +116,8 @@ GRANT CONNECT ON DATABASE :"expected_database" TO :"dispatch_relay_role";
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"api_role", :"dispatch_relay_role";
 GRANT EXECUTE ON FUNCTION
     aap_jobs_v1.prepare_dispatch(jsonb),
+    aap_jobs_v1.prepare_media_delivery(jsonb),
+    aap_jobs_v1.fixture_media_backfill_route(uuid),
     aap_jobs_v1.finish_dispatch(jsonb),
     aap_jobs_v1.dispatch_status(uuid)
     TO :"api_role";
@@ -125,6 +135,8 @@ DECLARE
                     WHERE rolname=current_setting('aap.dispatch_relay_role'));
     v_api_allowed oid[] := ARRAY[
         'aap_jobs_v1.prepare_dispatch(jsonb)'::regprocedure::oid,
+        'aap_jobs_v1.prepare_media_delivery(jsonb)'::regprocedure::oid,
+        'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure::oid,
         'aap_jobs_v1.finish_dispatch(jsonb)'::regprocedure::oid,
         'aap_jobs_v1.dispatch_status(uuid)'::regprocedure::oid
     ];
@@ -139,8 +151,25 @@ BEGIN
         WHERE NOT pg_catalog.has_function_privilege(v_api,function_oid,'EXECUTE')
     ) OR pg_catalog.has_function_privilege(
         v_api,'aap_jobs_v1.claim_dispatches(jsonb)'::regprocedure,'EXECUTE'
+    ) OR pg_catalog.has_function_privilege(
+        v_api,
+        'aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)'::regprocedure,
+        'EXECUTE'
+    ) OR pg_catalog.has_function_privilege(
+        v_api,'aap_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb)'::regprocedure,
+        'EXECUTE'
     ) THEN
         RAISE EXCEPTION 'API Jobs dispatch capability profile differs';
+    END IF;
+    IF EXISTS (
+        SELECT FROM pg_catalog.pg_proc AS function
+        JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
+        WHERE namespace.nspname='aap_jobs_v1'
+          AND function.proname LIKE '%fixture_media%'
+          AND function.oid <> 'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure
+          AND pg_catalog.has_function_privilege(v_api,function.oid,'EXECUTE')
+    ) THEN
+        RAISE EXCEPTION 'API has private fixture media EXECUTE';
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.unnest(v_relay_allowed) AS allowed(function_oid)

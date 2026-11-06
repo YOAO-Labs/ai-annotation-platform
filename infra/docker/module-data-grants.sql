@@ -1297,7 +1297,8 @@ GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"labeling_owner", :"jobs_owner",
     :"assets_owner", :"learning_owner", :"diagnostics_owner",
     :"workspace_owner", :"workflow_role", :"identity_owner";
 GRANT USAGE ON SCHEMA aap_jobs_v1 TO :"jobs_owner", :"labeling_owner",
-    :"workspace_owner", :"assets_owner", :"workflow_role", :"inference_owner";
+    :"workspace_owner", :"assets_owner", :"workflow_role", :"inference_owner",
+    :"export_owner";
 GRANT USAGE ON SCHEMA aap_inference_routing_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.video_execution_step(text,text),
@@ -3156,6 +3157,17 @@ ALTER FUNCTION aap_diagnostics_v1.detach_dataset_task_references(uuid, uuid)
 REVOKE CREATE ON SCHEMA aap_diagnostics_v1 FROM :"diagnostics_owner";
 
 GRANT CREATE ON SCHEMA aap_export_v1 TO :"export_owner";
+ALTER TABLE aap_export_v1.executions OWNER TO :"export_owner";
+ALTER TABLE aap_export_v1.execution_deliveries OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.publications_retired(uuid) OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.capture_execution_birth() OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.capture_execution_delivery() OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.session_holds_lock(text,uuid,integer) OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer) OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.enter_execution_io(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.quiesce_execution_io(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.finish_execution(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION aap_export_v1.retire_execution(uuid,uuid) OWNER TO :"export_owner";
 ALTER FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
     OWNER TO :"export_owner";
 REVOKE CREATE ON SCHEMA aap_export_v1 FROM :"export_owner";
@@ -4008,6 +4020,30 @@ ALTER FUNCTION aap_jobs_v1.prepare_dispatch(jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.claim_dispatches(jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.finish_dispatch(jsonb) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.dispatch_status(uuid) OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.dispatch_publication_attempts OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.dispatch_retry_publications OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.dispatch_publication_retirements OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.publication_job_births OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.publication_intent_births OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.fixture_media_deliveries OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.fixture_media_publication_attempts OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.fixture_media_publication_retirements OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_publication_attempt() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_publication_retirement() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_publication_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.capture_publication_job_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.capture_publication_intent_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.job_publications_retired(uuid,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.job_publications_not_sent(uuid,text[]) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.publication_session_owns(uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_retired_dispatch() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.retire_job_publications(uuid,text[]) OWNER TO :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_labeling_v1 TO :"jobs_owner";
 GRANT SELECT (id, status, job_kind)
     ON aap_labeling_v1.video_tracker_job_rows TO :"jobs_owner";
@@ -4320,7 +4356,6 @@ GRANT SELECT (id,project_id,operation) ON aap_inference_routing_v1.scopes TO :"j
 -- Export execution and physical receipts outlive the removable business Job.
 GRANT USAGE, CREATE ON SCHEMA yoao_fixture_v1 TO :"export_owner";
 GRANT CREATE ON SCHEMA public TO :"export_owner";
-ALTER TABLE yoao_fixture_v1.fixture_export_executions OWNER TO :"export_owner";
 ALTER TABLE yoao_fixture_v1.fixture_native_exports OWNER TO :"export_owner";
 ALTER TABLE yoao_fixture_v1.fixture_native_export_outputs OWNER TO :"export_owner";
 ALTER TABLE public.fixture_export_zip_retirements OWNER TO :"export_owner";
@@ -4343,9 +4378,6 @@ ALTER FUNCTION public.guard_fixture_export_execution() OWNER TO :"export_owner";
 ALTER FUNCTION public.record_fixture_export_execution() OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_fixture_export_job_identity() OWNER TO :"export_owner";
 ALTER FUNCTION public.fixture_export_session_owns_job(uuid) OWNER TO :"export_owner";
-ALTER FUNCTION public.fixture_export_execution_admitted(uuid) OWNER TO :"export_owner";
-ALTER FUNCTION public.begin_fixture_export_execution(uuid,uuid,uuid) OWNER TO :"export_owner";
-ALTER FUNCTION public.finish_fixture_export_execution(uuid,uuid) OWNER TO :"export_owner";
 ALTER FUNCTION public.retire_fixture_export_execution(uuid,uuid,uuid) OWNER TO :"export_owner";
 ALTER FUNCTION public.fixture_export_execution_retired(uuid,uuid,uuid) OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_fixture_native_export_evidence() OWNER TO :"export_owner";
@@ -4427,8 +4459,8 @@ ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_source() OWNER TO :"asse
 ALTER FUNCTION aap_assets_v1.capture_fixture_native_media_source(text,uuid,bigint,uuid,text,jsonb) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.settle_fixture_native_media_source() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_fixture_native_cache_target() OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text) OWNER TO :"assets_owner";
-GRANT EXECUTE ON FUNCTION aap_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text)
+ALTER FUNCTION aap_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text,text,uuid,uuid,bigint) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.register_fixture_native_cache_target(uuid,text,text,text,text,text,uuid,uuid,bigint)
     TO :"migration_role";
 ALTER FUNCTION aap_assets_v1.guard_fixture_native_cache_write() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.begin_fixture_native_cache_write(text,uuid,bigint,uuid,uuid,uuid,text,text,text,text,text,bigint,uuid) OWNER TO :"assets_owner";
@@ -4575,4 +4607,159 @@ ALTER FUNCTION aap_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,in
 ALTER FUNCTION aap_jobs_v1.finish_fixture_media_child(uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.fixture_media_work_exists(text,text) OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.job_publications_retired(uuid,text[])
+    TO :"export_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.job_publications_retired(uuid,text[]),
+    aap_jobs_v1.job_publications_not_sent(uuid,text[]),
+    aap_jobs_v1.fixture_media_delivery(uuid),
+    aap_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text),
+    aap_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.media_producer_binding(text,uuid,text,uuid,jsonb),
+    aap_assets_v1.fixture_independent_source_matches(uuid,uuid,uuid,text,uuid,text,jsonb,jsonb),
+    aap_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)
+    TO :"jobs_owner";
+
+-- Exact additional bo0446 owners not covered by the existing media/image selectors.
+GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_media_births OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_external_media_jobs OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_external_media_sources OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_native_pyramid_generations OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_media_executions OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_media_children OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_legacy_birth_admissions OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_screenshot_producer_admissions OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_screenshot_producer_candidates OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_pyramid_bindings OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_pyramid_attempts OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_video_attempts OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_independent_no_start OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_native_job_retirements OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_video_output_anchors OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_run_no_media_birth_certificates OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_native_target_retirements OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_native_target_physical_acknowledgements OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.fixture_external_pyramid_reuses OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_original_read_permit() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_dataset_legacy_original_readers_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_task_legacy_original_readers_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.notify_fixture_legacy_original_reader() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_source_matches(uuid,uuid,uuid,text,uuid,text,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.prepare_fixture_independent_execution(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_location() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_cache_target_binding(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_original() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_binding() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_output() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_connection_alias() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_target_references_retired(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_producer_ready(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_reader_ready(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_pyramid_evidence() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.capture_fixture_native_pyramid() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_pyramid_generation_retired(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_independent_execution() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_session_owns(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_delivery_envelope(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_fixture_independent_execution(uuid,uuid,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_session_authorized(uuid,uuid,uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.finish_fixture_independent_execution(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_legacy_execution_target(text,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.bind_fixture_independent_child(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_legacy_birth_admission() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_fixture_legacy_birth_admission(text,uuid,uuid,uuid,uuid,uuid,uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.finish_fixture_legacy_birth_admission(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_legacy_birth_admission_current(uuid,uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_screenshot_producer_admission() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_fixture_screenshot_producer(uuid,uuid,uuid,uuid,uuid,integer,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_screenshot_producer_current(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_screenshot_producer_target(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.finish_fixture_screenshot_producer(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.reuse_fixture_screenshot_producer(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.record_fixture_independent_pyramid_attempt(uuid,uuid,uuid,integer,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_pyramid_bindings_retired(uuid,uuid,uuid,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_pyramid_generation_retired(uuid,uuid,uuid,integer,integer) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_screenshot_output_receipt(uuid,uuid,uuid,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_delivery_matches(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.retire_fixture_independent_publications(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_independent_deliveries_retired(uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_job_retirement() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_job_inventory(uuid,uuid,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.retire_fixture_native_job(uuid,uuid,uuid,text,uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_fixture_native_target_gate() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_target_receipt(uuid) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.retire_fixture_native_target(uuid,text,text) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.acknowledge_fixture_native_target_physical_retirement(text,text) OWNER TO :"assets_owner";
+REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
+GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.fixture_pyramid_children_retired(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.fixture_pyramid_settled_attempt_count(uuid,uuid,uuid,integer) OWNER TO :"jobs_owner";
+REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
+
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.fixture_native_cache_target_binding(uuid),
+    aap_assets_v1.fixture_screenshot_output_receipt(uuid,uuid,uuid,text),
+    aap_assets_v1.seal_fixture_run_without_media(uuid),
+    aap_assets_v1.retire_fixture_video_output_anchor(uuid,uuid,uuid),
+    aap_assets_v1.fixture_video_output_disposition(uuid,uuid,uuid),
+    aap_assets_v1.acknowledge_fixture_native_target_physical_retirement(text,text)
+    TO :"migration_role";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)
+    TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)
+    TO :"migration_role";
+GRANT EXECUTE ON FUNCTION
+    aap_jobs_v1.fixture_media_execution_run(text,uuid,uuid),
+    aap_jobs_v1.fixture_media_retirement_started(uuid,uuid),
+    aap_jobs_v1.fixture_media_run_retired(uuid),
+    aap_jobs_v1.fixture_pyramid_children_retired(uuid,uuid,uuid,integer),
+    aap_jobs_v1.fixture_pyramid_settled_attempt_count(uuid,uuid,uuid,integer),
+    aap_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)
+    TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)
+    TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION
+    aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
+    aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
+    TO :"assets_owner";
+GRANT SELECT (run_id,admission_id,operation_id,dataset_id,state)
+    ON yoao_fixture_v1.fixture_image_work_intents TO :"assets_owner";
+GRANT SELECT (task_id,dataset_item_id,role)
+    ON aap_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
+GRANT SELECT (run_id) ON aap_jobs_v1.fixture_media_backfills,
+    aap_jobs_v1.fixture_media_children TO :"assets_owner";
+GRANT SELECT (child_id,asset_id,generation,dataset_id,item_id,delegation)
+    ON aap_jobs_v1.fixture_media_children TO :"assets_owner";
+GRANT SELECT (run_id,state) ON aap_jobs_v1.fixture_media_executor_principals TO :"assets_owner";
+GRANT UPDATE (id) ON yoao_fixture_v1.fixture_run_admissions TO :"assets_owner";
+GRANT UPDATE (run_id) ON yoao_fixture_v1.fixture_run_resources TO :"jobs_owner";
+GRANT DELETE ON public.asset_image_jobs, public.asset_media_jobs TO :"assets_owner";
+GRANT SELECT, DELETE, UPDATE (state) ON public.video_derivative_outputs TO :"assets_owner";
+GRANT UPDATE (video_output_id,video_building_output_id) ON public.dataset_items TO :"assets_owner";
+GRANT SELECT (retired_at), UPDATE (state,retired_at)
+    ON public.thumbnail_outputs TO :"assets_owner";
+GRANT UPDATE (state) ON public.image_pyramid_outputs TO :"assets_owner";
+GRANT SELECT (original_id) ON aap_labeling_v1.task_rows TO :"assets_owner";
+DO $fixture_owner$
+BEGIN
+    IF NOT COALESCE((
+        SELECT pg_catalog.pg_has_role(SESSION_USER, relation.relowner, 'MEMBER')
+        FROM pg_catalog.pg_class AS relation
+        WHERE relation.oid=pg_catalog.to_regclass('public.fixture_export_zip_retirements')
+          AND relation.relowner=current_setting('aap.export_owner')::pg_catalog.regrole
+    ), false) THEN
+        RAISE EXCEPTION 'Migration session is not a member of the actual fixture owner';
+    END IF;
+END;
+$fixture_owner$;
 COMMIT;
