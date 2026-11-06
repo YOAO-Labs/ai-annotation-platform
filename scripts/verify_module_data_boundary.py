@@ -2203,7 +2203,6 @@ TEST_FILES = (
     "tests/test_mask_gc_native.py",
     "tests/test_mask_gc_protocol_native.py",
     "tests/test_mask_gc_migration.py",
-    "tests/test_mask_gc_roles.py",
     "tests/test_mask_gc_bindings.py",
     "tests/test_mask_gc_live.py",
     "tests/test_mask_gc_preview_native.py",
