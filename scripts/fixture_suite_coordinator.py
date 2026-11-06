@@ -548,7 +548,7 @@ async def prepare_worktree_store(
             and stat.S_IMODE(info.st_mode) == 0o600,
             "fixture_lock_invalid",
         )
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        await _settled_thread(fcntl.flock, lock_fd, fcntl.LOCK_EX)
         engine = create_async_engine(
             owner_url, poolclass=NullPool, hide_parameters=True
         )
@@ -1226,7 +1226,7 @@ async def prepare_fixture_suite(suite_id: str, family: str):
             and stat.S_IMODE(info.st_mode) == 0o600,
             "fixture_lock_invalid",
         )
-        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        await _settled_thread(fcntl.flock, lock_fd, fcntl.LOCK_EX)
         _refuse_unless(
             manifest.exists() and not manifest.is_symlink(),
             "fixture_store_not_prepared",
