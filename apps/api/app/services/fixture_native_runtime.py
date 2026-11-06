@@ -164,12 +164,18 @@ def _wait_celery(process, descriptor, broker, node, queue):
 def _drain(process, descriptor, stopped_fd=None, *, descendants=False):
     from raster_consumer_process import _drain_consumer, _track_consumer_descendants
 
-    _require(pidfd_alive(descriptor) and process.poll() is None, "fixture_native_process_unsettled")
-    tracked = {}
+    tracked = getattr(process, "fixture_native_descendants", {})
+    _require(isinstance(tracked, dict) and process.returncode is None, "fixture_native_process_unsettled")
+    process.fixture_native_descendants = tracked
     try:
-        if descendants:
-            _track_consumer_descendants(process.pid, tracked)
-        pidfd_send_signal(descriptor, signal.SIGTERM)
+        if pidfd_alive(descriptor):
+            if descendants:
+                _track_consumer_descendants(process.pid, tracked)
+            if not getattr(process, "fixture_native_stop_requested", False):
+                pidfd_send_signal(descriptor, signal.SIGTERM)
+                process.fixture_native_stop_requested = True
+        else:
+            _require(getattr(process, "fixture_native_stop_requested", False), "fixture_native_process_unsettled")
         deadline = time.monotonic() + 120
         while pidfd_alive(descriptor):
             _require(time.monotonic() < deadline, "fixture_native_process_drain_timeout")
@@ -186,6 +192,7 @@ def _drain(process, descriptor, stopped_fd=None, *, descendants=False):
     else:
         for tracked_fd in tracked.values():
             os.close(tracked_fd)
+        process.fixture_native_descendants = None
 
 
 class FixtureNativeRuntime:
@@ -343,11 +350,11 @@ class FixtureNativeRuntime:
             admin = make_url(self.environment["MIGRATION_DATABASE_URL"])
             _require(admin.drivername == "postgresql+asyncpg" and not admin.query and (admin.host, admin.port or 5432, admin.database) == (owner_url.host, owner_url.port or 5432, owner_url.database), "fixture_native_admin_changed")
             raster_owner = self.environment.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
-            profile_path = await fixture_native_business.verified(
+            _, document = await fixture_native_business.verified(
                 self.environment, suite_id=self.suite_id,
                 raster_owner=Path(raster_owner) if raster_owner else None,
             )
-            profiles = json.loads(_private_bytes(profile_path))["profiles"]
+            profiles = document["profiles"]
             target = await prepare_native_run_target(run_id, admission_id)
             mutating = True
             run["target"] = target
@@ -473,11 +480,11 @@ class FixtureNativeRuntime:
 
         _, resources, identity = await _verified_database(self.environment)
         raster_owner = self.environment.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
-        profile_path = await fixture_native_business.verified(
+        _, document = await fixture_native_business.verified(
             self.environment, suite_id=self.suite_id,
             raster_owner=Path(raster_owner) if raster_owner else None,
         )
-        profiles = json.loads(_private_bytes(profile_path))["profiles"]
+        profiles = document["profiles"]
         for run_id, run in sorted(self.runs.items(), key=lambda item: str(item[0])):
             if run["journal"]["state"] == "ready":
                 _require(

@@ -54,27 +54,7 @@ def _private_json(path):
 def _mc_output(scope, arguments, *, absent_code=None, payload=None):
     if scope.get("provider") == "raster":
         raster, _, _, _ = _raster_identity(Path(scope["raster_owner"]), scope["resources"], scope)
-        config = Path(scope["config"])
-        _require(
-            config.parent == raster.private
-            and config.name.startswith("native-business-mc-"),
-            "fixture_native_business_mc_directory_invalid",
-        )
-        config.mkdir(mode=0o700, exist_ok=True)
-        info = config.lstat()
-        _require(
-            stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
-            and stat.S_IMODE(info.st_mode) == 0o700,
-            "fixture_native_business_mc_directory_invalid",
-        )
-        result = subprocess.run(
-            ["mc", "--json", *arguments],
-            env={
-                "PATH": os.environ["PATH"], "MC_HOST_scoped": scope["host"],
-                "MC_CONFIG_DIR": scope["config"],
-            },
-            input=payload, text=True, capture_output=True, timeout=30, check=False,
-        )
+        private = raster.private
     else:
         from worktree_resources import docker
 
@@ -87,16 +67,29 @@ def _mc_output(scope, arguments, *, absent_code=None, payload=None):
             ) == "minio",
             "fixture_native_business_minio_changed",
         )
-        result = subprocess.run(
-            [
-                "docker", "exec", "-i", "-e", f"MC_HOST_scoped={scope['host']}",
-                "-e", f"MC_CONFIG_DIR={scope['config']}", scope["container"],
-                "/usr/bin/mc", "--json", *arguments,
-            ],
-            input=payload, text=True, capture_output=True, timeout=30, check=False,
-        )
-    if absent_code is not None:
-        _require(result.returncode == 1, "fixture_native_business_iam_exists")
+        private = Path(scope["private_dir"])
+    config = Path(scope["config"])
+    _require(
+        config.parent == private and config.name.startswith("native-business-mc-"),
+        "fixture_native_business_mc_directory_invalid",
+    )
+    config.mkdir(mode=0o700, exist_ok=True)
+    info = config.lstat()
+    _require(
+        stat.S_ISDIR(info.st_mode) and info.st_uid == os.geteuid()
+        and stat.S_IMODE(info.st_mode) == 0o700,
+        "fixture_native_business_mc_directory_invalid",
+    )
+    result = subprocess.run(
+        ["mc", "--json", *arguments],
+        env={
+            "PATH": os.environ["PATH"], "MC_HOST_scoped": scope["host"],
+            "MC_CONFIG_DIR": scope["config"],
+        },
+        input=payload, text=True, capture_output=True, timeout=30, check=False,
+    )
+    if absent_code is not None and result.returncode != 0:
+        _require(result.returncode == 1, "fixture_native_business_iam_unavailable")
         try:
             reply = json.loads(result.stdout)
             code = reply["error"]["cause"]["error"]["Code"]
@@ -115,40 +108,61 @@ def _mc_info(scope, arguments):
     return json.loads(_mc_output(scope, arguments))
 
 
-def _assert_iam_absent(scope):
-    _mc_output(
+def _iam_components(scope):
+    user = _mc_output(
         scope, ["admin", "user", "info", "scoped", scope["access_key"]],
         absent_code="XMinioAdminNoSuchUser",
     )
-    _mc_output(
+    policy = _mc_output(
         scope, ["admin", "policy", "info", "scoped", scope["policy"]],
         absent_code="XMinioAdminNoSuchPolicy",
     )
+    return json.loads(user) if user is not None else None, json.loads(policy) if policy is not None else None
 
 
-def _verify_account(scope):
+def _assert_iam_absent(scope):
+    _require(_iam_components(scope) == (None, None), "fixture_native_business_iam_exists")
+
+
+def _verify_policy(scope, policy):
     from fixture_store import _canonical_native_output_policy
     from verify_module_data_boundary import _media_storage_policy
 
+    expected = _canonical_native_output_policy(_media_storage_policy(scope, worker=False))
+    _require(
+        isinstance(policy, dict) and policy.get("status") == "success"
+        and _canonical_native_output_policy(policy["policyInfo"]["Policy"]) == expected,
+        "fixture_native_business_iam_changed",
+    )
+    return hashlib.sha256(
+        json.dumps(expected, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+def _verify_account(scope):
+    from contextlib import closing
+    from fixture_store import _client
+
     user = _mc_info(scope, ["admin", "user", "info", "scoped", scope["access_key"]])
     policy = _mc_info(scope, ["admin", "policy", "info", "scoped", scope["policy"]])
-    expected = _canonical_native_output_policy(_media_storage_policy(scope, worker=False))
+    policy_sha256 = _verify_policy(scope, policy)
     _require(
         user.get("status") == "success"
         and user.get("accessKey") == scope["access_key"]
         and user.get("userStatus") == "enabled"
         and user.get("policyName") == scope["policy"]
-        and not user.get("memberOf")
-        and policy.get("status") == "success"
-        and _canonical_native_output_policy(policy["policyInfo"]["Policy"]) == expected,
+        and not user.get("memberOf"),
         "fixture_native_business_iam_changed",
     )
+    with closing(_client(scope["endpoint"], scope["access_key"], scope["secret_key"])) as client:
+        _require(
+            client.get_bucket_versioning(Bucket=scope["inputs_bucket"]).get("Status") == "Enabled",
+            "fixture_native_business_credentials_unproven",
+        )
     return {
         "identity_sha256": hashlib.sha256(scope["access_key"].encode()).hexdigest(),
         "policy": scope["policy"],
-        "policy_sha256": hashlib.sha256(
-            json.dumps(expected, sort_keys=True, separators=(",", ":")).encode()
-        ).hexdigest(),
+        "policy_sha256": policy_sha256,
     }
 
 
@@ -206,7 +220,7 @@ def _backend(environment, resources):
     return LocalResources(resources, settings, code_root=Path(__file__).resolve().parents[1])
 
 
-def _scopes(backend):
+def _scopes(backend, private_dir):
     from verify_module_data_boundary import _cleanup_storage_scope
 
     resources = backend.resources
@@ -222,7 +236,17 @@ def _scopes(backend):
         scope = _cleanup_storage_scope(backend)
         scope["datasets_bucket"] = resources["buckets"]["MINIO_DATASETS_BUCKET"]
         scope["legacy_bucket"] = resources["buckets"]["MINIO_BUCKET"]
-        scope["policy"] = "aap-fixture-native-business-" + secrets.token_hex(12)
+        token = secrets.token_hex(12)
+        scope["policy"] = "aap-fixture-native-business-" + token
+        scheme = "https" if backend.settings.minio_use_ssl else "http"
+        scope["endpoint"] = scheme + "://" + backend.settings.minio_endpoint
+        scope["host"] = (
+            scheme + "://" + quote(backend.settings.minio_access_key, safe="")
+            + ":" + quote(backend.settings.minio_secret_key, safe="")
+            + "@" + backend.settings.minio_endpoint
+        )
+        scope["private_dir"] = str(private_dir)
+        scope["config"] = str(private_dir / ("native-business-mc-" + token))
         scopes[kind] = scope
     _require(len({scope["container"] for scope in scopes.values()}) == 1, "fixture_native_business_minio_changed")
     return scopes
@@ -301,10 +325,10 @@ def _raster_scopes(path, resources):
     return scopes
 
 
-def _create_raster_account(scope):
+def _create_account(scope):
     from verify_module_data_boundary import _media_storage_policy
 
-    _mc_output(scope, ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]])
+    _mc_output(scope, ["admin", "user", "add", "scoped"], payload=scope["access_key"] + "\n" + scope["secret_key"] + "\n")
     _mc_output(scope, ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"], payload=json.dumps(_media_storage_policy(scope, worker=False)))
     _mc_output(scope, ["admin", "policy", "attach", "scoped", scope["policy"], "--user", scope["access_key"]])
 
@@ -317,7 +341,7 @@ def _provider_identity(scope):
 def _same_scope(scope, current):
     keys = (
         "provider", "raster_owner", "nonce", "container", "birth", "endpoint",
-        "resources", "host", "bucket", "inputs_bucket", "datasets_bucket", "legacy_bucket",
+        "resources", "host", "private_dir", "bucket", "inputs_bucket", "datasets_bucket", "legacy_bucket",
     )
     return all(scope.get(key) == current.get(key) for key in keys)
 
@@ -337,6 +361,7 @@ async def _role_health(url, kind):
 
 async def _create_roles(admin, resources, identity, roles, owner, entry):
     signatures = _signatures()
+    recorded = {}
     engine = create_async_engine(admin, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.begin() as connection:
@@ -349,10 +374,13 @@ async def _create_roles(admin, resources, identity, roles, owner, entry):
                 "SELECT rolsuper,rolcreaterole FROM pg_catalog.pg_roles WHERE rolname=current_user"
             ))).one()
             _require(operator[0] or operator[1], "fixture_native_business_role_create_denied")
-            quote = engine.dialect.identifier_preparer.quote_identifier
-            for kind, role in roles.items():
+            for role in roles.values():
                 existing = await connection.scalar(text("SELECT oid FROM pg_catalog.pg_roles WHERE rolname=:name"), {"name": role["name"]})
                 _require(existing is None, "fixture_native_business_role_exists")
+            entry["roles_birth"] = "submitted"
+            owner.save()
+            quote = engine.dialect.identifier_preparer.quote_identifier
+            for kind, role in roles.items():
                 await connection.execute(text(
                     "SELECT pg_catalog.set_config('aap.native_business_role',:name,true), "
                     "pg_catalog.set_config('aap.native_business_password',:password,true), "
@@ -368,18 +396,59 @@ async def _create_roles(admin, resources, identity, roles, owner, entry):
                 await connection.exec_driver_sql(f"GRANT EXECUTE ON FUNCTION {', '.join(signatures[kind])} TO {role_sql}")
                 oid = await connection.scalar(text("SELECT oid FROM pg_catalog.pg_roles WHERE rolname=:name"), {"name": role["name"]})
                 _require(type(oid) is int, "fixture_native_business_role_unavailable")
-                entry["roles"][kind] = {"name": role["name"], "oid": oid, "marker": role["marker"]}
-                owner.save()
+                recorded[kind] = {"name": role["name"], "oid": oid, "marker": role["marker"]}
     finally:
         await engine.dispose()
+    entry["roles"] = recorded
+    owner.save()
 
 
-async def prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> Path:
-    """Create three exact role/account pairs and publish their protected profiles."""
+async def _ensure_roles(admin, owner_url, resources, identity, roles, owner, entry):
+    engine = create_async_engine(admin, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            rows = {}
+            for kind, role in roles.items():
+                rows[kind] = (await connection.execute(text(
+                    "SELECT oid,pg_catalog.shobj_description(oid,'pg_authid') "
+                    "FROM pg_catalog.pg_roles WHERE rolname=:name"
+                ), {"name": role["name"]})).one_or_none()
+    finally:
+        await engine.dispose()
+    present = {kind for kind, row in rows.items() if row is not None}
+    if not present:
+        _require(not entry["roles"], "fixture_native_business_role_outcome_unknown")
+        await _create_roles(admin, resources, identity, roles, owner, entry)
+        return
+    _require(
+        present == set(roles) and entry.get("roles_birth") == "submitted",
+        "fixture_native_business_role_outcome_unknown",
+    )
+    observed = {}
+    for kind, role in roles.items():
+        row = rows[kind]
+        _require(row[1] == role["marker"] and type(row[0]) is int, "fixture_native_business_role_changed")
+        observed[kind] = {"name": role["name"], "oid": row[0], "marker": role["marker"]}
+        await _role_health(owner_url.set(username=role["name"], password=role["password"]), kind)
+    _require(not entry["roles"] or entry["roles"] == observed, "fixture_native_business_role_changed")
+    if not entry["roles"]:
+        entry["roles"] = observed
+        owner.save()
+
+
+async def prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> tuple[Path, dict]:
+    """Create or verify the exact journaled suite identities."""
+    result = await _prepare(environment, suite_id=suite_id, raster_owner=raster_owner)
+    if result is None:
+        return await verified(environment, suite_id=suite_id, raster_owner=raster_owner)
+    return result
+
+
+async def _prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> tuple[Path, dict] | None:
+    """Resume only exact, unpublished business-identity birth."""
     import fcntl
     from fixture_store import reader_credentials, verified_store
     from verify_storage_candidates import Owner, private_write
-    from verify_module_data_boundary import _create_media_storage_scope
     from yoao_assets_media_runtime.additional_original import load_additional_original_config
 
     _require(isinstance(suite_id, uuid.UUID), "fixture_native_business_suite_invalid")
@@ -418,41 +487,85 @@ async def prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None
         profile = next((path for path in (Path("/usr/share/color/icc/sRGB.icc"), Path("/usr/share/color/icc/sRGB.icm"), Path("/usr/share/color/icc/colord/sRGB.icc")) if path.is_file()), None)
         _require(profile is not None, "fixture_native_business_srgb_profile_missing")
         entries = owner.data.setdefault("fixture_native_business", {})
-        _require(isinstance(entries, dict) and suite_id.hex not in entries, "fixture_native_business_already_recorded")
+        _require(isinstance(entries, dict), "fixture_native_business_receipt_missing")
+        entry = entries.get(suite_id.hex)
+        if entry is not None:
+            _require(
+                isinstance(entry, dict) and entry.get("suite_id") == str(suite_id)
+                and entry.get("database") == identity and entry.get("state") in {"creating", "ready"},
+                "fixture_native_business_receipt_changed",
+            )
+            if entry["state"] == "ready":
+                return None
         if raster_owner is None:
             backend = _backend(environment, resources)
-            scopes = await _settled_thread(_scopes, backend)
-            origin = ("https" if backend.settings.minio_use_ssl else "http") + "://" + backend.settings.minio_endpoint
+            current_scopes = await _settled_thread(_scopes, backend, owner.private)
         else:
-            scopes = await _settled_thread(_raster_scopes, raster_owner, resources)
-            origin = scopes["control"]["endpoint"]
-        roles = {
-            kind: {
-                "name": prefix + suite_id.hex,
-                "password": secrets.token_urlsafe(48),
-                "marker": f"{resources['owner']}:fixture-native-business:{kind}:{suite_id}",
-            }
-            for kind, prefix in (("control", "aap_fixture_ctl_"), ("media-worker", "aap_fixture_vid_"), ("image-worker", "aap_fixture_img_"))
-        }
+            current_scopes = await _settled_thread(_raster_scopes, raster_owner, resources)
+        origin = current_scopes["control"]["endpoint"]
         seed_path = owner.private / ("native-business-" + suite_id.hex + ".json")
         profile_path = owner.private / ("native-business-" + suite_id.hex + ".profiles.json")
-        private_write(seed_path, json.dumps({"roles": roles, "scopes": scopes}).encode())
-        entry = {
-            "state": "creating", "suite_id": str(suite_id), "database": identity,
-            "roles": {}, "accounts": {}, "seed_file": str(seed_path), "profile_file": str(profile_path),
-            "storage_provider": _provider_identity(scopes["control"]),
-        }
-        entries[suite_id.hex] = entry
-        owner.save()
-        await _settled(asyncio.create_task(_create_roles(admin, resources, identity, roles, owner, entry)))
-        for kind, scope in scopes.items():
-            await _settled_thread(_assert_iam_absent, scope)
-            if raster_owner is None:
-                await _settled_thread(_create_media_storage_scope, scope, worker=False)
-            else:
-                await _settled_thread(_create_raster_account, scope)
-            entry["accounts"][kind] = await _settled_thread(_verify_account, scope)
+        if entry is None:
+            roles = {
+                kind: {
+                    "name": prefix + suite_id.hex,
+                    "password": secrets.token_urlsafe(48),
+                    "marker": f"{resources['owner']}:fixture-native-business:{kind}:{suite_id}",
+                }
+                for kind, prefix in (("control", "aap_fixture_ctl_"), ("media-worker", "aap_fixture_vid_"), ("image-worker", "aap_fixture_img_"))
+            }
+            scopes = current_scopes
+            seed_bytes = json.dumps({"roles": roles, "scopes": scopes}).encode()
+            private_write(seed_path, seed_bytes)
+            entry = {
+                "state": "creating", "suite_id": str(suite_id), "database": identity,
+                "roles": {}, "accounts": {}, "iam_birth": {}, "seed_file": str(seed_path),
+                "seed_sha256": hashlib.sha256(seed_bytes).hexdigest(),
+                "profile_file": str(profile_path),
+                "storage_provider": _provider_identity(scopes["control"]),
+            }
+            entries[suite_id.hex] = entry
             owner.save()
+        else:
+            _require(
+                entry.get("seed_file") == str(seed_path) and entry.get("profile_file") == str(profile_path),
+                "fixture_native_business_receipt_changed",
+            )
+            seed_bytes = _private_bytes(seed_path)
+            seed = json.loads(seed_bytes)
+            _require(
+                hashlib.sha256(seed_bytes).hexdigest() == entry.get("seed_sha256")
+                and isinstance(seed, dict) and set(seed) == {"roles", "scopes"}
+                and isinstance(entry.get("roles"), dict) and isinstance(entry.get("accounts"), dict)
+                and isinstance(entry.get("iam_birth"), dict)
+                and set(seed["roles"]) == set(seed["scopes"]) == {"control", "media-worker", "image-worker"},
+                "fixture_native_business_receipt_changed",
+            )
+            roles, scopes = seed["roles"], seed["scopes"]
+            _require(
+                entry.get("storage_provider") == _provider_identity(current_scopes["control"])
+                and all(_same_scope(scopes[kind], current_scopes[kind]) for kind in scopes),
+                "fixture_native_business_minio_changed",
+            )
+        await _settled(asyncio.create_task(_ensure_roles(admin, owner_url, resources, identity, roles, owner, entry)))
+        for kind, scope in scopes.items():
+            recorded = entry["accounts"].get(kind)
+            if recorded is None:
+                user, policy = await _settled_thread(_iam_components, scope)
+                if user is None and policy is None:
+                    entry["iam_birth"][kind] = "submitted"
+                    owner.save()
+                    await _settled_thread(_create_account, scope)
+                else:
+                    _require(
+                        user is not None and policy is not None
+                        and entry["iam_birth"].get(kind) == "submitted",
+                        "fixture_native_business_iam_outcome_unknown",
+                    )
+                entry["accounts"][kind] = await _settled_thread(_verify_account, scope)
+                owner.save()
+            else:
+                _require(await _settled_thread(_verify_account, scope) == recorded, "fixture_native_business_iam_changed")
         for kind, role in roles.items():
             await _settled(asyncio.create_task(_role_health(owner_url.set(username=role["name"], password=role["password"]), kind)))
         original = {
@@ -480,11 +593,19 @@ async def prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None
             profiles[kind] = values
         document = {"schema": "aap-fixture-native-business/v1", "suite_id": str(suite_id), "database_oid": identity["database_oid"], "database_owner_marker": resources["owner"], "profiles": profiles}
         profile_bytes = json.dumps(document).encode()
-        private_write(profile_path, profile_bytes)
+        if os.path.lexists(profile_path):
+            _require(entry.get("profile_birth") == "submitted", "fixture_native_business_profile_changed")
+        else:
+            entry["profile_birth"] = "submitted"
+            owner.save()
+            private_write(profile_path, profile_bytes)
+        persisted = _private_bytes(profile_path)
+        _require(persisted == profile_bytes, "fixture_native_business_profile_changed")
+        document = json.loads(persisted)
         entry["profile_sha256"] = hashlib.sha256(profile_bytes).hexdigest()
         entry["state"] = "ready"
         owner.save()
-        return profile_path
+        return profile_path, document
     finally:
         try:
             if backend is not None:
@@ -494,10 +615,10 @@ async def prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None
             os.close(descriptor)
 
 
-async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> Path:
+async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> tuple[Path, dict]:
     """Recheck the exact published business profiles without creating identities."""
     import fcntl
-    from fixture_store import verified_store
+    from fixture_store import reader_credentials, verified_store
     from verify_storage_candidates import Owner
 
     _require(isinstance(suite_id, uuid.UUID), "fixture_native_business_suite_invalid")
@@ -519,7 +640,8 @@ async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | Non
         current = lock_path.lstat()
         _require((info.st_dev, info.st_ino, info.st_nlink) == (current.st_dev, current.st_ino, current.st_nlink), "fixture_lock_changed")
         owner = Owner(manifest)
-        await _settled_thread(verified_store, owner, identity)
+        store, _ = await _settled_thread(verified_store, owner, identity)
+        original_reader = reader_credentials(owner, store)
         entries = owner.data.get("fixture_native_business")
         _require(isinstance(entries, dict), "fixture_native_business_receipt_missing")
         entry = entries.get(suite_id.hex)
@@ -531,19 +653,25 @@ async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | Non
         seed_path = owner.private / ("native-business-" + suite_id.hex + ".json")
         profile_path = owner.private / ("native-business-" + suite_id.hex + ".profiles.json")
         _require(entry.get("seed_file") == str(seed_path) and entry.get("profile_file") == str(profile_path), "fixture_native_business_receipt_changed")
-        seed, profile_bytes = _private_json(seed_path), _private_bytes(profile_path)
+        seed_bytes, profile_bytes = _private_bytes(seed_path), _private_bytes(profile_path)
+        seed = json.loads(seed_bytes)
         profile = json.loads(profile_bytes)
         _require(
             isinstance(seed, dict) and set(seed) == {"roles", "scopes"}
+            and hashlib.sha256(seed_bytes).hexdigest() == entry.get("seed_sha256")
             and isinstance(profile, dict) and profile.get("schema") == "aap-fixture-native-business/v1"
             and profile.get("suite_id") == str(suite_id)
+            and profile.get("database_oid") == identity["database_oid"]
+            and profile.get("database_owner_marker") == resources["owner"]
+            and isinstance(profile.get("profiles"), dict)
+            and set(profile["profiles"]) == {"control", "media-worker", "image-worker"}
             and hashlib.sha256(profile_bytes).hexdigest() == entry.get("profile_sha256")
             and set(seed["roles"]) == set(seed["scopes"]) == set(entry["roles"]) == set(entry["accounts"]) == {"control", "media-worker", "image-worker"},
             "fixture_native_business_receipt_changed",
         )
         if raster_owner is None:
             backend = _backend(environment, resources)
-            current_scopes = await _settled_thread(_scopes, backend)
+            current_scopes = await _settled_thread(_scopes, backend, owner.private)
         else:
             current_scopes = await _settled_thread(_raster_scopes, raster_owner, resources)
         _require(entry.get("storage_provider") == _provider_identity(current_scopes["control"]), "fixture_native_business_minio_changed")
@@ -557,6 +685,27 @@ async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | Non
                     )
                     _require(await _settled_thread(_verify_account, scope) == entry["accounts"][kind], "fixture_native_business_iam_changed")
                     role = seed["roles"][kind]
+                    values = profile["profiles"][kind]
+                    dsn_field = {
+                        "control": "ASSETS_MEDIA_CONTROL_DATABASE_URL",
+                        "media-worker": "ASSETS_MEDIA_WORKER_DATABASE_URL",
+                        "image-worker": "ASSETS_IMAGES_DATABASE_URL",
+                    }[kind]
+                    expected_dsn = owner_url.set(
+                        drivername="postgresql", username=role["name"], password=role["password"]
+                    ).render_as_string(hide_password=False)
+                    _require(
+                        isinstance(values, dict)
+                        and values.get("ASSETS_MEDIA_S3_ACCESS_KEY") == scope["access_key"]
+                        and values.get("ASSETS_MEDIA_S3_SECRET_KEY") == scope["secret_key"]
+                        and values.get("ASSETS_MEDIA_S3_ENDPOINT") == scope["endpoint"]
+                        and values.get("AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT") == store["endpoint"]
+                        and values.get("AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET") == store["bucket"]
+                        and values.get("AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY") == original_reader["access_key"]
+                        and values.get("AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY") == original_reader["secret_key"]
+                        and values.get(dsn_field) == expected_dsn,
+                        "fixture_native_business_profile_changed",
+                    )
                     row = (await connection.execute(text(
                         "SELECT oid,pg_catalog.shobj_description(oid,'pg_authid') "
                         "FROM pg_catalog.pg_roles WHERE rolname=:name"
@@ -570,7 +719,7 @@ async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | Non
                     await _settled(asyncio.create_task(_role_health(owner_url.set(username=role["name"], password=role["password"]), kind)))
         finally:
             await engine.dispose()
-        return profile_path
+        return profile_path, profile
     finally:
         try:
             if backend is not None:
@@ -663,11 +812,66 @@ async def _retire_roles(admin, resources, identity, roles, recorded):
         await engine.dispose()
 
 
+async def _roles_present(admin, resources, identity, roles, recorded):
+    engine = create_async_engine(admin, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with engine.connect() as connection:
+            observed = (await connection.execute(text(
+                "SELECT oid,pg_catalog.shobj_description(oid,'pg_database') "
+                "FROM pg_catalog.pg_database WHERE datname=current_database()"
+            ))).one()
+            _require(tuple(observed) == (identity["database_oid"], resources["owner"]), "fixture_native_business_database_changed")
+            present = []
+            for kind, role in roles.items():
+                evidence = recorded[kind]
+                rows = (await connection.execute(text(
+                    "SELECT oid,rolname,pg_catalog.shobj_description(oid,'pg_authid') "
+                    "FROM pg_catalog.pg_roles WHERE rolname=:name OR oid=:oid"
+                ), {"name": role["name"], "oid": evidence["oid"]})).all()
+                if rows:
+                    _require(
+                        len(rows) == 1 and rows[0][0] == evidence["oid"]
+                        and rows[0][1] == role["name"] == evidence["name"]
+                        and rows[0][2] == role["marker"] == evidence["marker"],
+                        "fixture_native_business_role_changed",
+                    )
+                    present.append(kind)
+            _require(not present or set(present) == set(roles), "fixture_native_business_role_outcome_unknown")
+            return bool(present)
+    finally:
+        await engine.dispose()
+
+
+def _retire_account(scope, evidence, progress, owner):
+    user, policy = _iam_components(scope)
+    if user is not None:
+        _require(not progress.get("user_absent") and policy is not None, "fixture_native_business_iam_changed")
+        _require(_verify_account(scope) == evidence, "fixture_native_business_iam_changed")
+        progress["user_submitted"] = True
+        owner.save()
+        _mc_output(scope, ["admin", "user", "remove", "scoped", scope["access_key"]])
+        user, policy = _iam_components(scope)
+    _require(user is None and progress.get("user_submitted") is True, "fixture_native_business_iam_outcome_unknown")
+    progress["user_absent"] = True
+    owner.save()
+    if policy is not None:
+        _require(not progress.get("policy_absent") and _verify_policy(scope, policy) == evidence["policy_sha256"], "fixture_native_business_iam_changed")
+        progress["policy_submitted"] = True
+        owner.save()
+        _mc_output(scope, ["admin", "policy", "remove", "scoped", scope["policy"]])
+        user, policy = _iam_components(scope)
+    _require(
+        user is None and policy is None and progress.get("policy_submitted") is True,
+        "fixture_native_business_iam_outcome_unknown",
+    )
+    progress["policy_absent"] = True
+    owner.save()
+
+
 async def retire(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> None:
     """Retire exact business identities only after native run and process proof."""
     import fcntl
     from fixture_store import verified_store
-    from verify_module_data_boundary import _cleanup_mc
     from verify_storage_candidates import Owner
 
     _require(isinstance(suite_id, uuid.UUID), "fixture_native_business_suite_invalid")
@@ -695,7 +899,7 @@ async def retire(environment, *, suite_id: uuid.UUID, raster_owner: Path | None 
         _require(isinstance(entries, dict), "fixture_native_business_receipt_missing")
         entry = entries.get(suite_id.hex)
         _require(
-            isinstance(entry, dict) and entry.get("state") == "ready"
+            isinstance(entry, dict) and entry.get("state") in {"ready", "retiring", "retired"}
             and entry.get("suite_id") == str(suite_id) and entry.get("database") == identity,
             "fixture_native_business_receipt_changed",
         )
@@ -705,10 +909,12 @@ async def retire(environment, *, suite_id: uuid.UUID, raster_owner: Path | None 
         seed_path = owner.private / ("native-business-" + suite_id.hex + ".json")
         profile_path = owner.private / ("native-business-" + suite_id.hex + ".profiles.json")
         _require(entry.get("seed_file") == str(seed_path) and entry.get("profile_file") == str(profile_path), "fixture_native_business_receipt_changed")
-        seed, profile_bytes = _private_json(seed_path), _private_bytes(profile_path)
+        seed_bytes, profile_bytes = _private_bytes(seed_path), _private_bytes(profile_path)
+        seed = json.loads(seed_bytes)
         profile = json.loads(profile_bytes)
         _require(
             isinstance(seed, dict) and set(seed) == {"roles", "scopes"}
+            and hashlib.sha256(seed_bytes).hexdigest() == entry.get("seed_sha256")
             and isinstance(profile, dict) and profile.get("schema") == "aap-fixture-native-business/v1"
             and profile.get("suite_id") == str(suite_id)
             and hashlib.sha256(profile_bytes).hexdigest() == entry.get("profile_sha256")
@@ -717,7 +923,7 @@ async def retire(environment, *, suite_id: uuid.UUID, raster_owner: Path | None 
         )
         if raster_owner is None:
             backend = _backend(environment, resources)
-            current_scopes = await _settled_thread(_scopes, backend)
+            current_scopes = await _settled_thread(_scopes, backend, owner.private)
         else:
             current_scopes = await _settled_thread(_raster_scopes, raster_owner, resources)
         _require(entry.get("storage_provider") == _provider_identity(current_scopes["control"]), "fixture_native_business_minio_changed")
@@ -726,26 +932,56 @@ async def retire(environment, *, suite_id: uuid.UUID, raster_owner: Path | None 
                 _same_scope(scope, current_scopes[kind]),
                 "fixture_native_business_minio_changed",
             )
-            _require(await _settled_thread(_verify_account, scope) == entry["accounts"][kind], "fixture_native_business_iam_changed")
+            evidence = entry["accounts"][kind]
+            _require(
+                evidence.get("identity_sha256") == hashlib.sha256(scope["access_key"].encode()).hexdigest()
+                and evidence.get("policy") == scope["policy"],
+                "fixture_native_business_iam_changed",
+            )
             role = seed["roles"][kind]
             _require(
                 role["name"] == entry["roles"][kind]["name"]
                 and role["marker"] == entry["roles"][kind]["marker"],
                 "fixture_native_business_role_changed",
             )
-            await _settled(asyncio.create_task(_role_health(owner_url.set(username=role["name"], password=role["password"]), kind)))
-        entry["state"] = "retiring"
-        owner.save()
-        await _settled(asyncio.create_task(_retire_roles(admin, resources, identity, seed["roles"], entry["roles"])))
+        roles_present = await _roles_present(admin, resources, identity, seed["roles"], entry["roles"])
+        if entry["state"] == "ready":
+            _require(roles_present, "fixture_native_business_role_outcome_unknown")
+            for kind, scope in seed["scopes"].items():
+                _require(await _settled_thread(_verify_account, scope) == entry["accounts"][kind], "fixture_native_business_iam_changed")
+                role = seed["roles"][kind]
+                await _settled(asyncio.create_task(_role_health(owner_url.set(username=role["name"], password=role["password"]), kind)))
+            entry["state"] = "retiring"
+            entry["roles_retire_submitted"] = True
+            entry["iam_retirement"] = {}
+            owner.save()
+        else:
+            _require(entry.get("roles_retire_submitted") is True, "fixture_native_business_role_outcome_unknown")
+        if roles_present:
+            _require(not entry.get("roles_retired"), "fixture_native_business_role_changed")
+            await _settled(asyncio.create_task(_retire_roles(admin, resources, identity, seed["roles"], entry["roles"])))
+            _require(not await _roles_present(admin, resources, identity, seed["roles"], entry["roles"]), "fixture_native_business_role_drop_unconfirmed")
         entry["roles_retired"] = True
         owner.save()
+        progress_by_kind = entry.get("iam_retirement")
+        _require(isinstance(progress_by_kind, dict), "fixture_native_business_receipt_changed")
         for kind, scope in seed["scopes"].items():
-            remove = _cleanup_mc if raster_owner is None else _mc_output
-            await _settled_thread(remove, scope, ["admin", "user", "remove", "scoped", scope["access_key"]])
-            await _settled_thread(remove, scope, ["admin", "policy", "remove", "scoped", scope["policy"]])
-            await _settled_thread(_assert_iam_absent, scope)
+            evidence = entry["accounts"][kind]
+            if evidence.get("retired") is True:
+                progress = progress_by_kind.get(kind)
+                _require(
+                    isinstance(progress, dict) and progress.get("user_submitted") is True
+                    and progress.get("user_absent") is True
+                    and progress.get("policy_submitted") is True and progress.get("policy_absent") is True,
+                    "fixture_native_business_iam_outcome_unknown",
+                )
+                await _settled_thread(_assert_iam_absent, scope)
+            else:
+                progress = progress_by_kind.setdefault(kind, {})
+                _require(isinstance(progress, dict), "fixture_native_business_iam_outcome_unknown")
+                await _settled_thread(_retire_account, scope, evidence, progress, owner)
             current_scopes = await _settled_thread(
-                _scopes, backend
+                _scopes, backend, owner.private
             ) if raster_owner is None else await _settled_thread(_raster_scopes, raster_owner, resources)
             _require(
                 _same_scope(scope, current_scopes[kind]),

@@ -26,7 +26,7 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from fixture_suite_coordinator import _settled_thread, _verified_database, prepare_fixture_suite
+from fixture_suite_coordinator import _settled, _settled_thread, _verified_database, prepare_fixture_suite
 from linux_pidfd import open_pidfd, pidfd_alive, pidfd_send_signal
 from verify_storage_candidates import private_write
 from worktree_env import application_environment, atomic_json, state_path
@@ -170,11 +170,10 @@ async def _prepare(environment, suite_id, raster_owner=None):
         "fixture_native_admin_database_changed",
     )
     await prepare_fixture_suite(str(suite_id), "owned")
-    business = await fixture_native_business.prepare(
+    business, document = await fixture_native_business.prepare(
         environment, suite_id=suite_id, raster_owner=raster_owner
     )
     resolver = await fixture_native_read_control.provision(admin, "resolver", suite_id)
-    document = _private(business)
     _require(
         isinstance(document, dict)
         and set(document) == {"schema", "suite_id", "database_oid", "database_owner_marker", "profiles"}
@@ -295,11 +294,17 @@ def _wait_ready(process, descriptor, origin):
 def _drain(process, descriptor):
     from raster_consumer_process import _drain_consumer, _track_consumer_descendants
 
-    _require(pidfd_alive(descriptor) and process.poll() is None, "fixture_native_process_unsettled")
-    tracked = {}
+    tracked = getattr(process, "fixture_native_descendants", {})
+    _require(isinstance(tracked, dict) and process.returncode is None, "fixture_native_process_unsettled")
+    process.fixture_native_descendants = tracked
     try:
-        _track_consumer_descendants(process.pid, tracked)
-        pidfd_send_signal(descriptor, signal.SIGTERM)
+        if pidfd_alive(descriptor):
+            _track_consumer_descendants(process.pid, tracked)
+            if not getattr(process, "fixture_native_stop_requested", False):
+                pidfd_send_signal(descriptor, signal.SIGTERM)
+                process.fixture_native_stop_requested = True
+        else:
+            _require(getattr(process, "fixture_native_stop_requested", False), "fixture_native_process_unsettled")
         deadline = time.monotonic() + 120
         while pidfd_alive(descriptor):
             _require(time.monotonic() < deadline, "fixture_native_process_drain_timeout")
@@ -313,6 +318,7 @@ def _drain(process, descriptor):
     else:
         for tracked_fd in tracked.values():
             os.close(tracked_fd)
+        process.fixture_native_descendants = None
 
 
 class NativeSuiteControl:
@@ -403,11 +409,11 @@ class NativeSuiteControl:
             await _settled_thread(_wait_ready, self.process, self.pidfd, self.origin)
             return
         _require(self.journal["state"] == "control_offline", "fixture_native_control_unsettled")
-        business = await fixture_native_business.verified(
+        business, document = await fixture_native_business.verified(
             self.environment, suite_id=self.suite, raster_owner=self.raster_owner
         )
         _require(business == self.business, "fixture_native_business_profile_changed")
-        self.profile = _private(business)["profiles"]["control"]
+        self.profile = document["profiles"]["control"]
         self.journal["control_incarnation"] = self.journal.get("control_incarnation", 0) + 1
         await self.start()
 
@@ -435,6 +441,19 @@ class NativeSuiteControl:
         atomic_json(self.journal_path, self.journal)
         return self.journal["api"]
 
+    async def _retire_api(self):
+        self.journal["state"] = "stopping_api"
+        atomic_json(self.journal_path, self.journal)
+        await _settled_thread(_drain, self.api, self.api_pidfd)
+        self.journal["api_disposition"] = {
+            "pid": self.journal["api"]["pid"], "start": self.journal["api"]["start"],
+            "exit_code": 0, "pidfd_exit": True, "lifespan_shutdown": True, "descendants_drained": True,
+        }
+        os.close(self.api_pidfd)
+        self.api = self.api_pidfd = None
+        self.journal["state"] = "stopping_control"
+        atomic_json(self.journal_path, self.journal)
+
     async def retire_suite(self):
         import fixture_native_business
         import fixture_native_read_control
@@ -459,22 +478,47 @@ class NativeSuiteControl:
         run_ids = await _suite_settled(self.environment, self.suite)
         _verify_run_receipts(self.directory, self.suite, run_ids)
         self.journal["native_run_ids"] = run_ids
-        self.journal["state"] = "stopping_api"
-        atomic_json(self.journal_path, self.journal)
-        await _settled_thread(_drain, self.api, self.api_pidfd)
-        self.journal["api_disposition"] = {
-            "pid": self.journal["api"]["pid"], "start": self.journal["api"]["start"],
-            "exit_code": 0, "pidfd_exit": True, "lifespan_shutdown": True, "descendants_drained": True,
-        }
-        os.close(self.api_pidfd)
-        self.api = self.api_pidfd = None
-        self.journal["state"] = "stopping_control"
-        atomic_json(self.journal_path, self.journal)
-        await self.stop(offline=False)
-        self.listener.close()
-        self.listener = None
+        disposition = self.journal.get("api_disposition")
+        if disposition is None:
+            await _settled(asyncio.create_task(self._retire_api()))
+        else:
+            _require(
+                isinstance(disposition, dict) and self.api is None and self.api_pidfd is None
+                and disposition.get("pid") == self.journal["api"]["pid"]
+                and disposition.get("start") == self.journal["api"]["start"]
+                and disposition.get("exit_code") == 0 and disposition.get("pidfd_exit") is True
+                and disposition.get("lifespan_shutdown") is True and disposition.get("descendants_drained") is True,
+                "fixture_native_process_unsettled",
+            )
+        control_disposition = self.journal.get("control_disposition")
+        if control_disposition is None:
+            await _settled(asyncio.create_task(self.stop(offline=False)))
+        else:
+            _require(
+                isinstance(control_disposition, dict)
+                and control_disposition.get("pid") == self.journal["control"]["pid"]
+                and control_disposition.get("start") == self.journal["control"]["start"]
+                and control_disposition.get("exit_code") == 0 and control_disposition.get("pidfd_exit") is True
+                and control_disposition.get("settled_ack") is True
+                and control_disposition.get("descendants_drained") is True,
+                "fixture_native_control_unsettled",
+            )
+            if self.process is not None:
+                _require(
+                    self.pidfd is not None and self.stopped is not None
+                    and self.process.returncode == 0 and not pidfd_alive(self.pidfd),
+                    "fixture_native_control_unsettled",
+                )
+                os.close(self.stopped)
+                os.close(self.pidfd)
+                self.process = self.pidfd = self.stopped = None
+            _require(self.pidfd is None and self.stopped is None, "fixture_native_control_unsettled")
+        if self.listener is not None:
+            self.listener.close()
+            self.listener = None
         await fixture_native_read_control.retire(self.admin, "resolver", self.suite)
         self.journal["resolver_retired"] = True
+        atomic_json(self.journal_path, self.journal)
         await fixture_native_business.retire(
             self.environment, suite_id=self.suite, raster_owner=self.raster_owner
         )
