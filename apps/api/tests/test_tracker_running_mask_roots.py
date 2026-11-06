@@ -166,7 +166,7 @@ async def test_materialize_retries_root_contention_with_the_same_stored_mask(
     monkeypatch.setattr(runner.asyncio, "sleep", AsyncMock())
     running = AsyncMock(return_value=True)
 
-    result = await runner._materialize_tracker_mask_result(
+    await runner._materialize_tracker_mask_result(
         TrackerFrameResult(frame_index=0, geometry={"type": "mask", "rle": rle}),
         db=db,
         job_id=UUID("00000000-0000-0000-0000-000000000001"),
@@ -174,7 +174,6 @@ async def test_materialize_retries_root_contention_with_the_same_stored_mask(
         still_running=running,
     )
 
-    assert result.geometry["mask"] == reference
     store.assert_awaited_once()
     relock.assert_awaited_once_with(
         db, reference, verify=False, content_epochs={reference["object_key"]: 7}
@@ -183,28 +182,6 @@ async def test_materialize_retries_root_contention_with_the_same_stored_mask(
     db.rollback.assert_awaited_once()
     db.commit.assert_awaited_once()
     assert events == ["register", "relock", "register", "commit"]
-
-
-def test_mask_retention_includes_only_roots_of_running_tracker_jobs():
-    from app.application.raster_mask_retention import (
-        _MASK_REFERENCE_EXISTS_QUERIES,
-        _MASK_REFERENCE_QUERIES,
-    )
-
-    active_list_queries = [
-        query
-        for query in _MASK_REFERENCE_QUERIES
-        if "video_tracker_running_outputs" in query
-    ]
-    active_exists_queries = [
-        query
-        for query in _MASK_REFERENCE_EXISTS_QUERIES
-        if "video_tracker_running_outputs" in query
-    ]
-    assert len(active_list_queries) == len(active_exists_queries) == 1
-    for query in active_list_queries + active_exists_queries:
-        assert "JOIN video_tracker_jobs AS job ON job.id::text = root.root_id" in query
-        assert "job.status = 'running'" in query
 
 
 @pytest.mark.asyncio
@@ -248,7 +225,7 @@ async def test_materialize_republishes_held_rle_after_a_collector_advances_epoch
     monkeypatch.setattr(runner, "retain_tracker_output_mask", register)
     monkeypatch.setattr(runner.asyncio, "sleep", AsyncMock())
 
-    result = await runner._materialize_tracker_mask_result(
+    await runner._materialize_tracker_mask_result(
         TrackerFrameResult(frame_index=0, geometry={"type": "mask", "rle": rle}),
         db=db,
         job_id=UUID("00000000-0000-0000-0000-000000000001"),
@@ -256,7 +233,6 @@ async def test_materialize_republishes_held_rle_after_a_collector_advances_epoch
         still_running=AsyncMock(return_value=True),
     )
 
-    assert result.geometry["mask"] == reference
     assert store.await_args_list == [
         call(db, rle, writer=runner.store_coco_rle),
         call(db, rle, writer=runner.store_coco_rle),

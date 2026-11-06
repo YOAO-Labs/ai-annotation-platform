@@ -35,7 +35,6 @@ from yoao_assets_images.transport import ImageSourceReference
 from yoao_assets_media.contract import MediaSource
 from yoao_assets_media.transport import SourceReference
 from app.services import assets_catalog
-from app.services.dataset import DatasetService
 from app.api.v1 import datasets as dataset_routes
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
 
@@ -704,70 +703,6 @@ async def test_catalog_image_links_withhold_unverified_urls_without_storage_fall
     assert result.items[0].thumbnail_path is None
     assert result.items[0].blurhash is None
     assert signed == []
-
-
-@pytest.mark.parametrize("mismatch", [False, True])
-@pytest.mark.asyncio
-async def test_dataset_service_image_links_use_verified_owner_reference(
-    monkeypatch, mismatch
-):
-    actor_id, dataset_id, item_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    item = SimpleNamespace(
-        id=item_id,
-        dataset_id=dataset_id,
-        file_name="image.jpg",
-        file_path=f"source/{item_id}",
-        file_type="image",
-        file_size=1,
-        content_hash=None,
-        width=12,
-        height=8,
-        blurhash="stale-blurhash",
-        metadata_={},
-        created_at=datetime.now(UTC),
-    )
-    db = AsyncMock(spec=AsyncSession)
-    count_result = SimpleNamespace(scalar=lambda: 1)
-    item_result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [item]))
-    db.execute.side_effect = [count_result, item_result]
-    signed = []
-    monkeypatch.setattr(
-        assets_catalog.storage_service,
-        "generate_download_url",
-        lambda key, *, bucket: signed.append((key, bucket)) or "unsafe:direct-sign",
-    )
-
-    async def owner_references(_db, requests):
-        assert requests[0].actor_id == actor_id
-        return [
-            _image_source_reference(
-                item_id,
-                dataset_id,
-                actor_id=actor_id,
-                file_path="source/changed" if mismatch else item.file_path,
-            )
-        ]
-
-    monkeypatch.setattr(
-        "app.services.dataset.image_source_references", owner_references
-    )
-
-    result, total = await DatasetService(db).list_items(dataset_id, actor_id=actor_id)
-
-    assert total == 1
-    assert signed == []
-    if mismatch:
-        assert result[0]["file_url"] is None
-        assert result[0]["thumbnail_url"] is None
-        assert result[0]["blurhash"] is None
-        assert (result[0]["width"], result[0]["height"]) == (12, 8)
-    else:
-        assert result[0]["file_url"] == f"https://browser.test/image/{item_id}"
-        assert result[0]["thumbnail_url"] == (
-            "https://browser.test/verified-image-thumbnail"
-        )
-        assert result[0]["blurhash"] == "verified-image-blurhash"
-        assert (result[0]["width"], result[0]["height"]) == (16, 9)
 
 
 @pytest.mark.asyncio

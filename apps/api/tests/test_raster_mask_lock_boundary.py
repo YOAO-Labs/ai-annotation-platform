@@ -42,6 +42,9 @@ class _Result:
     def scalar_one_or_none(self):
         return self._value
 
+    def scalar_one(self):
+        return self._value
+
 
 class _Database:
     def __init__(self, task, project=None):
@@ -55,6 +58,8 @@ class _Database:
         self.events: list[str] = []
 
     async def execute(self, statement, *_args, **_kwargs):
+        if "pg_try_advisory_xact_lock" in str(statement):
+            return _Result(True)
         if "aap_labeling_v1.lock_task_for_core_read" in str(statement):
             self.events.append("task_lock")
         return _Result(self.task)
@@ -82,7 +87,7 @@ async def test_rle_read_precedes_task_lock_and_final_registration_is_sql_only(
     monkeypatch.setattr(storage, "load_coco_rle", load)
     monkeypatch.setattr(storage, "assert_raster_mask_write_enabled", lambda _p: None)
 
-    async def validate(_db, _task, _geometry):
+    async def validate(_db, _task, _geometry, **_receipts):
         return None
 
     async def lock_references(_db, _value, *, verify=True, content_epochs, **_kwargs):
@@ -187,7 +192,7 @@ async def test_verified_membership_compares_full_canonical_reference_pairs(
     async def load(_reference):
         return RLE
 
-    async def validate(_db, _task, _geometry):
+    async def validate(_db, _task, _geometry, **_receipts):
         return None
 
     async def lock_references(_db, value, *, verify=True, **_kwargs):

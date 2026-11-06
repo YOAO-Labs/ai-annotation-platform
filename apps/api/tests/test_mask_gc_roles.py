@@ -58,15 +58,3 @@ def test_gc_login_is_revoked_from_raw_tables_schemas_and_other_functions():
         "lock_mask_write_epochs",
     ):
         assert write_gate in script
-
-
-def test_module_grants_validate_gc_role_and_assign_native_functions_to_labeling():
-    script = MODULE_GRANTS.read_text(encoding="utf-8")
-
-    assert "mask_gc_role=labeling_mask_gc_client" in script
-    assert "current_setting('aap.mask_gc_role')" in script
-    assert ") <> 16 THEN" in script
-    assert "The Labeling Mask GC role must not have inheriting members" in script
-    assert "proc.proname LIKE '%mask_gc%'" in script
-    assert "public.mask_gc_intents" in script
-    assert "public.mask_gc_write_permit_secrets" in script

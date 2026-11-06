@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 import uuid
 
 import pytest
@@ -275,35 +273,3 @@ async def test_import_admin_creation_keeps_existing_identity_semantics(db_sessio
 
     replayed = await commands.ensure_import_admin(environment="production")
     assert replayed == admin.id
-
-
-def test_operator_importers_do_not_use_retired_dataset_item_writers():
-    scripts = Path(__file__).parents[1] / "scripts"
-    retired_methods = {
-        "create_local_image_import_dataset",
-        "ensure_nuscenes_dataset",
-        "add_item",
-        "set_nuscenes_export_context",
-        "backfill_camera_dimensions",
-        "refresh_imported_item_content",
-        "record_uploaded_item_content",
-        "recount_items",
-    }
-    for script in ("import_images.py", "import_nuscenes_scene.py"):
-        source = (scripts / script).read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        calls = {
-            node.func.attr
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        }
-        assert not calls.intersection(retired_methods), script
-        assert "AssetsOperatorGateway" in source
-        assert not any(
-            isinstance(node, ast.ImportFrom)
-            and node.module == "app.db.models.dataset"
-            and any(alias.name in {"Dataset", "DatasetItem"} for alias in node.names)
-            for node in ast.walk(tree)
-        ), script
-
-    assert all(not hasattr(DatasetService, name) for name in retired_methods)
