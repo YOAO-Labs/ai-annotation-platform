@@ -305,6 +305,8 @@ async def _labeling_owner_container(test_engine, directory: Path, token: str):
         _docker(
             "network",
             "connect",
+            "--gw-priority",
+            "-1",
             "--alias",
             postgres_alias,
             network_id,

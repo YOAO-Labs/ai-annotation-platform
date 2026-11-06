@@ -5393,7 +5393,9 @@ async def prepare_raster_images(
                 intent.generation = work.generation
                 intent.state = "admitted"
                 await db.commit()
-            pending.append((intent, previous is not None, actor_id, task_id, source, work))
+            pending.append(
+                (intent, previous is not None, actor_id, task_id, source, work)
+            )
 
         deadline = asyncio.get_running_loop().time() + 45
         for intent, reused, actor_id, task_id, source, work in pending:

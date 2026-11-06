@@ -8,6 +8,7 @@ import inspect
 import json
 import os
 import subprocess
+import sys
 import uuid
 
 import pytest
@@ -144,7 +145,7 @@ async def test_owned_cleanup_removes_preference_receipt_without_touching_audit(
             assert cleaned.status_code == 200, cleaned.text
 
 
-async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_actor(
+async def test_owned_cleanup_preserves_external_actor_reference_until_removed(
     test_engine, fixture_and_fenced_http, fenced_http, e2e_consumer
 ):
     namespace = "refcase"
@@ -204,15 +205,11 @@ async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_acto
                 )
                 == actor_id
             )
-            projects_before = await db.scalar(
-                text("SELECT count(*) FROM projects WHERE id=ANY(:ids)"),
-                {"ids": project_ids},
-            )
-            assert projects_before == 4
         blocked = await fixture_and_fenced_http.post(
             "/api/v1/__test/seed/owned-cleanup", json=run.payload()
         )
         assert blocked.status_code == 409, blocked.text
+        assert blocked.json()["detail"]["code"] == "e2e_seed_identity_referenced"
         async with test_engine.connect() as db:
             assert (
                 await db.scalar(
@@ -221,30 +218,53 @@ async def test_owned_cleanup_rolls_back_when_an_external_dataset_references_acto
                 )
                 == actor_id
             )
-            assert (
-                await db.scalar(
-                    text("SELECT count(*) FROM users WHERE id=ANY(:ids)"),
-                    {"ids": user_ids},
-                )
-                == 9
+            remaining_users = await db.scalars(
+                text("SELECT id FROM users WHERE id=ANY(:ids)"),
+                {"ids": user_ids},
             )
+            assert set(remaining_users) == set(user_ids)
             assert (
                 await db.scalar(
-                    text("SELECT count(*) FROM projects WHERE id=ANY(:ids)"),
-                    {"ids": project_ids},
+                    text("SELECT state FROM yoao_fixture_v1.fixture_runs WHERE id=:id"),
+                    {"id": run.run_id},
                 )
-                == projects_before
+                == "sealing"
             )
     finally:
-        async with test_engine.begin() as db:
-            await db.execute(
-                text("DELETE FROM datasets WHERE name=:name"), {"name": dataset_name}
+        failure = sys.exception()
+        try:
+            if dataset_id is not None:
+                async with test_engine.begin() as db:
+                    await db.execute(
+                        text("DELETE FROM datasets WHERE id=:id"), {"id": dataset_id}
+                    )
+            if created_scope:
+                cleaned = await fixture_and_fenced_http.post(
+                    "/api/v1/__test/seed/owned-cleanup", json=run.payload()
+                )
+                assert cleaned.status_code == 200, cleaned.text
+        except BaseException as cleanup_error:
+            if failure is not None:
+                raise BaseExceptionGroup(
+                    "External actor reference scenario and cleanup both failed",
+                    [failure, cleanup_error],
+                ) from None
+            raise
+    async with test_engine.connect() as db:
+        assert not await db.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM users WHERE id=ANY(:users)) OR "
+                "EXISTS (SELECT 1 FROM projects WHERE id=ANY(:projects))"
+            ),
+            {"users": user_ids, "projects": project_ids},
+        )
+        assert (
+            await db.scalar(
+                text("SELECT state FROM yoao_fixture_v1.fixture_runs WHERE id=:id"),
+                {"id": run.run_id},
             )
-        if created_scope:
-            cleaned = await fixture_and_fenced_http.post(
-                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
-            )
-            assert cleaned.status_code == 200, cleaned.text
+            == "retired"
+        )
 
 
 @pytest.mark.parametrize(

@@ -253,9 +253,7 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
             exc.thumbnail_write_refused = True
         failure = exc
     try:
-        await recorder.finish(
-            settled=not storage_access.failure_unsettled(failure)
-        )
+        await recorder.finish(settled=not storage_access.failure_unsettled(failure))
     except BaseException as exc:
         # The verified owner receipt is mandatory even if accounting drains a
         # caller cancellation. Persist it before propagating that cancellation.
@@ -274,12 +272,15 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
     try:
         result = await asyncio.shield(checkpoint)
     except BaseException as interrupted:
+        failures = [interrupted] if failure is None else [failure, interrupted]
         try:
             await storage_access.finish(checkpoint)
         except BaseException as checkpoint_error:
+            if checkpoint_error is not interrupted:
+                failures.append(checkpoint_error)
+        if len(failures) > 1:
             raise BaseExceptionGroup(
-                "Thumbnail publication and checkpoint failed",
-                [interrupted, checkpoint_error],
+                "Thumbnail publication and checkpoint failed", failures
             ) from None
         raise
     if failure is not None:

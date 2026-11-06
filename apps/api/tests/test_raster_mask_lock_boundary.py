@@ -72,7 +72,9 @@ async def test_final_write_requires_the_exact_verified_reference(
 
 
 @pytest.mark.asyncio
-async def test_final_reference_gate_rejects_missing_epoch_in_caller_transaction(db_session):
+async def test_final_reference_gate_rejects_missing_epoch_in_caller_transaction(
+    db_session,
+):
     reference = storage.build_rle_reference(FOREGROUND_RLE)
     with pytest.raises(storage.RasterMaskContractError) as rejected:
         await storage.lock_raster_mask_references(

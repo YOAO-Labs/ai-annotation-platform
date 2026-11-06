@@ -288,19 +288,31 @@ async def isolated_world(test_engine, monkeypatch):
         assert all(client.closed for client in value.clients)
         assert all(body.closed for body in value.bodies)
 
+
 @asynccontextmanager
 async def native_world(test_engine, monkeypatch, *, standalone=False):
     """Use native public owners in one guarded, test-owned PostgreSQL database."""
     value = SimpleNamespace(
-        ready=False, clients=[], bodies=[], objects={}, calls=[], lock_probe=None,
-        active=set(), original_client=None, original_keys=set(),
-        tasks=set(), threads=set(), thread_lock=threading.Lock(),
+        ready=False,
+        clients=[],
+        bodies=[],
+        objects={},
+        calls=[],
+        lock_probe=None,
+        active=set(),
+        original_client=None,
+        original_keys=set(),
+        tasks=set(),
+        threads=set(),
+        thread_lock=threading.Lock(),
     )
 
     async def before_drop(engine):
         assert value.ready, "fixture setup did not complete"
         assert not value.active, "thumbnail execution is still running"
-        assert all(task.done() for task in value.tasks), "background task is still running"
+        assert all(task.done() for task in value.tasks), (
+            "background task is still running"
+        )
         with value.thread_lock:
             assert not value.threads, "physical thread is still running"
         assert all(client.closed for client in value.clients)
@@ -314,19 +326,26 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             assert not await db.scalar(select(StorageOperation.id).limit(1))
             assert not await db.scalar(
-                select(ThumbnailOutput.id).where(
+                select(ThumbnailOutput.id)
+                .where(
                     (ThumbnailOutput.state == "building")
                     | ThumbnailOutput.uncertain_write.is_(True)
-                ).limit(1)
+                )
+                .limit(1)
             )
             assert not await db.scalar(
-                select(ManagedOriginalCreation.id).where(
+                select(ManagedOriginalCreation.id)
+                .where(
                     (ManagedOriginalCreation.status != "verified")
                     | ManagedOriginalCreation.settled_at.is_(None)
-                ).limit(1)
+                )
+                .limit(1)
             )
             outputs = list(await db.scalars(select(ThumbnailOutput)))
-            known_objects = {(value.source_bucket, value.source_key), ("saved-b", value.key)}
+            known_objects = {
+                (value.source_bucket, value.source_key),
+                ("saved-b", value.key),
+            }
             for output in outputs:
                 assert (output.owner_kind, output.owner_id) in {
                     ("task_thumbnail", value.task_id),
@@ -336,9 +355,15 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
                 known_objects.add((reference.bucket, reference.key("thumbnail.webp")))
             assert set(value.objects) <= known_objects
             assert not await db.scalar(text("SELECT id FROM async_jobs LIMIT 1"))
-            assert not await db.scalar(text("SELECT id FROM yoao_fixture_v1.fixture_runs LIMIT 1"))
-            assert not await db.scalar(text("SELECT job_id FROM asset_image_jobs LIMIT 1"))
-            assert not await db.scalar(text("SELECT job_id FROM asset_media_jobs LIMIT 1"))
+            assert not await db.scalar(
+                text("SELECT id FROM yoao_fixture_v1.fixture_runs LIMIT 1")
+            )
+            assert not await db.scalar(
+                text("SELECT job_id FROM asset_image_jobs LIMIT 1")
+            )
+            assert not await db.scalar(
+                text("SELECT job_id FROM asset_media_jobs LIMIT 1")
+            )
 
     async with managed_database(test_engine.url, before_drop=before_drop) as engine:
         value.engine = engine
@@ -383,7 +408,9 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
         provider = OriginalClient()
         value.original_client = provider
         stage_client(monkeypatch, provider)
-        monkeypatch.setattr(managed_original_creation, "create_client", lambda **_: provider)
+        monkeypatch.setattr(
+            managed_original_creation, "create_client", lambda **_: provider
+        )
         monkeypatch.setattr(storage_service, "bucket", "saved-old-annotations")
         monkeypatch.setattr(
             "app.services.connector_guard.get_allowlist",
@@ -405,7 +432,9 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
                 self.client = Client(value, endpoint)
 
         monkeypatch.setattr(storage_module, "StorageService", OwnedStorage)
-        monkeypatch.setattr(reader, "create_client", lambda **kwargs: Client(value, endpoint))
+        monkeypatch.setattr(
+            reader, "create_client", lambda **kwargs: Client(value, endpoint)
+        )
         monkeypatch.setattr(settings, "image_pyramid_auto_generate", False)
         from app.workers import image_pyramid
 
@@ -426,88 +455,150 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
         monkeypatch.setattr(service, "generate", tracked_generate)
         async with value.factory() as db:
             actor = User(
-                id=uuid.uuid4(), email=uuid.uuid4().hex + "@example.test",
-                name="Thumbnail fixture owner", password_hash="unused",
-                role="project_admin", is_active=True,
+                id=uuid.uuid4(),
+                email=uuid.uuid4().hex + "@example.test",
+                name="Thumbnail fixture owner",
+                password_hash="unused",
+                role="project_admin",
+                is_active=True,
             )
             db.add(actor)
             await db.flush()
             project = await create_fixture_project(db, owner_id=actor.id)
             await ensure_legacy_bindings(db)
             dataset = Dataset(
-                id=uuid.uuid4(), display_id="ot-" + uuid.uuid4().hex[:12],
-                name="Ordinary thumbnails", created_by=actor.id,
+                id=uuid.uuid4(),
+                display_id="ot-" + uuid.uuid4().hex[:12],
+                name="Ordinary thumbnails",
+                created_by=actor.id,
             )
             item = DatasetItem(
-                id=uuid.uuid4(), dataset_id=dataset.id, file_name="saved.png",
-                file_path="pending", file_type="image", width=32, height=16,
+                id=uuid.uuid4(),
+                dataset_id=dataset.id,
+                file_name="saved.png",
+                file_path="pending",
+                file_type="image",
+                width=32,
+                height=16,
             )
             connection = StorageConnection(
-                id=uuid.uuid4(), name="B-" + uuid.uuid4().hex, kind="s3",
-                scope="global", config={
-                    "endpoint": "https://objects.example.test", "bucket": "saved-b",
-                    "base_prefix": "公司/root", "use_ssl": True,
-                }, secret_enc=b"encrypted-current-credentials", revision=2,
+                id=uuid.uuid4(),
+                name="B-" + uuid.uuid4().hex,
+                kind="s3",
+                scope="global",
+                config={
+                    "endpoint": "https://objects.example.test",
+                    "bucket": "saved-b",
+                    "base_prefix": "公司/root",
+                    "use_ssl": True,
+                },
+                secret_enc=b"encrypted-current-credentials",
+                revision=2,
             )
             location = StorageLocation(
-                id=uuid.uuid4(), name="B-" + uuid.uuid4().hex, kind="s3",
-                config={}, config_revision=2, connection_id=connection.id,
+                id=uuid.uuid4(),
+                name="B-" + uuid.uuid4().hex,
+                kind="s3",
+                config={},
+                config_revision=2,
+                connection_id=connection.id,
             )
-            db.add_all([dataset, item, connection, location])
+            db.add_all([dataset, connection])
+            await db.flush()
+            db.add_all([item, location])
             await db.flush()
             target = Target(
-                location.id, 2, 2, "https://objects.example.test", "saved-b",
-                "公司/root/_aap_managed/datasets/", purpose="datasets",
+                location.id,
+                2,
+                2,
+                "https://objects.example.test",
+                "saved-b",
+                "公司/root/_aap_managed/datasets/",
+                purpose="datasets",
             )
             item.file_path = target.key_prefix + "originals/" + uuid.uuid4().hex
             asset = DatasetAsset(
-                id=uuid.uuid4(), dataset_item_id=item.id, media_type="image",
-                verification_state="verified", checksum_algorithm="sha256",
-                checksum_value=value.sha, size_bytes=len(value.raw),
+                id=uuid.uuid4(),
+                dataset_item_id=item.id,
+                media_type="image",
+                verification_state="verified",
+                checksum_algorithm="sha256",
+                checksum_value=value.sha,
+                size_bytes=len(value.raw),
             )
             db.add(asset)
             await db.flush()
-            db.add(DatasetAssetLocation(
-                asset_id=asset.id, location_id=location.id, bucket=target.bucket,
-                object_key=item.file_path,
-                storage_ref=dataset_storage.make_ref(target, 2, item.file_path),
-                role="managed_original", reference_state="present", etag='"old-write-etag"',
-            ))
+            db.add(
+                DatasetAssetLocation(
+                    asset_id=asset.id,
+                    location_id=location.id,
+                    bucket=target.bucket,
+                    object_key=item.file_path,
+                    storage_ref=dataset_storage.make_ref(target, 2, item.file_path),
+                    role="managed_original",
+                    reference_state="present",
+                    etag='"old-write-etag"',
+                )
+            )
             await db.execute(
-                update(StorageBinding).where(StorageBinding.purpose == "media-cache")
+                update(StorageBinding)
+                .where(StorageBinding.purpose == "media-cache")
                 .values(location_id=location.id, bucket=target.bucket, generation=2)
             )
             task_id = uuid.uuid4()
             if not standalone:
-                await LabelingE2EFixtureWrites(db).insert_tasks([Task(
-                    id=task_id, project_id=project.id,
-                    display_id="ot-" + uuid.uuid4().hex[:12],
-                    file_name=item.file_name, file_path=item.file_path,
-                    file_type="image", dataset_item_id=item.id,
-                )])
+                await LabelingE2EFixtureWrites(db).insert_tasks(
+                    [
+                        Task(
+                            id=task_id,
+                            project_id=project.id,
+                            display_id="ot-" + uuid.uuid4().hex[:12],
+                            file_name=item.file_name,
+                            file_path=item.file_path,
+                            file_type="image",
+                            dataset_item_id=item.id,
+                        )
+                    ]
+                )
             await db.commit()
-            value.dataset_id, value.item_id, value.task_id = dataset.id, item.id, task_id
+            value.dataset_id, value.item_id, value.task_id = (
+                dataset.id,
+                item.id,
+                task_id,
+            )
             value.asset_id, value.location_id, value.connection_id = (
-                asset.id, location.id, connection.id
+                asset.id,
+                location.id,
+                connection.id,
             )
             value.key = item.file_path
             value.objects[target.bucket, value.key] = value.raw
             value.source_bucket, value.source_key = target.bucket, value.key
             if standalone:
                 allocation = await managed_original_creation.allocate_task(
-                    db, project_id=project.id, task_id=task_id, logical_path="saved.png",
-                    max_bytes=len(value.raw), content_type="image/png",
-                    requested_by=actor.id, authority={},
+                    db,
+                    project_id=project.id,
+                    task_id=task_id,
+                    logical_path="saved.png",
+                    max_bytes=len(value.raw),
+                    content_type="image/png",
+                    requested_by=actor.id,
+                    authority={},
                 )
                 assert await db.scalar(
-                    text("SELECT aap_labeling_v1.create_uploading_task("
-                         ":task_id, :project_id, :display_id, :file_name, "
-                         ":file_path, :file_type, :actor_id)"),
+                    text(
+                        "SELECT aap_labeling_v1.create_uploading_task("
+                        ":task_id, :project_id, :display_id, :file_name, "
+                        ":file_path, :file_type, :actor_id)"
+                    ),
                     {
-                        "task_id": task_id, "project_id": project.id,
+                        "task_id": task_id,
+                        "project_id": project.id,
                         "display_id": "ot-" + uuid.uuid4().hex[:12],
-                        "file_name": "saved.png", "file_path": allocation["object_key"],
-                        "file_type": "image", "actor_id": actor.id,
+                        "file_name": "saved.png",
+                        "file_path": allocation["object_key"],
+                        "file_type": "image",
+                        "actor_id": actor.id,
                     },
                 )
                 await db.commit()
@@ -515,13 +606,24 @@ async def native_world(test_engine, monkeypatch, *, standalone=False):
                     (allocation["staging_bucket"], allocation["staging_key"]),
                     (allocation["bucket"], allocation["object_key"]),
                 }
-                provider.store(allocation["staging_bucket"], allocation["staging_key"], value.raw)
-                created = await managed_original_creation.complete_direct(db, allocation)
+                provider.store(
+                    allocation["staging_bucket"], allocation["staging_key"], value.raw
+                )
+                created = await managed_original_creation.complete_direct(
+                    db, allocation
+                )
                 task = await db.get(Task, task_id)
-                await task_originals.publish(db, task, allocation, created, actor_id=actor.id)
+                await task_originals.publish(
+                    db, task, allocation, created, actor_id=actor.id
+                )
                 await db.commit()
-                value.source_bucket, value.source_key = allocation["bucket"], allocation["object_key"]
-                value.objects[allocation["bucket"], allocation["object_key"]] = value.raw
+                value.source_bucket, value.source_key = (
+                    allocation["bucket"],
+                    allocation["object_key"],
+                )
+                value.objects[allocation["bucket"], allocation["object_key"]] = (
+                    value.raw
+                )
         value.ready = True
         try:
             yield value
@@ -581,7 +683,8 @@ async def result(world, kind="dataset_item"):
 
 
 @pytest.mark.parametrize(
-    "kind,world", [("dataset_item", "isolated"), ("task", "native")],
+    "kind,world",
+    [("dataset_item", "isolated"), ("task", "native")],
     indirect=["world"],
 )
 async def test_worker_entries_read_saved_b_and_publish_independent_b_thumbnail(

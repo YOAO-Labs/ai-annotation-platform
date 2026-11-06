@@ -75,7 +75,7 @@ services:
 
   identity-mail:
     <<: *identity-runtime-image
-    command: ["python", "-m", "aap_identity_runtime.mail_worker"]
+    command: ["python", "-m", "yoao_identity_runtime.mail_worker"]
     environment:
       IDENTITY_MAIL_DATABASE_URL_FILE: /run/secrets/identity_mail_database_url
       IDENTITY_MAIL_SETTINGS_DATABASE_URL_FILE: /run/secrets/identity_mail_settings_database_url
@@ -112,7 +112,7 @@ services:
   identity-mail-v2:
     <<: *identity-runtime-image
     profiles: ["mail-v2"]
-    command: ["python", "-m", "aap_identity_runtime.mail_worker_v2"]
+    command: ["python", "-m", "yoao_identity_runtime.mail_worker_v2"]
     environment:
       IDENTITY_MAIL_V2_DATABASE_URL_FILE: /run/secrets/identity_mail_v2_database_url
       IDENTITY_MAIL_V2_SETTINGS_DATABASE_URL_FILE: /run/secrets/identity_mail_settings_database_url
@@ -148,7 +148,7 @@ services:
 
   identity-notification-publisher:
     <<: *identity-runtime-image
-    command: ["python", "-m", "aap_identity_runtime.notification_worker"]
+    command: ["python", "-m", "yoao_identity_runtime.notification_worker"]
     environment:
       NOTIFICATION_PUBLISH_DATABASE_URL_FILE: /run/secrets/notification_publish_database_url
       NOTIFICATION_PUBLISH_REDIS_URL_FILE: /run/secrets/notification_publish_redis_url

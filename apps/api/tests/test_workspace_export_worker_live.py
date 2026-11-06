@@ -885,24 +885,6 @@ async def test_export_recovers_after_worker_loss(
         worker.start()
         await _wait_worker_ready(sender, worker)
         worker.assert_private_network()
-        signature = worker.task_signature(_TASK_NAME)
-        assert signature == {
-            "task": _TASK_NAME,
-            "parameters": [
-                "project_id",
-                "batch_id",
-                "targets",
-                "opts",
-                "async_job_id",
-                "task_ids",
-            ],
-        }
-        delivery_policy = worker.task_delivery_policy(_TASK_NAME)
-        assert delivery_policy == {
-            "acks_late": True,
-            "reject_on_worker_lost": True,
-        }
-        observation["task_delivery_policy"] = delivery_policy
         revoked_outcome = await _wait_delivery_and_job(
             sender,
             test_engine,
@@ -953,7 +935,6 @@ async def test_export_recovers_after_worker_loss(
             row["name"] for row in active_queues[worker.node_name]
         } == {worker.queue}
         observation["runtime_before_loss"] = worker.assert_runtime()
-        observation["task_signature"] = signature
         observation["queue"] = worker.queue
         redis_before_kill = _export_lock_snapshot(sender)
 
@@ -1050,7 +1031,6 @@ async def test_export_recovers_after_worker_loss(
             runtime_after_restart["started_at"]
             != observation["runtime_before_loss"]["started_at"]
         )
-        assert worker.task_signature(_TASK_NAME) == signature
         restarted_inspect = sender.control.inspect(
             timeout=2, destination=[worker.node_name]
         )

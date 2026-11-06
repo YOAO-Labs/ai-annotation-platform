@@ -797,7 +797,14 @@ class IdentityModuleStack:
             details = self._inspect(container)
             if network_name not in details["NetworkSettings"]["Networks"]:
                 self._docker(
-                    ["network", "connect", network_id, container],
+                    [
+                        "network",
+                        "connect",
+                        "--gw-priority",
+                        "-1",
+                        network_id,
+                        container,
+                    ],
                     operation="owned dependency attachment",
                 )
         from tests.test_labeling_module_api_cold import _verify_minio_identity
@@ -810,6 +817,8 @@ class IdentityModuleStack:
             [
                 "network",
                 "connect",
+                "--gw-priority",
+                "-1",
                 "--alias",
                 _BOOTSTRAP_MINIO_ALIAS,
                 network_id,

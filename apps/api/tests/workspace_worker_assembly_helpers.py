@@ -197,9 +197,12 @@ class WorkspaceCeleryWorker:
                 f"org.aap.acceptance-id={self.identity}",
                 self.network_name,
             )
+            # Keep published dependency sockets on their original gateway.
             self._docker(
                 "network",
                 "connect",
+                "--gw-priority",
+                "-1",
                 "--alias",
                 "worker-postgres",
                 self.network_id,
@@ -208,6 +211,8 @@ class WorkspaceCeleryWorker:
             self._docker(
                 "network",
                 "connect",
+                "--gw-priority",
+                "-1",
                 "--alias",
                 "worker-redis",
                 self.network_id,

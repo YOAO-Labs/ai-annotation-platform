@@ -94,12 +94,16 @@ async def _owned_database(admin_engine, *, before_drop=None):
                     await engine.dispose()
                 except BaseException as dispose_error:
                     errors.append(dispose_error)
-            errors.append(RuntimeError(
-                f"Fixture database cleanup unconfirmed: {name} (oid={oid}, marker={marker})"
-            ))
+            errors.append(
+                RuntimeError(
+                    f"Fixture database cleanup unconfirmed: {name} (oid={oid}, marker={marker})"
+                )
+            )
             if primary is not None:
                 errors.insert(0, primary)
-            raise BaseExceptionGroup("Fixture database cleanup failed", errors) from None
+            raise BaseExceptionGroup(
+                "Fixture database cleanup failed", errors
+            ) from None
 
 
 @asynccontextmanager

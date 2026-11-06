@@ -153,7 +153,9 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
 
     analytics = tmp_path.resolve(strict=True) / "screenshot-analytics.duckdb"
     if analytics.exists() or analytics.is_symlink():
-        raise RuntimeError("screenshot analytics target must be a fresh task-owned path")
+        raise RuntimeError(
+            "screenshot analytics target must be a fresh task-owned path"
+        )
     with monkeypatch.context() as routing_patch:
         routing_patch.setattr(settings, "duckdb_path", str(analytics))
         routing_patch.setenv("DUCKDB_PATH", str(analytics))
@@ -210,9 +212,12 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
                     )
                     assert response.status_code == 200, response.text
                     async with sessions() as db:
-                        assert await db.scalar(
-                            select(FixtureRun.state).where(FixtureRun.id == run_id)
-                        ) == "retired"
+                        assert (
+                            await db.scalar(
+                                select(FixtureRun.state).where(FixtureRun.id == run_id)
+                            )
+                            == "retired"
+                        )
                         assert not await db.scalar(
                             select(FixtureRunResource.resource_id)
                             .where(

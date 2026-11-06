@@ -13,6 +13,7 @@ from urllib.parse import urlsplit
 import uuid
 
 from celery import Celery
+from redis import Redis
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
@@ -413,7 +414,15 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                 result_serializer="json",
                 accept_content=["json"],
             )
-            worker.start()
+            with Redis.from_url(
+                sender_url,
+                single_connection_client=True,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+            ) as broker_probe:
+                broker_client_id = broker_probe.client_id()
+                worker.start()
+                assert broker_probe.client_id() == broker_client_id
             await _wait_worker_ready(sender, worker)
             first_delivery = await asyncio.to_thread(
                 sender.send_task,

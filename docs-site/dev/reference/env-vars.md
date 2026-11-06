@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-06
 ---
 
 # 环境变量参考
@@ -384,7 +384,7 @@ last_reviewed: 2026-11-05
 |---|---|---|
 | `AUDIT_RETENTION_MONTHS` | `12` | Celery beat 每月 2 日扫描超期分区，归档为 jsonl.gz 上传 MinIO `audit-archive/{YYYY}/{MM}.jsonl.gz`， 然后 DROP 该分区。默认 12 个月。 |
 
-## 错误监控 (Sentry)
+## 错误监控 (Sentry, )
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -501,6 +501,8 @@ last_reviewed: 2026-11-05
 | `E2E_SEED_ENABLED` | `false` | 名称以 _e2e 或 _test 结尾的数据库；这些端点会创建和删除固定测试数据， 绝不要在开发库、staging 或 production 数据库上开启。 |
 | `PLAYWRIGHT_RASTER_FAULT_MANIFEST` | `—` | 仅由隔离 E2E 协调器提供：产品启动前准备的 Raster 故障夹具清单路径。 |
 | `AAP_FIXTURE_TOOLS_ROOT` | `—` | 仅由私有夹具协调器传入：fixture_suite_coordinator.py 所在的绝对目录。 |
+| `AAP_SCREENSHOT_SOURCE_CACHE` | `—` | 仅供隔离截图测试进程：已核验源素材缓存的绝对路径，只读，派生内容另写入任务独有的 pytest 临时目录。 不放入日常运行配置；目录结构与核验规则见 DEV.md。 |
+| `AAP_SCREENSHOT_NUSCENES_ARCHIVE` | `—` | 仅供隔离截图测试进程：官方 nuScenes v1.0-mini.tgz 的绝对路径，必须通过固定大小及 SHA-256 核验。 |
 
 ## Docker 卷存储位置 (可选)
 

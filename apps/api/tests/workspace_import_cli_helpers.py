@@ -291,6 +291,8 @@ class WorkspaceImportCli:
         self._docker(
             "network",
             "connect",
+            "--gw-priority",
+            "-1",
             "--alias",
             "workspace-import-postgres",
             self.network_id,
@@ -299,6 +301,8 @@ class WorkspaceImportCli:
         self._docker(
             "network",
             "connect",
+            "--gw-priority",
+            "-1",
             "--alias",
             "workspace-import-redis",
             self.network_id,
@@ -308,6 +312,8 @@ class WorkspaceImportCli:
         self._docker(
             "network",
             "connect",
+            "--gw-priority",
+            "-1",
             "--alias",
             "workspace-import-minio",
             self.network_id,
@@ -994,14 +1000,21 @@ class WorkspaceImportCli:
         operation_id = None
         reply = None
         try:
+
             def exchange(envelope):
                 process.stdin.write(json.dumps(envelope) + "\n")
                 process.stdin.flush()
-                if not select.select([process.stdout], [], [], max(0, deadline - time.monotonic()))[0]:
-                    raise RuntimeError("Private fixture coordinator outcome is unresolved")
+                if not select.select(
+                    [process.stdout], [], [], max(0, deadline - time.monotonic())
+                )[0]:
+                    raise RuntimeError(
+                        "Private fixture coordinator outcome is unresolved"
+                    )
                 line = process.stdout.readline()
                 if not line:
-                    raise RuntimeError("Private fixture coordinator exited before replying")
+                    raise RuntimeError(
+                        "Private fixture coordinator exited before replying"
+                    )
                 reply = json.loads(line)
                 if reply.get("operation_id") != envelope["operation_id"]:
                     raise RuntimeError("Private fixture coordinator identity changed")
@@ -1010,53 +1023,112 @@ class WorkspaceImportCli:
             for request in requests:
                 operation_id = str(uuid.uuid4())
                 reply = None
-                reply = exchange({"action": "execute", "operation_id": operation_id, "payload": request})
+                reply = exchange(
+                    {
+                        "action": "execute",
+                        "operation_id": operation_id,
+                        "payload": request,
+                    }
+                )
                 if reply.get("state") == "pending":
                     raise RuntimeError("Private fixture coordinator outcome is pending")
-                if reply.get("owner_error") in {"OperationOutcomeUnresolved", "OperationIdentityConflict"}:
-                    raise RuntimeError(f"Private fixture operation refused: {reply['owner_error']}")
+                if reply.get("owner_error") in {
+                    "OperationOutcomeUnresolved",
+                    "OperationIdentityConflict",
+                }:
+                    raise RuntimeError(
+                        f"Private fixture operation refused: {reply['owner_error']}"
+                    )
                 if any(
-                    key in reply and (
+                    key in reply
+                    and (
                         not isinstance(reply[key], str) or not reply[key].isidentifier()
                     )
                     for key in ("owner_error", "journal_error", "disposal_error")
                 ):
-                    raise RuntimeError("Private fixture coordinator returned an invalid error")
+                    raise RuntimeError(
+                        "Private fixture coordinator returned an invalid error"
+                    )
                 if "operation_response" in reply and (
                     not isinstance(reply["operation_response"], dict)
                     or type(reply["operation_response"].get("status")) is not int
                     or not isinstance(reply["operation_response"].get("body"), str)
                 ):
-                    raise RuntimeError("Private fixture coordinator returned an invalid operation response")
+                    raise RuntimeError(
+                        "Private fixture coordinator returned an invalid operation response"
+                    )
                 if reply.get("owner_error") is None and (
                     type(reply.get("status")) is not int
                     or not isinstance(reply.get("body"), str)
-                    or (reply["status"] == 200 and json.loads(reply["body"]) != request["data"])
+                    or (
+                        reply["status"] == 200
+                        and json.loads(reply["body"]) != request["data"]
+                    )
                 ):
-                    raise RuntimeError("Private fixture coordinator returned a different scope")
+                    raise RuntimeError(
+                        "Private fixture coordinator returned a different scope"
+                    )
                 receipt = exchange({"action": "ack", "operation_id": operation_id})
                 if receipt.get("state") != "acknowledged":
-                    raise RuntimeError("Private fixture coordinator receipt is unresolved")
+                    raise RuntimeError(
+                        "Private fixture coordinator receipt is unresolved"
+                    )
                 if reply.get("disposal_error"):
                     causes = []
                     if "operation_response" in reply:
-                        causes.append(RuntimeError(f"Fixture operation returned HTTP {reply['operation_response']['status']}"))
-                    if reply.get("owner_error") and reply["owner_error"] != reply["disposal_error"]:
-                        causes.append(RuntimeError(f"Fixture operation failed: {reply['owner_error']}"))
-                    causes.append(RuntimeError(f"Fixture database disposal failed: {reply['disposal_error']}"))
+                        causes.append(
+                            RuntimeError(
+                                f"Fixture operation returned HTTP {reply['operation_response']['status']}"
+                            )
+                        )
+                    if (
+                        reply.get("owner_error")
+                        and reply["owner_error"] != reply["disposal_error"]
+                    ):
+                        causes.append(
+                            RuntimeError(
+                                f"Fixture operation failed: {reply['owner_error']}"
+                            )
+                        )
+                    causes.append(
+                        RuntimeError(
+                            f"Fixture database disposal failed: {reply['disposal_error']}"
+                        )
+                    )
                     if reply.get("journal_error"):
-                        causes.append(RuntimeError(f"Fixture evidence journal failed: {reply['journal_error']}"))
-                    raise ExceptionGroup("Private fixture operation and disposal failed", causes)
+                        causes.append(
+                            RuntimeError(
+                                f"Fixture evidence journal failed: {reply['journal_error']}"
+                            )
+                        )
+                    raise ExceptionGroup(
+                        "Private fixture operation and disposal failed", causes
+                    )
                 if reply.get("journal_error"):
-                    raise ExceptionGroup("Private fixture operation and evidence failed", [
-                        RuntimeError(f"Fixture operation: {reply.get('owner_error', reply.get('status'))}"),
-                        RuntimeError(f"Fixture evidence journal: {reply['journal_error']}"),
-                    ])
-                if reply.get("owner_error") or reply.get("status") != 200 or json.loads(reply["body"]) != request["data"]:
-                    raise RuntimeError("Private fixture coordinator returned a different scope")
+                    raise ExceptionGroup(
+                        "Private fixture operation and evidence failed",
+                        [
+                            RuntimeError(
+                                f"Fixture operation: {reply.get('owner_error', reply.get('status'))}"
+                            ),
+                            RuntimeError(
+                                f"Fixture evidence journal: {reply['journal_error']}"
+                            ),
+                        ],
+                    )
+                if (
+                    reply.get("owner_error")
+                    or reply.get("status") != 200
+                    or json.loads(reply["body"]) != request["data"]
+                ):
+                    raise RuntimeError(
+                        "Private fixture coordinator returned a different scope"
+                    )
             process.stdin.close()
             if process.wait(timeout=max(0, deadline - time.monotonic())):
-                raise RuntimeError("Private fixture coordinator refused CLI preparation")
+                raise RuntimeError(
+                    "Private fixture coordinator refused CLI preparation"
+                )
             process.stdout.close()
             process.stderr.close()
         except BaseException as error:

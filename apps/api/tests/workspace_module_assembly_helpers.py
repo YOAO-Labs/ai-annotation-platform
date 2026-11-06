@@ -793,7 +793,7 @@ secrets:
                 details.get("NetworkSettings", {}).get("Networks") or {}
             ):
                 self._run_docker(
-                    ["network", "connect", network, container],
+                    ["network", "connect", "--gw-priority", "-1", network, container],
                     operation="owned dependency attachment",
                 )
 

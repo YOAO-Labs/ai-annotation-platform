@@ -6465,17 +6465,29 @@ def main(
         )
         phase = "prepare-fresh-main-base"
         frozen_database = f"{database.removesuffix('_test')}_frozen_test"
-        _psql(
-            container_id,
-            container_name,
-            container_identity,
-            username="owner",
-            password=owner_password,
-            database="postgres",
-            sql='CREATE DATABASE :"frozen_database" OWNER owner;',
-            variables={"frozen_database": frozen_database},
+        frozen_identity = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database="postgres",
+                sql=(
+                    'CREATE DATABASE :"frozen_database" OWNER owner;\n'
+                    "COMMENT ON DATABASE :\"frozen_database\" IS :'marker';\n"
+                    "SELECT json_build_object('name', datname, 'oid', oid::bigint, "
+                    "'marker', shobj_description(oid, 'pg_database')) "
+                    "FROM pg_database WHERE datname = :'frozen_database';"
+                ),
+                variables={
+                    "frozen_database": frozen_database,
+                    "marker": f"module-data-frozen:{container_identity}",
+                },
+            )
         )
         evidence["migrations"]["frozen_database"] = frozen_database
+        evidence["migrations"]["frozen_database_identity"] = frozen_identity
         base_revision = evidence["migrations"]["base_revision"]
         # Security migrations need not restore obsolete write capabilities.
         # Compare frozen SQL against a second fresh database in the same owned
@@ -6562,6 +6574,38 @@ def main(
             raise RuntimeError(
                 "installed SQL function bodies differ after fresh-base upgrade"
             )
+        # This database has hosted only the completed schema probes, never a
+        # business process. Retire its exact identity before admitting tests.
+        phase = "retire-frozen-sql-database"
+        observed_frozen_identity = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database="postgres",
+                sql=(
+                    "SELECT json_build_object('name', datname, 'oid', oid::bigint, "
+                    "'marker', shobj_description(oid, 'pg_database')) "
+                    "FROM pg_database WHERE datname = :'frozen_database';"
+                ),
+                variables={"frozen_database": frozen_database},
+            )
+        )
+        if observed_frozen_identity != frozen_identity:
+            raise RuntimeError("Frozen schema database identity changed; retain it")
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database="postgres",
+            sql='DROP DATABASE :"frozen_database";',
+            variables={"frozen_database": frozen_database},
+        )
+        evidence["migrations"]["frozen_database_retired"] = True
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
@@ -10613,6 +10657,33 @@ SELECT pg_catalog.jsonb_build_object(
                         container_identity,
                         require_running=True,
                     )
+                    database_catalog = json.loads(
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database="postgres",
+                            sql=(
+                                "SELECT COALESCE(json_agg(json_build_object("
+                                "'name', datname, 'oid', oid::bigint) ORDER BY datname), "
+                                "'[]'::json) FROM pg_database "
+                                "WHERE NOT datistemplate AND datname <> 'postgres';"
+                            ),
+                        )
+                    )
+                    retained_databases = [
+                        item
+                        for item in database_catalog
+                        if item["name"] != backend.resources["database"]
+                    ]
+                    evidence["cleanup"]["retained_databases"] = retained_databases
+                    if retained_databases:
+                        raise RuntimeError(
+                            "Child or unknown databases remain; retain the "
+                            "enclosing PostgreSQL, storage and credentials"
+                        )
                 cleanup_backend = backend
                 if (
                     container_id

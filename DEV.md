@@ -666,6 +666,14 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 `AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
 记录该命令的 JSON、JUnit 和同级 `<output-stem>.collection.json`；未完成的运行也保留已收集的
 node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
+冻结 SQL 比对库在业务测试开始前核验出生时记录的 OID 与归属标记后单独退役。
+收尾发现其他子数据库时，即使该库尚无归属标记，也会记录
+`cleanup.retained_databases` 并保留外层 PostgreSQL、对象存储身份和证据目录；
+必须按原 owner 核实责任，不能按名称前缀、连接消失或进程退出直接删除。
+已完成的 fixture journal 可按既有规则单独保留；这与仍持有未决数据库、凭据的环境不同。
+冷装配验收要求 Docker CLI／Engine 支持 `docker network connect --gw-priority`。
+现有 PostgreSQL、Redis 和 MinIO 接入临时消费者网络时使用较低网关优先级 `-1`，
+保留原网关及宿主端口上的已有连接；不能用清空连接池或重试失败命令掩盖网络切换断连。
 严格默认验收先在自有资源中收集完整 node ID，再为相互排斥的身份／seed 操作账号
 分别创建独立数据库和对象存储资源运行；普通严格账号、每组 JSON／JUnit 和清理记录
 分别保留在报告指向的 profile 目录。只有每组实际选集与原始 collection 对账一致、
@@ -673,11 +681,25 @@ node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
 会提交极大 Audit ID 的维护／冷消费者测试各用独立 profile，避免不可回滚的序列或
 归档夹具影响后续消费者；验收记录保留三条预检 Audit 事件，不把它们当成测试产生的写入。
 会提交固定演示账号的父级 seed 测试也独立运行，避免其 `admin` 账号影响其他验收。
-Workspace 独立 Node 对照依赖必须安装在 `apps/workspace/conformance/node` 自身；
-验证器在创建数据库或容器前检查该目录中的 `pg`，不会借用共享 Node 安装。
+Workspace、Notifications 和 Audit 的独立 Node 对照依赖须分别安装在
+`apps/<模块>/conformance/node` 自身：在各目录执行
+`pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts`；
+已准备离线缓存时可加 `--offline`。验证器在创建数据库或容器前检查这些依赖，
+不会借用共享 Node 安装，也不需要重复安装已就绪的工作树根依赖。
 普通 Identity 消费者的精确八函数包含接受后 API Key 事实读取，以及 JWT 撤销状态和凭据
 代次读取：分别服务于 `identity_request_authority` 和 `token_blacklist` 的事务内重验。
 这不授权私有表、凭据哈希或撤销写命令；各操作账号仍须断言自己的准确能力集合。
+
+截图调用方测试另需显式提供 `AAP_SCREENSHOT_SOURCE_CACHE` 和
+`AAP_SCREENSHOT_NUSCENES_ARCHIVE`，只传给本次隔离验收进程，不写入日常 `.env`：
+前者是含 `<asset-id>/<sha256>/source.bin`、`content/` 与 `.complete.json`
+的绝对源缓存目录；后者是官方 `v1.0-mini.tgz` 的绝对路径。
+源文件必须通过当前清单中的大小与 SHA-256 核验。为 pytest 指定本次任务独有的
+`--basetemp`；测试复制已核验源文件，在该临时目录重建派生缓存，并为每项测试
+创建独立 DuckDB，不修改共享源缓存或借用保留环境的分析库。
+每个 pytest worker 需预留约 4 GB 归档副本及解包、生成素材所需空间。
+源素材就绪不等于截图夹具已通过：实际媒体／模型服务、受限 Identity 读取、
+私有 catalog HTTP 与双运行准确退役仍须分别验证。
 
 默认选集中的旧 `test_dataset_import_cancellation.py` 已删除：其中是旧调用转发 mock，
 当前取消结果由已选的 `test_dataset_import.py`（旧任务 HTTP 取消）和

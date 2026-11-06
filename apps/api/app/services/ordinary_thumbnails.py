@@ -200,6 +200,7 @@ async def generate(
         except BaseException as rollback_error:
             if failure is not None:
                 raise BaseExceptionGroup(
-                    "Thumbnail generation and rollback failed", [failure, rollback_error]
+                    "Thumbnail generation and rollback failed",
+                    [failure, rollback_error],
                 ) from None
             raise

@@ -134,7 +134,10 @@ async def recording_graph(engine):
 
     monkeypatch = pytest.MonkeyPatch()
 
-    async with fixture_routing_owner(engine, monkeypatch), private_seed_owner() as owner:
+    async with (
+        fixture_routing_owner(engine, monkeypatch),
+        private_seed_owner() as owner,
+    ):
         owner_url = await verified_fixture_owner_url()
         parsed = make_url(owner_url)
         assert (parsed.host, parsed.port or 5432, parsed.database) == (

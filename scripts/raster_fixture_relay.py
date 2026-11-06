@@ -37,7 +37,9 @@ def safe_failure_body(body):
         if isinstance(detail, dict):
             for key in ("code", "reason"):
                 value = detail.get(key)
-                if isinstance(value, str) and re.fullmatch(r"[a-z][a-z0-9_]{0,79}", value):
+                if isinstance(value, str) and re.fullmatch(
+                    r"[a-z][a-z0-9_]{0,79}", value
+                ):
                     return json.dumps({"detail": {key: value}})
     except (ValueError, AttributeError):
         pass
@@ -47,7 +49,15 @@ def safe_failure_body(body):
 class RasterFixtureRelay:
     """Supervise one private seed client across Playwright worker lifetimes."""
 
-    def __init__(self, socket_path, suite_id, entries, environment, on_seed_failure, on_seed_intent):
+    def __init__(
+        self,
+        socket_path,
+        suite_id,
+        entries,
+        environment,
+        on_seed_failure,
+        on_seed_intent,
+    ):
         self.suite_id = suite_id
         self.runs = {}
         self.intents = {}
@@ -66,6 +76,7 @@ class RasterFixtureRelay:
         self.on_seed_failure = on_seed_failure
         for entry in entries:
             self._register(entry["run_id"], entry["namespace"], entry["seed"])
+
         def start_client():
             return subprocess.Popen(
                 [
@@ -91,7 +102,11 @@ class RasterFixtureRelay:
                         return
                     binding = json.loads(binding_line)
                     require(
-                        binding == {"operation": "bind_fixture_suite", "suite_id": relay.suite_id},
+                        binding
+                        == {
+                            "operation": "bind_fixture_suite",
+                            "suite_id": relay.suite_id,
+                        },
                         "raster_relay_suite_mismatch",
                     )
                     client = start_client()
@@ -101,11 +116,16 @@ class RasterFixtureRelay:
                         request = json.loads(line)
                         operation_id = request.get("operation_id")
                         action = request.get("action")
-                        require(relay._valid_uuid(operation_id), "raster_relay_operation_id_invalid")
+                        require(
+                            relay._valid_uuid(operation_id),
+                            "raster_relay_operation_id_invalid",
+                        )
                         require(
                             action in {"execute", "recover", "ack"}
-                            and set(request) == (
-                                {"action", "operation_id", "payload"} if action == "execute"
+                            and set(request)
+                            == (
+                                {"action", "operation_id", "payload"}
+                                if action == "execute"
                                 else {"action", "operation_id"}
                             ),
                             "raster_relay_invalid_envelope",
@@ -119,12 +139,16 @@ class RasterFixtureRelay:
                                 entry = relay.operations.get(operation_id)
                                 if action == "execute":
                                     payload = request["payload"]
-                                    require(relay.failure is None, "raster_relay_fenced")
+                                    require(
+                                        relay.failure is None, "raster_relay_fenced"
+                                    )
                                     if relay.closing:
                                         require(
                                             isinstance(payload, dict)
-                                            and payload.get("path") in {
-                                                PREFIX + "owned-cleanup", PREFIX + "cleanup"
+                                            and payload.get("path")
+                                            in {
+                                                PREFIX + "owned-cleanup",
+                                                PREFIX + "cleanup",
                                             }
                                             and not any(
                                                 not item["acknowledged"]
@@ -134,43 +158,74 @@ class RasterFixtureRelay:
                                         )
                                     if entry is None:
                                         relay._validate(payload)
-                                        entry = {"payload": payload, "acknowledged": False, "registered": False}
+                                        entry = {
+                                            "payload": payload,
+                                            "acknowledged": False,
+                                            "registered": False,
+                                        }
                                         relay.operations[operation_id] = entry
                                     else:
-                                        require(entry["payload"] == payload, "raster_relay_operation_changed")
+                                        require(
+                                            entry["payload"] == payload,
+                                            "raster_relay_operation_changed",
+                                        )
                                 else:
-                                    require(entry is not None, "raster_relay_operation_unowned")
+                                    require(
+                                        entry is not None,
+                                        "raster_relay_operation_unowned",
+                                    )
                                 payload = entry["payload"]
                             executing = True
                             client.stdin.write(line)
                             client.stdin.flush()
                             response_line = client.stdout.readline()
-                            require(bool(response_line), "raster_fixture_process_exited")
+                            require(
+                                bool(response_line), "raster_fixture_process_exited"
+                            )
                             response = json.loads(response_line)
-                            require(response.get("operation_id") == operation_id, "raster_fixture_response_changed")
+                            require(
+                                response.get("operation_id") == operation_id,
+                                "raster_fixture_response_changed",
+                            )
                             known = response.get("operation_response", response)
                             with relay.lock:
-                                if (known.get("status") is not None and known["status"] != 200) or response.get("disposal_error"):
+                                if (
+                                    known.get("status") is not None
+                                    and known["status"] != 200
+                                ) or response.get("disposal_error"):
                                     try:
                                         relay.on_seed_failure(payload, response.copy())
                                     except BaseException as error:
                                         relay.failure = error
-                                        response["relay_journal_error"] = type(error).__name__
+                                        response["relay_journal_error"] = type(
+                                            error
+                                        ).__name__
                                 if (
                                     payload.get("path") == PREFIX + "owned"
                                     and known.get("status") == 200
                                     and not entry["registered"]
                                 ):
                                     data = payload["data"]
-                                    relay._register(data["run_id"], data["namespace"], json.loads(known["body"]))
+                                    relay._register(
+                                        data["run_id"],
+                                        data["namespace"],
+                                        json.loads(known["body"]),
+                                    )
                                     entry["registered"] = True
                                 if response.get("owner_error") in {
-                                    "OperationOutcomeUnresolved", "OperationIdentityConflict"
+                                    "OperationOutcomeUnresolved",
+                                    "OperationIdentityConflict",
                                 }:
                                     entry["acknowledged"] = True
-                                if action == "ack" and response.get("state") == "acknowledged":
+                                if (
+                                    action == "ack"
+                                    and response.get("state") == "acknowledged"
+                                ):
                                     entry["acknowledged"] = True
-                            if response.get("status") is not None and not 200 <= response["status"] < 300:
+                            if (
+                                response.get("status") is not None
+                                and not 200 <= response["status"] < 300
+                            ):
                                 response["body"] = safe_failure_body(response["body"])
                             executing = False
                             self.wfile.write(json.dumps(response).encode() + b"\n")
@@ -228,7 +283,8 @@ class RasterFixtureRelay:
             operation_id = str(uuid4())
             on_seed_intent(operation_id)
             initial_request = {
-                "action": "execute", "operation_id": operation_id,
+                "action": "execute",
+                "operation_id": operation_id,
                 "payload": {
                     "operation": "prepare_fixture_suite",
                     "data": {"suite_id": suite_id, "family": "owned"},
@@ -239,28 +295,56 @@ class RasterFixtureRelay:
             initial = self.seed.stdout.readline()
             require(bool(initial), "raster_fixture_process_exited")
             initial_response = json.loads(initial)
-            require(initial_response.get("operation_id") == operation_id, "raster_fixture_response_changed")
-            if initial_response.get("status") != 200 or initial_response.get("journal_error"):
+            require(
+                initial_response.get("operation_id") == operation_id,
+                "raster_fixture_response_changed",
+            )
+            if initial_response.get("status") != 200 or initial_response.get(
+                "journal_error"
+            ):
                 known = initial_response.get("operation_response")
                 causes = []
                 if known is not None:
                     causes.append(ContractError(f"raster_seed_http_{known['status']}"))
-                if initial_response.get("owner_error") and initial_response["owner_error"] != initial_response.get("disposal_error"):
-                    causes.append(ContractError(f"raster_fixture_prepare_{initial_response['owner_error']}"))
+                if initial_response.get("owner_error") and initial_response[
+                    "owner_error"
+                ] != initial_response.get("disposal_error"):
+                    causes.append(
+                        ContractError(
+                            f"raster_fixture_prepare_{initial_response['owner_error']}"
+                        )
+                    )
                 if initial_response.get("disposal_error"):
-                    causes.append(ContractError(f"raster_seed_disposal_{initial_response['disposal_error']}"))
+                    causes.append(
+                        ContractError(
+                            f"raster_seed_disposal_{initial_response['disposal_error']}"
+                        )
+                    )
                 if not causes:
-                    causes.append(ContractError(f"raster_fixture_prepare_{initial_response.get('status')}"))
+                    causes.append(
+                        ContractError(
+                            f"raster_fixture_prepare_{initial_response.get('status')}"
+                        )
+                    )
                 if initial_response.get("journal_error"):
-                    causes.append(ContractError(f"raster_seed_journal_{initial_response['journal_error']}"))
+                    causes.append(
+                        ContractError(
+                            f"raster_seed_journal_{initial_response['journal_error']}"
+                        )
+                    )
                 try:
                     self.on_seed_failure(initial_request["payload"], initial_response)
                 except BaseException as error:
                     causes.append(error)
                 if len(causes) > 1:
-                    raise builtins.BaseExceptionGroup("raster prepare and evidence failed", causes)
+                    raise builtins.BaseExceptionGroup(
+                        "raster prepare and evidence failed", causes
+                    )
                 raise causes[0]
-            self.seed.stdin.write(json.dumps({"action": "ack", "operation_id": operation_id}).encode() + b"\n")
+            self.seed.stdin.write(
+                json.dumps({"action": "ack", "operation_id": operation_id}).encode()
+                + b"\n"
+            )
             self.seed.stdin.flush()
             require(
                 json.loads(self.seed.stdout.readline()).get("state") == "acknowledged",
@@ -431,7 +515,9 @@ class RasterFixtureRelay:
 
         def outstanding():
             with self.lock:
-                return any(not entry["acknowledged"] for entry in self.operations.values())
+                return any(
+                    not entry["acknowledged"] for entry in self.operations.values()
+                )
 
         with self.connection_condition:
             self.closing = True

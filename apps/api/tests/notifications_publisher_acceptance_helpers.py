@@ -388,6 +388,8 @@ def connect_owned_dependency(
     _docker(
         "network",
         "connect",
+        "--gw-priority",
+        "-1",
         "--alias",
         alias,
         network_id,
