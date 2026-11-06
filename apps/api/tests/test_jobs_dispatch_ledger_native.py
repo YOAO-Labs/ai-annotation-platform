@@ -275,6 +275,66 @@ async def test_unknown_publication_reclaims_same_wire_ids_and_fences_old_acknowl
     assert _data(await _claim(db_session)) == []
 
 
+async def test_refused_publication_is_distinct_from_acceptance_and_allows_exact_replay(
+    db_session,
+):
+    job = _job()
+    db_session.add(job)
+    await db_session.flush()
+    envelope = _dispatch(str(uuid.uuid4()))
+    first = _data(await _prepare(db_session, job.id, envelope))
+    assert await db_session.scalar(
+        text(
+            "SELECT pg_catalog.pg_try_advisory_xact_lock("
+            "pg_catalog.hashtextextended('aap-jobs:publication:' || "
+            "CAST(CAST(:intent_id AS uuid) AS text), 0))"
+        ),
+        {"intent_id": first["intent_id"]},
+    )
+    arguments = (
+        "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
+        ":generation, CAST(:lease_token AS uuid)"
+    )
+    begin = text(f"SELECT aap_jobs_v1.begin_dispatch_publication({arguments})")
+    refuse = text(f"SELECT aap_jobs_v1.refuse_dispatch_publication({arguments})")
+    finish = text(f"SELECT aap_jobs_v1.finish_dispatch_publication({arguments})")
+    retire = text(
+        "SELECT aap_jobs_v1.retire_job_publications("
+        "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+    )
+    retire_args = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
+    assert await db_session.scalar(begin, first) == "entered"
+    assert not await db_session.scalar(refuse, {**first, "lease_token": str(uuid.uuid4())})
+    assert await db_session.scalar(refuse, first)
+    assert not await db_session.scalar(retire, retire_args)
+    assert _data(await _finish(db_session, first, accepted=False))["state"] == "pending"
+    await db_session.execute(
+        text(
+            "UPDATE aap_jobs_v1.dispatch_intents "
+            "SET next_attempt_at=pg_catalog.clock_timestamp()-interval '1 second' "
+            "WHERE intent_id=CAST(:intent_id AS uuid)"
+        ),
+        {"intent_id": first["intent_id"]},
+    )
+    replay, = _data(await _claim(db_session, limit=1))
+    assert replay["envelope"] == envelope
+    assert replay["execution_id"] == first["execution_id"]
+    assert await db_session.scalar(begin, replay) == "entered"
+    assert await db_session.scalar(finish, replay)
+    assert _data(await _finish(db_session, replay, accepted=True))["state"] == "submitted"
+    states = (
+        await db_session.execute(
+            text(
+                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
+                "WHERE intent_id=CAST(:intent_id AS uuid) ORDER BY generation"
+            ),
+            {"intent_id": first["intent_id"]},
+        )
+    ).scalars().all()
+    assert states == ["not_sent", "settled"]
+    assert await db_session.scalar(retire, retire_args)
+
+
 async def test_concurrent_dispatch_claims_are_single_winner_and_skip_locked(
     test_engine,
 ):

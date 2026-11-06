@@ -7,7 +7,7 @@ CREATE TABLE aap_jobs_v1.dispatch_publication_attempts (
     generation bigint NOT NULL CHECK (generation > 0),
     lease_token uuid NOT NULL,
     backend_pid integer NOT NULL,
-    state text NOT NULL CHECK (state IN ('entered', 'settled')),
+    state text NOT NULL CHECK (state IN ('entered', 'settled', 'not_sent')),
     PRIMARY KEY (intent_id, generation)
 );
 -- aap-statement-break
@@ -17,7 +17,7 @@ CREATE FUNCTION aap_jobs_v1.guard_publication_attempt()
 RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp AS $function$
 BEGIN
-    IF TG_OP = 'DELETE' OR OLD.state <> 'entered' OR NEW.state <> 'settled'
+    IF TG_OP = 'DELETE' OR OLD.state <> 'entered' OR NEW.state NOT IN ('settled', 'not_sent')
        OR (pg_catalog.to_jsonb(NEW) - 'state') IS DISTINCT FROM (pg_catalog.to_jsonb(OLD) - 'state') THEN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'publication attempt is immutable';
     END IF;
@@ -150,6 +150,22 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_jobs_v1.refuse_dispatch_publication(
+    p_intent uuid, p_job uuid, p_execution text, p_generation bigint, p_token uuid
+) RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF NOT aap_jobs_v1.publication_session_owns(p_intent) THEN RETURN false; END IF;
+    UPDATE aap_jobs_v1.dispatch_publication_attempts SET state = 'not_sent'
+    WHERE intent_id = p_intent AND job_id = p_job AND execution_id = p_execution
+      AND generation = p_generation AND lease_token = p_token
+      AND backend_pid = pg_catalog.pg_backend_pid() AND state = 'entered';
+    RETURN FOUND;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid) FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_jobs_v1.retry_publication_intent(
     p_job uuid, p_execution text, p_task text, p_args jsonb, p_kwargs jsonb

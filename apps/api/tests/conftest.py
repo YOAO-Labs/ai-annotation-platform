@@ -284,13 +284,21 @@ async def db_session(test_engine, monkeypatch, raster_owner_registry):
         if not settled:
             raise RuntimeError("test publication settlement was not acknowledged")
 
+    async def refuse_borrowed_publication(_connection, args):
+        recorded = await session.scalar(
+            text(
+                "SELECT aap_jobs_v1.refuse_dispatch_publication("
+                ":intent,:job,:execution,:generation,:token)"
+            ),
+            args,
+        )
+        if not recorded:
+            raise RuntimeError("test publication refusal was not acknowledged")
+
     monkeypatch.setattr(publication_postgres, "publication_database_url", lambda *_: "")
-    monkeypatch.setattr(
-        publication_postgres, "publication_session", borrowed_publication
-    )
-    monkeypatch.setattr(
-        publication_postgres, "settle_publication", settle_borrowed_publication
-    )
+    monkeypatch.setattr(publication_postgres, "publication_session", borrowed_publication)
+    monkeypatch.setattr(publication_postgres, "settle_publication", settle_borrowed_publication)
+    monkeypatch.setattr(publication_postgres, "refuse_publication", refuse_borrowed_publication)
 
     await conn.begin_nested()
     try:

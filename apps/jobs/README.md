@@ -257,6 +257,9 @@ Preparation borrows the caller transaction and never commits it. Publication
 happens only after acceptance commits, under a separate function-only,
 session-held publication fence. Each generation records physical entry before
 the broker call and settles only on the publisher's positive acknowledgement.
+A direct connection refused before the HTTP request is recorded separately as
+`not_sent`, never as acceptance; later exact replay is still required for an
+accepted dispatch. HTTP errors, lost responses and cancellations remain unknown.
 The relay claims one item immediately before publishing. A later valid generation
 may replay the exact frozen envelope and IDs while an earlier attempt remains
 unknown; replay or lease expiry does not settle that earlier physical obligation.

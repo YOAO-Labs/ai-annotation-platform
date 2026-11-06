@@ -20,6 +20,10 @@ class JobsQueueUnavailable(RuntimeError):
     """The broker owner did not confirm dispatch or revoke acceptance."""
 
 
+class JobsQueueNotSent(JobsQueueUnavailable):
+    """A direct connection was refused before any HTTP request could be sent."""
+
+
 @dataclass(frozen=True, slots=True)
 class QueueTaskSpec:
     task_name: str

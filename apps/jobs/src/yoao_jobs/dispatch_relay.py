@@ -147,7 +147,7 @@ class JobsDispatchRelay:
 
     async def run_once(self) -> int:
         from .dispatch_contract import JobsDispatchRejected
-        from .queue_contract import JobsQueueUnavailable
+        from .queue_contract import JobsQueueNotSent, JobsQueueUnavailable
 
         accepted_count = 0
         for _ in range(self._batch_size):
@@ -161,6 +161,7 @@ class JobsDispatchRelay:
             from .publication_postgres import (
                 PublicationUnavailable,
                 publication_session,
+                refuse_publication,
                 settle_publication,
             )
 
@@ -169,9 +170,17 @@ class JobsDispatchRelay:
                     self._publication_database_url, lease
                 ) as (connection, arguments, needs_publish):
                     if needs_publish:
-                        accepted_id = await self._publisher.publish_envelope(
-                            lease.envelope
-                        )
+                        try:
+                            accepted_id = await self._publisher.publish_envelope(lease.envelope)
+                        except JobsQueueNotSent as exc:
+                            try:
+                                await refuse_publication(connection, arguments)
+                            except Exception as recording:
+                                raise ExceptionGroup(
+                                    "Jobs pre-request refusal and owner recording failed",
+                                    [exc, recording],
+                                ) from None
+                            raise
                         accepted = accepted_id == lease.execution_id
                         if not accepted:
                             raise JobsQueueUnavailable()

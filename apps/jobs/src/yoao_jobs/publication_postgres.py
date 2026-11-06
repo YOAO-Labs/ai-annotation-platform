@@ -76,7 +76,7 @@ async def _publication_connection(database_url):
 
 @asynccontextmanager
 async def publication_session(database_url, lease):
-    """Persist entry before publish; only an acknowledged publish can settle it."""
+    """Persist entry before publish; record acceptance or a proved pre-request refusal."""
     async with _publication_connection(database_url) as connection:
         owned = await connection.fetchval(
             "SELECT pg_catalog.pg_try_advisory_lock("
@@ -164,3 +164,12 @@ async def settle_publication(connection, arguments):
     )
     if settled is not True:
         raise RuntimeError("Jobs publication settlement was not acknowledged")
+
+
+async def refuse_publication(connection, arguments):
+    recorded = await connection.fetchval(
+        "SELECT aap_jobs_v1.refuse_dispatch_publication($1, $2, $3, $4, $5)",
+        *arguments,
+    )
+    if recorded is not True:
+        raise RuntimeError("Jobs pre-request refusal was not acknowledged")

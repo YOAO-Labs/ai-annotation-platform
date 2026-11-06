@@ -17,7 +17,11 @@ from yoao_jobs.dispatch_contract import (
     JobsDispatchRejected,
 )
 from yoao_jobs.dispatch_data import JobsDispatchDataClient
-from yoao_jobs.queue_contract import JobsQueueUnavailable, encode_dispatch_request
+from yoao_jobs.queue_contract import (
+    JobsQueueNotSent,
+    JobsQueueUnavailable,
+    encode_dispatch_request,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -153,6 +157,7 @@ async def publish_prepared_dispatch(
         from yoao_jobs.publication_postgres import (
             publication_database_url,
             publication_session,
+            refuse_publication,
             settle_publication,
         )
 
@@ -166,9 +171,19 @@ async def publish_prepared_dispatch(
             needs_publish,
         ):
             if needs_publish:
-                result = publish()
-                if inspect.isawaitable(result):
-                    result = await result
+                try:
+                    result = publish()
+                    if inspect.isawaitable(result):
+                        result = await result
+                except JobsQueueNotSent as exc:
+                    try:
+                        await refuse_publication(connection, arguments)
+                    except Exception as recording:
+                        raise ExceptionGroup(
+                            "Jobs pre-request refusal and owner recording failed",
+                            [exc, recording],
+                        ) from None
+                    raise
                 if result is not None and str(result) != lease.execution_id:
                     raise JobsQueueUnavailable()
                 await settle_publication(connection, arguments)
