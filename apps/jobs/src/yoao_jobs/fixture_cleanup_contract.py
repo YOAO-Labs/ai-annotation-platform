@@ -73,6 +73,7 @@ def jobs_fixture_dataset_guard_sql():
         for name in (
             "0437_fixture_reclaim_job_scope.sql",
             "0443_fixture_dataset_retired_jobs.sql",
+            "0444_image_export_dataset_scope.sql",
         )
     )
 
@@ -106,6 +107,12 @@ def jobs_fixture_guard_schema():
                 "volatility": "immutable",
                 "parallel": "unsafe",
             },
+            "aap_jobs_v1.fixture_job_dataset_scope": {
+                "arguments": "uuid, text, jsonb, uuid, uuid",
+                "returns": "jsonb",
+                "volatility": "stable",
+                "parallel": "unsafe",
+            },
             "aap_jobs_v1.guard_fixture_dataset_jobs": {
                 "arguments": "uuid[]",
                 "returns": "void",
@@ -131,7 +138,7 @@ def jobs_fixture_guard_schema():
                 "parallel": "unsafe",
             },
         },
-        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required by both Dataset fences and Job deletion",
+        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; immutable image export bindings retain their exact Dataset sets across Job deletion; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required",
         "x-empty-scope": "guard succeeds and deletion returns zero",
         "x-security": {
             "database": "actual database name must end in _test or _e2e",

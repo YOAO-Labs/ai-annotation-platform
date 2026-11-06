@@ -757,7 +757,14 @@ def same(row, receipt):
 
 
 async def allocate(
-    db, *, project_id, job_id, input_snapshot, input_digest, logical_sources
+    db,
+    *,
+    project_id,
+    job_id,
+    input_snapshot,
+    input_digest,
+    logical_sources,
+    bundle_id=None,
 ):
     """Flush responsibility with the new Job; the HTTP caller commits both."""
     project_id, job_id = _uuid(project_id), _uuid(job_id)
@@ -767,7 +774,8 @@ async def allocate(
     _json_info(logical_sources, limit=MAX_JSON_BYTES - size)
     sources, required = _sources(input_snapshot, project_id)
     _logical_sources(logical_sources, required)
-    identifier, output_id, started = uuid.uuid4(), uuid.uuid4(), now()
+    identifier = _uuid(bundle_id) if bundle_id else uuid.uuid4()
+    output_id, started = uuid.uuid4(), now()
     zip_ref = await export_storage.allocate(
         db,
         SimpleNamespace(

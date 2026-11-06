@@ -66,6 +66,7 @@ REVOKE CREATE ON SCHEMA public FROM PUBLIC;
 GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 REVOKE ALL ON TABLE public.fixture_export_zip_retirements FROM :"application_role", PUBLIC;
+REVOKE ALL ON TABLE public.image_export_scopes FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION public.fixture_export_owner_session(),
     public.retire_fixture_native_export_output(uuid),
     public.confirm_fixture_export_zip_absent(uuid) FROM :"application_role", PUBLIC;
@@ -815,6 +816,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     public.fixture_export_execution_admitted(uuid),
     public.begin_fixture_export_execution(uuid,uuid,uuid),
     public.finish_fixture_export_execution(uuid,uuid),
+    public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[]),
+    public.image_export_scope_matches(uuid,uuid),
     public.fixture_native_export_lifetime(uuid,uuid),
     public.fixture_native_export_cleanup_eligible(uuid),
     aap_labeling_v1.admit_prediction_retry(jsonb),

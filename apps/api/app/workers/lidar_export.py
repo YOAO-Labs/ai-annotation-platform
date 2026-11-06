@@ -731,6 +731,8 @@ async def run_owned(
             opts=opts,
             task_ids=task_ids,
         )
+        if adapter.kind == "image":
+            await adapter.jobs.assert_scope_binding(db, job, receipt)
         accepted = True
         await _reauthorize_export_final_write(
             db,

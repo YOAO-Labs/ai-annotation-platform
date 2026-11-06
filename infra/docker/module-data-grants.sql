@@ -3975,6 +3975,7 @@ ALTER FUNCTION aap_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])
 ALTER FUNCTION aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.guard_fixture_project_jobs(uuid[]) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.guard_fixture_dataset_jobs(uuid[]) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)
     OWNER TO :"jobs_owner";
@@ -4313,6 +4314,14 @@ ALTER TABLE yoao_fixture_v1.fixture_native_exports OWNER TO :"export_owner";
 ALTER TABLE yoao_fixture_v1.fixture_native_export_outputs OWNER TO :"export_owner";
 ALTER TABLE public.fixture_export_zip_retirements OWNER TO :"export_owner";
 ALTER TABLE yoao_fixture_v1.fixture_export_zip_versions OWNER TO :"export_owner";
+ALTER TABLE public.image_export_scopes OWNER TO :"export_owner";
+ALTER FUNCTION public.image_export_snapshot_datasets(jsonb) OWNER TO :"export_owner";
+ALTER FUNCTION public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[]) OWNER TO :"export_owner";
+ALTER FUNCTION public.image_export_scope_matches(uuid,uuid) OWNER TO :"export_owner";
+ALTER FUNCTION public.guard_image_export_scope() OWNER TO :"export_owner";
+ALTER FUNCTION public.guard_image_export_job_birth() OWNER TO :"export_owner";
+ALTER FUNCTION public.guard_image_export_fixture_dataset_birth() OWNER TO :"export_owner";
+ALTER FUNCTION public.check_image_export_scope_committed() OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_fixture_export_retention() OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_fixture_export_zip_state() OWNER TO :"export_owner";
 ALTER FUNCTION public.record_fixture_export_zip_creation() OWNER TO :"export_owner";
@@ -4349,6 +4358,8 @@ GRANT UPDATE (run_id) ON yoao_fixture_v1.fixture_run_resources TO :"export_owner
 GRANT SELECT (id,is_active), UPDATE (id) ON public.users TO :"export_owner";
 GRANT SELECT (id,data_type) ON public.projects TO :"export_owner";
 GRANT SELECT (id,user_id,project_id,kind,status) ON public.async_jobs TO :"export_owner";
+GRANT SELECT (payload) ON public.async_jobs TO :"export_owner";
+GRANT SELECT ON public.image_export_scopes TO :"jobs_owner";
 GRANT SELECT, UPDATE (id) ON public.export_media_bundles TO :"export_owner";
 GRANT SELECT ON public.export_outputs TO :"export_owner";
 GRANT SELECT (purpose) ON public.storage_operations TO :"export_owner";
