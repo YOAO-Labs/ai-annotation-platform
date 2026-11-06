@@ -671,6 +671,11 @@ node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
 `cleanup.retained_databases` 并保留外层 PostgreSQL、对象存储身份和证据目录；
 必须按原 owner 核实责任，不能按名称前缀、连接消失或进程退出直接删除。
 已完成的 fixture journal 可按既有规则单独保留；这与仍持有未决数据库、凭据的环境不同。
+诊断独立 worker 超时或其他未定位的执行失败时，可加 `--retain-failed-runtime`：
+失败后不执行外层资源销毁，保留数据库、存储身份与证据目录，并记录
+`cleanup.retention_reason=requested_failed_runtime`；退出码仍表示失败。
+测试内部的进程退出逻辑可能已执行，该参数不能替代在途工作的原生许可或物理结算证明。
+后续须按准确 owner 核实并退役，不按超时或进程退出清理保留资源。
 冷装配验收要求 Docker CLI／Engine 支持 `docker network connect --gw-priority`。
 现有 PostgreSQL、Redis 和 MinIO 接入临时消费者网络时使用较低网关优先级 `-1`，
 保留原网关及宿主端口上的已有连接；不能用清空连接池或重试失败命令掩盖网络切换断连。

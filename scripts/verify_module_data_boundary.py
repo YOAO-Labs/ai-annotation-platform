@@ -2278,6 +2278,11 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="explicit JUnit XML path (defaults beside --output)",
     )
     parser.add_argument(
+        "--retain-failed-runtime",
+        action="store_true",
+        help="retain the outer database, storage identities and evidence after failure; test-managed processes may still stop",
+    )
+    parser.add_argument(
         "--test-file",
         dest="test_files",
         action="append",
@@ -2420,9 +2425,18 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
     }
     _write_evidence(output, evidence)
     exit_code = 1
+    diagnostic_arguments = (
+        ["--retain-failed-runtime"] if args.retain_failed_runtime else []
+    )
     try:
         collection_output = directory / "collection.json"
-        if main(["--output", str(collection_output)], collect_only=True) != 0:
+        if (
+            main(
+                ["--output", str(collection_output), *diagnostic_arguments],
+                collect_only=True,
+            )
+            != 0
+        ):
             raise RuntimeError("Acceptance default collection stage failed")
         collected = json.loads(
             collection_output.with_name("collection.collection.json").read_text(
@@ -2464,7 +2478,7 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
             evidence["phase"] = f"profile-{name}"
             _write_evidence(output, evidence)
             profile_output = directory / f"{name}.json"
-            arguments = ["--output", str(profile_output)]
+            arguments = ["--output", str(profile_output), *diagnostic_arguments]
             for target in targets:
                 arguments.extend(("--test-file", target))
             result = main(arguments, partition_default=False)
@@ -10658,6 +10672,11 @@ SELECT pg_catalog.jsonb_build_object(
         local_resources_destroyed = backend is None or not backend.touched
         if backend is not None and backend.touched:
             try:
+                if args.retain_failed_runtime and exit_code != 0:
+                    evidence["cleanup"]["retention_reason"] = "requested_failed_runtime"
+                    raise RuntimeError(
+                        "Failed diagnostic run retained for explicit owner inspection"
+                    )
                 if container_id:
                     _container_details(
                         container_id,
