@@ -40,11 +40,11 @@ def _credentials(owner):
         credentials = json.load(stream)
     require(
         isinstance(credentials, dict)
-        and set(credentials) == {
-            "database_role", "database_password", "access_key", "secret_key"
-        }
+        and set(credentials)
+        == {"database_role", "database_password", "access_key", "secret_key"}
         and credentials["database_role"] == "aap_raster_images_" + owner.data["nonce"]
-        and credentials["database_role"] == owner.data["raster"]["images"]["database_role"]
+        and credentials["database_role"]
+        == owner.data["raster"]["images"]["database_role"]
         and credentials["access_key"] == owner.data["raster"]["images"]["s3_user"]
         and all(isinstance(value, str) and value for value in credentials.values()),
         "raster_images_credentials_changed",
@@ -62,7 +62,8 @@ async def image_role(backend, owner, action):
     if action in {"create", "check"}:
         database = await backend.database()
         require(
-            database is not None and database.get("owner") == backend.resources["owner"],
+            database is not None
+            and database.get("owner") == backend.resources["owner"],
             "raster_images_database_owner_changed",
         )
     target = backend.url.set(database="postgres") if action == "drop" else backend.url
@@ -83,18 +84,24 @@ async def image_role(backend, owner, action):
             else:
                 await backend.verify_database_server(connection)
                 present = await connection.scalar(
-                    text("SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname=:name)"),
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname=:name)"
+                    ),
                     {"name": backend.resources["database"]},
                 )
                 require(not present, "raster_images_database_still_exists")
             operator = (
-                await connection.execute(
-                    text(
-                        "SELECT oid,rolsuper,rolcreaterole FROM pg_roles "
-                        "WHERE rolname=current_user"
+                (
+                    await connection.execute(
+                        text(
+                            "SELECT oid,rolsuper,rolcreaterole FROM pg_roles "
+                            "WHERE rolname=current_user"
+                        )
                     )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             await connection.execute(
                 text("SELECT pg_advisory_xact_lock(hashtext(:role))"), {"role": role}
             )
@@ -149,7 +156,8 @@ async def image_role(backend, owner, action):
                 require(observed is not None, "raster_images_role_missing")
                 backend._validate_runtime_role(observed, credentials)
                 require(
-                    observed["oid"] == owner.data["raster"]["images"].get("database_role_oid"),
+                    observed["oid"]
+                    == owner.data["raster"]["images"].get("database_role_oid"),
                     "raster_images_role_oid_changed",
                 )
                 require(not observed["sessions"], "raster_images_role_sessions_remain")
@@ -163,7 +171,9 @@ async def image_role(backend, owner, action):
                     await connection.exec_driver_sql(f"DROP ROLE {quote(role)}")
                     require(
                         not await connection.scalar(
-                            text("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE oid=:oid)"),
+                            text(
+                                "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE oid=:oid)"
+                            ),
                             {"oid": observed["oid"]},
                         ),
                         "raster_images_role_drop_unconfirmed",
@@ -172,8 +182,6 @@ async def image_role(backend, owner, action):
         await engine.dispose()
     if action == "create":
         return original_oid
-
-
 
 
 def make_credentials(owner):
@@ -221,8 +229,15 @@ def image_environment(owner, environment):
     result = {
         key: environment[key]
         for key in (
-            "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "VIRTUAL_ENV",
-            "LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH", "DYLD_FALLBACK_LIBRARY_PATH",
+            "PATH",
+            "HOME",
+            "LANG",
+            "LC_ALL",
+            "TMPDIR",
+            "VIRTUAL_ENV",
+            "LD_LIBRARY_PATH",
+            "DYLD_LIBRARY_PATH",
+            "DYLD_FALLBACK_LIBRARY_PATH",
             *original_keys,
         )
         if key in environment
@@ -290,7 +305,8 @@ class RasterImagesProcess:
         self.journal("spawned", {"pid": self.child.pid})
         self.descriptor = open_pidfd(self.child.pid)
         self.journal(
-            "started", {"pid": self.child.pid, "start_ticks": _start_ticks(self.child.pid)}
+            "started",
+            {"pid": self.child.pid, "start_ticks": _start_ticks(self.child.pid)},
         )
         deadline = time.monotonic() + 120
         data = b""
@@ -307,7 +323,10 @@ class RasterImagesProcess:
                     self.observe()
                     self.journal(
                         "ready",
-                        {"pid": self.child.pid, "start_ticks": _start_ticks(self.child.pid)},
+                        {
+                            "pid": self.child.pid,
+                            "start_ticks": _start_ticks(self.child.pid),
+                        },
                     )
                     return self
             require(time.monotonic() < deadline, "raster_images_start_timeout")
@@ -318,7 +337,10 @@ class RasterImagesProcess:
         outcome = waitid_pidfd(self.descriptor, os.WEXITED | os.WNOHANG | os.WNOWAIT)
         if outcome is not None:
             error = ContractError("raster_images_exited")
-            error.images_outcome = {"code": outcome.si_code, "status": outcome.si_status}
+            error.images_outcome = {
+                "code": outcome.si_code,
+                "status": outcome.si_status,
+            }
             raise error
 
     def close(self):
@@ -348,7 +370,11 @@ class RasterImagesProcess:
             )
             self.journal(
                 "stopped",
-                {"pid": self.child.pid, "exit_code": result, "shutdown_requested": True},
+                {
+                    "pid": self.child.pid,
+                    "exit_code": result,
+                    "shutdown_requested": True,
+                },
             )
         except BaseException:
             _UNSETTLED.append(self)
@@ -364,7 +390,7 @@ class RasterImagesProcess:
 
 def _start_ticks(pid):
     value = Path(f"/proc/{pid}/stat").read_text()
-    return int(value[value.rfind(")") + 2:].split()[19])
+    return int(value[value.rfind(")") + 2 :].split()[19])
 
 
 def _worker_main():

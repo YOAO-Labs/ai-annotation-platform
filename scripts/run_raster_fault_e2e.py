@@ -425,13 +425,17 @@ def provision(resources, owner):
     started = owner.verified(container)
     process = started.get("State") or {}
     require(
-        process.get("Status") == "running" and process.get("Running") is True
-        and isinstance(process.get("Pid"), int) and process["Pid"] > 0
-        and bool(process.get("StartedAt")) and started.get("RestartCount") == 0,
+        process.get("Status") == "running"
+        and process.get("Running") is True
+        and isinstance(process.get("Pid"), int)
+        and process["Pid"] > 0
+        and bool(process.get("StartedAt"))
+        and started.get("RestartCount") == 0,
         "raster_provider_birth_unconfirmed",
     )
     owner.data["raster"]["provider_birth"] = {
-        "container_id": container["id"], "pid": process["Pid"],
+        "container_id": container["id"],
+        "pid": process["Pid"],
         "started_at": process["StartedAt"],
     }
     owner.save()
@@ -573,15 +577,25 @@ def provision(resources, owner):
         )
         command(
             [
-                "mc", "admin", "policy", "create", "raster",
-                owner.data["raster"]["images"]["s3_policy"], str(image_policy_file),
+                "mc",
+                "admin",
+                "policy",
+                "create",
+                "raster",
+                owner.data["raster"]["images"]["s3_policy"],
+                str(image_policy_file),
             ],
             env=mc_env,
         )
         command(
             [
-                "mc", "admin", "policy", "attach", "raster",
-                owner.data["raster"]["images"]["s3_policy"], "--user",
+                "mc",
+                "admin",
+                "policy",
+                "attach",
+                "raster",
+                owner.data["raster"]["images"]["s3_policy"],
+                "--user",
                 images["access_key"],
             ],
             env=mc_env,

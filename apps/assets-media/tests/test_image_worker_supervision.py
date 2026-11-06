@@ -59,8 +59,11 @@ def _runtime(monkeypatch, *, input_poll, image_poll):
             return await input_poll(self)
 
     monkeypatch.setattr(
-        worker, "load_config",
-        lambda: SimpleNamespace(storage=object(), srgb_profile="profile", poll_seconds=30),
+        worker,
+        "load_config",
+        lambda: SimpleNamespace(
+            storage=object(), srgb_profile="profile", poll_seconds=30
+        ),
     )
     monkeypatch.setattr(worker, "_connect_worker_database", connect)
     monkeypatch.setattr(worker, "check_capabilities", capabilities)
@@ -92,10 +95,15 @@ async def test_readiness_follows_both_successful_polls_and_stop_drains(monkeypat
         return None
 
     closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
-    task = asyncio.create_task(worker._run_worker(
-        once=False, job_id=None, shutdown_event=stopped,
-        ready_callback=ready.set, strict=True,
-    ))
+    task = asyncio.create_task(
+        worker._run_worker(
+            once=False,
+            job_id=None,
+            shutdown_event=stopped,
+            ready_callback=ready.set,
+            strict=True,
+        )
+    )
     await asyncio.wait_for(input_entered.wait(), 1)
     assert not ready.is_set()
     input_release.set()
@@ -110,7 +118,9 @@ async def test_readiness_follows_both_successful_polls_and_stop_drains(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_stop_during_claim_waits_for_its_outcome_without_admitting_next(monkeypatch):
+async def test_stop_during_claim_waits_for_its_outcome_without_admitting_next(
+    monkeypatch,
+):
     entered, release, stopped, ready = (asyncio.Event() for _ in range(4))
     calls = []
 
@@ -126,10 +136,15 @@ async def test_stop_during_claim_waits_for_its_outcome_without_admitting_next(mo
         return None
 
     closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
-    task = asyncio.create_task(worker._run_worker(
-        once=False, job_id=None, shutdown_event=stopped,
-        ready_callback=ready.set, strict=True,
-    ))
+    task = asyncio.create_task(
+        worker._run_worker(
+            once=False,
+            job_id=None,
+            shutdown_event=stopped,
+            ready_callback=ready.set,
+            strict=True,
+        )
+    )
     await asyncio.wait_for(entered.wait(), 1)
     stopped.set()
     await asyncio.sleep(0)
@@ -144,7 +159,9 @@ async def test_stop_during_claim_waits_for_its_outcome_without_admitting_next(mo
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("outcome", ["published", "lease_lost", "source_changed"])
-async def test_stop_during_image_claim_requires_confirmed_native_outcome(monkeypatch, outcome):
+async def test_stop_during_image_claim_requires_confirmed_native_outcome(
+    monkeypatch, outcome
+):
     entered, release, stopped, ready = (asyncio.Event() for _ in range(4))
     calls = []
 
@@ -159,10 +176,15 @@ async def test_stop_during_image_claim_requires_confirmed_native_outcome(monkeyp
         return SimpleNamespace(outcome=outcome)
 
     closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
-    task = asyncio.create_task(worker._run_worker(
-        once=False, job_id=None, shutdown_event=stopped,
-        ready_callback=ready.set, strict=True,
-    ))
+    task = asyncio.create_task(
+        worker._run_worker(
+            once=False,
+            job_id=None,
+            shutdown_event=stopped,
+            ready_callback=ready.set,
+            strict=True,
+        )
+    )
     await asyncio.wait_for(entered.wait(), 1)
     stopped.set()
     await asyncio.sleep(0)
@@ -179,7 +201,10 @@ async def test_stop_during_image_claim_requires_confirmed_native_outcome(monkeyp
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", ["input-error", "input-lost", "image-error", "image-lost", "image-canceled"])
+@pytest.mark.parametrize(
+    "failure",
+    ["input-error", "input-lost", "image-error", "image-lost", "image-canceled"],
+)
 async def test_uncertain_or_lost_claim_never_signals_readiness(monkeypatch, failure):
     ready = asyncio.Event()
 
@@ -194,14 +219,19 @@ async def test_uncertain_or_lost_claim_never_signals_readiness(monkeypatch, fail
         if failure == "image-error":
             raise RuntimeError("finish acknowledgement unknown")
         if failure in {"image-lost", "image-canceled"}:
-            return SimpleNamespace(outcome="lease_lost" if failure == "image-lost" else "source_changed")
+            return SimpleNamespace(
+                outcome="lease_lost" if failure == "image-lost" else "source_changed"
+            )
         return None
 
     closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
     with pytest.raises(RuntimeError):
         await worker._run_worker(
-            once=False, job_id=None, shutdown_event=asyncio.Event(),
-            ready_callback=ready.set, strict=True,
+            once=False,
+            job_id=None,
+            shutdown_event=asyncio.Event(),
+            ready_callback=ready.set,
+            strict=True,
         )
     assert not ready.is_set()
     assert closed == ["input", "image", "database"]
@@ -221,18 +251,26 @@ async def test_unsupervised_stop_preserves_ambiguous_claim_failure(monkeypatch):
     closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
     with pytest.raises(RuntimeError, match="unsettled work"):
         await worker._run_worker(
-            once=False, job_id=None, shutdown_event=stopped,
+            once=False,
+            job_id=None,
+            shutdown_event=stopped,
         )
     assert closed == ["input", "image", "database"]
 
 
 @pytest.mark.asyncio
-async def test_selected_one_shot_signal_cancels_and_waits_for_physical_drain(monkeypatch):
+async def test_selected_one_shot_signal_cancels_and_waits_for_physical_drain(
+    monkeypatch,
+):
     entered, cancelled, release = (asyncio.Event() for _ in range(3))
     handlers = {}
     loop = asyncio.get_running_loop()
-    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, handler: handlers.update({sig: handler}))
-    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: handlers.pop(sig, None))
+    monkeypatch.setattr(
+        loop, "add_signal_handler", lambda sig, handler: handlers.update({sig: handler})
+    )
+    monkeypatch.setattr(
+        loop, "remove_signal_handler", lambda sig: handlers.pop(sig, None)
+    )
 
     async def poll_input(_executor):
         raise AssertionError("selected image job must not poll input")
@@ -247,9 +285,9 @@ async def test_selected_one_shot_signal_cancels_and_waits_for_physical_drain(mon
             raise
 
     closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
-    task = asyncio.create_task(worker._with_signals(
-        worker._run_worker(once=True, job_id=uuid4())
-    ))
+    task = asyncio.create_task(
+        worker._with_signals(worker._run_worker(once=True, job_id=uuid4()))
+    )
     await asyncio.wait_for(entered.wait(), 1)
     handlers[signal.SIGINT]()
     await asyncio.wait_for(cancelled.wait(), 1)

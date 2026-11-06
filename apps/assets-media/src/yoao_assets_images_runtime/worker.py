@@ -1538,7 +1538,9 @@ async def _run_worker(
     ready_callback=None,
     strict: bool = False,
 ) -> None:
-    if ready_callback is not None and (once or job_id is not None or input_id is not None or not strict):
+    if ready_callback is not None and (
+        once or job_id is not None or input_id is not None or not strict
+    ):
         raise ValueError("readiness requires both strict unselected worker lanes")
     config: ImageWorkerConfig = load_config()
     database = await _connect_worker_database(config)
@@ -1609,7 +1611,9 @@ async def _run_worker(
                         else None
                     )
                     if image_work is not None and image_work.outcome not in {
-                        "published", "replayed", "failed"
+                        "published",
+                        "replayed",
+                        "failed",
                     }:
                         unsettled = True
                         if strict:
@@ -1637,7 +1641,9 @@ async def _run_worker(
                     did_work = False
                 if not did_work:
                     try:
-                        await asyncio.wait_for(stopped.wait(), timeout=config.poll_seconds)
+                        await asyncio.wait_for(
+                            stopped.wait(), timeout=config.poll_seconds
+                        )
                     except asyncio.TimeoutError:
                         pass
             if unsettled:
@@ -1736,8 +1742,13 @@ def main() -> None:
     if (args.ready_fd is None) != (args.stopped_fd is None):
         parser.error("ready and stopped descriptors must be supplied together")
     if args.ready_fd is not None and (
-        args.ready_fd < 0 or args.stopped_fd < 0 or args.ready_fd == args.stopped_fd
-        or args.once or args.job_id or args.input_id or args.healthcheck
+        args.ready_fd < 0
+        or args.stopped_fd < 0
+        or args.ready_fd == args.stopped_fd
+        or args.once
+        or args.job_id
+        or args.input_id
+        or args.healthcheck
     ):
         parser.error("supervised readiness requires a continuous unselected worker")
     previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
@@ -1747,14 +1758,21 @@ def main() -> None:
         elif args.ready_fd is None:
             asyncio.run(
                 _with_signals(
-                    _run_worker(once=args.once, job_id=args.job_id, input_id=args.input_id)
+                    _run_worker(
+                        once=args.once, job_id=args.job_id, input_id=args.input_id
+                    )
                 )
             )
         else:
-            asyncio.run(_run_worker_cli(
-                once=args.once, job_id=args.job_id, input_id=args.input_id,
-                ready_fd=args.ready_fd, stopped_fd=args.stopped_fd,
-            ))
+            asyncio.run(
+                _run_worker_cli(
+                    once=args.once,
+                    job_id=args.job_id,
+                    input_id=args.input_id,
+                    ready_fd=args.ready_fd,
+                    stopped_fd=args.stopped_fd,
+                )
+            )
     finally:
         for sig, handler in previous.items():
             signal.signal(sig, handler)

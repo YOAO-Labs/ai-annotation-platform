@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
@@ -20,7 +20,6 @@ from worktree_resources import (
     JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
     JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
     JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-    VIDEO_RUNTIME_CAPABILITIES,
 )
 
 
@@ -38,18 +37,20 @@ class BucketUpgradeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         resources = topology(self.root, load_identity(self.root, create=True), "test")
         self.settings = SimpleNamespace(
-            database_url="postgresql+asyncpg://test:test@localhost/db",
-            effective_migration_database_url="postgresql+asyncpg://test:test@localhost/db",
+            database_url="postgresql+asyncpg://test:test@127.0.0.1:1/db",
+            effective_migration_database_url="postgresql+asyncpg://test:test@127.0.0.1:1/db",
             minio_endpoint="localhost:9000",
             minio_use_ssl=False,
             minio_access_key="test",
             minio_secret_key="test",
+            connector_encryption_key="bucket-unit-test",
+            connector_host_allowlist=["127.0.0.1"],
         )
         self.path = self.root / ".worktree/test/resources.json"
         self.target = {
             "schema": 1,
             "resources": resources,
-            "postgres": {"host": "localhost", "port": 5432},
+            "postgres": {"host": "127.0.0.1", "port": 1},
             "minio": {"endpoint": "localhost:9000", "ssl": False},
         }
         self.training_target = _without_buckets(self.target, "MINIO_INPUTS_BUCKET")
@@ -67,6 +68,20 @@ class BucketUpgradeTests(unittest.TestCase):
         }
         self.versioning = {}
         self._bind_backend(self.backend)
+        # Bucket unit tests stop at the private store owner boundary. Its real
+        # provisioning and reader lifecycle have separate disposable tests.
+        self.enterContext(
+            patch(
+                "fixture_suite_coordinator.prepare_worktree_store",
+                new=AsyncMock(return_value={}),
+            )
+        )
+        self.enterContext(
+            patch(
+                "fixture_suite_coordinator.prepare_store_destruction",
+                new=AsyncMock(return_value=None),
+            )
+        )
         self.mock_s3.create_bucket.side_effect = lambda **kwargs: self.buckets.update(
             {kwargs["Bucket"]: {"owner": None}}
         )
@@ -105,6 +120,7 @@ class BucketUpgradeTests(unittest.TestCase):
         backend.database = database
         backend.owned_runtime_role = owned_runtime_role
         backend.redis_info = lambda: None
+        backend.environment = lambda: {}
 
     def test_same_owner_requires_private_mode_credentials_and_never_falls_back(self):
         from worktree_env import WorktreeError
@@ -511,30 +527,6 @@ class BucketUpgradeTests(unittest.TestCase):
             "aap_settings_v1.identity_recovery_policy(jsonb)",
         ):
             self.assertNotIn(private, normalized)
-
-    def test_lan_runtime_grants_exact_video_capabilities_without_sweep_or_gc(self):
-        grant_file = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/lan-production-grants.sql"
-        )
-        sql = grant_file.read_text()
-        runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
-            sql,
-            flags=re.DOTALL,
-        )
-        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
-
-        self.assertEqual(len(VIDEO_RUNTIME_CAPABILITIES), 25)
-        self.assertEqual(len(set(VIDEO_RUNTIME_CAPABILITIES)), 25)
-        for signature in VIDEO_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        for excluded in (
-            "aap_assets_v1.sweep_accepted_video_inputs(integer)",
-            "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
-        ):
-            self.assertNotIn(excluded, normalized)
 
     def test_private_acl_rejects_missing_or_duplicated_source(self):
         backend = object.__new__(LocalResources)

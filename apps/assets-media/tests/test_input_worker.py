@@ -43,6 +43,10 @@ def world():
         calls.append((operation, request))
         if operation == "claim_accepted_image_input":
             return c.ClaimedInput(claim=claim)
+        if operation == "begin_accepted_image_original":
+            return image.OriginalRead(
+                ownership="ordinary", object_key=work.source.file_path
+            )
         if operation == "heartbeat_accepted_image_input":
             return c.InputLease(
                 input_id=claim.input.input_id,
@@ -70,6 +74,7 @@ def world():
         upload_blob=AsyncMock(return_value=blob),
         head_source=AsyncMock(return_value=work.source.object_identity),
     )
+    storage.bind_original = lambda _permit: storage
     return SimpleNamespace(
         work=work,
         claim=claim,

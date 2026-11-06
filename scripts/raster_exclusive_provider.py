@@ -37,7 +37,8 @@ def _items(owner, resources):
     }
     actual = owner.data["resources"]
     require(
-        len(actual) == 3 and {(item["kind"], item["id"]) for item in actual} == expected,
+        len(actual) == 3
+        and {(item["kind"], item["id"]) for item in actual} == expected,
         "raster_store_topology_changed",
     )
     return {item["kind"]: item for item in actual}
@@ -89,7 +90,8 @@ def verify_exclusive_provider(owner, backend):
         and config.get("Cmd") == ["server", "/data", "--console-address", ":9001"]
         and state.get("Running") is True
         and state.get("Status") == "running"
-        and isinstance(state.get("Pid"), int) and state["Pid"] > 0
+        and isinstance(state.get("Pid"), int)
+        and state["Pid"] > 0
         and bool(state.get("StartedAt"))
         and birth.get("container_id") == items["container"]["id"]
         and birth.get("pid") == state["Pid"]
@@ -105,7 +107,8 @@ def verify_exclusive_provider(owner, backend):
         and network.get("Name") == store["network_name"]
         and set(network.get("Containers") or {}) == {items["container"]["id"]}
         and set(attached) == {store["network_name"]}
-        and store["endpoint"] == f"127.0.0.1:{host_port(owner, items['container'], 9000)}",
+        and store["endpoint"]
+        == f"127.0.0.1:{host_port(owner, items['container'], 9000)}",
         "raster_store_physical_identity_changed",
     )
     environment = config.get("Env") or []
@@ -116,10 +119,18 @@ def verify_exclusive_provider(owner, backend):
         == ["MINIO_ROOT_PASSWORD=" + secret],
         "raster_provider_credentials_changed",
     )
-    users = command([
-        "docker", "ps", "-a", "--no-trunc", "--filter",
-        "volume=" + items["volume"]["id"], "--format", "{{.ID}}",
-    ]).splitlines()
+    users = command(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--no-trunc",
+            "--filter",
+            "volume=" + items["volume"]["id"],
+            "--format",
+            "{{.ID}}",
+        ]
+    ).splitlines()
     require(users == [items["container"]["id"]], "raster_provider_volume_shared")
     expected = set(resources["buckets"].values())
     entries = backend.s3.list_buckets().get("Buckets")
@@ -131,10 +142,15 @@ def verify_exclusive_provider(owner, backend):
     )
     for bucket in expected:
         info = backend.bucket_info(bucket)
-        require(info is not None and info.get("owner") == resources["owner"],
-                "raster_provider_bucket_owner_changed")
-    return {"started_at": state["StartedAt"], "pid": state["Pid"],
-            "buckets": sorted(expected)}
+        require(
+            info is not None and info.get("owner") == resources["owner"],
+            "raster_provider_bucket_owner_changed",
+        )
+    return {
+        "started_at": state["StartedAt"],
+        "pid": state["Pid"],
+        "buckets": sorted(expected),
+    }
 
 
 def retire_provider(owner, backend):
@@ -145,7 +161,9 @@ def retire_provider(owner, backend):
     )
     snapshot = verify_exclusive_provider(owner, backend)
     items = _items(owner, backend.resources)
-    container, volume, network = (items[name] for name in ("container", "volume", "network"))
+    container, volume, network = (
+        items[name] for name in ("container", "volume", "network")
+    )
     receipt = {
         "state": "signal_intent",
         "container_id": container["id"],
@@ -157,11 +175,18 @@ def retire_provider(owner, backend):
     owner.save()
     # SIGTERM is a signal request, not docker stop's timed SIGKILL fallback.
     acknowledged = command(["docker", "kill", "--signal", "SIGTERM", container["id"]])
-    require(acknowledged in {container["id"], container["name"]}, "raster_provider_signal_unconfirmed")
-    receipt.update(state="signal_acknowledged", signal="SIGTERM", signal_ack=acknowledged)
+    require(
+        acknowledged in {container["id"], container["name"]},
+        "raster_provider_signal_unconfirmed",
+    )
+    receipt.update(
+        state="signal_acknowledged", signal="SIGTERM", signal_ack=acknowledged
+    )
     owner.save()
     exit_code = command(["docker", "wait", container["id"]])
-    require(exit_code.isdecimal() and int(exit_code) <= 255, "raster_provider_wait_invalid")
+    require(
+        exit_code.isdecimal() and int(exit_code) <= 255, "raster_provider_wait_invalid"
+    )
     receipt.update(state="wait_acknowledged", wait_exit=int(exit_code))
     owner.save()
     require(exit_code == "0", "raster_provider_exit_unsettled")
@@ -169,26 +194,39 @@ def retire_provider(owner, backend):
     state = observed.get("State") or {}
     require(
         state.get("Status") == "exited"
-        and state.get("Running") is False and state.get("ExitCode") == 0
+        and state.get("Running") is False
+        and state.get("ExitCode") == 0
         and state.get("Pid") == 0
-        and state.get("OOMKilled") is False and not state.get("Error")
+        and state.get("OOMKilled") is False
+        and not state.get("Error")
         and state.get("StartedAt") == snapshot["started_at"]
-        and bool(state.get("FinishedAt")) and observed.get("RestartCount") == 0,
+        and bool(state.get("FinishedAt"))
+        and observed.get("RestartCount") == 0,
         "raster_provider_exit_unsettled",
     )
     receipt.update(
-        state="exit_observed", wait_exit=0, finished_at=state["FinishedAt"],
-        exit_state={"status": state["Status"], "running": state["Running"],
-                    "pid": state["Pid"], "exit_code": state["ExitCode"],
-                    "oom_killed": state["OOMKilled"], "error_empty": not state.get("Error"),
-                    "restart_count": observed["RestartCount"]},
+        state="exit_observed",
+        wait_exit=0,
+        finished_at=state["FinishedAt"],
+        exit_state={
+            "status": state["Status"],
+            "running": state["Running"],
+            "pid": state["Pid"],
+            "exit_code": state["ExitCode"],
+            "oom_killed": state["OOMKilled"],
+            "error_empty": not state.get("Error"),
+            "restart_count": observed["RestartCount"],
+        },
     )
     owner.save()
 
     receipt["state"] = "container_remove_intent"
     owner.save()
     removed = command(["docker", "rm", container["id"]])
-    require(removed in {container["id"], container["name"]}, "raster_provider_remove_unconfirmed")
+    require(
+        removed in {container["id"], container["name"]},
+        "raster_provider_remove_unconfirmed",
+    )
     receipt.update(state="container_remove_acknowledged", container_removed=removed)
     owner.save()
     require(owner.inspect(container) is None, "raster_provider_container_still_present")
@@ -197,10 +235,18 @@ def retire_provider(owner, backend):
     owner.save()
 
     owner.verified(volume)
-    users = command([
-        "docker", "ps", "-a", "--no-trunc", "--filter",
-        "volume=" + volume["id"], "--format", "{{.ID}}",
-    ])
+    users = command(
+        [
+            "docker",
+            "ps",
+            "-a",
+            "--no-trunc",
+            "--filter",
+            "volume=" + volume["id"],
+            "--format",
+            "{{.ID}}",
+        ]
+    )
     require(not users, "raster_provider_volume_shared")
     receipt["state"] = "volume_remove_intent"
     owner.save()
@@ -218,7 +264,10 @@ def retire_provider(owner, backend):
     receipt["state"] = "network_remove_intent"
     owner.save()
     removed = command(["docker", "network", "rm", network["id"]])
-    require(removed in {network["id"], network["name"]}, "raster_provider_network_remove_unconfirmed")
+    require(
+        removed in {network["id"], network["name"]},
+        "raster_provider_network_remove_unconfirmed",
+    )
     receipt.update(state="network_remove_acknowledged", network_removed=removed)
     owner.save()
     require(owner.inspect(network) is None, "raster_provider_network_still_present")
@@ -240,22 +289,35 @@ def require_retired_provider(owner, resources):
         and receipt.get("network_id") == items["network"]["id"]
         and receipt.get("buckets") == sorted(resources["buckets"].values())
         and receipt.get("signal") == "SIGTERM"
-        and receipt.get("signal_ack") in {items["container"]["id"], items["container"]["name"]}
+        and receipt.get("signal_ack")
+        in {items["container"]["id"], items["container"]["name"]}
         and receipt.get("wait_exit") == 0
-        and bool(receipt.get("started_at")) and bool(receipt.get("finished_at"))
+        and bool(receipt.get("started_at"))
+        and bool(receipt.get("finished_at"))
         and birth.get("container_id") == receipt.get("container_id")
-        and type(birth.get("pid")) is int and birth["pid"] > 0
+        and type(birth.get("pid")) is int
+        and birth["pid"] > 0
         and birth["pid"] == receipt.get("pid")
         and birth.get("started_at") == receipt.get("started_at")
-        and receipt.get("exit_state") == {
-            "status": "exited", "running": False, "pid": 0, "exit_code": 0,
-            "oom_killed": False, "error_empty": True, "restart_count": 0,
+        and receipt.get("exit_state")
+        == {
+            "status": "exited",
+            "running": False,
+            "pid": 0,
+            "exit_code": 0,
+            "oom_killed": False,
+            "error_empty": True,
+            "restart_count": 0,
         }
-        and receipt.get("container_removed") in {items["container"]["id"], items["container"]["name"]}
+        and receipt.get("container_removed")
+        in {items["container"]["id"], items["container"]["name"]}
         and receipt.get("volume_removed") == items["volume"]["id"]
-        and receipt.get("network_removed") in {items["network"]["id"], items["network"]["name"]}
+        and receipt.get("network_removed")
+        in {items["network"]["id"], items["network"]["name"]}
         and all(item.get("state") == "absent" for item in items.values()),
         "raster_provider_retirement_unproven",
     )
     for item in items.values():
-        require(owner.inspect(item) is None, "raster_provider_retirement_identity_changed")
+        require(
+            owner.inspect(item) is None, "raster_provider_retirement_identity_changed"
+        )

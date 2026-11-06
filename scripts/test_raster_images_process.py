@@ -36,15 +36,20 @@ class RasterImagesEnvironmentTests(unittest.TestCase):
                 "MINIO_MEDIA_CACHE_BUCKET": "cache",
                 "MINIO_INPUTS_BUCKET": "inputs",
             }
-            owner = SimpleNamespace(private=private, data={
-                "nonce": nonce,
-                "raster": {
-                    "resources": {"buckets": buckets},
-                    "endpoint": "127.0.0.1:9000",
-                    "images": {"database_role": credentials["database_role"],
-                               "s3_user": credentials["access_key"]},
+            owner = SimpleNamespace(
+                private=private,
+                data={
+                    "nonce": nonce,
+                    "raster": {
+                        "resources": {"buckets": buckets},
+                        "endpoint": "127.0.0.1:9000",
+                        "images": {
+                            "database_role": credentials["database_role"],
+                            "s3_user": credentials["access_key"],
+                        },
+                    },
                 },
-            })
+            )
             parent = {
                 "DATABASE_URL": "postgresql+asyncpg://ordinary:ordinary-secret@localhost/owned",
                 "MINIO_ROOT_USER": "root",
@@ -64,7 +69,9 @@ class RasterImagesEnvironmentTests(unittest.TestCase):
             self.assertEqual(result["ASSETS_MEDIA_S3_ACCESS_KEY"], "image-access")
             self.assertEqual(result["ASSETS_MEDIA_S3_SECRET_KEY"], "image-secret")
             self.assertIn("aap_raster_images_", result["ASSETS_IMAGES_DATABASE_URL"])
-            self.assertEqual(result["AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY"], "reader")
+            self.assertEqual(
+                result["AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY"], "reader"
+            )
 
     def test_credentials_file_must_be_private(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -72,9 +79,10 @@ class RasterImagesEnvironmentTests(unittest.TestCase):
             path.write_text("{}")
             path.chmod(0o644)
             owner = SimpleNamespace(private=Path(directory), data={})
-            with self.assertRaisesRegex(ContractError, "raster_images_credentials_unsafe"):
+            with self.assertRaisesRegex(
+                ContractError, "raster_images_credentials_unsafe"
+            ):
                 image_environment(owner, {})
-
 
 
 @unittest.skipUnless(
@@ -97,7 +105,9 @@ class RasterImagesShutdownTests(unittest.TestCase):
         self.addCleanup(self.cleanup, child)
         self.assertEqual(child.stdout.readline(), b"ready\n")
         records = []
-        owner = RasterImagesProcess({}, root=Path.cwd(), journal=lambda *args: records.append(args))
+        owner = RasterImagesProcess(
+            {}, root=Path.cwd(), journal=lambda *args: records.append(args)
+        )
         owner.child = child
         owner.descriptor = open_pidfd(child.pid)
         owner.settled_fd = settled_fd
@@ -126,9 +136,19 @@ class RasterImagesShutdownTests(unittest.TestCase):
             "print('ready',flush=True); time.sleep(30)"
         )
         owner.close()
-        self.assertEqual(records, [("stopped", {
-            "pid": owner.child.pid, "exit_code": 0, "shutdown_requested": True,
-        })])
+        self.assertEqual(
+            records,
+            [
+                (
+                    "stopped",
+                    {
+                        "pid": owner.child.pid,
+                        "exit_code": 0,
+                        "shutdown_requested": True,
+                    },
+                )
+            ],
+        )
 
     def test_zero_exit_without_native_settlement_is_rejected(self):
         owner, records = self.process(
@@ -136,12 +156,16 @@ class RasterImagesShutdownTests(unittest.TestCase):
             "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
             "print('ready',flush=True); time.sleep(30)"
         )
-        with self.assertRaisesRegex(ContractError, "raster_images_settlement_unconfirmed"):
+        with self.assertRaisesRegex(
+            ContractError, "raster_images_settlement_unconfirmed"
+        ):
             owner.close()
         self.assertEqual(records, [])
 
     def test_unexpected_exit_cannot_be_reported_as_orderly(self):
-        owner, records = self.process("import sys; print('ready',flush=True); sys.exit(7)")
+        owner, records = self.process(
+            "import sys; print('ready',flush=True); sys.exit(7)"
+        )
         owner.child.wait()
         with self.assertRaises(ContractError):
             owner.close()

@@ -21,15 +21,27 @@ class RasterRedisRetirementTests(unittest.TestCase):
         self.prepared.raster_owner = self.owner
         self.identifier = "e" * 64
         self.owner.data["raster"]["redis_birth"] = {
-            "container_id": self.identifier, "pid": 70, "started_at": "start",
+            "container_id": self.identifier,
+            "pid": 70,
+            "started_at": "start",
         }
         self.present = True
         self.wait_status = "0"
         self.calls = []
         self.container = {
-            "Id": self.identifier, "Name": "/owned-redis", "RestartCount": 0,
-            "Config": {"Image": "redis:7-alpine", "Labels": {resources.OWNER_LABEL: "owned"}},
-            "State": {"Status": "running", "Running": True, "Pid": 70, "StartedAt": "start"},
+            "Id": self.identifier,
+            "Name": "/owned-redis",
+            "RestartCount": 0,
+            "Config": {
+                "Image": "redis:7-alpine",
+                "Labels": {resources.OWNER_LABEL: "owned"},
+            },
+            "State": {
+                "Status": "running",
+                "Running": True,
+                "Pid": 70,
+                "StartedAt": "start",
+            },
         }
         self.enterContext(patch.object(resources, "docker", side_effect=self.docker))
 
@@ -46,9 +58,14 @@ class RasterRedisRetirementTests(unittest.TestCase):
             return self.identifier
         if args[0] == "wait":
             self.container["State"] = {
-                "Status": "exited", "Running": False, "Pid": 0,
-                "ExitCode": int(self.wait_status), "OOMKilled": False, "Error": "",
-                "StartedAt": "start", "FinishedAt": "finish",
+                "Status": "exited",
+                "Running": False,
+                "Pid": 0,
+                "ExitCode": int(self.wait_status),
+                "OOMKilled": False,
+                "Error": "",
+                "StartedAt": "start",
+                "FinishedAt": "finish",
             }
             return self.wait_status
         if args[0] == "rm":
@@ -60,8 +77,10 @@ class RasterRedisRetirementTests(unittest.TestCase):
         self.backend._retire_prepared_raster_redis(self.prepared, self.owner)
         self.assertTrue(self.prepared.raster_redis_retired)
         receipt = self.owner.data["raster"]["redis_retirement"]
-        self.assertEqual((receipt["state"], receipt["signal"], receipt["wait_exit"]),
-                         ("retired", "SIGTERM", 0))
+        self.assertEqual(
+            (receipt["state"], receipt["signal"], receipt["wait_exit"]),
+            ("retired", "SIGTERM", 0),
+        )
         self.assertIn(("kill", "--signal", "SIGTERM", self.identifier), self.calls)
         self.assertIn(("rm", self.identifier), self.calls)
         self.assertNotIn("-f", [argument for call in self.calls for argument in call])
@@ -71,7 +90,9 @@ class RasterRedisRetirementTests(unittest.TestCase):
         with self.assertRaises(resources.WorktreeError):
             self.backend._retire_prepared_raster_redis(self.prepared, self.owner)
         self.assertTrue(self.present)
-        self.assertEqual(self.owner.data["raster"]["redis_retirement"]["wait_exit"], 137)
+        self.assertEqual(
+            self.owner.data["raster"]["redis_retirement"]["wait_exit"], 137
+        )
         self.assertFalse(self.prepared.raster_redis_retired)
         with self.assertRaises(resources.WorktreeError):
             self.backend._destroy_prepared_database(self.prepared)
@@ -104,7 +125,9 @@ class RasterRedisRetirementTests(unittest.TestCase):
         self.prepared.phase = "database_intent"
         with self.assertRaises(resources.WorktreeError):
             self.backend._require_raster_redis_retired(self.prepared)
-        self.assertEqual(self.owner.data["raster"]["redis_retirement"]["state"], "retired")
+        self.assertEqual(
+            self.owner.data["raster"]["redis_retirement"]["state"], "retired"
+        )
 
     def test_original_birth_is_saved_before_first_redis_ping(self):
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
@@ -122,13 +145,20 @@ class RasterRedisRetirementTests(unittest.TestCase):
             return self.docker(*args)
 
         def ping():
-            self.assertEqual(self.owner.data["raster"]["redis_birth"], {
-                "container_id": self.identifier, "pid": 70, "started_at": "start",
-            })
+            self.assertEqual(
+                self.owner.data["raster"]["redis_birth"],
+                {
+                    "container_id": self.identifier,
+                    "pid": 70,
+                    "started_at": "start",
+                },
+            )
             return True
 
         client = SimpleNamespace(ping=ping, close=lambda: None)
-        with (patch.object(resources, "docker", side_effect=docker),
-              patch.object(resources, "unused_loopback_port", return_value=1234),
-              patch("redis.Redis", return_value=client)):
+        with (
+            patch.object(resources, "docker", side_effect=docker),
+            patch.object(resources, "unused_loopback_port", return_value=1234),
+            patch("redis.Redis", return_value=client),
+        ):
             self.backend.start_redis()

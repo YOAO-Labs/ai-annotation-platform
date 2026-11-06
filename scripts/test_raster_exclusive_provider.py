@@ -20,7 +20,9 @@ class FakeOwner:
         self.network = "d" * 64
         self.volume = "raster-volume"
         self.resources = {
-            "root": str(root), "mode": "e2e", "owner": "owned",
+            "root": str(root),
+            "mode": "e2e",
+            "owner": "owned",
             "buckets": {"MINIO_BUCKET": "annotations", "MINIO_INPUTS_BUCKET": "inputs"},
         }
         items = [
@@ -29,29 +31,56 @@ class FakeOwner:
             {"kind": "volume", "id": self.volume, "name": self.volume},
         ]
         self.data = {
-            "checkout": str(root), "cleaned": False, "resources": items,
+            "checkout": str(root),
+            "cleaned": False,
+            "resources": items,
             "raster": {
                 "bucket": "annotations",
-                "resources": self.resources, "initial_bucket_count": 0,
-                "container_id": self.container, "network_id": self.network,
-                "network_name": "raster-network", "volume_id": self.volume,
-                "endpoint": "127.0.0.1:19000", "state": "consumers_stopped",
-                "consumer_exit": 0, "pre_retirement_native_identities": ["actual-job"],
-                "provider_birth": {"container_id": self.container, "pid": 42, "started_at": "start"},
-                "images": {"state": "stopped", "shutdown_requested": True,
-                           "exit_code": 0, "database_role_oid": 123},
+                "resources": self.resources,
+                "initial_bucket_count": 0,
+                "container_id": self.container,
+                "network_id": self.network,
+                "network_name": "raster-network",
+                "volume_id": self.volume,
+                "endpoint": "127.0.0.1:19000",
+                "state": "consumers_stopped",
+                "consumer_exit": 0,
+                "pre_retirement_native_identities": ["actual-job"],
+                "provider_birth": {
+                    "container_id": self.container,
+                    "pid": 42,
+                    "started_at": "start",
+                },
+                "images": {
+                    "state": "stopped",
+                    "shutdown_requested": True,
+                    "exit_code": 0,
+                    "database_role_oid": 123,
+                },
             },
         }
         self.present = {self.container, self.network, self.volume}
         self.container_info = {
-            "Config": {"Image": provider.MINIO_IMAGE,
-                       "Cmd": ["server", "/data", "--console-address", ":9001"],
-                       "Env": ["MINIO_ROOT_USER=access", "MINIO_ROOT_PASSWORD=secret"]},
-            "State": {"Running": True, "Status": "running", "Pid": 42,
-                      "StartedAt": "start"},
+            "Config": {
+                "Image": provider.MINIO_IMAGE,
+                "Cmd": ["server", "/data", "--console-address", ":9001"],
+                "Env": ["MINIO_ROOT_USER=access", "MINIO_ROOT_PASSWORD=secret"],
+            },
+            "State": {
+                "Running": True,
+                "Status": "running",
+                "Pid": 42,
+                "StartedAt": "start",
+            },
             "RestartCount": 0,
-            "Mounts": [{"Type": "volume", "Name": self.volume,
-                        "Destination": "/data", "RW": True}],
+            "Mounts": [
+                {
+                    "Type": "volume",
+                    "Name": self.volume,
+                    "Destination": "/data",
+                    "RW": True,
+                }
+            ],
             "NetworkSettings": {"Networks": {"raster-network": {}}},
         }
         self.snapshots = []
@@ -66,8 +95,13 @@ class FakeOwner:
             return self.container_info
         if item["kind"] == "volume":
             return {"Driver": "local"}
-        return {"Driver": "bridge", "Name": "raster-network",
-                "Containers": {self.container: {}} if self.container in self.present else {}}
+        return {
+            "Driver": "bridge",
+            "Name": "raster-network",
+            "Containers": {self.container: {}}
+            if self.container in self.present
+            else {},
+        }
 
     def inspect(self, item):
         return self.verified(item) if item["id"] in self.present else None
@@ -83,29 +117,48 @@ class RasterProviderTests(unittest.TestCase):
         self.calls = []
         self.backend = SimpleNamespace(
             resources=self.owner.resources,
-            settings=SimpleNamespace(minio_endpoint="127.0.0.1:19000", minio_use_ssl=False,
-                                     minio_access_key="access", minio_secret_key="secret"),
-            s3=SimpleNamespace(list_buckets=lambda: {"Buckets": [
-                {"Name": name} for name in self.buckets
-            ]}),
+            settings=SimpleNamespace(
+                minio_endpoint="127.0.0.1:19000",
+                minio_use_ssl=False,
+                minio_access_key="access",
+                minio_secret_key="secret",
+            ),
+            s3=SimpleNamespace(
+                list_buckets=lambda: {
+                    "Buckets": [{"Name": name} for name in self.buckets]
+                }
+            ),
             bucket_info=lambda _name: {"owner": self.bucket_owner},
         )
         self.enterContext(patch.object(provider, "Owner", FakeOwner))
-        self.enterContext(patch.object(provider, "_root_credentials", return_value=("access", "secret")))
+        self.enterContext(
+            patch.object(
+                provider, "_root_credentials", return_value=("access", "secret")
+            )
+        )
         self.enterContext(patch.object(provider, "host_port", return_value=19000))
         self.enterContext(patch.object(provider, "command", side_effect=self.command))
 
     def command(self, arguments):
         self.calls.append(arguments)
         if arguments[1] == "ps":
-            return self.owner.container if self.owner.container in self.owner.present else ""
+            return (
+                self.owner.container
+                if self.owner.container in self.owner.present
+                else ""
+            )
         if arguments[1] == "kill":
             return self.owner.container
         if arguments[1] == "wait":
             self.owner.container_info["State"] = {
-                "Status": "exited", "Running": False, "Pid": 0,
-                "ExitCode": int(self.exit_status), "OOMKilled": False, "Error": "",
-                "StartedAt": "start", "FinishedAt": "finish",
+                "Status": "exited",
+                "Running": False,
+                "Pid": 0,
+                "ExitCode": int(self.exit_status),
+                "OOMKilled": False,
+                "Error": "",
+                "StartedAt": "start",
+                "FinishedAt": "finish",
             }
             return self.exit_status
         if arguments[1] == "rm":
@@ -123,25 +176,44 @@ class RasterProviderTests(unittest.TestCase):
         provider.retire_provider(self.owner, self.backend)
         provider.require_retired_provider(self.owner, self.backend.resources)
         actions = [call[1:3] for call in self.calls if call[1] != "ps"]
-        self.assertEqual(actions, [["kill", "--signal"], ["wait", self.owner.container],
-                                   ["rm", self.owner.container], ["volume", "rm"],
-                                   ["network", "rm"]])
+        self.assertEqual(
+            actions,
+            [
+                ["kill", "--signal"],
+                ["wait", self.owner.container],
+                ["rm", self.owner.container],
+                ["volume", "rm"],
+                ["network", "rm"],
+            ],
+        )
         self.assertFalse(self.owner.present)
         receipt = self.owner.data["raster"]["provider_retirement"]
         self.assertEqual(receipt["state"], "retired")
         self.assertEqual(receipt["signal"], "SIGTERM")
         self.assertEqual(receipt["wait_exit"], 0)
-        states = [snapshot["raster"].get("provider_retirement", {}).get("state")
-                  for snapshot in self.owner.snapshots]
-        self.assertLess(states.index("exit_observed"), states.index("container_remove_intent"))
-        self.assertLess(states.index("container_removed"), states.index("volume_remove_intent"))
-        self.assertLess(states.index("volume_removed"), states.index("network_remove_intent"))
+        states = [
+            snapshot["raster"].get("provider_retirement", {}).get("state")
+            for snapshot in self.owner.snapshots
+        ]
+        self.assertLess(
+            states.index("exit_observed"), states.index("container_remove_intent")
+        )
+        self.assertLess(
+            states.index("container_removed"), states.index("volume_remove_intent")
+        )
+        self.assertLess(
+            states.index("volume_removed"), states.index("network_remove_intent")
+        )
 
     def test_unowned_or_extra_bucket_refuses_before_signal(self):
         for extra in (False, True):
             with self.subTest(extra=extra):
                 self.bucket_owner = "owned" if extra else "foreign"
-                self.buckets = ["annotations", "inputs", "foreign"] if extra else ["annotations", "inputs"]
+                self.buckets = (
+                    ["annotations", "inputs", "foreign"]
+                    if extra
+                    else ["annotations", "inputs"]
+                )
                 with self.assertRaises(ContractError):
                     provider.retire_provider(self.owner, self.backend)
                 self.assertNotIn("provider_retirement", self.owner.data["raster"])
@@ -153,10 +225,16 @@ class RasterProviderTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "raster_provider_exit_unsettled"):
             provider.retire_provider(self.owner, self.backend)
         receipt = self.owner.data["raster"]["provider_retirement"]
-        self.assertEqual((receipt["state"], receipt["wait_exit"]), ("wait_acknowledged", 137))
+        self.assertEqual(
+            (receipt["state"], receipt["wait_exit"]), ("wait_acknowledged", 137)
+        )
         self.assertEqual(len(self.owner.present), 3)
-        self.assertFalse(any(call[1] in {"rm", "volume", "network"} for call in self.calls))
-        with self.assertRaisesRegex(ContractError, "raster_provider_retirement_already_started"):
+        self.assertFalse(
+            any(call[1] in {"rm", "volume", "network"} for call in self.calls)
+        )
+        with self.assertRaisesRegex(
+            ContractError, "raster_provider_retirement_already_started"
+        ):
             provider.retire_provider(self.owner, self.backend)
 
     def test_partial_destruction_keeps_receipt_and_remaining_resources(self):
@@ -181,12 +259,18 @@ class RasterProviderTests(unittest.TestCase):
         self.owner.present.clear()
         for item in self.owner.data["resources"]:
             item["state"] = "absent"
-        with self.assertRaisesRegex(ContractError, "raster_provider_retirement_unproven"):
+        with self.assertRaisesRegex(
+            ContractError, "raster_provider_retirement_unproven"
+        ):
             provider.require_retired_provider(self.owner, self.backend.resources)
 
     def test_live_extra_mount_refuses_before_signal(self):
-        self.owner.container_info["Mounts"].append({"Type": "volume", "Name": "foreign"})
-        with self.assertRaisesRegex(ContractError, "raster_store_physical_identity_changed"):
+        self.owner.container_info["Mounts"].append(
+            {"Type": "volume", "Name": "foreign"}
+        )
+        with self.assertRaisesRegex(
+            ContractError, "raster_store_physical_identity_changed"
+        ):
             provider.retire_provider(self.owner, self.backend)
         self.assertFalse(any(call[1] == "kill" for call in self.calls))
 
@@ -200,13 +284,17 @@ class RasterProviderTests(unittest.TestCase):
     def test_restart_before_first_teardown_snapshot_is_not_original(self):
         self.owner.container_info["State"]["StartedAt"] = "replacement"
         self.owner.container_info["State"]["Pid"] = 99
-        with self.assertRaisesRegex(ContractError, "raster_store_physical_identity_changed"):
+        with self.assertRaisesRegex(
+            ContractError, "raster_store_physical_identity_changed"
+        ):
             provider.retire_provider(self.owner, self.backend)
         self.assertFalse(any(call[1] == "kill" for call in self.calls))
 
     def test_missing_original_birth_is_not_adopted(self):
         del self.owner.data["raster"]["provider_birth"]
-        with self.assertRaisesRegex(ContractError, "raster_store_physical_identity_changed"):
+        with self.assertRaisesRegex(
+            ContractError, "raster_store_physical_identity_changed"
+        ):
             provider.retire_provider(self.owner, self.backend)
         self.assertFalse(any(call[1] == "kill" for call in self.calls))
 
@@ -231,9 +319,19 @@ class RasterGuardOrderingTests(unittest.TestCase):
             events.append("role-" + action)
 
         owner = SimpleNamespace(data={"raster": {"images": {"state": "stopped"}}})
-        with (patch.object(runner, "verify_exclusive_provider", side_effect=lambda *_: events.append("verify")),
-              patch.object(runner, "image_role", side_effect=role),
-              patch.object(runner, "retire_provider", side_effect=lambda *_: events.append("retire"))):
+        with (
+            patch.object(
+                runner,
+                "verify_exclusive_provider",
+                side_effect=lambda *_: events.append("verify"),
+            ),
+            patch.object(runner, "image_role", side_effect=role),
+            patch.object(
+                runner,
+                "retire_provider",
+                side_effect=lambda *_: events.append("retire"),
+            ),
+        ):
             with self.assertRaisesRegex(ContractError, "fixture-not-settled"):
                 runner.destroy_with_images_role(Backend(), owner, "owned")
         self.assertEqual(events, ["fence", "verify", "role-check", "fixture-guard"])
@@ -260,9 +358,13 @@ class RasterGuardOrderingTests(unittest.TestCase):
             events.append("role-" + action)
 
         owner = SimpleNamespace(data={"raster": {"images": {"state": "stopped"}}})
-        with (patch.object(runner, "verify_exclusive_provider"),
-              patch.object(runner, "image_role", side_effect=role),
-              patch.object(runner, "retire_provider", side_effect=ContractError("exit-unknown"))):
+        with (
+            patch.object(runner, "verify_exclusive_provider"),
+            patch.object(runner, "image_role", side_effect=role),
+            patch.object(
+                runner, "retire_provider", side_effect=ContractError("exit-unknown")
+            ),
+        ):
             with self.assertRaisesRegex(ContractError, "exit-unknown"):
                 runner.destroy_with_images_role(Backend(), owner, "owned")
         self.assertEqual(events, ["role-check"])
@@ -309,12 +411,35 @@ class RasterGuardOrderingTests(unittest.TestCase):
             data={"raster": {"images": {"state": "stopped"}}},
             save=lambda: None,
         )
-        with (patch.object(runner, "verify_exclusive_provider", side_effect=lambda *_: events.append("verify")),
-              patch.object(runner, "image_role", side_effect=role),
-              patch.object(runner, "retire_provider", side_effect=lambda *_: events.append("provider-retired"))):
+        with (
+            patch.object(
+                runner,
+                "verify_exclusive_provider",
+                side_effect=lambda *_: events.append("verify"),
+            ),
+            patch.object(runner, "image_role", side_effect=role),
+            patch.object(
+                runner,
+                "retire_provider",
+                side_effect=lambda *_: events.append("provider-retired"),
+            ),
+        ):
             runner.destroy_with_images_role(Backend(), owner, "owned")
-        self.assertEqual(events, [
-            "fence", "verify", "role-check", "fixture-guards", "identities-bound", "provider-retired",
-            "provider-receipt", "redis-retired", "source-stopped", "database-dropped", "services-removed",
-            "role-drop", "local-removed",
-        ])
+        self.assertEqual(
+            events,
+            [
+                "fence",
+                "verify",
+                "role-check",
+                "fixture-guards",
+                "identities-bound",
+                "provider-retired",
+                "provider-receipt",
+                "redis-retired",
+                "source-stopped",
+                "database-dropped",
+                "services-removed",
+                "role-drop",
+                "local-removed",
+            ],
+        )
