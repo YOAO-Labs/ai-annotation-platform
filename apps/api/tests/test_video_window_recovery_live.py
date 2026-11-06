@@ -98,6 +98,7 @@ async def _checkpoint_cpu_backend(
     context_mode: str,
     artifact: dict,
     weights_sha256: str,
+    retain=None,
 ):
     app = FastAPI()
     storage = httpx.AsyncClient(timeout=15, trust_env=False)
@@ -319,7 +320,8 @@ async def _checkpoint_cpu_backend(
             is_stopped=lambda: stopped,
         )
     finally:
-        await stop_peer()
+        if retain is None or not retain():
+            await stop_peer()
 
 
 def _worker_environment(

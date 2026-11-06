@@ -57,9 +57,19 @@ pytestmark = [
 
 @asynccontextmanager
 async def _video_runtime(
-    test_engine, tmp_path, *, source_test_engine=None, tracker_bridge=None
+    test_engine,
+    tmp_path,
+    *,
+    source_test_engine=None,
+    tracker_bridge=None,
+    tracker_retain=None,
 ):
     from app.config import settings
+
+    if tracker_retain is not None and (
+        tracker_bridge is None or not callable(tracker_retain)
+    ):
+        raise ValueError("Tracker retention requires the owned fixture bridge")
 
     source_url = source_test_engine.url if source_test_engine is not None else None
     if source_url is not None and not (
@@ -202,8 +212,9 @@ async def _video_runtime(
         await _wait_control_ready(http, process, log)
         yield runtime
     finally:
-        for item in reversed(runtime.processes):
-            await asyncio.to_thread(_stop_process, item)
+        if tracker_retain is None or not tracker_retain():
+            for item in reversed(runtime.processes):
+                await asyncio.to_thread(_stop_process, item)
         await http.aclose()
         for item in runtime.streams:
             item.close()

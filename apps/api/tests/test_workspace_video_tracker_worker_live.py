@@ -145,8 +145,11 @@ class _TrackerFixtureBridge:
 
 
 @asynccontextmanager
-async def _tracker_fixture_bridge():
+async def _tracker_fixture_bridge(*, retain=None):
     from tests.test_asset_storage_cleanup_runtime import _docker
+
+    if retain is not None and not callable(retain):
+        raise TypeError("Tracker bridge retention requires a callable")
 
     if os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER"):
         scripts = str(Path(__file__).resolve().parents[3] / "scripts")
@@ -187,20 +190,21 @@ async def _tracker_fixture_bridge():
         bridge.verified_gateway()
         yield bridge
     finally:
-        records = json.loads(_docker("network", "inspect", network_id))
-        if len(records) != 1:
-            raise RuntimeError("Tracker bridge cleanup identity is not unique")
-        network = records[0]
-        labels = network.get("Labels") or {}
-        if not (
-            network.get("Id") == network_id
-            and network.get("Name") == name
-            and labels.get("org.aap.acceptance") == "tracker-fixture"
-            and labels.get("org.aap.acceptance-id") == identity
-            and not network.get("Containers")
-        ):
-            raise RuntimeError("Tracker bridge cleanup ownership changed")
-        _docker("network", "rm", network_id)
+        if retain is None or not retain():
+            records = json.loads(_docker("network", "inspect", network_id))
+            if len(records) != 1:
+                raise RuntimeError("Tracker bridge cleanup identity is not unique")
+            network = records[0]
+            labels = network.get("Labels") or {}
+            if not (
+                network.get("Id") == network_id
+                and network.get("Name") == name
+                and labels.get("org.aap.acceptance") == "tracker-fixture"
+                and labels.get("org.aap.acceptance-id") == identity
+                and not network.get("Containers")
+            ):
+                raise RuntimeError("Tracker bridge cleanup ownership changed")
+            _docker("network", "rm", network_id)
 
 
 class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
@@ -801,8 +805,10 @@ async def _assert_terminal_execution(
             (
                 await db.execute(
                     text(
-                        f"SELECT writer_terminal,writer_terminal_outcome,execution_retired "
-                        f"FROM {_JOBS_SCHEMA}.video_execution_journals WHERE job_id=:job"
+                        "SELECT j.writer_terminal,j.writer_terminal_outcome,j.execution_retired "
+                        f"FROM {_JOBS_SCHEMA}.video_execution_journals AS j "
+                        f"JOIN {_JOBS_SCHEMA}.video_executions AS e "
+                        "ON e.job_id=j.job_id AND e.run_id=j.run_id WHERE j.job_id=:job"
                     ),
                     {"job": job_id},
                 )
