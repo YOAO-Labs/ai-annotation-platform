@@ -1,6 +1,7 @@
 """Native image polling readiness and stop-admission boundaries."""
 
 import asyncio
+import signal
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -222,4 +223,38 @@ async def test_unsupervised_stop_preserves_ambiguous_claim_failure(monkeypatch):
         await worker._run_worker(
             once=False, job_id=None, shutdown_event=stopped,
         )
+    assert closed == ["input", "image", "database"]
+
+
+@pytest.mark.asyncio
+async def test_selected_one_shot_signal_cancels_and_waits_for_physical_drain(monkeypatch):
+    entered, cancelled, release = (asyncio.Event() for _ in range(3))
+    handlers = {}
+    loop = asyncio.get_running_loop()
+    monkeypatch.setattr(loop, "add_signal_handler", lambda sig, handler: handlers.update({sig: handler}))
+    monkeypatch.setattr(loop, "remove_signal_handler", lambda sig: handlers.pop(sig, None))
+
+    async def poll_input(_executor):
+        raise AssertionError("selected image job must not poll input")
+
+    async def poll_image():
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            await release.wait()
+            raise
+
+    closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
+    task = asyncio.create_task(worker._with_signals(
+        worker._run_worker(once=True, job_id=uuid4())
+    ))
+    await asyncio.wait_for(entered.wait(), 1)
+    handlers[signal.SIGINT]()
+    await asyncio.wait_for(cancelled.wait(), 1)
+    assert not task.done()
+    assert not closed
+    release.set()
+    await asyncio.wait_for(task, 1)
     assert closed == ["input", "image", "database"]

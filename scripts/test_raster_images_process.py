@@ -13,6 +13,7 @@ import unittest
 from unittest.mock import patch
 
 from linux_pidfd import open_pidfd
+import raster_images_process as image_process
 from raster_images_process import RasterImagesProcess, _UNSETTLED, image_environment
 import run_raster_fault_e2e as raster_runner
 from storage_s3_contract import ContractError
@@ -79,75 +80,101 @@ class RasterImagesEnvironmentTests(unittest.TestCase):
 
 
 class RasterImagesDestroyTests(unittest.TestCase):
-    def test_guarded_destroy_failure_retains_original_role(self):
-        with tempfile.TemporaryDirectory() as directory:
-            role = Path(directory) / "original-role"
-            role.write_text("oid")
-            events = []
+    def assert_retained_for(self, present, *, missing=None):
+        events = []
 
-            class Backend:
-                @contextmanager
-                def fixture_authority_fence(self):
-                    events.append("locked")
-                    try:
-                        yield
-                    finally:
-                        events.append("unlocked")
+        class Connection:
+            async def __aenter__(self):
+                return self
 
-                def _destroy_owned(self, confirmation):
-                    assert confirmation == "owned"
-                    assert role.read_text() == "oid"
-                    raise RuntimeError("fixture store refused destruction")
+            async def __aexit__(self, *_args):
+                return False
 
-            owner = SimpleNamespace(
-                data={"raster": {"images": {}}},
-                save=lambda: events.append("journal"),
-            )
+            def begin(self):
+                return self
 
-            async def drop_role(*_args):
-                role.unlink()
+            async def exec_driver_sql(self, _statement):
+                return None
 
-            with patch.object(raster_runner, "image_role", drop_role):
-                with self.assertRaisesRegex(RuntimeError, "refused destruction"):
-                    raster_runner.destroy_with_images_role(Backend(), owner, "owned")
-            self.assertEqual(role.read_text(), "oid")
-            self.assertEqual(events, ["locked", "journal", "unlocked"])
-            self.assertEqual(owner.data["raster"]["images"]["state"], "guarded_destroy_intent")
+            async def scalar(self, statement, parameters=None):
+                sql = str(statement)
+                if "shobj_description" in sql:
+                    return "fixture-owner"
+                if "pg_stat_activity" in sql:
+                    return False
+                if "to_regclass" in sql:
+                    return None if parameters["name"] == missing else parameters["name"]
+                if "SELECT EXISTS" in sql:
+                    name = sql.split(" FROM ", 1)[1].split(")", 1)[0]
+                    name = name.split(" WHERE ", 1)[0]
+                    return name in present
+                raise AssertionError(sql)
 
-    def test_original_role_is_removed_only_after_destroy_under_fence(self):
-        with tempfile.TemporaryDirectory() as directory:
-            role = Path(directory) / "original-role"
-            role.write_text("oid")
-            events = []
+        class Engine:
+            def connect(self):
+                return Connection()
 
-            class Backend:
-                @contextmanager
-                def fixture_authority_fence(self):
-                    events.append("locked")
-                    try:
-                        yield
-                    finally:
-                        events.append("unlocked")
+            async def dispose(self):
+                return None
 
-                def _destroy_owned(self, confirmation):
-                    assert role.read_text() == "oid"
-                    assert confirmation == "owned"
-                    events.append("destroyed")
+        class Backend:
+            resources = {"mode": "e2e", "owner": "fixture-owner"}
+            url = "postgresql+asyncpg://private"
 
-            owner = SimpleNamespace(
-                data={"raster": {"images": {}}},
-                save=lambda: None,
-            )
+            async def database(self):
+                return {"owner": "fixture-owner"}
 
-            async def drop_role(*_args):
-                assert events == ["locked", "destroyed"]
-                role.unlink()
-                events.append("role-removed")
+            @contextmanager
+            def fixture_authority_fence(self):
+                events.append("locked")
+                try:
+                    yield
+                finally:
+                    events.append("unlocked")
 
-            with patch.object(raster_runner, "image_role", drop_role):
+            def _destroy_owned(self, _confirmation):
+                events.append("destroyed")
+
+        owner = SimpleNamespace(
+            data={"raster": {"images": {"state": "stopped"}}},
+            save=lambda: events.append("journal"),
+        )
+
+        async def drop_role(*_args):
+            events.append("role-removed")
+
+        with (
+            patch.object(image_process, "create_async_engine", return_value=Engine()),
+            patch.object(raster_runner, "image_role", drop_role),
+        ):
+            with self.assertRaises(ContractError) as caught:
                 raster_runner.destroy_with_images_role(Backend(), owner, "owned")
-            self.assertFalse(role.exists())
-            self.assertEqual(events, ["locked", "destroyed", "role-removed", "unlocked"])
+        self.assertEqual(events, ["locked", "journal", "unlocked"])
+        self.assertEqual(owner.data["raster"]["images"]["state"], "stopped")
+        self.assertEqual(owner.data["raster"]["images"]["artifact_retirement"]["state"], "unproven")
+        return caught.exception
+
+    def test_native_output_and_garbage_never_authorize_destroy(self):
+        for table in (
+            "public.image_pyramid_generations",
+            "public.asset_image_garbage",
+            "public.asset_storage_deletions",
+            "public.asset_accepted_image_inputs",
+            "public.asset_accepted_image_input_attempts",
+            "public.asset_accepted_input_garbage",
+        ):
+            with self.subTest(table=table):
+                error = self.assert_retained_for({table})
+                self.assertEqual(str(error), "raster_images_artifact_retirement_unproven")
+                self.assertIn(table, error.image_retirement_obligations)
+
+    def test_empty_ledger_is_not_a_native_physical_retirement_receipt(self):
+        error = self.assert_retained_for(set())
+        self.assertEqual(str(error), "raster_images_retirement_capability_missing")
+
+    def test_missing_owner_ledger_cannot_authorize_destroy(self):
+        error = self.assert_retained_for(set(), missing="public.asset_image_garbage")
+        self.assertEqual(str(error), "raster_images_retirement_schema_missing")
 
 
 @unittest.skipUnless(

@@ -48,6 +48,7 @@ from raster_images_process import (  # noqa: E402
     image_environment,
     image_role,
     make_credentials,
+    require_native_image_retirement,
 )
 from storage_s3_contract import ContractError, require  # noqa: E402
 from verify_storage_candidates import Owner, command, host_port, private_write  # noqa: E402
@@ -1488,6 +1489,8 @@ def failure_evidence(error):
         value["web_outcome"] = error.web_outcome
     if hasattr(error, "images_outcome"):
         value["images_outcome"] = error.images_outcome
+    if hasattr(error, "image_retirement_obligations"):
+        value["image_retirement_obligations"] = error.image_retirement_obligations
     if isinstance(error, OSError) and error.errno is not None:
         value["errno"] = error.errno
     if error.__cause__ is not None:
@@ -1498,6 +1501,19 @@ def failure_evidence(error):
 def destroy_with_images_role(backend, owner, confirmation):
     """Keep the original LOGIN through every guarded-destruction refusal."""
     with backend.fixture_authority_fence():
+        try:
+            asyncio.run(require_native_image_retirement(backend))
+        except BaseException as error:
+            owner.data["raster"]["images"]["artifact_retirement"] = {
+                "state": "unproven",
+                "reason": (
+                    str(error) if isinstance(error, ContractError)
+                    else type(error).__name__
+                ),
+                "obligations": getattr(error, "image_retirement_obligations", None),
+            }
+            owner.save()
+            raise
         owner.data["raster"]["images"]["state"] = "guarded_destroy_intent"
         owner.save()
         backend._destroy_owned(confirmation)

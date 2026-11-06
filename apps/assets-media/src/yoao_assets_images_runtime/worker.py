@@ -1570,27 +1570,12 @@ async def _run_worker(
             ready = False
             unsettled = False
             if once:
-                if stopped.is_set():
-                    return
-                image_work = None
                 if job_id is not None:
-                    image_work = await executor.execute_once(job_id=job_id)
+                    await executor.execute_once(job_id=job_id)
                 else:
                     result = await inputs.execute_once(input_id=input_id)
-                    if stopped.is_set():
-                        if inputs.unsettled_claim or (
-                            result is not None and result.status not in {"ready", "failed"}
-                        ):
-                            raise RuntimeError("Assets image input claim is unsettled")
-                        return
                     if result is None and input_id is None:
-                        image_work = await executor.execute_once()
-                if stopped.is_set() and job_id is None and inputs.unsettled_claim:
-                    raise RuntimeError("Assets image input claim is unsettled")
-                if stopped.is_set() and image_work is not None and image_work.outcome not in {
-                    "published", "replayed", "failed"
-                }:
-                    raise RuntimeError("Assets image claim is unsettled")
+                        await executor.execute_once()
                 return
             next_reconcile = 0.0
             while not stopped.is_set():
@@ -1686,6 +1671,26 @@ async def _connect_worker_database(config: ImageWorkerConfig) -> AsyncpgImageDat
         raise RuntimeError("Assets image worker database connection failed") from None
 
 
+async def _with_signals(coroutine) -> None:
+    """Preserve cancellable one-shot and ordinary worker invocation semantics."""
+    loop = asyncio.get_running_loop()
+    task = asyncio.create_task(coroutine)
+    installed = []
+    for caught_signal in (signal.SIGTERM, signal.SIGINT):
+        try:
+            loop.add_signal_handler(caught_signal, task.cancel)
+            installed.append(caught_signal)
+        except (NotImplementedError, RuntimeError):
+            pass
+    try:
+        await task
+    except asyncio.CancelledError:
+        return
+    finally:
+        for caught_signal in installed:
+            loop.remove_signal_handler(caught_signal)
+
+
 async def _run_worker_cli(*, once, job_id, input_id, ready_fd, stopped_fd):
     """Stop admitting work on signal; drain the exact current unit."""
     loop = asyncio.get_running_loop()
@@ -1739,6 +1744,12 @@ def main() -> None:
     try:
         if args.healthcheck:
             asyncio.run(_healthcheck())
+        elif args.ready_fd is None:
+            asyncio.run(
+                _with_signals(
+                    _run_worker(once=args.once, job_id=args.job_id, input_id=args.input_id)
+                )
+            )
         else:
             asyncio.run(_run_worker_cli(
                 once=args.once, job_id=args.job_id, input_id=args.input_id,
