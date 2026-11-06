@@ -565,7 +565,7 @@ class IdentityModuleStack:
         self._api_origin = ""
         self._identity_origin = ""
         self._minio = self._bootstrap_minio()
-        self._minio_attached = False
+        self._minio_attachment: tuple[str, str] | None = None
         self._verify_image(self._identity_image, self._identity)
         self._verify_image(self._api_image, self._api_identity)
         if getattr(self, "_notification_publication_enabled", False):
@@ -716,9 +716,9 @@ class IdentityModuleStack:
         from tests.test_asset_storage_cleanup_runtime import _verified_resource_manifest
 
         resources = _verified_resource_manifest(self.test_engine, self.test_engine.url)
-        manifest_path = Path(self._required_environment("TMPDIR")).resolve().parents[2] / (
-            ".worktree/test/resources.json"
-        )
+        manifest_path = Path(self._required_environment("TMPDIR")).resolve().parents[
+            2
+        ] / (".worktree/test/resources.json")
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         minio = manifest.get("minio") or {}
         if (
@@ -748,7 +748,8 @@ class IdentityModuleStack:
             and details.get("State", {}).get("Running") is True
             and (details.get("Config", {}).get("Labels") or {}).get(
                 "com.docker.compose.service"
-            ) == "minio"
+            )
+            == "minio"
             and len(bindings) == 1
             and bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
             and bindings[0].get("HostPort") == str(endpoint.port)
@@ -816,7 +817,6 @@ class IdentityModuleStack:
             ],
             operation="bootstrap storage attachment",
         )
-        self._minio_attached = True
         details = self._inspect(self._minio["id"])
         _verify_minio_identity(details, self._minio)
         endpoint = details["NetworkSettings"]["Networks"].get(network_name) or {}
@@ -826,6 +826,7 @@ class IdentityModuleStack:
             or _BOOTSTRAP_MINIO_ALIAS not in (endpoint.get("Aliases") or [])
         ):
             raise RuntimeError("Bootstrap MinIO attachment was not verified")
+        self._minio_attachment = (network_id, endpoint["EndpointID"])
 
     def _disconnect_dependencies(self):
         network = self._dependency_network()
@@ -839,7 +840,7 @@ class IdentityModuleStack:
         endpoint = details["NetworkSettings"]["Networks"].get(network_name)
         if endpoint:
             if (
-                not self._minio_attached
+                self._minio_attachment != (network_id, endpoint.get("EndpointID"))
                 or endpoint.get("NetworkID") != network_id
                 or not endpoint.get("EndpointID")
                 or _BOOTSTRAP_MINIO_ALIAS not in (endpoint.get("Aliases") or [])
@@ -853,7 +854,7 @@ class IdentityModuleStack:
             _verify_minio_identity(detached, self._minio)
             if network_name in detached["NetworkSettings"]["Networks"]:
                 raise RuntimeError("Bootstrap MinIO remained attached")
-            self._minio_attached = False
+            self._minio_attachment = None
         _verify_postgres(self.test_engine.url)
         _verify_redis()
         for container in (self._postgres_container, self._redis_name):
@@ -1980,6 +1981,8 @@ class IdentityModuleStack:
             raise ValueError("Verifier supplied an invalid public object storage URL")
         port = parsed.port
         endpoint = (
-            f"host.docker.internal:{port}" if port is not None else "host.docker.internal"
+            f"host.docker.internal:{port}"
+            if port is not None
+            else "host.docker.internal"
         )
         return f"{parsed.scheme}://{endpoint}{parsed.path}"
