@@ -63,7 +63,7 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
     import gc
 
     from app.services.image_pyramid import ImagePyramidError, validate_dimensions
-    from app.services.storage_access import mark_unsettled
+    from app.services.storage_access import failure_unsettled, mark_unsettled
 
     try:
         import pyvips
@@ -87,11 +87,11 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
         dimensions = width, height
     except ImagePyramidError as exc:
         failure = ImagePyramidError(exc.code)
-        if getattr(exc, "storage_operation_unsettled", False):
+        if failure_unsettled(exc):
             mark_unsettled(failure)
     except Exception as exc:
         failure = ImagePyramidError("decode_failed")
-        if getattr(exc, "storage_operation_unsettled", False):
+        if failure_unsettled(exc):
             mark_unsettled(failure)
     except BaseException as exc:
         failure = mark_unsettled(exc)
@@ -103,7 +103,14 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
             pyvips.cache_set_max_files(0)
             gc.collect()
         except BaseException:
-            failure = mark_unsettled(ImagePyramidError("decode_failed"))
+            cleanup = mark_unsettled(ImagePyramidError("decode_failed"))
+            failure = (
+                cleanup
+                if failure is None
+                else BaseExceptionGroup(
+                    "Image probe and native cleanup failed", [failure, cleanup]
+                )
+            )
     if failure is not None:
         # An exception raised inside a libvips method may retain its image in
         # traceback frames. Export only the stable error after those frames end.
