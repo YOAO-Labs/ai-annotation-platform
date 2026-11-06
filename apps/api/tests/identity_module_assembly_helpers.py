@@ -118,6 +118,7 @@ _JOBS_QUEUE_IMAGE_ACCEPTANCE = "jobs-queue-runtime"
 _JOBS_QUEUE_IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _JOBS_QUEUE_ACCEPTANCE_ID = re.compile(r"[0-9a-f]{24}\Z")
 _JOBS_QUEUE_SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_BOOTSTRAP_MINIO_ALIAS = "labeling-cold-minio"
 _IDENTITY_OPTIONAL_SECRETS = {
     "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "identity_admission_token",
     "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "identity_actor_status_database_url",
@@ -563,6 +564,8 @@ class IdentityModuleStack:
         )
         self._api_origin = ""
         self._identity_origin = ""
+        self._minio = self._bootstrap_minio()
+        self._minio_attached = False
         self._verify_image(self._identity_image, self._identity)
         self._verify_image(self._api_image, self._api_identity)
         if getattr(self, "_notification_publication_enabled", False):
@@ -708,6 +711,57 @@ class IdentityModuleStack:
             self._compose("down", timeout=90)
         self._service_ids = {}
 
+    def _bootstrap_minio(self) -> dict:
+        from app.config import settings
+        from tests.test_asset_storage_cleanup_runtime import _verified_resource_manifest
+
+        resources = _verified_resource_manifest(self.test_engine, self.test_engine.url)
+        manifest_path = Path(self._required_environment("TMPDIR")).resolve().parents[2] / (
+            ".worktree/test/resources.json"
+        )
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        minio = manifest.get("minio") or {}
+        if (
+            manifest.get("resources") != resources
+            or minio.get("endpoint") != settings.minio_endpoint
+            or minio.get("ssl") is not settings.minio_use_ssl
+        ):
+            raise RuntimeError("Bootstrap MinIO differs from the owned manifest")
+        endpoint = urlsplit(f"http://{settings.minio_endpoint}")
+        container_id = self._required_environment("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+        if (
+            endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or endpoint.port is None
+            or re.fullmatch(r"[0-9a-f]{64}", container_id) is None
+        ):
+            raise RuntimeError("Bootstrap MinIO selector is invalid")
+        details = self._inspect(container_id)
+        image_id = details.get("Image")
+        bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get(
+            "9000/tcp"
+        ) or []
+        if not (
+            details.get("Id") == container_id
+            and details.get("Name")
+            and isinstance(image_id, str)
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+            and details.get("State", {}).get("Running") is True
+            and (details.get("Config", {}).get("Labels") or {}).get(
+                "com.docker.compose.service"
+            ) == "minio"
+            and len(bindings) == 1
+            and bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
+            and bindings[0].get("HostPort") == str(endpoint.port)
+        ):
+            raise RuntimeError("Bootstrap MinIO identity or loopback binding differs")
+        return {
+            "id": container_id,
+            "name": details["Name"],
+            "image_id": image_id,
+            "host_port": endpoint.port,
+            "service_port": 9000,
+        }
+
     def _dependency_network(self):
         name = self.project_name + "_default"
         ids = self._docker(
@@ -729,7 +783,7 @@ class IdentityModuleStack:
             != self.project_name
         ):
             raise RuntimeError("Network is not owned by this Compose project")
-        return name
+        return record
 
     def _connect_dependencies(self):
         _verify_postgres(self.test_engine.url)
@@ -737,25 +791,76 @@ class IdentityModuleStack:
         network = self._dependency_network()
         if network is None:
             raise RuntimeError("Compose did not create its owned network")
+        network_name, network_id = network["Name"], network["Id"]
         for container in (self._postgres_container, self._redis_name):
             details = self._inspect(container)
-            if network not in details["NetworkSettings"]["Networks"]:
+            if network_name not in details["NetworkSettings"]["Networks"]:
                 self._docker(
-                    ["network", "connect", network, container],
+                    ["network", "connect", network_id, container],
                     operation="owned dependency attachment",
                 )
+        from tests.test_labeling_module_api_cold import _verify_minio_identity
+
+        details = self._inspect(self._minio["id"])
+        _verify_minio_identity(details, self._minio)
+        if network_name in details["NetworkSettings"]["Networks"]:
+            raise RuntimeError("Bootstrap MinIO already has an unowned attachment")
+        self._docker(
+            [
+                "network",
+                "connect",
+                "--alias",
+                _BOOTSTRAP_MINIO_ALIAS,
+                network_id,
+                self._minio["id"],
+            ],
+            operation="bootstrap storage attachment",
+        )
+        self._minio_attached = True
+        details = self._inspect(self._minio["id"])
+        _verify_minio_identity(details, self._minio)
+        endpoint = details["NetworkSettings"]["Networks"].get(network_name) or {}
+        if (
+            endpoint.get("NetworkID") != network_id
+            or not endpoint.get("EndpointID")
+            or _BOOTSTRAP_MINIO_ALIAS not in (endpoint.get("Aliases") or [])
+        ):
+            raise RuntimeError("Bootstrap MinIO attachment was not verified")
 
     def _disconnect_dependencies(self):
         network = self._dependency_network()
         if network is None:
             return
+        network_name, network_id = network["Name"], network["Id"]
+        from tests.test_labeling_module_api_cold import _verify_minio_identity
+
+        details = self._inspect(self._minio["id"])
+        _verify_minio_identity(details, self._minio)
+        endpoint = details["NetworkSettings"]["Networks"].get(network_name)
+        if endpoint:
+            if (
+                not self._minio_attached
+                or endpoint.get("NetworkID") != network_id
+                or not endpoint.get("EndpointID")
+                or _BOOTSTRAP_MINIO_ALIAS not in (endpoint.get("Aliases") or [])
+            ):
+                raise RuntimeError("Refusing to detach an uncertain MinIO attachment")
+            self._docker(
+                ["network", "disconnect", network_id, self._minio["id"]],
+                operation="bootstrap storage detachment",
+            )
+            detached = self._inspect(self._minio["id"])
+            _verify_minio_identity(detached, self._minio)
+            if network_name in detached["NetworkSettings"]["Networks"]:
+                raise RuntimeError("Bootstrap MinIO remained attached")
+            self._minio_attached = False
         _verify_postgres(self.test_engine.url)
         _verify_redis()
         for container in (self._postgres_container, self._redis_name):
             details = self._inspect(container)
-            if network in details["NetworkSettings"]["Networks"]:
+            if network_name in details["NetworkSettings"]["Networks"]:
                 self._docker(
-                    ["network", "disconnect", network, container],
+                    ["network", "disconnect", network_id, container],
                     operation="owned dependency detachment",
                 )
 
@@ -1035,6 +1140,10 @@ class IdentityModuleStack:
             self._docker_http_url(public_url)
             if public_url.startswith("http")
             else public_url
+            or (
+                f"{'https' if values['MINIO_USE_SSL'].lower() == 'true' else 'http'}://"
+                f"{self._required_environment('MINIO_ENDPOINT')}"
+            )
         )
         for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES:
             values[name] = ""
@@ -1856,12 +1965,8 @@ class IdentityModuleStack:
         parsed = urlsplit(value if "://" in value else "http://" + value)
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Verifier supplied an invalid object storage endpoint")
-        port = parsed.port
-        return (
-            f"host.docker.internal:{port}"
-            if port is not None
-            else "host.docker.internal"
-        )
+        _ = parsed.port
+        return f"{_BOOTSTRAP_MINIO_ALIAS}:9000"
 
     @classmethod
     def _docker_http_url(cls, value: str) -> str:
@@ -1873,5 +1978,8 @@ class IdentityModuleStack:
             or parsed.password
         ):
             raise ValueError("Verifier supplied an invalid public object storage URL")
-        endpoint = cls._docker_endpoint(f"{parsed.scheme}://{parsed.netloc}")
+        port = parsed.port
+        endpoint = (
+            f"host.docker.internal:{port}" if port is not None else "host.docker.internal"
+        )
         return f"{parsed.scheme}://{endpoint}{parsed.path}"

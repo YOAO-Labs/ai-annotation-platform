@@ -10180,6 +10180,9 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_audit_consumers_cold.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
+            # The exported immutable selector must identify this bootstrap owner too.
+            if api_bootstrap_storage["container"] != cleanup_storage["container"]:
+                raise RuntimeError("API bootstrap and verifier MinIO identities differ")
             api_bootstrap_storage["buckets"] = resources["buckets"]
             api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(
                 8
