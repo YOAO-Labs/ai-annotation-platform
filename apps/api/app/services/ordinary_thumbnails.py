@@ -1,5 +1,6 @@
 """Ordinary image previews use canonical originals and independent output owners."""
 
+import sys
 from pathlib import Path
 
 from sqlalchemy import select
@@ -9,7 +10,7 @@ from app.db.models.dataset import DatasetItem
 from app.db.models.task import Task
 from app.db.models.thumbnail_output import ThumbnailOutput
 from app.services import image_pyramid_originals as originals
-from app.services import original_sources, thumbnail_outputs
+from app.services import original_sources, storage_access, thumbnail_outputs
 from app.services.content_snapshot import ContentError
 from app.services.dataset_lifecycle import require_writable
 from app.services.directory_policy import owns_media
@@ -189,6 +190,16 @@ async def generate(
         row.blurhash = blurhash
         await db.commit()
     except Exception as exc:
+        if storage_access.failure_unsettled(exc):
+            raise
         await _error(db, kind, identifier, source, revision, exc)
     finally:
-        await db.rollback()
+        failure = sys.exception()
+        try:
+            await db.rollback()
+        except BaseException as rollback_error:
+            if failure is not None:
+                raise BaseExceptionGroup(
+                    "Thumbnail generation and rollback failed", [failure, rollback_error]
+                ) from None
+            raise

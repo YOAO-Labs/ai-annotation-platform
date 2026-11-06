@@ -404,7 +404,7 @@ async def physical(call, *args, timeout=None, **kwargs):
         try:
             await storage_access.finish(pending)
         except BaseException as late:
-            if getattr(late, "storage_operation_unsettled", False):
+            if storage_access.failure_unsettled(late):
                 storage_access.mark_unsettled(interrupted)
         raise
 
@@ -464,13 +464,13 @@ async def _capture(plan, admission, **read_options):
         try:
             late_stage = await storage_access.finish(pending)
         except BaseException as late:
-            if getattr(late, "storage_operation_unsettled", False):
+            if storage_access.failure_unsettled(late):
                 storage_access.mark_unsettled(interrupted)
         else:
             try:
                 await physical(late_stage.close)
             except BaseException as closing:
-                if getattr(closing, "storage_operation_unsettled", False):
+                if storage_access.failure_unsettled(closing):
                     storage_access.mark_unsettled(interrupted)
         raise
 
@@ -500,14 +500,19 @@ async def media(db, authority, source, *, guard=None):
             failure = exc
             raise
         finally:
-            if getattr(failure, "storage_operation_unsettled", False):
+            if storage_access.failure_unsettled(failure):
                 admission.retained = True
             if stage is not None:
                 try:
                     await physical(stage.close)
                 except BaseException as closing:
-                    if getattr(failure, "storage_operation_unsettled", False):
+                    if storage_access.failure_unsettled(failure):
                         storage_access.mark_unsettled(closing)
+                    if failure is not None:
+                        raise BaseExceptionGroup(
+                            "Image source work and stage close failed",
+                            [failure, closing],
+                        ) from None
                     raise
             if failure is None:
                 await _fresh(db, authority, source, guard)

@@ -412,6 +412,33 @@ async def test_missing_dataset_dimensions_commit_then_repin_actual_facts(world):
     probe.assert_awaited_once()
 
 
+async def test_unsettled_output_failure_propagates_without_linking(world, monkeypatch):
+    from app.services import storage_access
+
+    failure = storage_access.mark_unsettled(OSError("output close unconfirmed"))
+
+    def uncertain_write(*_args, **_kwargs):
+        raise ExceptionGroup("output", [failure])
+
+    monkeypatch.setattr(thumbnail_outputs, "_write", uncertain_write)
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        await run(world)
+
+    assert storage_access.failure_unsettled(rejected.value)
+    row, output = await result(world)
+    assert row.thumbnail_output_id is None
+    assert output is None
+    async with world.factory() as db:
+        retained = await db.scalar(select(ThumbnailOutput))
+        assert retained.state == "failed" and retained.uncertain_write is True
+        assert await db.scalar(
+            select(StorageOperation.id).where(
+                StorageOperation.purpose == thumbnail_outputs.purpose(retained.id)
+            )
+        )
+
+
 async def test_regeneration_retires_saved_previous_owner_without_deleting_bytes(world):
     await run(world)
     row, first = await result(world)

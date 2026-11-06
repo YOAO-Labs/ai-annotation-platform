@@ -7,6 +7,7 @@ import logging
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import uuid
 
@@ -369,6 +370,8 @@ async def claim_with_retry(factory, identifier):
 
 
 def transient(exc):
+    if storage_access.failure_unsettled(exc):
+        return False
     return (isinstance(exc, DBAPIError) and storage_access.unavailable(exc)) or (
         isinstance(exc, ContentError)
         and exc.code
@@ -404,6 +407,8 @@ async def run_outputs(identifiers, *, propagate_failure=False):
             try:
                 claimed = await claim_with_retry(factory, identifier)
             except Exception as exc:
+                if storage_access.failure_unsettled(exc):
+                    raise
                 log.warning(
                     "video derivative claim refused: code=%s exception=%s",
                     error_code(exc),
@@ -481,9 +486,7 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                         timeout=originals.JOB_SECONDS,
                                     )
                             except BaseException as exc:
-                                settled = not getattr(
-                                    exc, "storage_operation_unsettled", False
-                                )
+                                settled = not storage_access.failure_unsettled(exc)
                                 raise
                             finally:
                                 await recorder.finish(settled=settled)
@@ -503,6 +506,8 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                         )
                         await final.commit()
             except BaseException as exc:
+                if storage_access.failure_unsettled(exc):
+                    raise
                 code = error_code(exc)
                 try:
                     for claimed in claims:
@@ -530,11 +535,15 @@ async def run_outputs(identifiers, *, propagate_failure=False):
         try:
             await originals.drain(asyncio.create_task(engine.dispose()))
         except BaseException as disposal_failure:
-            if propagate_failure and failure is not None:
-                raise BaseExceptionGroup(
+            storage_access.mark_unsettled(disposal_failure)
+            if failure is not None:
+                combined = BaseExceptionGroup(
                     "Video derivative and engine disposal failed",
                     [failure, disposal_failure],
-                ) from None
+                )
+                if storage_access.failure_unsettled(combined):
+                    storage_access.mark_unsettled(combined)
+                raise combined from None
             raise
 
 
@@ -601,4 +610,14 @@ async def run_legacy(
             await db.commit()
         await run_outputs(queued)
     finally:
-        await originals.drain(asyncio.create_task(engine.dispose()))
+        failure = sys.exception()
+        try:
+            await originals.drain(asyncio.create_task(engine.dispose()))
+        except BaseException as disposal_failure:
+            storage_access.mark_unsettled(disposal_failure)
+            if failure is not None:
+                raise BaseExceptionGroup(
+                    "Video derivative and engine disposal failed",
+                    [failure, disposal_failure],
+                ) from None
+            raise

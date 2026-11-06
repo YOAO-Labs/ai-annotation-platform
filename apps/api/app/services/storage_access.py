@@ -185,18 +185,18 @@ class Permit:
         self._settled = True
 
     async def __aexit__(self, exc_type, exc, traceback):
-        if getattr(exc, "storage_operation_unsettled", False):
+        if failure_unsettled(exc):
             return False
         if not self._settled:
             task = asyncio.create_task(self._settle())
-            cancelled = False
+            cancelled = None
             try:
                 try:
                     await asyncio.shield(task)
-                except asyncio.CancelledError:
-                    cancelled = True
+                except asyncio.CancelledError as interrupted:
+                    cancelled = interrupted
                     await finish(task)
-            except Exception:
+            except BaseException:
                 # An unresolved record must remain visible; do not print paths,
                 # exception payloads, connection strings, or driver credentials.
                 logger.error(
@@ -204,10 +204,20 @@ class Permit:
                     self.location_id,
                     self.id,
                 )
-                if exc_type is None:
-                    raise error("storage_operation_unsettled", 503) from None
-            if cancelled and exc_type is None:
-                raise asyncio.CancelledError()
+                unsettled = mark_unsettled(error("storage_operation_unsettled", 503))
+                if exc is not None:
+                    raise BaseExceptionGroup(
+                        "Storage operation and permit settlement failed",
+                        [exc, unsettled],
+                    ) from None
+                raise unsettled from None
+            if cancelled is not None:
+                if exc is not None:
+                    raise BaseExceptionGroup(
+                        "Storage operation and permit settlement were interrupted",
+                        [exc, cancelled],
+                    ) from None
+                raise cancelled
         return False
 
 
@@ -279,6 +289,6 @@ async def run(
             try:
                 await finish(future)
             except BaseException as late:
-                if getattr(late, "storage_operation_unsettled", False):
+                if failure_unsettled(late):
                     mark_unsettled(interrupted)
             raise

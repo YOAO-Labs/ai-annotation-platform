@@ -208,12 +208,14 @@ def transcode_video_for_browser(
 
 async def _generate_thumbnail(item_id: str) -> None:
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.services import storage_access
     from app.services.ordinary_thumbnails import generate
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with SessionLocal() as db:
+        db = SessionLocal()
+        try:
             await generate(
                 db,
                 "dataset_item",
@@ -222,8 +224,30 @@ async def _generate_thumbnail(item_id: str) -> None:
                 dimensions_probe=_pyramid_dimensions,
                 max_source_bytes=THUMBNAIL_MAX_SOURCE_BYTES,
             )
+        finally:
+            failure = sys.exception()
+            try:
+                await db.close()
+            except BaseException as close_error:
+                storage_access.mark_unsettled(close_error)
+                if failure is not None:
+                    raise builtins.BaseExceptionGroup(
+                        "Thumbnail generation and session close failed",
+                        [failure, close_error],
+                    ) from None
+                raise
     finally:
-        await engine.dispose()
+        failure = sys.exception()
+        try:
+            await engine.dispose()
+        except BaseException as disposal_error:
+            storage_access.mark_unsettled(disposal_error)
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Thumbnail generation and database shutdown failed",
+                    [failure, disposal_error],
+                ) from None
+            raise
 
 
 async def _generate_video_metadata(item_id: str, *, delegation=None) -> None:
@@ -252,56 +276,67 @@ async def _backfill_media(
         async_sessionmaker,
         AsyncSession,
     )
-    from app.services import media_item_reads
+    from app.services import media_item_reads, storage_access
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
 
-    async with SessionLocal() as db:
-        candidates = await media_item_reads.read_dataset_items(
-            db, uuid.UUID(dataset_id)
-        )
-        links = await media_item_reads.read_video_derivative_links(
-            db, [row.id for row in candidates]
-        )
-        items = []
-        for row in candidates:
-            if accepted_before is not None and row.created_at > accepted_before:
-                continue
-            if row.file_path.startswith("__aap_reference__/"):
-                continue
-            if purpose == "dimensions":
-                if row.file_type == "image" and (
-                    row.width is None or row.height is None
-                ):
+    try:
+        async with SessionLocal() as db:
+            candidates = await media_item_reads.read_dataset_items(
+                db, uuid.UUID(dataset_id)
+            )
+            links = await media_item_reads.read_video_derivative_links(
+                db, [row.id for row in candidates]
+            )
+            items = []
+            for row in candidates:
+                if accepted_before is not None and row.created_at > accepted_before:
+                    continue
+                if row.file_path.startswith("__aap_reference__/"):
+                    continue
+                if purpose == "dimensions":
+                    if row.file_type == "image" and (
+                        row.width is None or row.height is None
+                    ):
+                        items.append((str(row.id), row.file_type))
+                    continue
+                if row.file_type == "image" and row.thumbnail_path is None:
                     items.append((str(row.id), row.file_type))
-                continue
-            if row.file_type == "image" and row.thumbnail_path is None:
-                items.append((str(row.id), row.file_type))
-            elif row.file_type == "video":
-                video = (
-                    row.metadata.get("video")
-                    if isinstance(row.metadata, dict)
-                    else None
-                )
-                missing_metadata = (
-                    not isinstance(video, dict) or video.get("frame_count") is None
-                )
-                # poster(缩略图)缺失也需回填:seed 同步填了 video metadata
-                # (frame_count 非空)但从未生成 poster,thumbnail_path 仍为 NULL,
-                # 仅按 frame_count 判定会漏掉这类视频。_generate_video_metadata
-                # 幂等(重建 timetable + poster),重复回填安全。
-                if (
-                    missing_metadata
-                    or row.thumbnail_path is None
-                    or links.get(row.id) is None
-                    or links[row.id].video_output_id is None
-                ):
-                    items.append((str(row.id), row.file_type))
-
-    await engine.dispose()
+                elif row.file_type == "video":
+                    video = (
+                        row.metadata.get("video")
+                        if isinstance(row.metadata, dict)
+                        else None
+                    )
+                    missing_metadata = (
+                        not isinstance(video, dict) or video.get("frame_count") is None
+                    )
+                    # poster(缩略图)缺失也需回填:seed 同步填了 video metadata
+                    # (frame_count 非空)但从未生成 poster,thumbnail_path 仍为 NULL,
+                    # 仅按 frame_count 判定会漏掉这类视频。_generate_video_metadata
+                    # 幂等(重建 timetable + poster),重复回填安全。
+                    if (
+                        missing_metadata
+                        or row.thumbnail_path is None
+                        or links.get(row.id) is None
+                        or links[row.id].video_output_id is None
+                    ):
+                        items.append((str(row.id), row.file_type))
+    finally:
+        failure = sys.exception()
+        try:
+            await engine.dispose()
+        except BaseException as dispose_error:
+            storage_access.mark_unsettled(dispose_error)
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Media backfill selection and database shutdown failed",
+                    [failure, dispose_error],
+                ) from None
+            raise
 
     for item_id, file_type in items:
         if file_type == "image":
@@ -321,6 +356,7 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
     )
 
     from app.services import async_job as async_job_svc
+    from app.services import storage_access
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -367,9 +403,7 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
                 video_delegations=video_delegations,
             )
         except BaseException as exc:
-            if isinstance(exc, asyncio.CancelledError) or getattr(
-                exc, "storage_operation_unsettled", False
-            ):
+            if not isinstance(exc, Exception) or storage_access.failure_unsettled(exc):
                 raise
             try:
                 async with SessionLocal() as db:
@@ -397,12 +431,13 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
         try:
             await engine.dispose()
         except BaseException as dispose_error:
+            storage_access.mark_unsettled(dispose_error)
             if failure is not None:
                 combined = builtins.BaseExceptionGroup(
                     "Media backfill and database shutdown both failed",
                     [failure, dispose_error],
                 )
-                if getattr(failure, "storage_operation_unsettled", False):
+                if storage_access.failure_unsettled(failure):
                     combined.storage_operation_unsettled = True
                 raise combined from None
             raise

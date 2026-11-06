@@ -1,6 +1,7 @@
 """Publication races, precise packet bounds and a real owned video pipeline."""
 
 from copy import deepcopy
+from contextlib import asynccontextmanager
 import hashlib
 import io
 import os
@@ -131,6 +132,59 @@ async def test_authority_refusal_is_never_transient(monkeypatch):
     with pytest.raises(ContentError, match="access_revoked"):
         await worker.claim_with_retry(object(), uuid.uuid4())
     assert claim.await_count == 1
+
+
+async def test_unsettled_claim_is_not_retried(monkeypatch):
+    failure = storage_access.mark_unsettled(ContentError("content_busy"))
+    claim = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(worker, "_claim", claim)
+    with pytest.raises(ContentError) as rejected:
+        await worker.claim_with_retry(object(), uuid.uuid4())
+    assert rejected.value is failure
+    assert claim.await_count == 1
+
+
+@pytest.mark.parametrize("phase", ["claim", "capture"])
+async def test_unsettled_derivative_never_retires_the_claim(monkeypatch, phase):
+    identifier = uuid.uuid4()
+    physical_failure = storage_access.mark_unsettled(OSError("unconfirmed close"))
+    failure = ExceptionGroup("media", [physical_failure])
+    engine = SimpleNamespace(dispose=AsyncMock())
+    monkeypatch.setattr(worker, "create_async_engine", lambda *args, **kwargs: engine)
+
+    @asynccontextmanager
+    async def session():
+        yield object()
+
+    monkeypatch.setattr(worker, "async_sessionmaker", lambda *args, **kwargs: session)
+    claim = SimpleNamespace(
+        output=SimpleNamespace(
+            id=identifier, original_ref={}, auth_ref={}, metadata_output_id=None
+        ),
+        authority=object(),
+        source=object(),
+        token=uuid.uuid4(),
+    )
+
+    async def claim_output(_factory, _identifier):
+        if phase == "claim":
+            raise failure
+        return claim
+
+    @asynccontextmanager
+    async def capture(*_args):
+        raise failure
+        yield
+
+    monkeypatch.setattr(worker, "claim_with_retry", claim_output)
+    monkeypatch.setattr(worker.originals, "media", capture)
+    retire = AsyncMock()
+    monkeypatch.setattr(worker, "fail_with_retry", retire)
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        await worker.run_outputs([str(identifier)])
+    assert storage_access.failure_unsettled(rejected.value)
+    retire.assert_not_awaited()
 
 
 async def test_newer_metadata_attempt_prevents_old_publication(world, db_session):
