@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-import copy
 import asyncio
+import copy
+import hashlib
+import re
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from urllib.parse import urlsplit
 
-from sqlalchemy import func, select, update
+import httpx
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import make_transient, make_transient_to_detached
 from sqlalchemy.orm.attributes import set_committed_value
@@ -42,7 +46,6 @@ from app.services.screenshot_seed_spec import (
 )
 from yoao_assets_catalog.spatial_contract import SetDatasetAxisRequest
 from app.services.assets_spatial import AssetsSpatialGateway
-from app.services.storage import storage_service
 from yoao_labeling.screenshot_operations_contract import (
     LinkSeedTasksToBatches,
     PinSeedTaskTimestamps,
@@ -1080,6 +1083,122 @@ async def finalize_screenshot_seed_timestamps(
     await db.commit()
 
 
+async def _screenshot_output_receipt(db, run_id, dataset, item, key):
+    return await db.scalar(
+        text(
+            "SELECT aap_assets_v1.fixture_screenshot_output_receipt("
+            ":run, :dataset, :item, :key)"
+        ),
+        {"run": run_id, "dataset": dataset.dataset_id, "item": item.item_id, "key": key},
+    )
+
+
+async def _verify_screenshot_output(db, client, run_id, dataset, item, observed, proxy_origin):
+    from app.services.assets_images import image_gateway
+    from app.services.assets_media import media_gateway
+    from yoao_assets_images.contract import ReadImageSourceRequest
+    from yoao_assets_media.contract import ReadSourceRequest
+
+    receipt = await _screenshot_output_receipt(
+        db, run_id, dataset, item, observed.thumbnail_path
+    )
+    await db.commit()
+    fields = {
+        "schema", "run_id", "dataset_id", "item_id", "key", "source_creation_id",
+        "source_sha256", "record_id", "evidence_kind", "sha256", "size_bytes",
+        "etag", "version_id",
+    }
+    if (
+        not isinstance(receipt, dict) or set(receipt) != fields
+        or receipt["schema"] != "aap-fixture-screenshot-output/v1"
+        or receipt["run_id"] != str(run_id)
+        or receipt["dataset_id"] != str(dataset.dataset_id)
+        or receipt["item_id"] != str(item.item_id)
+        or receipt["key"] != observed.thumbnail_path
+        or receipt["evidence_kind"] != ("native" if item.file_type == "image" else "legacy")
+        or type(receipt["size_bytes"]) is not int or receipt["size_bytes"] <= 0
+        or not isinstance(receipt["etag"], str) or not receipt["etag"]
+        or not isinstance(receipt["version_id"], str) or receipt["version_id"] in {"", "null"}
+        or not isinstance(receipt["sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", receipt["sha256"]) is None
+        or not isinstance(receipt["source_sha256"], str)
+        or re.fullmatch(r"[0-9a-f]{64}", receipt["source_sha256"]) is None
+    ):
+        raise ScreenshotSeedReconcileError("screenshot output receipt is invalid")
+    try:
+        for field in ("source_creation_id", "record_id"):
+            if str(uuid.UUID(receipt[field])) != receipt[field]:
+                raise ValueError
+    except (TypeError, ValueError, AttributeError):
+        raise ScreenshotSeedReconcileError("screenshot output receipt is invalid") from None
+
+    if item.file_type == "image":
+        async with image_gateway() as owner:
+            reference = await owner.source_reference(
+                ReadImageSourceRequest(actor_id=dataset.owner_id, dataset_item_id=item.item_id)
+            )
+        source = reference.source
+        url = reference.thumbnail_url
+        if source.owner.kind != "dataset_item" or source.owner.id != item.item_id:
+            raise ScreenshotSeedReconcileError("screenshot image source changed")
+    else:
+        async with media_gateway() as owner:
+            reference = await owner.source_reference(
+                ReadSourceRequest(actor_id=dataset.owner_id, dataset_item_id=item.item_id)
+            )
+        source = reference.source
+        url = reference.poster_url
+        if source.dataset_item_id != item.item_id:
+            raise ScreenshotSeedReconcileError("screenshot video source changed")
+    if (
+        source.dataset_id != dataset.dataset_id or source.source_drifted
+        or source.source_generation != observed.source_generation
+        or source.thumbnail_path != receipt["key"] or not reference.original_url
+        or (
+            isinstance(source.content_hash, str)
+            and re.fullmatch(r"[0-9a-fA-F]{64}", source.content_hash) is not None
+            and source.content_hash.lower() != receipt["source_sha256"]
+        )
+    ):
+        raise ScreenshotSeedReconcileError("screenshot original source changed")
+    try:
+        parsed = urlsplit(url)
+        expected = urlsplit(proxy_origin)
+        valid_url = (
+            parsed.scheme == expected.scheme == "http"
+            and parsed.netloc == expected.netloc
+            and parsed.username is None and parsed.password is None
+            and parsed.path == f"/v1/fixture-native-output/{run_id}/{receipt['record_id']}"
+            and not parsed.fragment
+        )
+    except (TypeError, ValueError, AttributeError):
+        valid_url = False
+    if not valid_url:
+        raise ScreenshotSeedReconcileError("screenshot output proxy changed")
+    digest = hashlib.sha256()
+    size = 0
+    async with client.stream("GET", url) as response:
+        if (
+            response.status_code != 200 or response.headers.get("content-range") is not None
+            or response.headers.get("etag") != receipt["etag"]
+            or response.headers.get("x-amz-version-id") != receipt["version_id"]
+        ):
+            raise ScreenshotSeedReconcileError("screenshot output response changed")
+        async for chunk in response.aiter_raw():
+            size += len(chunk)
+            if size > receipt["size_bytes"]:
+                raise ScreenshotSeedReconcileError("screenshot output size changed")
+            digest.update(chunk)
+    if size != receipt["size_bytes"] or digest.hexdigest() != receipt["sha256"]:
+        raise ScreenshotSeedReconcileError("screenshot output bytes changed")
+    current = await _screenshot_output_receipt(
+        db, run_id, dataset, item, observed.thumbnail_path
+    )
+    await db.commit()
+    if current != receipt:
+        raise ScreenshotSeedReconcileError("screenshot output owner changed")
+
+
 async def prepare_screenshot_seed_media(
     db: AsyncSession,
     *,
@@ -1141,6 +1260,7 @@ async def prepare_screenshot_seed_media(
     # Release the read transaction before owner admission, polling and object HEADs.
     await db.commit()
     image_work_intents: list[FixtureImageWorkIntent] = []
+    video_outputs: list[tuple[str, uuid.UUID]] = []
 
     for dataset in media_rows:
         if dataset.data_type == "image":
@@ -1170,10 +1290,9 @@ async def prepare_screenshot_seed_media(
             await db.commit()
             image_work_intents.append(intent)
         elif dataset.data_type == "video":
-            from app.db.models.video_derivative import VideoDerivativeOutput
+            from app.services.fixture_media_execution import screenshot_producer_scope
             from app.services import video_derivative_originals as originals
             from app.services import video_derivatives as derivatives
-            from app.workers import media_derivatives as worker
 
             for item in dataset.items:
                 source = await originals.pin(db, "dataset_item", item.item_id)
@@ -1183,20 +1302,25 @@ async def prepare_screenshot_seed_media(
                         "dataset_item", item.item_id, source
                     ),
                 )
-                output, _ = await derivatives.prepare(
-                    db, item.item_id, authority, "metadata"
-                )
-                output_id = output.id
-                await db.commit()
-                await worker.run_outputs([str(output_id)], propagate_failure=True)
-                result = await db.get(
-                    VideoDerivativeOutput, output_id, populate_existing=True
-                )
-                if result is None or result.state != "ready":
-                    code = result.error_code if result is not None else "missing"
-                    raise ScreenshotSeedReconcileError(
-                        f"{dataset.display_id}: video metadata owner did not finish: {code}"
+                async with screenshot_producer_scope(
+                    db.bind, run_id, admission_id, dataset.dataset_id, item.item_id
+                ) as producer:
+                    output, needs_dispatch = await derivatives.prepare(
+                        db, item.item_id, authority, "metadata"
                     )
+                    output_id = output.id
+                    if needs_dispatch:
+                        prepared = await derivatives.prepare_dispatch(
+                            db, [output_id], delivery_id=producer.delivery_id
+                        )
+                        await db.commit()
+                        await producer.settle(output_id, prepared[0][0].delivery_id)
+                    else:
+                        await db.commit()
+                        await producer.reuse(output_id)
+                if needs_dispatch:
+                    await derivatives.publish_dispatch(prepared)
+                video_outputs.append((dataset.display_id, output_id))
 
     deadline = time.monotonic() + SCREENSHOT_MEDIA_WAIT_SECONDS
     image_sources: dict[uuid.UUID, Any] = {}
@@ -1222,6 +1346,20 @@ async def prepare_screenshot_seed_media(
                 )
             if status.work.status != "ready":
                 pending_image = True
+        if video_outputs:
+            from app.db.models.video_derivative import VideoDerivativeOutput
+
+            for display_id, output_id in video_outputs:
+                output = await db.get(
+                    VideoDerivativeOutput, output_id, populate_existing=True
+                )
+                if output is None or output.state in {"retiring", "deleted"} or output.error_code:
+                    code = output.error_code if output is not None else "missing"
+                    raise ScreenshotSeedReconcileError(
+                        f"{display_id}: video metadata owner did not finish: {code}"
+                    )
+                if output.state != "ready":
+                    pending_video = True
         for dataset in media_rows:
             image_items = [item for item in dataset.items if item.file_type == "image"]
             video_items = [item for item in dataset.items if item.file_type == "video"]
@@ -1303,10 +1441,29 @@ async def prepare_screenshot_seed_media(
                     for item in video_items
                 ):
                     pending_video = True
-
+        pending_receipt = False
         if not pending_image and not pending_video:
+            for dataset in media_rows:
+                for item in dataset.items:
+                    source = (
+                        image_sources[item.item_id]
+                        if item.file_type == "image"
+                        else video_sources[item.item_id]
+                    )
+                    if await _screenshot_output_receipt(
+                        db, run_id, dataset, item, source.thumbnail_path
+                    ) is None:
+                        pending_receipt = True
+
+        await db.commit()
+        if not pending_image and not pending_video and not pending_receipt:
             break
         if time.monotonic() >= deadline:
+            if pending_receipt:
+                raise ScreenshotSeedReconcileError(
+                    "screenshot output receipt did not settle; unqualified older "
+                    "outputs require a fresh isolated run"
+                )
             if pending_video:
                 raise ScreenshotSeedReconcileError(
                     "screenshot video metadata/poster is not ready"
@@ -1317,29 +1474,36 @@ async def prepare_screenshot_seed_media(
             )
         await asyncio.sleep(2)
 
+    reader = await db.scalar(
+        text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"), {"run": run_id}
+    )
+    await db.commit()
+    if not isinstance(reader, dict) or reader.get("state") != "active":
+        raise ScreenshotSeedReconcileError("screenshot output reader is unavailable")
+    try:
+        origin = urlsplit(reader["proxy_origin"])
+        valid_origin = (
+            origin.scheme == "http" and bool(origin.hostname) and origin.port is not None
+            and origin.username is None and origin.password is None
+            and not origin.path and not origin.query and not origin.fragment
+        )
+    except (KeyError, TypeError, ValueError):
+        valid_origin = False
+    if not valid_origin:
+        raise ScreenshotSeedReconcileError("screenshot output proxy is invalid")
     item_count = 0
-    for dataset in media_rows:
-        for item in dataset.items:
-            prefix = f"{dataset.display_id}: {item.file_name}"
-            source = (
-                image_sources.get(item.item_id)
-                if item.file_type == "image"
-                else video_sources.get(item.item_id)
-            )
-            thumbnail_path = source.thumbnail_path if source is not None else None
-            head = (
-                storage_service.verify_upload(
-                    thumbnail_path, bucket=storage_service.media_cache_bucket
+    async with httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as client:
+        for dataset in media_rows:
+            for item in dataset.items:
+                source = (
+                    image_sources[item.item_id]
+                    if item.file_type == "image"
+                    else video_sources[item.item_id]
                 )
-                if thumbnail_path
-                else None
-            )
-            if not head or head.get("ContentLength", 0) <= 0:
-                raise ScreenshotSeedReconcileError(
-                    f"{prefix}: screenshot thumbnail/poster is not ready; "
-                    "check media generation errors and this run's recorded owner work"
+                await _verify_screenshot_output(
+                    db, client, run_id, dataset, item, source, reader["proxy_origin"]
                 )
-            item_count += 1
+                item_count += 1
     for intent in image_work_intents:
         intent.state = "settled"
     await db.commit()

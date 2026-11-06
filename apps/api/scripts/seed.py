@@ -272,7 +272,7 @@ async def _ensure_screenshot_accounts(
 
 
 @asynccontextmanager
-async def _seed_session(run_id: uuid.UUID | None):
+async def _seed_session(run_id: uuid.UUID | None, admission_id: uuid.UUID | None):
     if run_id is None:
         async with Session() as db:
             yield db, None
@@ -282,26 +282,33 @@ async def _seed_session(run_id: uuid.UUID | None):
 
     configure_fixture_tools_path()
     from fixture_suite_coordinator import verified_fixture_owner_url
-    from app.db.models.fixture_run import FixtureRun
+    from app.db.models.fixture_run import FixtureRunAdmission
     from app.services import fixture_run_ownership as ownership, storage_access
 
     owner_engine = create_async_engine(
         await verified_fixture_owner_url(), hide_parameters=True
     )
-    sessions = async_sessionmaker(
-        owner_engine, class_=AsyncSession, expire_on_commit=False
-    )
     first_failure = None
     try:
-        async with sessions() as db:
-            run = await db.get(FixtureRun, run_id)
+        async with (
+            owner_engine.connect() as connection,
+            AsyncSession(bind=connection, expire_on_commit=False) as db,
+        ):
+            run = await ownership._lock_run(db, run_id)
+            admission = await db.scalar(
+                select(FixtureRunAdmission)
+                .where(
+                    FixtureRunAdmission.id == admission_id,
+                    FixtureRunAdmission.run_id == run_id,
+                )
+                .with_for_update()
+            )
             if (
-                run is None
-                or run.family != "screenshot"
-                or run.parent_run_id is not None
+                run.family != "screenshot" or run.parent_run_id is not None
+                or run.state != "open" or admission is None
+                or admission.kind != "screenshot_seed" or admission.state != "active"
             ):
-                raise RuntimeError("screenshot fixture run is not registered")
-            admission_id = await ownership.admit(db, run_id, "screenshot_seed")
+                raise RuntimeError("screenshot fixture admission is not active")
             await db.commit()
 
             async def settle():
@@ -413,43 +420,45 @@ async def seed(
     ml_backend_url: str | None = None,
     backend_requirements: str | None = None,
     run_id: uuid.UUID | None = None,
+    admission_id: uuid.UUID | None = None,
 ) -> None:
     parse_backend_requirements(backend_requirements)
-    if (profile == "screenshots") != (run_id is not None):
-        raise ValueError("screenshots profile requires an explicit run ID")
+    if (profile == "screenshots") != (run_id is not None and admission_id is not None):
+        raise ValueError("screenshots profile requires an explicit run and admission ID")
+    if profile != "screenshots" and (run_id is not None or admission_id is not None):
+        raise ValueError("fixture identities require the screenshots profile")
     if profile == "online-training":
         await _seed_online_training_profile(
             cache_dir=cache_dir, asset_dir=asset_dir, offline=offline
         )
         return
-    assets = {}
-    generated_assets = None
-    if profile == "screenshots":
-        validate_screenshot_analytics_target()
-        selected_assets = select_profile(
-            "screenshots",
-            required_ids={"rapidocr-image", *REQUIRED_SOURCE_IDS},
-        )
-        assets = ensure_profile(
-            "screenshots",
-            cache_dir=cache_dir,
-            asset_dir=asset_dir,
-            offline=offline,
-            assets=selected_assets,
-        )
-        source_files = {
-            asset_id: assets[asset_id].root.joinpath(
-                *assets[asset_id].asset.required_files[0].parts
-            )
-            for asset_id in REQUIRED_SOURCE_IDS
-        }
-        generated_assets = ensure_screenshot_assets(
-            source_files=source_files,
-            cache_dir=cache_dir,
-        )
     strict = profile == "screenshots"
-
-    async with _seed_session(run_id) as (db, fixture_scope):
+    async with _seed_session(run_id, admission_id) as (db, fixture_scope):
+        assets = {}
+        generated_assets = None
+        if strict:
+            validate_screenshot_analytics_target()
+            selected_assets = select_profile(
+                "screenshots",
+                required_ids={"rapidocr-image", *REQUIRED_SOURCE_IDS},
+            )
+            assets = ensure_profile(
+                "screenshots",
+                cache_dir=cache_dir,
+                asset_dir=asset_dir,
+                offline=offline,
+                assets=selected_assets,
+            )
+            source_files = {
+                asset_id: assets[asset_id].root.joinpath(
+                    *assets[asset_id].asset.required_files[0].parts
+                )
+                for asset_id in REQUIRED_SOURCE_IDS
+            }
+            generated_assets = ensure_screenshot_assets(
+                source_files=source_files,
+                cache_dir=cache_dir,
+            )
         created_users = (
             await _ensure_screenshot_accounts(db, run_id)
             if strict
@@ -893,6 +902,9 @@ def parse_args() -> argparse.Namespace:
         "--run-id", type=uuid.UUID, help="exact screenshot fixture run ID"
     )
     parser.add_argument(
+        "--admission-id", type=uuid.UUID, help="exact screenshot fixture admission ID"
+    )
+    parser.add_argument(
         "--ml-backend-mode",
         choices=("live", "stub"),
         default="live",
@@ -918,8 +930,14 @@ def parse_args() -> argparse.Namespace:
         parser.error("--backend-requirements requires --profile screenshots")
     if args.video is not None and args.profile != "demo":
         parser.error("--video requires --profile demo")
-    if (args.profile == "screenshots") != (args.run_id is not None):
-        parser.error("--run-id is required only for --profile screenshots")
+    if (args.profile == "screenshots") != (
+        args.run_id is not None and args.admission_id is not None
+    ):
+        parser.error("--run-id and --admission-id are required for screenshots")
+    if args.profile != "screenshots" and (
+        args.run_id is not None or args.admission_id is not None
+    ):
+        parser.error("fixture identities require --profile screenshots")
     return args
 
 
@@ -936,6 +954,7 @@ async def main() -> None:
         ml_backend_url=args.ml_backend_url,
         backend_requirements=args.backend_requirements,
         run_id=args.run_id,
+        admission_id=args.admission_id,
     )
     print("=== seed done  ===\n")
     print("测试账号一览 (密码统一: 123456):")

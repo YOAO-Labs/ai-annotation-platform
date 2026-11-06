@@ -1581,6 +1581,32 @@ async def _reclaim_owned_originals(db, run_id, actor_id):
             )
 
 
+async def _wait_fixture_source_readers(db, run_id, reader_wait_seconds):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.application.fixture_prediction_retirement import (
+        FixturePredictionRetirementBlocked,
+        wait_for_fixture_original_readers,
+    )
+    from app.services import storage_access
+
+    deadline = (
+        None if reader_wait_seconds is None
+        else asyncio.get_running_loop().time() + reader_wait_seconds
+    )
+    try:
+        await wait_for_fixture_original_readers(
+            async_sessionmaker(storage_access.engine(db), expire_on_commit=False),
+            run_id,
+            deadline=deadline,
+        )
+    except FixturePredictionRetirementBlocked as exc:
+        raise HTTPException(
+            409,
+            detail={"code": "fixture_prediction_retirement_blocked", "reason": exc.reason},
+        ) from exc
+
+
 async def _retire_fixture_execution_work(
     db, owned, *, family="owned", reader_wait_seconds=None, drained_runs=frozenset()
 ):
@@ -1591,7 +1617,6 @@ async def _retire_fixture_execution_work(
     from app.application.fixture_prediction_retirement import (
         FixturePredictionRetirementBlocked,
         retire_fixture_prediction_work,
-        wait_for_fixture_original_readers,
     )
     from app.db.models.async_job import AsyncJob
     from app.db.models.fixture_run import FixturePresentationJob
@@ -1604,15 +1629,8 @@ async def _retire_fixture_execution_work(
         session_factory = async_sessionmaker(
             storage_access.engine(db), expire_on_commit=False
         )
-        if family == "owned" and run_id not in drained_runs:
-            deadline = (
-                None
-                if reader_wait_seconds is None
-                else asyncio.get_running_loop().time() + reader_wait_seconds
-            )
-            await wait_for_fixture_original_readers(
-                session_factory, run_id, deadline=deadline
-            )
+        if family in {"owned", "screenshot"} and run_id not in drained_runs:
+            await _wait_fixture_source_readers(db, run_id, reader_wait_seconds)
         await retire_fixture_prediction_work(
             session_factory=session_factory,
             run_id=run_id,
@@ -1720,6 +1738,24 @@ async def _cleanup_owned_e2e_fixtures(
                 },
             )
         run = await db.get(FixtureRun, run_id, populate_existing=True)
+        completed_drains = drained_runs
+        if native_runtime is None:
+            if (
+                run.state != "retired" and family in {"owned", "screenshot"}
+                and run_id not in drained_runs
+            ):
+                await db.rollback()
+                await _wait_fixture_source_readers(db, run_id, None)
+                completed_drains = drained_runs | {run_id}
+            proof = await db.scalar(
+                text("SELECT aap_assets_v1.seal_fixture_run_without_media(:run)"),
+                {"run": run_id},
+            )
+            if proof is not True:
+                await db.rollback()
+                raise HTTPException(409, detail={"code": "fixture_native_no_birth_unproven"})
+            await db.commit()
+            run = await db.get(FixtureRun, run_id, populate_existing=True)
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
                 FixtureMaintenanceWindow.run_id == run_id,
@@ -1737,7 +1773,7 @@ async def _cleanup_owned_e2e_fixtures(
                 await providers.retire(run_id)
             return
         scope = await _retire_fixture_execution_work(
-            db, owned, family=family, drained_runs=drained_runs
+            db, owned, family=family, drained_runs=completed_drains
         )
 
         def fixture_context(context):
@@ -2865,6 +2901,12 @@ async def seed_screenshot_cleanup(
     run = await db.get(FixtureRun, payload.run_id, populate_existing=True)
     if run is None or run.family != "screenshot" or run.parent_run_id is not None:
         raise HTTPException(404, detail={"code": "fixture_run_not_found"})
+    roots = getattr(request.app.state, "fixture_screenshot_native_roots", {})
+    native = roots.get(run.id)
+    if native is not None and native["runtime"] is None:
+        raise HTTPException(409, detail={"code": "fixture_native_run_unsettled"})
+    if native is not None and native["control"].api_owned:
+        await native["control"].retire_api()
     scope = _OwnedFixtureScope(namespace=run.id.hex[:12], run_id=run.id)
     await _cleanup_owned_e2e_fixtures(
         db,
@@ -2872,7 +2914,12 @@ async def seed_screenshot_cleanup(
         family="screenshot",
         registry=getattr(request.app.state, "original_playback_registry", None),
         providers=getattr(request.app.state, "fixture_backends", None),
+        native_runtime=native["runtime"] if native is not None else None,
     )
+    if native is not None:
+        from fixture_suite_coordinator import _settled
+
+        await _settled(asyncio.create_task(native["control"].retire_suite()))
     return SeedCleanup()
 
 

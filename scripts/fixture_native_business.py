@@ -436,22 +436,34 @@ async def _ensure_roles(admin, owner_url, resources, identity, roles, owner, ent
         owner.save()
 
 
-async def prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> tuple[Path, dict]:
+async def prepare(
+    environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None,
+    root_family: str = "owned",
+) -> tuple[Path, dict]:
     """Create or verify the exact journaled suite identities."""
-    result = await _prepare(environment, suite_id=suite_id, raster_owner=raster_owner)
+    result = await _prepare(
+        environment, suite_id=suite_id, raster_owner=raster_owner, root_family=root_family
+    )
     if result is None:
         return await verified(environment, suite_id=suite_id, raster_owner=raster_owner)
     return result
 
 
-async def _prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None) -> tuple[Path, dict] | None:
+async def _prepare(
+    environment, *, suite_id: uuid.UUID, raster_owner: Path | None = None,
+    root_family: str,
+) -> tuple[Path, dict] | None:
     """Resume only exact, unpublished business-identity birth."""
     import fcntl
     from fixture_store import reader_credentials, verified_store
     from verify_storage_candidates import Owner, private_write
     from yoao_assets_media_runtime.additional_original import load_additional_original_config
 
-    _require(isinstance(suite_id, uuid.UUID), "fixture_native_business_suite_invalid")
+    _require(
+        isinstance(suite_id, uuid.UUID) and root_family in {"owned", "screenshot"}
+        and (root_family == "owned" or raster_owner is None),
+        "fixture_native_business_suite_invalid",
+    )
     owner_url, resources, identity = await _verified_database(environment)
     admin = _admin(environment, owner_url)
     root = _resource_root(resources)
@@ -472,9 +484,9 @@ async def _prepare(environment, *, suite_id: uuid.UUID, raster_owner: Path | Non
                     text(
                         "SELECT EXISTS(SELECT 1 FROM yoao_fixture_v1.fixture_runs "
                         "WHERE id=:suite AND parent_run_id IS NULL AND scope_key IS NULL "
-                        "AND family='owned' AND state='open')"
+                        "AND family=:family AND state='open')"
                     ),
-                    {"suite": suite_id},
+                    {"suite": suite_id, "family": root_family},
                 )
             _require(opened is True, "fixture_native_business_suite_not_open")
         finally:
@@ -734,14 +746,21 @@ async def _require_native_retired(owner_url, suite_id, targets):
     try:
         async with engine.connect() as connection:
             rows = (await connection.execute(
-                text("SELECT id,parent_run_id,state FROM yoao_fixture_v1.fixture_runs WHERE id=:suite OR parent_run_id=:suite"),
+                text("SELECT id,parent_run_id,state,family FROM yoao_fixture_v1.fixture_runs WHERE id=:suite OR parent_run_id=:suite"),
                 {"suite": suite_id},
             )).all()
             root = next((row for row in rows if row.id == suite_id), None)
-            _require(root is not None and root.parent_run_id is None and root.state == "retired", "fixture_native_business_suite_unsettled")
-            for row in rows:
-                if row.id == suite_id:
-                    continue
+            _require(
+                root is not None and root.parent_run_id is None and root.state == "retired"
+                and root.family in {"owned", "screenshot"},
+                "fixture_native_business_suite_unsettled",
+            )
+            if root.family == "screenshot":
+                _require(len(rows) == 1, "fixture_native_business_run_unsettled")
+            native_rows = rows if root.family == "screenshot" else [
+                row for row in rows if row.id != suite_id
+            ]
+            for row in native_rows:
                 target = targets.get(row.id.hex)
                 _require(
                     row.state == "retired" and isinstance(target, dict)

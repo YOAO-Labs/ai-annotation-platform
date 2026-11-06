@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
+import asyncio
 import builtins
 import hashlib
+import json
 import os
+import re
 import shutil
 from dataclasses import dataclass
 from pathlib import Path
 import sys
 import uuid
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 import pytest
@@ -49,7 +52,7 @@ class ScreenshotSeed:
         )
 
     async def seed_run(self, run_id: uuid.UUID) -> None:
-        await _seed_owned_run(run_id, self.cache_dir, self.analytics_path)
+        await _seed_owned_run(self.owner, run_id, self.cache_dir, self.analytics_path)
 
 
 def _source_path(variable: str, *, directory: bool) -> Path:
@@ -107,7 +110,9 @@ def screenshot_seed_cache(tmp_path_factory):
     return cache
 
 
-async def _seed_owned_run(run_id: uuid.UUID, cache: Path, analytics: Path) -> None:
+async def _seed_owned_run(
+    owner: SeedOwner, run_id: uuid.UUID, cache: Path, analytics: Path
+) -> None:
     from scripts.nuscenes_fixture import validate_nuscenes_mini
     from scripts.seed_assets import ensure_profile, select_profile
     from scripts.seed_screenshot_assets import (
@@ -139,9 +144,63 @@ async def _seed_owned_run(run_id: uuid.UUID, cache: Path, analytics: Path) -> No
         cache / "prepared" / GENERATED_REVISION, source_sha256=_source_digest(sources)
     )
     validate_nuscenes_mini(cache / "content")
-    from scripts.seed import seed
+    from fixture_suite_coordinator import _settled
 
-    await seed(profile="screenshots", run_id=run_id, cache_dir=cache, offline=True)
+    result = await owner._request(
+        {"operation": "owner_screenshot_native_prepare", "run_id": str(run_id)}
+    )
+    if result["status"] != 200:
+        raise RuntimeError("Screenshot native preparation failed")
+    binding = json.loads(result["body"])
+    if not isinstance(binding, dict) or set(binding) != {
+        "admission_id", "origin", "token", "control_dsn_file"
+    }:
+        raise RuntimeError("Screenshot native binding is invalid")
+    try:
+        admission = uuid.UUID(binding["admission_id"])
+        origin = urlsplit(binding["origin"])
+        valid_origin = (
+            origin.scheme == "http" and origin.hostname == "127.0.0.1"
+            and origin.port is not None and origin.username is None and origin.password is None
+            and not origin.path and not origin.query and not origin.fragment
+        )
+    except (TypeError, ValueError, AttributeError):
+        raise RuntimeError("Screenshot native binding is invalid") from None
+    if (
+        str(admission) != binding["admission_id"] or not valid_origin
+        or not isinstance(binding["token"], str)
+        or not isinstance(binding["control_dsn_file"], str)
+        or not Path(binding["control_dsn_file"]).is_absolute()
+        or re.fullmatch(r"[A-Za-z0-9_-]{43}", binding["token"]) is None
+    ):
+        raise RuntimeError("Screenshot native binding is invalid")
+    environment = {
+        key: value
+        for key, value in os.environ.items()
+        if not key.upper().startswith((
+            "AWS_", "MC_HOST_", "AAP_PRIVATE_FIXTURE_", "AAP_ASSETS_ADDITIONAL_ORIGINAL_",
+            "ASSETS_MEDIA_S3_", "ASSETS_IMAGES_S3_", "AAP_SOURCE_FENCE_",
+        ))
+        and key.upper() not in {
+            "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER",
+        }
+    }
+    environment.update(
+        MINIO_ACCESS_KEY="", MINIO_SECRET_KEY="", MIGRATION_DATABASE_URL="", TEST_DATABASE_URL="",
+        AWS_SHARED_CREDENTIALS_FILE="/dev/null", AWS_CONFIG_FILE="/dev/null",
+        AWS_EC2_METADATA_DISABLED="true",
+        ASSETS_MEDIA_URL=binding["origin"], ASSETS_MEDIA_TOKEN=binding["token"],
+        AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE=binding["control_dsn_file"],
+    )
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, str(ROOT / "apps/api/scripts/seed.py"),
+        "--profile", "screenshots", "--run-id", str(run_id),
+        "--admission-id", str(admission), "--cache-dir", str(cache), "--offline",
+        cwd=ROOT / "apps/api", env=environment,
+    )
+    status = await _settled(asyncio.create_task(process.wait()))
+    if status != 0:
+        raise RuntimeError(f"Screenshot seed process exited with status {status}")
 
 
 @pytest.fixture
@@ -176,7 +235,7 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
             sessions = async_sessionmaker(engine, expire_on_commit=False)
             failure = None
             try:
-                await _seed_owned_run(run_id, screenshot_seed_cache, analytics)
+                await _seed_owned_run(owner, run_id, screenshot_seed_cache, analytics)
                 async with sessions() as db:
                     rows = (
                         await db.execute(

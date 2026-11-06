@@ -158,7 +158,7 @@ def _api_environment(environment, origin, token):
     return values
 
 
-async def _prepare(environment, suite_id, raster_owner=None):
+async def _prepare(environment, suite_id, raster_owner=None, *, root_family="owned"):
     import fixture_native_business
     import fixture_native_read_control
 
@@ -169,9 +169,11 @@ async def _prepare(environment, suite_id, raster_owner=None):
         and (admin.host, admin.port or 5432, admin.database) == (owner_url.host, owner_url.port or 5432, owner_url.database),
         "fixture_native_admin_database_changed",
     )
-    await prepare_fixture_suite(str(suite_id), "owned")
+    await prepare_fixture_suite(
+        str(suite_id), root_family, verify_only=root_family == "screenshot"
+    )
     business, document = await fixture_native_business.prepare(
-        environment, suite_id=suite_id, raster_owner=raster_owner
+        environment, suite_id=suite_id, raster_owner=raster_owner, root_family=root_family
     )
     resolver = await fixture_native_read_control.provision(admin, "resolver", suite_id)
     _require(
@@ -188,25 +190,32 @@ async def _prepare(environment, suite_id, raster_owner=None):
     return resources, identity, admin, business, resolver, document["profiles"]["control"]
 
 
-async def _suite_settled(environment, suite_id):
+async def _suite_settled(environment, suite_id, root_family):
     owner_url, _, _ = await _verified_database(environment)
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     try:
         async with engine.connect() as connection:
             rows = (await connection.execute(text(
-                "SELECT id,parent_run_id,state FROM yoao_fixture_v1.fixture_runs "
+                "SELECT id,parent_run_id,state,family FROM yoao_fixture_v1.fixture_runs "
                 "WHERE id=:suite OR parent_run_id=:suite"
             ), {"suite": suite_id})).all()
             root = next((row for row in rows if row.id == suite_id), None)
-            _require(root is not None and root.parent_run_id is None and root.state == "retired", "fixture_native_suite_unsettled")
-            for row in rows:
-                if row.id == suite_id:
-                    continue
+            _require(
+                root is not None and root.parent_run_id is None and root.state == "retired"
+                and root.family == root_family,
+                "fixture_native_suite_unsettled",
+            )
+            if root_family == "screenshot":
+                _require(len(rows) == 1, "fixture_native_run_unsettled")
+            native_rows = rows if root_family == "screenshot" else [
+                row for row in rows if row.id != suite_id
+            ]
+            for row in native_rows:
                 _require(row.state == "retired", "fixture_native_run_unsettled")
                 execution = await connection.scalar(text("SELECT aap_jobs_v1.fixture_media_executor_identity(:run)"), {"run": row.id})
                 reader = await connection.scalar(text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"), {"run": row.id})
                 _require(isinstance(execution, dict) and execution.get("state") == "retired" and isinstance(reader, dict) and reader.get("state") == "retired", "fixture_native_run_unsettled")
-            return sorted(str(row.id) for row in rows if row.id != suite_id)
+            return sorted(str(row.id) for row in native_rows)
     finally:
         await engine.dispose()
 
@@ -326,16 +335,18 @@ class NativeSuiteControl:
 
     def __init__(
         self, environment, suite, resources, directory, journal, journal_path,
-        raster_owner=None, *, authority_owned=False,
+        raster_owner=None, *, authority_owned=False, root_family="owned",
     ):
         self.environment, self.suite, self.resources = environment, suite, resources
         self.directory, self.journal, self.journal_path = directory, journal, journal_path
         self.raster_owner = raster_owner
         self.authority_owned = authority_owned
+        self.root_family = root_family
         self.api_owned = journal.get("api_owned")
         _require(
-            type(self.api_owned) is bool
-            and (self.api_owned or (authority_owned and resources["mode"] == "test")),
+            root_family in {"owned", "screenshot"} and type(self.api_owned) is bool
+            and (self.api_owned or (authority_owned and resources["mode"] == "test"))
+            and (root_family == "owned" or (authority_owned and raster_owner is None)),
             "fixture_native_topology_invalid",
         )
         self.process = self.pidfd = self.stopped = self.listener = None
@@ -351,10 +362,11 @@ class NativeSuiteControl:
         self.port = self.listener.getsockname()[1]
         self.origin = f"http://127.0.0.1:{self.port}"
         if self.authority_owned:
-            os.environ.update(ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token)
             self.environment.update(ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token)
+            if self.root_family == "owned":
+                os.environ.update(ASSETS_MEDIA_URL=self.origin, ASSETS_MEDIA_TOKEN=self.token)
         resources, self.identity, self.admin, self.business, self.resolver, self.profile = await _prepare(
-            self.environment, self.suite, self.raster_owner
+            self.environment, self.suite, self.raster_owner, root_family=self.root_family
         )
         _require(resources == self.resources, "fixture_native_resources_changed")
         await self.start()
@@ -415,7 +427,7 @@ class NativeSuiteControl:
     async def resume(self):
         import fixture_native_business
 
-        if self.journal.get("state") == "control_started" and self.process is not None:
+        if self.journal.get("state") in {"control_started", "serving"} and self.process is not None:
             await _settled_thread(_wait_ready, self.process, self.pidfd, self.origin)
             return
         _require(self.journal["state"] == "control_offline", "fixture_native_control_unsettled")
@@ -464,6 +476,21 @@ class NativeSuiteControl:
         self.journal["state"] = "stopping_control"
         atomic_json(self.journal_path, self.journal)
 
+    async def retire_api(self):
+        _require(self.api_owned, "fixture_native_api_invalid")
+        disposition = self.journal.get("api_disposition")
+        if disposition is None:
+            await _settled(asyncio.create_task(self._retire_api()))
+        else:
+            _require(
+                isinstance(disposition, dict) and self.api is None and self.api_pidfd is None
+                and disposition.get("pid") == self.journal["api"]["pid"]
+                and disposition.get("start") == self.journal["api"]["start"]
+                and disposition.get("exit_code") == 0 and disposition.get("pidfd_exit") is True
+                and disposition.get("lifespan_shutdown") is True and disposition.get("descendants_drained") is True,
+                "fixture_native_process_unsettled",
+            )
+
     async def retire_suite(self):
         import fixture_native_business
         import fixture_native_read_control
@@ -485,22 +512,11 @@ class NativeSuiteControl:
                 "fixture_native_control_unsettled",
             )
 
-        run_ids = await _suite_settled(self.environment, self.suite)
+        run_ids = await _suite_settled(self.environment, self.suite, self.root_family)
         _verify_run_receipts(self.directory, self.suite, run_ids)
         self.journal["native_run_ids"] = run_ids
         if self.api_owned:
-            disposition = self.journal.get("api_disposition")
-            if disposition is None:
-                await _settled(asyncio.create_task(self._retire_api()))
-            else:
-                _require(
-                    isinstance(disposition, dict) and self.api is None and self.api_pidfd is None
-                    and disposition.get("pid") == self.journal["api"]["pid"]
-                    and disposition.get("start") == self.journal["api"]["start"]
-                    and disposition.get("exit_code") == 0 and disposition.get("pidfd_exit") is True
-                    and disposition.get("lifespan_shutdown") is True and disposition.get("descendants_drained") is True,
-                    "fixture_native_process_unsettled",
-                )
+            await self.retire_api()
         else:
             _require(
                 "api" not in self.journal and "api_disposition" not in self.journal
