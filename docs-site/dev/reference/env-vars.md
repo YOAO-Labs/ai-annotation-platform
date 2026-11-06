@@ -56,12 +56,16 @@ last_reviewed: 2026-11-06
 | `JOBS_QUEUE_BROKER_URL_FILE` | `—` | — |
 | `JOBS_QUEUE_HOST` | `127.0.0.1` | — |
 | `JOBS_QUEUE_PORT` | `8190` | — |
-| `JOBS_DISPATCH_RELAY_ENABLED` | `false` | 独立持久派发 relay 必须显式开启；仅持有 claim/finish/status 三项函数权限及队列 bearer。 不注入 broker、API 迁移凭据或私表读写权限；与 jobs-queue 分进程运行。 |
+| `JOBS_DISPATCH_RELAY_ENABLED` | `false` | 独立持久派发 relay 必须显式开启；账本凭据只持有 claim/finish/status 函数权限。 不注入 broker、API 迁移凭据或私表读写权限；与 jobs-queue 分进程运行。 |
 | `JOBS_DISPATCH_RELAY_DATABASE_URL` | `—` | — |
 | `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` | `—` | — |
 | `JOBS_DISPATCH_RELAY_BATCH_SIZE` | `100` | — |
 | `JOBS_DISPATCH_RELAY_LEASE_SECONDS` | `30` | — |
 | `JOBS_DISPATCH_RELAY_POLL_SECONDS` | `1` | — |
+| `JOBS_PUBLICATION_DATABASE_URL` | `—` | Jobs 发布入口和 relay 使用独立的仅函数调用凭据；不得授予私有表读写权限。 |
+| `JOBS_PUBLICATION_DATABASE_URL_FILE` | `—` | — |
+| `EXPORT_EXECUTION_DATABASE_URL` | `—` | 仅 export worker 挂载执行控制凭据；不得向 API 注入此凭据。 |
+| `EXPORT_EXECUTION_DATABASE_URL_FILE` | `—` | — |
 | `AAP_JOBS_QUEUE_RUNTIME_IMAGE` | `—` | 本机独立 Compose 组合：使用已验收镜像和已核实的基础设施网络，不创建第二份 Redis／PostgreSQL。 |
 | `AAP_JOBS_DEVELOPMENT_NETWORK` | `—` | — |
 

@@ -149,11 +149,29 @@ async def publish_prepared_dispatch(
     if lease.state != "leased" or lease.lease_token is None:
         raise JobsDispatchRejected("lease_not_active")
     try:
-        result = publish()
-        if inspect.isawaitable(result):
-            result = await result
-        if result is not None and str(result) != lease.execution_id:
-            raise JobsQueueUnavailable()
+        from app.config import settings
+        from yoao_jobs.publication_postgres import (
+            publication_database_url,
+            publication_session,
+            settle_publication,
+        )
+
+        database_url = publication_database_url(
+            settings.jobs_publication_database_url,
+            settings.jobs_publication_database_url_file,
+        )
+        async with publication_session(database_url, lease) as (
+            connection,
+            arguments,
+            needs_publish,
+        ):
+            if needs_publish:
+                result = publish()
+                if inspect.isawaitable(result):
+                    result = await result
+                if result is not None and str(result) != lease.execution_id:
+                    raise JobsQueueUnavailable()
+                await settle_publication(connection, arguments)
     except asyncio.CancelledError:
         raise
     except Exception:

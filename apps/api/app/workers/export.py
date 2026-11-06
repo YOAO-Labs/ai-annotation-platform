@@ -28,7 +28,7 @@ from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import async_job as async_job_svc
-from app.services import export_outputs, export_storage
+from app.services import export_execution_context, export_outputs, export_storage
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_core_read_relations import annotation_row, task_row
@@ -72,15 +72,20 @@ class ExportExecutionLost(ExportBuildInProgress):
 
 
 class _ExportExecution:
-    """Keep execution rights on the same PostgreSQL session as all writes."""
+    """Hold business writes and independent physical execution authority."""
 
-    def __init__(self, db: AsyncSession, connection) -> None:
+    def __init__(self, db: AsyncSession, connection, control) -> None:
         self.db = db
         self.connection = connection
+        self.control = control
         self.backend_pid: int | None = None
         self.lost = False
+        self.token: uuid.UUID | None = None
         self.fixture_token: uuid.UUID | None = None
         self.unsettled = False
+        self.entered = False
+        self.takeover = False
+        self.job_id: uuid.UUID | None = None
 
     async def assert_owned(self) -> None:
         if self.lost or self.connection.invalidated:
@@ -117,42 +122,63 @@ class _ExportExecution:
         if not acquired:
             raise ExportBuildInProgress("another worker owns this export execution")
 
-    async def admit_fixture(self, job_id: uuid.UUID) -> bool:
-        return bool(
-            await self.db.scalar(
-                text("SELECT public.fixture_export_execution_admitted(:job_id)"),
-                {"job_id": job_id},
+    async def begin(
+        self, job_id: uuid.UUID, project_id: uuid.UUID, delivery_id: str
+    ) -> None:
+        if not delivery_id:
+            raise ExportExecutionLost("export delivery identity is required")
+        acquired = await self.control.scalar(
+            select(
+                func.pg_try_advisory_lock(
+                    func.hashtextextended(f"aap-export:control:{job_id}", 0)
+                )
             )
         )
-
-    async def begin_fixture(self, job_id: uuid.UUID, project_id: uuid.UUID) -> None:
+        if not acquired:
+            raise ExportBuildInProgress("another worker owns export control")
         token = uuid.uuid4()
-        state = await self.db.scalar(
+        state = await self.control.scalar(
             text(
-                "SELECT public.begin_fixture_export_execution(:job_id, :project_id, :token)"
+                "SELECT aap_export_v1.begin_execution("
+                ":job_id, :project_id, :delivery_id, :token, :business_pid)"
             ),
-            {"job_id": job_id, "project_id": project_id, "token": token},
+            {
+                "job_id": job_id,
+                "project_id": project_id,
+                "delivery_id": delivery_id,
+                "token": token,
+                "business_pid": self.backend_pid,
+            },
         )
-        if state == "ordinary":
-            return
-        if state != "started":
-            raise ExportBuildInProgress(
-                "fixture export execution is retired or unsettled"
-            )
-        # A lost or ambiguous commit leaves the persisted running generation
-        # blocked; work only starts after the commit has been acknowledged.
-        await self.db.commit()
-        self.fixture_token = token
+        if state not in {"started", "takeover", "fixture_started", "fixture_takeover"}:
+            raise ExportBuildInProgress("export execution is retired or unsettled")
+        await self.control.commit()
+        self.job_id = job_id
+        self.token = token
+        self.takeover = state.endswith("takeover")
+        if state.startswith("fixture_"):
+            self.fixture_token = token
 
-    async def finish_fixture(self, job_id: uuid.UUID) -> None:
+    async def enter_io(self) -> None:
         await self.assert_owned()
-        settled = await self.db.scalar(
-            text("SELECT public.finish_fixture_export_execution(:job_id, :token)"),
-            {"job_id": job_id, "token": self.fixture_token},
+        self.entered = True
+        entered = await self.control.scalar(
+            text("SELECT aap_export_v1.enter_execution_io(:job_id, :token)"),
+            {"job_id": self.job_id, "token": self.token},
         )
-        if not settled:
-            raise ExportExecutionLost("fixture export execution could not be settled")
-        await self.db.commit()
+        if entered is not True:
+            raise ExportExecutionLost("export physical execution authority was lost")
+        await self.control.commit()
+
+    async def finish(self, job_id: uuid.UUID) -> None:
+        await self.assert_owned()
+        settled = await self.control.scalar(
+            text("SELECT aap_export_v1.finish_execution(:job_id, :token)"),
+            {"job_id": job_id, "token": self.token},
+        )
+        if settled is not True:
+            raise ExportExecutionLost("export execution could not be settled")
+        await self.control.commit()
 
 
 async def _update_export_progress(db, job_uuid, pct):
@@ -270,7 +296,50 @@ async def _publish_export_notification(db: AsyncSession, pending: Notification |
         await NotificationService(db).publish_committed([pending])
 
 
-@celery_app.task(bind=True, name="app.workers.export.run_export")
+async def _publish_export_retry(task, job_id: uuid.UUID, error: Exception):
+    from celery.exceptions import Retry
+    from yoao_jobs.publication_postgres import (
+        publication_database_url,
+        retry_publication_session,
+        settle_retry_publication,
+    )
+
+    if task.request.called_directly or task.request.retries >= 120:
+        raise error
+    if task.request.is_eager:
+        # Eager retry is local execution, not a broker publication receipt.
+        retry_signal = task.retry(exc=error, countdown=5, max_retries=120, throw=False)
+        if not isinstance(retry_signal, Retry):
+            raise RuntimeError("Celery eager retry was not accepted")
+        return retry_signal
+    database_url = publication_database_url(
+        settings.jobs_publication_database_url,
+        settings.jobs_publication_database_url_file,
+    )
+    async with retry_publication_session(
+        database_url,
+        job_id,
+        task.request.id,
+        "app.workers.export.run_export",
+        list(task.request.args or ()),
+        dict(task.request.kwargs or {}),
+        task.request.retries + 1,
+    ) as (connection, arguments, needs_publish):
+        if not needs_publish:
+            return Retry(exc=error, when=5)
+        retry_signal = task.retry(exc=error, countdown=5, max_retries=120, throw=False)
+        if not isinstance(retry_signal, Retry):
+            raise RuntimeError("Celery retry publication was not acknowledged")
+        await settle_retry_publication(connection, arguments)
+        return retry_signal
+
+
+@celery_app.task(
+    bind=True,
+    name="app.workers.export.run_export",
+    acks_late=True,
+    reject_on_worker_lost=True,
+)
 def run_export(
     self,
     project_id: str,
@@ -294,7 +363,9 @@ def run_export(
             )
         )
     except ExportBuildInProgress as exc:
-        raise self.retry(exc=exc, countdown=5, max_retries=120) from exc
+        raise asyncio.run(
+            _publish_export_retry(self, uuid.UUID(async_job_id), exc)
+        ) from exc
 
 
 async def _scope_fingerprint(
@@ -717,16 +788,23 @@ async def _run_export(
     owned_media = False
     owned_terminal_guard = False
 
+    execution_database_url = export_execution_context.database_url(settings)
     engine = create_async_engine(settings.database_url, echo=False, poolclass=NullPool)
+    control_engine = create_async_engine(
+        execution_database_url, echo=False, poolclass=NullPool
+    )
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
     try:
-        async with engine.connect() as connection, SessionLocal(bind=connection) as db:
-            execution = _ExportExecution(db, connection)
+        async with (
+            engine.connect() as connection,
+            control_engine.connect() as control,
+            SessionLocal(bind=connection) as db,
+        ):
+            execution = _ExportExecution(db, connection, control)
             await execution.acquire(f"job:{job_uuid}")
-            if not await execution.admit_fixture(job_uuid):
-                return
+            context_token = export_execution_context.bind(execution)
             try:
                 job_row = (
                     await db.execute(job_lock_statement(job_uuid, mode="update"))
@@ -735,15 +813,14 @@ async def _run_export(
                     raise ValueError("export async job not found")
                 if job_row.status in {"completed", "failed", "cancelled"}:
                     return
+                await execution.begin(job_uuid, proj_uuid, celery_task_id)
                 if (
                     job_row.status == "running"
                     and job_row.celery_task_id
                     and job_row.celery_task_id != celery_task_id
+                    and not execution.takeover
                 ):
-                    # A duplicate delivery for the same durable job must not
-                    # build or publish a second artifact.
                     return
-                await execution.begin_fixture(job_uuid, proj_uuid)
                 project = await get_workspace_project(db, project_id=proj_uuid)
                 if (project is not None and project.data_type == "video") or (
                     "video_media" in (job_row.payload or {})
@@ -809,6 +886,7 @@ async def _run_export(
                             celery_task_id=celery_task_id,
                         )
                         return
+                await execution.enter_io()
                 await async_job_svc.mark_running(
                     db, job_uuid, celery_task_id=celery_task_id
                 )
@@ -1076,7 +1154,7 @@ async def _run_export(
                     size_bytes,
                 )
             except Exception as exc:  # noqa: BLE001
-                execution.unsettled = bool(
+                execution.unsettled = execution.entered or bool(
                     getattr(exc, "storage_operation_unsettled", False)
                 )
                 await db.rollback()
@@ -1135,21 +1213,28 @@ async def _run_export(
                     await db.rollback()
                 raise
             finally:
-                if execution.fixture_token is not None:
-                    original = sys.exc_info()[1]
-                    try:
-                        if execution.unsettled or getattr(
-                            original, "storage_operation_unsettled", False
-                        ):
-                            raise ExportExecutionLost(
-                                "fixture export physical work is unsettled"
-                            )
-                        await db.rollback()
-                        await execution.finish_fixture(job_uuid)
-                    except BaseException:
-                        if original is None:
-                            raise
-                        log.exception("fixture export execution remains unsettled")
+                try:
+                    if execution.token is not None:
+                        original = sys.exc_info()[1]
+                        try:
+                            if (
+                                execution.unsettled
+                                or (execution.entered and original is not None)
+                                or getattr(
+                                    original, "storage_operation_unsettled", False
+                                )
+                            ):
+                                raise ExportExecutionLost(
+                                    "export physical work is unsettled"
+                                )
+                            await db.rollback()
+                            await execution.finish(job_uuid)
+                        except BaseException:
+                            if original is None:
+                                raise
+                            log.exception("export execution remains unsettled")
+                finally:
+                    export_execution_context.reset(context_token)
     finally:
         if lock_client is not None:
             if lock_acquired and lock_key and lock_owner:
@@ -1164,3 +1249,4 @@ async def _run_export(
                     log.exception("export single-flight lock release failed")
             await lock_client.aclose()
         await engine.dispose()
+        await control_engine.dispose()

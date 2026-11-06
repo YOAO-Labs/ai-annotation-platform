@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.services import async_job, fixture_original_read
+from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from app.services import managed_original_reader as reader, original_sources
@@ -389,6 +390,7 @@ async def copy_source(
                 operation_purpose=plan.purpose(purpose(snapshot)),
             )
         )
+        await export_execution_context.enter_io()
         actor_id = await _async(
             _fixture_actor(db, snapshot, source, binding, resolve_source, guard)
         )
@@ -579,6 +581,7 @@ async def read_copy(db, snapshot, *, relative, guard, read):
     permit, admission, stage, failure, result = None, None, None, None, None
     try:
         permit = await _acquire(db, snapshot, uuid.UUID(owner.ref["location_id"]))
+        await export_execution_context.enter_io()
         await _async(_fresh_copy(db, snapshot, guard, permit.revision))
         source = SimpleNamespace(
             endpoint_url=owner.ref["endpoint_url"],

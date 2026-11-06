@@ -474,7 +474,7 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
             assert (
                 await db.scalar(
                     text(
-                        "SELECT state FROM yoao_fixture_v1.fixture_export_executions WHERE job_id=:job"
+                        "SELECT state FROM aap_export_v1.executions WHERE job_id=:job"
                     ),
                     {"job": job_id},
                 )

@@ -17,6 +17,7 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.services import async_job as jobs
+from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as media_storage
 from app.services import export_media_transfer as transfer
@@ -148,6 +149,7 @@ async def _io(
     )
     failure, result = None, None
     try:
+        await export_execution_context.enter_io()
         await transfer._async(fresh(permit.revision))
         result = await transfer.physical_work(call)
         await transfer._async(fresh(permit.revision))
@@ -184,6 +186,7 @@ async def _read_io(db, receipt, route, call, *, guard):
         await transfer._async(fresh())
 
     await transfer._async(fresh())
+    await export_execution_context.enter_io()
     async with transfer._session(db) as owned:
         result = await artifact_reads.run(
             owned, route, transfer.purpose(receipt), call, on_acquired=acquired
@@ -689,6 +692,7 @@ async def run_owned(
     )
 
     adapter = protocol(media_kind)
+    execution = export_execution_context.current()
     receipt = None
     reference_media = None
     path = None
@@ -698,7 +702,11 @@ async def run_owned(
         if job is None or job.status in {"completed", "failed", "cancelled"}:
             await db.rollback()
             return
-        if job.celery_task_id is not None and job.celery_task_id != celery_task_id:
+        if (
+            job.celery_task_id is not None
+            and job.celery_task_id != celery_task_id
+            and not execution.takeover
+        ):
             await db.rollback()
             return
         proof = (job.payload or {}).get(adapter.proof_key)
@@ -763,12 +771,16 @@ async def run_owned(
             elif receipt._input_snapshot.get("references"):
                 reject("reference_export_authority_missing")
         if receipt.lease_token is not None:
-            await db.rollback()
-            return
-        receipt = await bundles.claim(db, receipt.id)
-        if receipt is None:
-            await db.rollback()
-            return
+            if not execution.takeover:
+                await db.rollback()
+                return
+        else:
+            receipt = await bundles.claim(db, receipt.id)
+            if receipt is None:
+                await db.rollback()
+                return
+        if execution.takeover:
+            jobs.bind_execution_id(job, celery_task_id)
         await jobs.mark_running(db, job.id, celery_task_id=celery_task_id)
         await db.commit()
         claimed = True
@@ -803,6 +815,7 @@ async def run_owned(
             else:
                 await check_cancelled(db, receipt.job_id)
 
+        await export_execution_context.enter_io()
         path, file_count, size = await build_export_zip(
             db,
             receipt.project_id,

@@ -13,6 +13,7 @@ from billiard.exceptions import SoftTimeLimitExceeded
 import pytest
 
 from app.services import export_media_storage as physical
+from app.services import export_execution_context
 from app.services import export_media_transfer as transfer
 from app.services import managed_original_reader as reader
 from app.services import storage_access
@@ -70,6 +71,8 @@ class Snapshot:
 class Runtime:
     def __init__(self, monkeypatch, accounting_factory):
         self.base, self.engine = object(), object()
+        self.execution_entries = 0
+        monkeypatch.setattr(export_execution_context, "current", lambda: self)
         self.snapshot = Snapshot()
         self.source = Source(
             physical._runtime_endpoint(),
@@ -214,6 +217,9 @@ class Runtime:
         monkeypatch.setattr(reader, "create_client", source_client)
         monkeypatch.setattr(physical, "create_client", output_client)
         monkeypatch.setattr(transfer, "_slots", threading.BoundedSemaphore(2))
+
+    async def enter_io(self):
+        self.execution_entries += 1
 
     def physical(self, event, minimum_permits):
         assert all(session.closed for session in self.sessions)

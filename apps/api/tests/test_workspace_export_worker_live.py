@@ -50,6 +50,7 @@ from tests.test_workspace_cross_frame_worker_live import (
 )
 from tests.test_workspace_worker_assembly_live import (
     _broker_state,
+    _delete_owned_queue,
     _wait_broker_ack,
     _wait_worker_ready,
 )
@@ -304,13 +305,9 @@ def _grant_export_bundle(scope, export_bucket, receipt, owned_bundles):
     ref = receipt.storage_ref
     prefix = ref["key_prefix"]
     logical_prefix = export_media_storage.prefix_for(receipt.id)
-    assert prefix.endswith(logical_prefix)
-    assert ref["bucket"] == export_bucket
     zip_key = prefix[: -len(logical_prefix)] + export_storage.key_for(
         "image", receipt.project_id, receipt.job_id, receipt.zip_output_id
     )
-    assert receipt.fixture_run_id is None
-    assert receipt.expires_at - receipt.created_at == timedelta(hours=168)
     policy_name = f"aap-export-bundle-{receipt.id.hex}"
     owned_bundles.append(
         {
@@ -321,6 +318,10 @@ def _grant_export_bundle(scope, export_bucket, receipt, owned_bundles):
             "attached": False,
         }
     )
+    assert prefix.endswith(logical_prefix)
+    assert ref["bucket"] == export_bucket
+    assert receipt.fixture_run_id is None
+    assert receipt.expires_at - receipt.created_at == timedelta(hours=168)
     policy = {
         "Version": "2012-10-17",
         "Statement": [
@@ -508,7 +509,7 @@ async def _job_download_url(test_engine, job_id: uuid.UUID) -> str:
         return download_url
 
 
-async def _wait_export_build_gate(test_engine, worker, world) -> dict:
+async def _wait_export_build_gate(test_engine, worker, world, gate_pid) -> dict:
     client_address = worker.assert_runtime()["database_client_address"]
     deadline = asyncio.get_running_loop().time() + 75
     last = None
@@ -527,21 +528,45 @@ async def _wait_export_build_gate(test_engine, worker, world) -> dict:
                             "AND usename='identity_api_consumer' "
                             "AND client_addr=CAST(:client_address AS inet) "
                             "AND state='active' AND wait_event_type='Lock' "
-                            "AND query ILIKE '%predictions%' "
+                            "AND query ILIKE '%INSERT INTO storage_operations%' "
+                            "AND :gate_pid = ANY(pg_catalog.pg_blocking_pids(pid)) "
+                            "AND EXISTS (SELECT 1 FROM pg_catalog.pg_locks AS held "
+                            "WHERE held.pid=pg_stat_activity.pid "
+                            "AND held.relation='public.storage_operations'::regclass "
+                            "AND NOT held.granted) "
                             "ORDER BY query_start DESC LIMIT 1"
                         ),
-                        {"client_address": client_address},
+                        {"client_address": client_address, "gate_pid": gate_pid},
                     )
                 )
                 .mappings()
                 .first()
             )
-        last = {"job": job, "activity": dict(activity) if activity else None}
+            execution = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT state, checkpoint, generation, business_backend_pid "
+                            "FROM aap_export_v1.executions WHERE job_id=:job AND project_id=:project"
+                        ),
+                        {"job": world["job_id"], "project": world["project_id"]},
+                    )
+                )
+                .mappings()
+                .one_or_none()
+            )
+        last = {
+            "job": job,
+            "activity": dict(activity) if activity else None,
+            "execution": dict(execution) if execution else None,
+        }
         if (
             job["status"] == "running"
-            and job["progress_pct"] == 10
             and job["celery_task_id"]
             and activity is not None
+            and execution is not None
+            and execution["state"] == "running"
+            and execution["checkpoint"] == "quiescent"
         ):
             query = str(activity["query"])
             return {
@@ -549,12 +574,15 @@ async def _wait_export_build_gate(test_engine, worker, world) -> dict:
                 "activity": {
                     **dict(activity),
                     "query": query[:1000],
-                    "observed_build_marker": "predictions",
+                    "observed_build_marker": "storage_permit_before_physical_io",
                 },
+                "execution": dict(execution),
                 "worker_runtime": worker.assert_runtime(),
             }
         await asyncio.sleep(0.2)
-    raise AssertionError(f"export worker did not reach the build lock gate: {last}")
+    raise AssertionError(
+        f"export worker did not reach the pre-I/O admission gate: {last}"
+    )
 
 
 async def _postgres_lock_snapshot(test_engine, pid: int) -> list[dict]:
@@ -746,6 +774,85 @@ async def _owned_objects(owner_s3, bucket: str, prefix: str) -> set[str]:
     }
 
 
+def _delete_owned_object_prefix(owner_s3, bucket, prefix, *, exact=False):
+    objects = []
+    for page in owner_s3.get_paginator("list_object_versions").paginate(
+        Bucket=bucket, Prefix=prefix
+    ):
+        for item in page.get("Versions", []) + page.get("DeleteMarkers", []):
+            if not exact or item["Key"] == prefix:
+                objects.append({"Key": item["Key"], "VersionId": item["VersionId"]})
+    if not objects:
+        for page in owner_s3.get_paginator("list_objects_v2").paginate(
+            Bucket=bucket, Prefix=prefix
+        ):
+            objects.extend(
+                {"Key": item["Key"]}
+                for item in page.get("Contents", [])
+                if not exact or item["Key"] == prefix
+            )
+    for start in range(0, len(objects), 1000):
+        result = owner_s3.delete_objects(
+            Bucket=bucket,
+            Delete={"Objects": objects[start : start + 1000], "Quiet": True},
+        )
+        if result.get("Errors"):
+            raise RuntimeError("Owned export object deletion was not confirmed")
+
+
+async def _retire_owned_export_executions(test_engine, project_id, owned_bundles):
+    if not owned_bundles:
+        return False
+    async with test_engine.connect() as db:
+        transaction = await db.begin()
+        try:
+            for job_id in sorted(
+                {bundle["job_id"] for bundle in owned_bundles}, key=str
+            ):
+                for prefix in ("aap-export:job:", "aap-export:control:"):
+                    held = await db.scalar(
+                        text(
+                            "SELECT pg_catalog.pg_try_advisory_xact_lock("
+                            "pg_catalog.hashtextextended(:prefix || "
+                            "CAST(CAST(:job AS uuid) AS text), 0))"
+                        ),
+                        {"prefix": prefix, "job": job_id},
+                    )
+                    if not held:
+                        await transaction.rollback()
+                        return False
+                execution_ids = list(
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT DISTINCT execution_id FROM aap_jobs_v1.dispatch_intents "
+                                "WHERE job_id=:job ORDER BY execution_id"
+                            ),
+                            {"job": job_id},
+                        )
+                    ).scalars()
+                )
+                if not execution_ids or not await db.scalar(
+                    text(
+                        "SELECT aap_jobs_v1.retire_job_publications("
+                        ":job, CAST(:executions AS text[]))"
+                    ),
+                    {"job": job_id, "executions": execution_ids},
+                ):
+                    await transaction.rollback()
+                    return False
+                if not await db.scalar(
+                    text("SELECT aap_export_v1.retire_execution(:job, :project)"),
+                    {"job": job_id, "project": project_id},
+                ):
+                    await transaction.rollback()
+                    return False
+            await transaction.commit()
+            return True
+        except BaseException:
+            if transaction.is_active:
+                await transaction.rollback()
+            raise
 
 
 async def _assert_ordinary_output_retention(test_engine, job_id):
@@ -815,7 +922,8 @@ async def _notification_counts(test_engine, job_ids: list[uuid.UUID]) -> dict[st
         return {str(job_id): int(count) for job_id, count in rows}
 
 
-def _send_export(
+async def _send_export(
+    test_engine,
     sender: Celery,
     worker,
     world,
@@ -824,18 +932,36 @@ def _send_export(
     *,
     opts: dict | None = None,
 ):
-    return sender.send_task(
-        _TASK_NAME,
-        args=[
-            str(world["project_id"]),
-            None,
-            ["native_json"],
-            dict(_TASK_OPTS if opts is None else opts),
-            str(job_id),
-        ],
-        queue=worker.queue,
-        task_id=delivery_id,
+    from app.services.jobs_dispatch import (
+        prepare_job_dispatch,
+        publish_prepared_dispatch,
     )
+
+    args = [
+        str(world["project_id"]),
+        None,
+        ["native_json"],
+        dict(_TASK_OPTS if opts is None else opts),
+        str(job_id),
+    ]
+    maker = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with maker() as db:
+        lease = await prepare_job_dispatch(
+            db,
+            job_id=job_id,
+            task_name=_TASK_NAME,
+            execution_id=delivery_id,
+            args=args,
+            options={"queue": worker.queue},
+        )
+        await db.commit()
+        return await publish_prepared_dispatch(
+            db,
+            lease,
+            publish=lambda: sender.send_task(
+                _TASK_NAME, args=args, queue=worker.queue, task_id=delivery_id
+            ),
+        )
 
 
 async def test_export_recovers_after_worker_loss(
@@ -846,13 +972,12 @@ async def test_export_recovers_after_worker_loss(
     resources, _, owner_s3 = await assert_workspace_identity(test_engine)
     request.addfinalizer(owner_s3.close)
     export_bucket = resources["buckets"]["MINIO_EXPORT_BUCKET"]
+    source_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     minio_origin = endpoint_url()
     minio_parts = urlsplit(minio_origin)
     assert minio_parts.scheme in {"http", "https"} and minio_parts.hostname
     world = await _seed_export_world(test_engine)
-    scope, _ = _create_export_storage_scope(
-        resources, owner_s3, settings, world
-    )
+    scope, _ = _create_export_storage_scope(resources, owner_s3, settings, world)
     worker = None
     sender = None
     gate = None
@@ -864,7 +989,6 @@ async def test_export_recovers_after_worker_loss(
     owned_bundles = []
     observation: dict = {"world": {key: str(value) for key, value in world.items()}}
     try:
-        source_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
         worker_default_bucket = resources["buckets"]["MINIO_BUCKET"]
         owner_s3.put_object(
             Bucket=source_bucket,
@@ -882,7 +1006,11 @@ async def test_export_recovers_after_worker_loss(
             test_engine, world, scope, export_bucket, owned_bundles
         )
         world["revoked_job_id"] = await _create_fresh_job(
-            test_engine, world, scope, export_bucket, owned_bundles,
+            test_engine,
+            world,
+            scope,
+            export_bucket,
+            owned_bundles,
             actor_id=world["revoked_reviewer_id"],
         )
         observation["world"] = {key: str(value) for key, value in world.items()}
@@ -897,9 +1025,9 @@ async def test_export_recovers_after_worker_loss(
             object_store_secret_key=scope["secret_key"],
             object_store_buckets=resources["buckets"],
         )
-        assert f"{minio_parts.scheme}://{worker.object_store_endpoint}" == minio_origin, (
-            "The producer and private worker must use the same saved storage endpoint"
-        )
+        assert (
+            f"{minio_parts.scheme}://{worker.object_store_endpoint}" == minio_origin
+        ), "The producer and private worker must use the same saved storage endpoint"
         if worker.object_store_access_key == settings.minio_access_key or (
             worker.object_store_secret_key == settings.minio_secret_key
         ):
@@ -918,7 +1046,8 @@ async def test_export_recovers_after_worker_loss(
 
         await _assert_workspace_consumer_closure(test_engine)
         revoked_delivery_id = str(uuid.uuid4())
-        deliveries[revoked_delivery_id] = _send_export(
+        deliveries[revoked_delivery_id] = await _send_export(
+            test_engine,
             sender,
             worker,
             world,
@@ -1010,13 +1139,16 @@ async def test_export_recovers_after_worker_loss(
         gate = await test_engine.connect()
         gate_tx = await gate.begin()
         await gate.execute(
-            text("LOCK TABLE public.predictions IN ACCESS EXCLUSIVE MODE")
+            text("LOCK TABLE public.storage_operations IN ACCESS EXCLUSIVE MODE")
         )
+        gate_pid = await gate.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
         first_delivery_id = str(uuid.uuid4())
-        deliveries[first_delivery_id] = _send_export(
-            sender, worker, world, world["job_id"], first_delivery_id
+        deliveries[first_delivery_id] = await _send_export(
+            test_engine, sender, worker, world, world["job_id"], first_delivery_id
         )
-        gate_evidence = await _wait_export_build_gate(test_engine, worker, world)
+        gate_evidence = await _wait_export_build_gate(
+            test_engine, worker, world, gate_pid
+        )
         observation["build_gate"] = gate_evidence
         assert gate_evidence["job"]["celery_task_id"] == first_delivery_id
         assert gate_evidence["activity"]["usename"] == "identity_api_consumer"
@@ -1109,8 +1241,8 @@ async def test_export_recovers_after_worker_loss(
         } == {worker.queue}
 
         new_delivery_id = str(uuid.uuid4())
-        deliveries[new_delivery_id] = _send_export(
-            sender, worker, world, world["job_id"], new_delivery_id
+        deliveries[new_delivery_id] = await _send_export(
+            test_engine, sender, worker, world, world["job_id"], new_delivery_id
         )
         observation["same_job_new_delivery"] = await _wait_delivery_and_job(
             sender, test_engine, new_delivery_id, world["job_id"], timeout=75
@@ -1153,8 +1285,8 @@ async def test_export_recovers_after_worker_loss(
             test_engine, world, scope, export_bucket, owned_bundles
         )
         fresh_delivery_id = str(uuid.uuid4())
-        deliveries[fresh_delivery_id] = _send_export(
-            sender, worker, world, fresh_job_id, fresh_delivery_id
+        deliveries[fresh_delivery_id] = await _send_export(
+            test_engine, sender, worker, world, fresh_job_id, fresh_delivery_id
         )
         observation["fresh_same_scope_job"] = await _wait_delivery_and_job(
             sender, test_engine, fresh_delivery_id, fresh_job_id, timeout=35
@@ -1214,7 +1346,6 @@ async def test_export_recovers_after_worker_loss(
 
         assert kill_record.get("exit_code") == 137, kill_record
         assert observation["job_after_kill_while_gate_held"]["status"] == "running"
-        assert observation["job_after_kill_while_gate_held"]["progress_pct"] == 10
         assert observation["artifact_after_kill_while_gate_held"]["count"] == 0
         assert observation["notifications_after_kill_while_gate_held"] == 0
         recovered = job_snapshots["recovered"]
@@ -1307,9 +1438,11 @@ async def test_export_recovers_after_worker_loss(
         gate = await test_engine.connect()
         gate_tx = await gate.begin()
         await gate.execute(
-            text("LOCK TABLE public.predictions IN ACCESS EXCLUSIVE MODE")
+            text("LOCK TABLE public.storage_operations IN ACCESS EXCLUSIVE MODE")
         )
-        deliveries[child_delivery_id] = _send_export(
+        gate_pid = await gate.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
+        deliveries[child_delivery_id] = await _send_export(
+            test_engine,
             sender,
             worker,
             child_world,
@@ -1317,7 +1450,9 @@ async def test_export_recovers_after_worker_loss(
             child_delivery_id,
             opts=child_opts,
         )
-        child_gate = await _wait_export_build_gate(test_engine, worker, child_world)
+        child_gate = await _wait_export_build_gate(
+            test_engine, worker, child_world, gate_pid
+        )
         child_active = await _wait_active_export_task(sender, worker, child_delivery_id)
         child_worker_pid = int(child_active["worker_pid"])
         child_database_pid = int(child_gate["activity"]["pid"])
@@ -1442,7 +1577,6 @@ async def test_export_recovers_after_worker_loss(
     finally:
         primary = sys.exception()
         cleanup_outcomes = {
-            "retained": "ordinary export execution settlement and delivery fence unproven",
             "storage_policy": scope["policy"],
             "bundle_policies": [bundle["policy"] for bundle in owned_bundles],
             "bundles": [str(bundle["job_id"]) for bundle in owned_bundles],
@@ -1455,32 +1589,103 @@ async def test_export_recovers_after_worker_loss(
             try:
                 await gate_tx.rollback()
                 cleanup_outcomes["gate_released"] = True
-            except Exception as exc:
+            except BaseException as exc:
                 errors.append(f"gate rollback: {exc!r}")
         if gate is not None:
             try:
                 await gate.close()
-            except Exception as exc:
+            except BaseException as exc:
                 errors.append(f"gate close: {exc!r}")
+        retired = False
+        if not errors:
+            try:
+                retired = await _retire_owned_export_executions(
+                    test_engine, world["project_id"], owned_bundles
+                )
+            except BaseException as exc:
+                errors.append(f"native retirement: {exc!r}")
+        cleanup_outcomes["native_retirement_confirmed"] = retired
+        if retired and worker is not None:
+            try:
+                worker.stop()
+                cleanup_outcomes["worker_stopped"] = True
+            except BaseException as exc:
+                errors.append(f"worker stop: {exc!r}")
+        if (
+            retired
+            and worker is not None
+            and cleanup_outcomes.get("worker_stopped")
+            and sender is not None
+        ):
+            try:
+                await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)
+                for delivery_id in deliveries:
+                    await asyncio.to_thread(sender.AsyncResult(delivery_id).forget)
+                cleanup_outcomes["broker_retired"] = True
+            except BaseException as exc:
+                errors.append(f"broker cleanup: {exc!r}")
+        if retired and cleanup_outcomes.get("broker_retired") and not errors:
+            try:
+                _delete_owned_object_prefix(
+                    owner_s3, source_bucket, world["source_key"], exact=True
+                )
+                for bundle in owned_bundles:
+                    _delete_owned_object_prefix(
+                        owner_s3, export_bucket, bundle["zip_key"], exact=True
+                    )
+                    _delete_owned_object_prefix(
+                        owner_s3, export_bucket, bundle["prefix"]
+                    )
+                cleanup_outcomes["owned_objects_deleted"] = True
+            except BaseException as exc:
+                errors.append(f"object cleanup: {exc!r}")
+        if cleanup_outcomes.get("owned_objects_deleted") and not errors:
+            from verify_module_data_boundary import _cleanup_mc
+
+            try:
+                for bundle in owned_bundles:
+                    if bundle["attached"]:
+                        _cleanup_mc(
+                            scope,
+                            [
+                                "admin",
+                                "policy",
+                                "detach",
+                                "scoped",
+                                bundle["policy"],
+                                "--user",
+                                scope["access_key"],
+                            ],
+                        )
+                    if bundle.get("created"):
+                        _cleanup_mc(
+                            scope,
+                            ["admin", "policy", "remove", "scoped", bundle["policy"]],
+                        )
+                from verify_module_data_boundary import _destroy_cleanup_storage_scope
+
+                _destroy_cleanup_storage_scope(scope)
+                cleanup_outcomes["storage_scope_destroyed"] = True
+            except BaseException as exc:
+                errors.append(f"storage scope cleanup: {exc!r}")
         if sender is not None:
             try:
                 sender.close()
-            except Exception as exc:
+            except BaseException as exc:
                 errors.append(f"sender close: {exc!r}")
+        if not cleanup_outcomes.get("storage_scope_destroyed"):
+            cleanup_outcomes["retained"] = "native settlement or cleanup unconfirmed"
         cleanup_outcomes["errors"] = errors
         try:
             record_property(
                 "workspace_export_hard_loss_cleanup",
                 json.dumps(cleanup_outcomes, default=str),
             )
-        except Exception as exc:
+        except BaseException as exc:
             errors.append(f"record cleanup evidence: {exc!r}")
-        message = (
-            "Retained worker, broker, objects and credentials: ordinary export has no "
-            "durable execution-settlement and delivery-fencing proof for cleanup; "
-            f"cleanup evidence: {cleanup_outcomes}"
-        )
-        if primary is not None:
-            primary.add_note(message)
-        else:
-            raise RuntimeError(message)
+        if errors or not cleanup_outcomes.get("storage_scope_destroyed"):
+            message = f"Export cleanup retained evidence: {cleanup_outcomes}"
+            if primary is not None:
+                primary.add_note(message)
+            else:
+                raise RuntimeError(message)

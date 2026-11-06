@@ -665,8 +665,32 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         )
         job_id = job.id
 
-    # The worker and its fresh transfer sessions use real independent
-    # connections to the fixture's disposable owner database.
+    # The storage provider here is simulated.  Do not manufacture native
+    # completion evidence for it; the live worker test exercises that owner.
+    class IsolatedExecution:
+        def __init__(self, *_args):
+            self.token = None
+            self.fixture_token = None
+            self.takeover = False
+            self.unsettled = False
+            self.entered = False
+            self.lost = False
+
+        async def acquire(self, key):
+            self.key = key
+
+        async def begin(self, job_id, _project_id, delivery_id):
+            assert self.key == f"job:{job_id}" and delivery_id == "test-export"
+
+        async def enter_io(self):
+            self.entered = True
+
+    monkeypatch.setattr(worker, "_ExportExecution", IsolatedExecution)
+    monkeypatch.setattr(
+        worker.export_execution_context,
+        "database_url",
+        lambda _settings: test_engine.url,
+    )
     monkeypatch.setattr(
         worker,
         "create_async_engine",

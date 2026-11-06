@@ -24,7 +24,12 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.services import export_media_storage as physical
-from app.services import export_outputs, export_storage, storage_access
+from app.services import (
+    export_execution_context,
+    export_outputs,
+    export_storage,
+    storage_access,
+)
 from app.services.content_snapshot import ContentError
 from app.services.exporting import lidar_delivery, lidar_jobs, output_authority
 from app.services.exporting.lidar_frozen import FrozenLidar
@@ -68,6 +73,9 @@ class Harness:
         self.guard = None
         self.built_paths = []
         self.notices = []
+        self.takeover = False
+        self.execution_entries = 0
+        monkeypatch.setattr(export_execution_context, "current", lambda: self)
 
         async def authorize(db, *_args, **_kwargs):
             if self.revoked:
@@ -166,6 +174,9 @@ class Harness:
                 if key.startswith(physical.resolve(record).prefix)
             },
         )
+
+    async def enter_io(self):
+        self.execution_entries += 1
 
 
 async def request(db, project, *, targets=None, axis_frame=None):

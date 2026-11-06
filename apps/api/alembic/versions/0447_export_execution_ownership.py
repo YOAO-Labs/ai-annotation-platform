@@ -1,0 +1,36 @@
+"""Bind Jobs publication and Export execution to independent owners."""
+
+from pathlib import Path
+
+from alembic import op
+import sqlalchemy as sa
+
+revision = "bo0447"
+down_revision = "bo0446"
+branch_labels = depends_on = None
+
+
+def _execute(name: str) -> None:
+    source = (Path(__file__).resolve().parents[1] / "sql" / name).read_text(
+        encoding="utf-8"
+    )
+    for statement in source.split("-- aap-statement-break"):
+        if statement.strip():
+            op.execute(
+                sa.text(statement.strip().replace(":", r"\:")).execution_options(
+                    no_parameters=True
+                )
+            )
+
+
+def upgrade() -> None:
+    _execute("0447_jobs_publication_execution.sql")
+    _execute("0447_export_execution.sql")
+    _execute("0447_export_fixture_rebind.sql")
+    op.execute("DROP FUNCTION public.fixture_export_execution_admitted(uuid)")
+    op.execute("DROP FUNCTION public.begin_fixture_export_execution(uuid,uuid,uuid)")
+    op.execute("DROP FUNCTION public.finish_fixture_export_execution(uuid,uuid)")
+
+
+def downgrade() -> None:
+    raise RuntimeError("Cannot discard saved export execution or publication evidence")

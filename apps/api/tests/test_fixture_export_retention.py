@@ -148,34 +148,19 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session, tmp_pat
         )
         is None
     )
-    native_execution = {
-        "job": native_job.id,
-        "project": lidar_project.id,
-        "token": uuid.uuid4(),
-    }
-    assert (
-        await db_session.scalar(
-            text(
-                "SELECT public.begin_fixture_export_execution(:job, :project, :token)"
-            ),
-            native_execution,
-        )
-        == "started"
-    )
     path = tmp_path / "native.zip"
     path.write_bytes(b"native fixture output")
-    native_output = await export_outputs.create(
-        db_session,
-        project_id=lidar_project.id,
-        job_id=native_job.id,
-        media="image",
-        format="native_json",
-        file_count=1,
-        path=str(path),
-    )
-    assert native_output.media_bundle_id is None
-    assert native_output.created_at == lifetime.created_at
-    assert native_output.expires_at == lifetime.expires_at
+    with pytest.raises(IntegrityError):
+        async with db_session.begin_nested():
+            await export_outputs.create(
+                db_session,
+                project_id=lidar_project.id,
+                job_id=native_job.id,
+                media="image",
+                format="native_json",
+                file_count=1,
+                path=str(path),
+            )
     ordinary_output = await export_outputs.create(
         db_session,
         project_id=lidar_project.id,
@@ -205,22 +190,6 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session, tmp_pat
         row = await allocate(job)
         assert row.fixture_run_id is None
         assert row.expires_at - row.created_at == timedelta(hours=168)
-    execution = {"job": own.id, "project": project.id, "token": uuid.uuid4()}
-    assert await db_session.scalar(
-        text(
-            "SELECT pg_try_advisory_xact_lock("
-            "hashtextextended('aap-export:job:' || CAST(CAST(:job AS uuid) AS text), 0))"
-        ),
-        execution,
-    )
-    admit = text("SELECT public.fixture_export_execution_admitted(:job)")
-    begin = text("SELECT public.begin_fixture_export_execution(:job, :project, :token)")
-    finish = text("SELECT public.finish_fixture_export_execution(:job, :token)")
-    assert await db_session.scalar(admit, execution)
-    assert await db_session.scalar(begin, execution) == "started"
-    assert not await db_session.scalar(admit, execution)
-    assert await db_session.scalar(begin, execution) == "blocked"
-    assert not await db_session.scalar(finish, {**execution, "token": uuid.uuid4()})
 
     await bundle_models._reject_update(db_session, short, fixture_run_id=None)
     await bundle_models._reject_update(
@@ -236,29 +205,14 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session, tmp_pat
     run = await db_session.get(FixtureRun, run_id)
     run.state, run.sealed_at = "sealing", datetime.now(timezone.utc)
     await db_session.flush()
-    native_job.status = "failed"
-    await db_session.flush()
     native_scope = {"run": run_id, "project": lidar_project.id, "job": native_job.id}
     assert not await db_session.scalar(
-        text("SELECT public.retire_fixture_export_execution(:run, :project, :job)"),
-        native_scope,
-    )
-    assert await db_session.scalar(
-        text("SELECT public.finish_fixture_export_execution(:job, :token)"),
-        native_execution,
-    )
-    assert await db_session.scalar(
         text("SELECT public.retire_fixture_export_execution(:run, :project, :job)"),
         native_scope,
     )
     assert not await db_session.scalar(
         text("SELECT public.fixture_export_retired(:run, :project, :job)"), native_scope
     )
-    assert not await export_outputs._cleanup_one(
-        db_session, native_output.id, {"removed": 0}
-    )
-    own.status = "failed"
-    await db_session.flush()
     scope = {"run": run_id, "project": project.id, "job": own.id}
     retire_execution = text(
         "SELECT public.retire_fixture_export_execution(:run, :project, :job)"
@@ -268,17 +222,14 @@ async def test_private_owner_deadline_and_neighbor_authority(db_session, tmp_pat
     )
     assert not await db_session.scalar(retire_execution, scope)
     assert not await db_session.scalar(execution_proof, scope)
-    assert await db_session.scalar(finish, execution)
     assert not await db_session.scalar(retire_execution, {**scope, "run": uuid.uuid4()})
-    assert await db_session.scalar(retire_execution, scope)
-    assert await db_session.scalar(execution_proof, scope)
-    assert not await db_session.scalar(admit, execution)
     with pytest.raises(
         IntegrityError, match="fixture export Job identity cannot be reused"
     ):
         async with db_session.begin_nested():
             await db_session.execute(
-                text("INSERT INTO public.async_jobs (id) VALUES (:job)"), execution
+                text("INSERT INTO public.async_jobs (id) VALUES (:job)"),
+                {"job": own.id},
             )
     proof = text("SELECT public.fixture_export_retired(:run, :project, :job)")
     assert not await db_session.scalar(

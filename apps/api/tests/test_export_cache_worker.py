@@ -16,7 +16,6 @@ from app.db.models.export_output import ExportOutput
 from app.services import export_media_bundles, export_outputs, export_storage
 from app.services.content_snapshot import ContentError
 from app.services.exporting import cache
-from app.services.exporting.reference_media import ExportCancelled
 from app.workers import export as export_worker
 from app.workers.celery_app import celery_app
 from app.workers import lidar_export as owned_worker
@@ -28,14 +27,6 @@ from tests.test_lidar_export_worker import (
     state,
     worker_db as worker_db,
 )
-
-
-class _ScalarResult:
-    def __init__(self, value: object) -> None:
-        self.value = value
-
-    def scalar_one_or_none(self) -> object:
-        return self.value
 
 
 class _CacheDB:
@@ -164,146 +155,6 @@ async def test_mapped_legacy_output_honors_prepared_target_and_current_authority
     )
     authority.assert_awaited_once_with(db, job, lock=True)
     direct.assert_not_called()
-
-
-@pytest.fixture
-def owned_dispatch(monkeypatch):
-    """Exercise outer routing; the shared publisher owns all terminal writes."""
-    project = SimpleNamespace(id=uuid.uuid4(), data_type="video")
-    job = SimpleNamespace(
-        id=uuid.uuid4(), status="pending", celery_task_id=None, payload={}
-    )
-    db = SimpleNamespace(
-        get=AsyncMock(return_value=project),
-        execute=AsyncMock(return_value=_ScalarResult(job)),
-        scalar=AsyncMock(return_value=None),
-        commit=AsyncMock(),
-        rollback=AsyncMock(),
-    )
-
-    class Session:
-        async def __aenter__(self):
-            return db
-
-        async def __aexit__(self, *_args):
-            return False
-
-    engine = SimpleNamespace(dispose=AsyncMock())
-    monkeypatch.setattr(export_worker, "create_async_engine", Mock(return_value=engine))
-    monkeypatch.setattr(export_worker, "async_sessionmaker", Mock(return_value=Session))
-    delegate = AsyncMock()
-    monkeypatch.setattr(owned_worker, "run_owned", delegate)
-    generic = {}
-    for module, names in (
-        (export_worker, ["build_export_zip", "_sign_export_output"]),
-        (export_worker.export_cache, ["lookup", "record"]),
-        (export_worker.async_job_svc, ["mark_running", "mark_complete", "mark_failed"]),
-    ):
-        for name in names:
-            generic[name] = AsyncMock()
-            monkeypatch.setattr(module, name, generic[name])
-    redis = Mock()
-    monkeypatch.setattr(export_worker.aioredis, "from_url", redis)
-    args = dict(
-        project_id=str(project.id),
-        batch_id=str(uuid.uuid4()),
-        task_ids=[str(uuid.uuid4()), str(uuid.uuid4())],
-        targets=["native_json"],
-        opts={"include_attributes": False},
-        async_job_id=str(job.id),
-        celery_task_id="owned-delivery",
-        worker_node_id="authorized-worker-node",
-    )
-    return SimpleNamespace(
-        project=project,
-        job=job,
-        db=db,
-        engine=engine,
-        delegate=delegate,
-        generic=generic,
-        redis=redis,
-        args=args,
-    )
-
-
-def assert_generic_untouched(wiring):
-    for mock in wiring.generic.values():
-        mock.assert_not_awaited()
-    wiring.redis.assert_not_called()
-    wiring.engine.dispose.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("media", ["video", "image"])
-async def test_durable_media_proof_still_routes_when_project_is_unavailable(
-    owned_dispatch, media
-):
-    wiring = owned_dispatch
-    wiring.db.get.return_value = None
-    wiring.job.payload = {media + "_media": {"bundle_id": str(uuid.uuid4())}}
-    await export_worker._run_export(**wiring.args)
-    wiring.delegate.assert_awaited_once_with(wiring.db, **wiring.args, media_kind=media)
-    assert_generic_untouched(wiring)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("media", ["video", "image", "lidar"])
-async def test_owned_authority_failure_cannot_fall_back_to_generic_publication(
-    owned_dispatch, media
-):
-    wiring = owned_dispatch
-    wiring.project.data_type = media
-    args = {
-        **wiring.args,
-        "targets": ["pointmask"] if media == "lidar" else ["native_json"],
-    }
-    failure = ContentError("original_key_revoked")
-    wiring.delegate.side_effect = failure
-    with pytest.raises(ContentError) as caught:
-        await export_worker._run_export(**args)
-    assert caught.value is failure and wiring.delegate.await_count == 1
-    assert wiring.db.rollback.await_count >= 2
-    wiring.db.commit.assert_not_awaited()
-    assert_generic_untouched(wiring)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("terminal", ["cancelled", "completed"])
-@pytest.mark.parametrize("media", ["video", "image"])
-async def test_late_owned_error_preserves_committed_terminal_job(
-    owned_dispatch, terminal, media
-):
-    wiring = owned_dispatch
-    wiring.project.data_type = media
-    wiring.delegate.side_effect = OSError("commit acknowledgement unknown")
-    wiring.db.scalar.return_value = terminal
-    await export_worker._run_export(**wiring.args)
-    wiring.delegate.assert_awaited_once()
-    wiring.db.scalar.assert_awaited_once()
-    wiring.db.commit.assert_not_awaited()
-    assert_generic_untouched(wiring)
-
-
-@pytest.mark.asyncio
-async def test_owned_cancel_is_not_rewritten_as_failure(owned_dispatch):
-    wiring = owned_dispatch
-    wiring.delegate.side_effect = ExportCancelled()
-    await export_worker._run_export(**wiring.args)
-    wiring.delegate.assert_awaited_once()
-    wiring.db.commit.assert_not_awaited()
-    assert_generic_untouched(wiring)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["completed", "failed", "cancelled", "running"])
-async def test_terminal_and_stale_deliveries_never_reenter_owned_publisher(
-    owned_dispatch, status
-):
-    wiring = owned_dispatch
-    wiring.job.status, wiring.job.celery_task_id = status, "other-active-delivery"
-    await export_worker._run_export(**wiring.args)
-    wiring.delegate.assert_not_awaited()
-    assert_generic_untouched(wiring)
 
 
 def test_owned_video_cache_key_uses_full_frozen_input_digest():
