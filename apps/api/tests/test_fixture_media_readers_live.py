@@ -284,7 +284,7 @@ async def _assert_frame(media, request):
 
 
 async def _check_listener_teardown(test_engine, run_id, monkeypatch):
-    """Gate deregistration while retaining a real PostgreSQL LISTEN socket."""
+    """Exercise native disconnect, stalled socket reads and unsubscribe cancellation."""
     engine = create_async_engine(test_engine.url, pool_size=2, max_overflow=0)
     factory = async_sessionmaker(engine, expire_on_commit=False)
     add_listener = asyncpg.Connection.add_listener
@@ -302,7 +302,9 @@ async def _check_listener_teardown(test_engine, run_id, monkeypatch):
     try:
         with monkeypatch.context() as patch:
             patch.setattr(asyncpg.Connection, "add_listener", capture)
-            wait = asyncio.create_task(wait_for_fixture_original_readers(factory, run_id))
+            wait = asyncio.create_task(
+                wait_for_fixture_original_readers(factory, run_id)
+            )
             await asyncio.wait_for(subscribed.wait(), 10)
             wait.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -318,13 +320,48 @@ async def _check_listener_teardown(test_engine, run_id, monkeypatch):
                         text("SELECT EXISTS (SELECT 1 FROM pg_listening_channels())")
                     )
 
-            for mode in ("timeout", "cancel_during_unlisten"):
+            subscribed.clear()
+            wait = asyncio.create_task(
+                wait_for_fixture_original_readers(factory, run_id)
+            )
+            await asyncio.wait_for(subscribed.wait(), 10)
+            disconnected = listeners.pop()
+            async with test_engine.begin() as db:
+                assert await db.scalar(
+                    text("SELECT pg_terminate_backend(:pid)"),
+                    {"pid": disconnected.get_server_pid()},
+                )
+            with pytest.raises(
+                fixture_prediction_retirement.FixturePredictionRetirementBlocked,
+                match="original_reader_listener_unavailable",
+            ):
+                await asyncio.wait_for(wait, 3)
+            assert disconnected.is_closed()
+
+            for mode in (
+                "timeout",
+                "socket_stall",
+                "cancel_during_unlisten",
+                "invalid_scope_cancel_during_unlisten",
+                "deadline_cancel_during_unlisten",
+            ):
+                wait_run_id = (
+                    uuid.uuid4() if mode.startswith("invalid_scope") else run_id
+                )
+                channel = "aap_fixture_reader_" + wait_run_id.hex
                 subscribed.clear()
                 deregistering = asyncio.Event()
                 release = asyncio.Event()
 
                 async def hold_unlisten(connection, query, *args, **kwargs):
                     if query == f'UNLISTEN "{channel}"':
+                        if mode == "socket_stall":
+                            # Finish Parse/Describe first so the paused socket
+                            # stalls the actual UNLISTEN execution response.
+                            statement = await connection.prepare(query)
+                            connection._transport.pause_reading()
+                            deregistering.set()
+                            return await statement.fetch(*args, **kwargs)
                         deregistering.set()
                         await release.wait()
                     return await fetch(connection, query, *args, **kwargs)
@@ -332,24 +369,71 @@ async def _check_listener_teardown(test_engine, run_id, monkeypatch):
                 with patch.context() as fault:
                     fault.setattr(asyncpg.Connection, "fetch", hold_unlisten)
                     fault.setattr(
-                        fixture_prediction_retirement, "_LISTENER_CLOSE_SECONDS", 0.1
+                        fixture_prediction_retirement,
+                        "_LISTENER_CLOSE_SECONDS",
+                        2 if mode == "socket_stall" else 0.1,
                     )
                     deadline = asyncio.get_running_loop().time() + (
-                        5 if mode == "timeout" else 10
+                        10
+                        if mode
+                        in (
+                            "cancel_during_unlisten",
+                            "invalid_scope_cancel_during_unlisten",
+                        )
+                        else 5
                     )
                     wait = asyncio.create_task(
                         wait_for_fixture_original_readers(
-                            factory, run_id, deadline=deadline
+                            factory, wait_run_id, deadline=deadline
                         )
                     )
                     await asyncio.wait_for(subscribed.wait(), 10)
                     if mode == "cancel_during_unlisten":
                         wait.cancel()
                     await asyncio.wait_for(deregistering.wait(), 10)
-                    if mode == "cancel_during_unlisten":
+                    if mode == "socket_stall":
+                        native_pid = listeners[-1].get_server_pid()
+
+                        async def unlisten_reached_server():
+                            async with test_engine.connect() as db:
+                                return await db.scalar(
+                                    text(
+                                        "SELECT EXISTS (SELECT 1 FROM pg_stat_activity "
+                                        "WHERE pid=:pid AND query=:query AND state='idle')"
+                                    ),
+                                    {
+                                        "pid": native_pid,
+                                        "query": f'UNLISTEN "{channel}"',
+                                    },
+                                )
+
+                        await _eventually(
+                            "native UNLISTEN with unread response",
+                            unlisten_reached_server,
+                            timeout=1,
+                        )
+                    if mode not in ("timeout", "socket_stall"):
                         wait.cancel()
-                        with pytest.raises(asyncio.CancelledError):
+                        with pytest.raises(asyncio.CancelledError) as cancelled:
                             await asyncio.wait_for(wait, 3)
+                        cause = cancelled.value.__cause__
+                        if mode == "cancel_during_unlisten":
+                            assert isinstance(cause, asyncio.CancelledError)
+                        else:
+                            assert isinstance(
+                                cause,
+                                fixture_prediction_retirement.FixturePredictionRetirementBlocked,
+                            )
+                            if mode.startswith("invalid_scope"):
+                                assert str(cause) == "original_reader_scope_invalid"
+                            else:
+                                assert str(cause) in (
+                                    "original_reader_pending",
+                                    "original_reader_deadline",
+                                )
+                                assert isinstance(
+                                    cause.__cause__, asyncio.CancelledError
+                                )
                     else:
                         with pytest.raises(
                             fixture_prediction_retirement.FixturePredictionRetirementBlocked,
@@ -360,10 +444,14 @@ async def _check_listener_teardown(test_engine, run_id, monkeypatch):
                     assert unproved.is_closed()
                     async with engine.connect() as first, engine.connect() as second:
                         for connection in (first, second):
-                            raw = (await connection.get_raw_connection()).driver_connection
+                            raw = (
+                                await connection.get_raw_connection()
+                            ).driver_connection
                             assert raw is not unproved
                             assert not await connection.scalar(
-                                text("SELECT EXISTS (SELECT 1 FROM pg_listening_channels())")
+                                text(
+                                    "SELECT EXISTS (SELECT 1 FROM pg_listening_channels())"
+                                )
                             )
     finally:
         await engine.dispose()
@@ -539,13 +627,17 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             channel = "aap_fixture_reader_" + run_a.run_id.hex
             status_seen = asyncio.Event()
 
-            def observe_status(_connection, _cursor, statement, _parameters, _context, _many):
+            def observe_status(
+                _connection, _cursor, statement, _parameters, _context, _many
+            ):
                 if statement.startswith(
                     "SELECT aap_assets_v1.fixture_original_readers_empty("
                 ):
                     status_seen.set()
 
-            event.listen(test_engine.sync_engine, "after_cursor_execute", observe_status)
+            event.listen(
+                test_engine.sync_engine, "after_cursor_execute", observe_status
+            )
             extra_wait = asyncio.create_task(
                 wait_for_fixture_original_readers(factory, run_a.run_id)
             )
@@ -575,7 +667,9 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                     {"channel": channel},
                 )
             await asyncio.wait_for(status_seen.wait(), 30)
-            event.remove(test_engine.sync_engine, "after_cursor_execute", observe_status)
+            event.remove(
+                test_engine.sync_engine, "after_cursor_execute", observe_status
+            )
             assert not cleanup.done() and not extra_wait.done()
             extra_wait.cancel()
             with pytest.raises(asyncio.CancelledError):
@@ -588,7 +682,9 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
                 match="original_reader_deadline",
             ):
                 await wait_for_fixture_original_readers(
-                    factory, run_a.run_id, deadline=asyncio.get_running_loop().time() - 1
+                    factory,
+                    run_a.run_id,
+                    deadline=asyncio.get_running_loop().time() - 1,
                 )
             with monkeypatch.context() as patch:
                 patch.setattr(fixture_prediction_retirement, "_READER_DRAIN_SECONDS", 1)
@@ -660,7 +756,29 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             await _wait_worker(worker_a, log)
             assert (gate / "resumed").is_file()
             assert not await _operations(test_engine, creation_a["id"])
-            retired = await asyncio.wait_for(cleanup, 120)
+            blocked = await asyncio.wait_for(cleanup, 120)
+            # Exact-run reader completion does not bypass the shared Location
+            # maintenance gate while the neighboring reader remains active.
+            assert blocked.status_code == 409, blocked.text
+            assert blocked.json()["detail"]["code"] == "fixture_maintenance_unsettled"
+            assert await _ownership_evidence(test_engine, run_a) == evidence_a
+            assert await _ownership_evidence(test_engine, run_b) == evidence_b
+            assert (
+                await asyncio.to_thread(_read_versions, reader, versions_a) == bytes_a
+            )
+            assert (
+                await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
+            )
+            assert worker_b.poll() is None
+            assert await _operations(test_engine, creation_b["id"]) == operations_b
+            (gate_b / "release").touch()
+            await _wait_worker(worker_b, log_b)
+            assert (await _job_for_frame(test_engine, item_b, 1, 96))[
+                "status"
+            ] == "ready"
+            assert not await _operations(test_engine, creation_b["id"])
+            await _assert_frame(media, frame_b)
+            retired = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
             assert retired.status_code == 200, retired.text
             late = await _build_late(owner, run_a)
             assert late.status_code == 409, late.text
@@ -678,18 +796,7 @@ async def test_independent_media_reader_fences_exact_fixture_retirement(
             assert (
                 await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
             )
-            assert worker_b.poll() is None
-            assert await _operations(test_engine, creation_b["id"]) == operations_b
-            (gate_b / "release").touch()
-            await _wait_worker(worker_b, log_b)
-            assert (await _job_for_frame(test_engine, item_b, 1, 96))[
-                "status"
-            ] == "ready"
-            assert not await _operations(test_engine, creation_b["id"])
             await _assert_frame(media, frame_b)
-            assert (
-                await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
-            )
             retired_b = await asyncio.wait_for(_cleanup_owned(owner, run_b), 120)
             assert retired_b.status_code == 200, retired_b.text
         await asyncio.wait_for(suite.finish(), 120)

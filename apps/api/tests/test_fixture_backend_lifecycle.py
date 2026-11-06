@@ -187,9 +187,7 @@ async def test_suite_reader_budget_does_not_expire_between_children(
 
     suite = fixture_and_fenced_http.owner_suite
     runs = [suite.new_run(A), suite.new_run(B)]
-    worlds = {
-        run.run_id: await _build_owned(owner_fault_http, run) for run in runs
-    }
+    worlds = {run.run_id: await _build_owned(owner_fault_http, run) for run in runs}
     first, second = sorted(runs, key=lambda run: run.run_id)
     factory = async_sessionmaker(test_engine, expire_on_commit=False)
     preflight_blocked = asyncio.Event()
@@ -216,13 +214,19 @@ async def test_suite_reader_budget_does_not_expire_between_children(
     # The transport margin is widened only for this in-process test so real
     # multi-child reclaim can finish after deliberately crossing three seconds.
     monkeypatch.setattr(_test_seed, "_SUITE_READER_OVERALL_SECONDS", 30)
-    monkeypatch.setattr(retirement, "retire_fixture_prediction_work", delay_real_routing)
-    monkeypatch.setattr(retirement, "wait_for_fixture_original_readers", observe_real_reader)
+    monkeypatch.setattr(
+        retirement, "retire_fixture_prediction_work", delay_real_routing
+    )
+    monkeypatch.setattr(
+        retirement, "wait_for_fixture_original_readers", observe_real_reader
+    )
     async with AsyncExitStack() as stack:
         if held:
             db = await stack.enter_async_context(factory())
             world = worlds[second.run_id]
-            actor = await db.scalar(select(User.id).where(User.email == world["admin_email"]))
+            actor = await db.scalar(
+                select(User.id).where(User.email == world["admin_email"])
+            )
             assert actor is not None
             source = await original_sources.resolve_task(
                 db, uuid.UUID(world["task_ids"][0])
@@ -252,7 +256,9 @@ async def test_suite_reader_budget_does_not_expire_between_children(
             if held:
                 async with test_engine.connect() as observer:
                     empty = await observer.scalar(
-                        text("SELECT aap_assets_v1.fixture_original_readers_empty(:run)"),
+                        text(
+                            "SELECT aap_assets_v1.fixture_original_readers_empty(:run)"
+                        ),
                         {"run": second.run_id},
                     )
                 assert empty is False and not cleanup.done()

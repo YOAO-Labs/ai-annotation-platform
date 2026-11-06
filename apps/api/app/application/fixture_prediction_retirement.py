@@ -108,8 +108,9 @@ async def wait_for_fixture_original_readers(
     if deadline is None:
         deadline = asyncio.get_running_loop().time() + _READER_DRAIN_SECONDS
     observed_pending = False
+    drain_timeout = asyncio.timeout_at(deadline)
     try:
-        async with asyncio.timeout_at(deadline):
+        async with drain_timeout:
             async with engine.connect() as listener:
                 proxy = await listener.get_raw_connection()
                 raw = proxy.driver_connection
@@ -169,7 +170,22 @@ async def wait_for_fixture_original_readers(
                         # Never return an unproved subscription to the pool.
                         proxy.detach()
                         raw.terminate()
-                        if failure is None or not isinstance(close_error, Exception):
+                        if failure is not None and not isinstance(
+                            close_error, Exception
+                        ):
+                            cause = failure
+                            if (
+                                isinstance(failure, asyncio.CancelledError)
+                                and drain_timeout.expired()
+                            ):
+                                cause = FixturePredictionRetirementBlocked(
+                                    "original_reader_pending"
+                                    if observed_pending
+                                    else "original_reader_deadline"
+                                )
+                                cause.__cause__ = failure
+                            raise close_error from cause
+                        if failure is None:
                             if not isinstance(close_error, Exception) or isinstance(
                                 close_error, FixturePredictionRetirementBlocked
                             ):
@@ -179,7 +195,9 @@ async def wait_for_fixture_original_readers(
                             ) from close_error
     except TimeoutError as exc:
         reason = (
-            "original_reader_pending" if observed_pending else "original_reader_deadline"
+            "original_reader_pending"
+            if observed_pending
+            else "original_reader_deadline"
         )
         raise FixturePredictionRetirementBlocked(reason) from exc
     except (
