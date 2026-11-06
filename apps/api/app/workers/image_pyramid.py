@@ -257,7 +257,10 @@ def _normalized_image(source: Path):
     except ImagePyramidError:
         raise
     except Exception as exc:  # noqa: BLE001 - pyvips uses one generic Error type
-        raise ImagePyramidError("decode_failed") from exc
+        error = ImagePyramidError("decode_failed")
+        if storage_access.failure_unsettled(exc):
+            storage_access.mark_unsettled(error)
+        raise error from exc
 
 
 def _clear_vips_cache() -> None:
@@ -322,7 +325,10 @@ def _generate_local(
         overview_path = output_dir / "overview.webp"
         shutil.copyfile(overview_source, overview_path)
     except Exception as exc:  # noqa: BLE001
-        raise ImagePyramidError("encode_failed") from exc
+        error = ImagePyramidError("encode_failed")
+        if storage_access.failure_unsettled(exc):
+            storage_access.mark_unsettled(error)
+        raise error from exc
     _check_deadline(deadline)
     return (
         Path(str(base) + "_files"),
@@ -371,7 +377,7 @@ def _verify_local_tiles(
                     raise
                 except Exception as exc:  # noqa: BLE001
                     error = ImagePyramidError("tile_grid_mismatch")
-                    if getattr(exc, "storage_operation_unsettled", False):
+                    if storage_access.failure_unsettled(exc):
                         storage_access.mark_unsettled(error)
                     raise error from exc
                 verified.append((local_path, app_level, x, y))
@@ -593,12 +599,11 @@ async def _run_image_pyramid(
                             timeout=settings.image_pyramid_job_timeout_seconds,
                         )
                 except BaseException as exc:
-                    accounting_settled = not getattr(
-                        exc, "storage_operation_unsettled", False
-                    )
+                    accounting_settled = not storage_access.failure_unsettled(exc)
                     raise
                 finally:
-                    closed = False
+                    primary = sys.exception()
+                    closed, cleanup_failure = False, None
                     try:
                         if entered:
                             await originals.physical(context.__exit__, *sys.exc_info())
@@ -610,8 +615,28 @@ async def _run_image_pyramid(
                             )
                             storage = None
                             closed = True
-                    finally:
-                        await recorder.finish(settled=closed and accounting_settled)
+                    except BaseException as exc:
+                        cleanup_failure = exc
+                    try:
+                        await recorder.finish(
+                            settled=closed and accounting_settled and cleanup_failure is None
+                        )
+                    except BaseException as exc:
+                        cleanup_failure = (
+                            exc
+                            if cleanup_failure is None
+                            else BaseExceptionGroup(
+                                "Image pyramid close and accounting failed",
+                                [cleanup_failure, exc],
+                            )
+                        )
+                    if cleanup_failure is not None:
+                        if primary is not None:
+                            raise BaseExceptionGroup(
+                                "Image pyramid generation and cleanup failed",
+                                [primary, cleanup_failure],
+                            ) from None
+                        raise cleanup_failure
                 await guard()
                 async with factory() as final:
                     published = await publish_generation(
@@ -645,6 +670,8 @@ async def _run_image_pyramid(
         IMAGE_PYRAMID_TEMP_BYTES.observe(result.temp_bytes)
         IMAGE_PYRAMID_GENERATIONS_TOTAL.labels(outcome="ready", error_code="none").inc()
     except BaseException as exc:
+        if storage_access.failure_unsettled(exc):
+            raise
         code = _stable_error_code(exc)
         # Physical output responsibility is retained for guarded GC, never guessed.
         if (
@@ -670,7 +697,17 @@ async def _run_image_pyramid(
         if not isinstance(exc, Exception):
             raise
     finally:
-        await storage_access.finish(asyncio.create_task(engine.dispose()))
+        failure = sys.exception()
+        try:
+            await storage_access.finish(asyncio.create_task(engine.dispose()))
+        except BaseException as disposal_error:
+            storage_access.mark_unsettled(disposal_error)
+            if failure is not None:
+                raise BaseExceptionGroup(
+                    "Image pyramid and database shutdown failed",
+                    [failure, disposal_error],
+                ) from None
+            raise
 
 
 def enqueue_image_pyramid(

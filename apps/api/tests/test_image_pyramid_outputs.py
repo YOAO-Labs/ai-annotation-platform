@@ -766,3 +766,30 @@ async def test_worker_rejects_unrecorded_delegation_before_storage_construction(
         "task", str(uuid.uuid4()), force=True, delegation=None
     )
     engine.dispose.assert_awaited_once()
+
+
+async def test_worker_preserves_nested_unsettled_failure(monkeypatch):
+    class Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    engine = SimpleNamespace(dispose=AsyncMock())
+    monkeypatch.setattr(worker, "create_async_engine", lambda *args, **kwargs: engine)
+    monkeypatch.setattr(worker, "async_sessionmaker", lambda *args, **kwargs: Session)
+    failure = ExceptionGroup(
+        "source",
+        [storage_access.mark_unsettled(OSError("source close unconfirmed"))],
+    )
+    monkeypatch.setattr(originals, "delegated", AsyncMock(side_effect=failure))
+    fail_generation = AsyncMock()
+    monkeypatch.setattr(worker, "fail_generation", fail_generation)
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        await worker._run_image_pyramid(
+            "dataset_item", str(uuid.uuid4()), force=False, delegation={}
+        )
+    assert storage_access.failure_unsettled(rejected.value)
+    fail_generation.assert_not_awaited()

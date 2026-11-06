@@ -705,6 +705,7 @@ async def test_physical_timeout_drains_and_preserves_late_unsettled_error():
         assert not pending.done()
     finally:
         release.set()
-        with pytest.raises(TimeoutError) as exc:
+        with pytest.raises(ExceptionGroup) as exc:
             await pending
-    assert exc.value.storage_operation_unsettled
+    assert any(isinstance(child, TimeoutError) for child in exc.value.exceptions)
+    assert storage_access.failure_unsettled(exc.value)

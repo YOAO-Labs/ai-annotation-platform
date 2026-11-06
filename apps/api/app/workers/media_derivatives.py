@@ -489,7 +489,16 @@ async def run_outputs(identifiers, *, propagate_failure=False):
                                 settled = not storage_access.failure_unsettled(exc)
                                 raise
                             finally:
-                                await recorder.finish(settled=settled)
+                                primary = sys.exception()
+                                try:
+                                    await recorder.finish(settled=settled)
+                                except BaseException as accounting_error:
+                                    if primary is not None:
+                                        raise BaseExceptionGroup(
+                                            "Video derivative and accounting failed",
+                                            [primary, accounting_error],
+                                        ) from None
+                                    raise
                             completed.append((claimed, result, inventory, revisions[0]))
                 # Every decoder, output file/client and the shared source stage
                 # has really closed before any member of this batch is ready.

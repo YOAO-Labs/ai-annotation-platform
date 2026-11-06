@@ -404,8 +404,11 @@ async def physical(call, *args, timeout=None, **kwargs):
         try:
             await storage_access.finish(pending)
         except BaseException as late:
-            if storage_access.failure_unsettled(late):
-                storage_access.mark_unsettled(interrupted)
+            if storage_access.failure_unsettled(late) and late is not interrupted:
+                raise BaseExceptionGroup(
+                    "Image work interrupted and native drain failed",
+                    [interrupted, late],
+                ) from None
         raise
 
 
@@ -464,14 +467,20 @@ async def _capture(plan, admission, **read_options):
         try:
             late_stage = await storage_access.finish(pending)
         except BaseException as late:
-            if storage_access.failure_unsettled(late):
-                storage_access.mark_unsettled(interrupted)
+            if storage_access.failure_unsettled(late) and late is not interrupted:
+                raise BaseExceptionGroup(
+                    "Image capture interrupted and reader drain failed",
+                    [interrupted, late],
+                ) from None
         else:
             try:
                 await physical(late_stage.close)
             except BaseException as closing:
                 if storage_access.failure_unsettled(closing):
-                    storage_access.mark_unsettled(interrupted)
+                    raise BaseExceptionGroup(
+                        "Image capture interrupted and stage close failed",
+                        [interrupted, closing],
+                    ) from None
         raise
 
 
