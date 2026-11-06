@@ -23,21 +23,22 @@ from tests.identity_module_assembly_helpers import IdentityModuleStack
 _VIDEO_TRACKER_TASK_NAME = "app.workers.video_tracker.run_video_tracker_job"
 
 
-class _OwnedPeerLoopbackTransport(httpx.AsyncHTTPTransport):
-    """Resolve the container alias to the same owned peer from the host operator."""
+class _OwnedPeerTransport(httpx.AsyncHTTPTransport):
+    """Restrict the restore operator to the exact seeded backend endpoint."""
 
     def __init__(self, origin: str):
         parsed = urlsplit(origin)
-        assert parsed.scheme == "http" and parsed.hostname == "127.0.0.1"
-        assert parsed.port is not None
+        assert parsed.scheme == "http" and parsed.hostname and parsed.port
+        assert not parsed.username and not parsed.password
+        assert not parsed.query and not parsed.fragment and not parsed.path
+        self._peer_host = parsed.hostname
         self._peer_port = parsed.port
         super().__init__()
 
     async def handle_async_request(self, request):
         assert request.url.scheme == "http"
-        assert request.url.host == "host.docker.internal"
+        assert request.url.host == self._peer_host
         assert request.url.port == self._peer_port
-        request.url = request.url.copy_with(host="127.0.0.1")
         return await super().handle_async_request(request)
 
 
@@ -52,9 +53,7 @@ class _MediaBoundIdentityModuleStack(IdentityModuleStack):
         super().__init__(*stack_args, **stack_kwargs)
 
     def bind_media(self, media) -> None:
-        from tests.test_workspace_video_tracker_worker_live import _host_forward_url
-
-        self._tracker_media_url = _host_forward_url(media.origin)
+        self._tracker_media_url = media.origin
         self._tracker_media_token = media.token
         self._tracker_media_tokens.add(media.token)
 
@@ -66,6 +65,14 @@ class _MediaBoundIdentityModuleStack(IdentityModuleStack):
                 "ASSETS_MEDIA_TOKEN": self._tracker_media_token,
             }
         )
+        if os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER"):
+            from tests.project_guide_asset_owner_helpers import endpoint_url
+            from worktree_resources import verified_shared_bootstrap_minio
+
+            public_url = endpoint_url()
+            if verified_shared_bootstrap_minio(public_url) is None:
+                raise RuntimeError("Tracker storage bootstrap owner is unavailable")
+            values["MINIO_PUBLIC_URL"] = public_url
         return values
 
     def redact(self, value: str) -> str:
@@ -208,6 +215,7 @@ async def _seed_tracker_api_world(
             "task_id": task_id,
             "dataset_item_id": item_id,
             "registry_id": registry.id,
+            "backend_host": urlsplit(backend_url).hostname,
             "backend_port": urlsplit(backend_url).port,
             "backend_token": backend_token,
         }
@@ -894,9 +902,7 @@ async def exercise_video_tracker_queue_and_restore(
     )
     from tests.test_video_input_live import _video_bytes, _video_runtime
     from tests.test_workspace_video_tracker_worker_live import (
-        _checkpoint_cpu_backend,
-        _host_forward_url as host_forward_url,
-        _reserve_port,
+        _tracker_fixture_bridge,
     )
     from tests.test_video_window_recovery_live import _bbox_artifact
     from tests.test_workspace_worker_assembly_live import _broker_state
@@ -912,6 +918,7 @@ async def exercise_video_tracker_queue_and_restore(
     clone_engine = None
     workers = []
     source_peer_stack = AsyncExitStack()
+    bridge_stack = AsyncExitStack()
     source_headers = None
     source_phase = None
     restored_phase = None
@@ -938,6 +945,7 @@ async def exercise_video_tracker_queue_and_restore(
                             clone_engine = None
 
     try:
+        bridge = await bridge_stack.enter_async_context(_tracker_fixture_bridge())
         snapshot = Path(tmp_path) / "jobs-video-tracker-module.dump"
         minio_origin = endpoint_url()
         minio_parts = urlsplit(minio_origin)
@@ -986,13 +994,16 @@ async def exercise_video_tracker_queue_and_restore(
 
             source_media_dir = Path(tmp_path) / "video-media-source"
             source_media_dir.mkdir(parents=True, exist_ok=True)
-            async with _video_runtime(test_engine, source_media_dir) as media:
-                listener, backend_origin = _reserve_port()
+            async with _video_runtime(
+                test_engine, source_media_dir, tracker_bridge=bridge
+            ) as media:
+                listener, backend_origin = bridge.reserve_listener()
+                source_peer_stack.callback(listener.close)
                 backend_token = secrets.token_urlsafe(24)
                 world = await _seed_tracker_api_world(
                     media,
                     video,
-                    backend_url=host_forward_url(backend_origin),
+                    backend_url=backend_origin,
                     backend_token=backend_token,
                     label="source",
                 )
@@ -1092,6 +1103,7 @@ async def exercise_video_tracker_queue_and_restore(
                         clone_engine,
                         restored_media_dir,
                         source_test_engine=test_engine,
+                        tracker_bridge=bridge,
                     ) as clone_media:
                         stack.bind_media(clone_media)
                         await stack.switch_database(restored_database)
@@ -1166,7 +1178,7 @@ async def exercise_video_tracker_queue_and_restore(
                         manager = VideoRestoreManager(
                             VideoRestorePostgresProvider(restore_dsn),
                             backend_control=BackendRoutingControl(
-                                transport_factory=lambda: _OwnedPeerLoopbackTransport(
+                                transport_factory=lambda: _OwnedPeerTransport(
                                     backend_origin
                                 )
                             ),
@@ -1189,12 +1201,13 @@ async def exercise_video_tracker_queue_and_restore(
                         )
                         await source_peer_stack.aclose()
 
-                        listener, backend_origin = _reserve_port()
+                        listener, backend_origin = bridge.reserve_listener()
+                        source_peer_stack.callback(listener.close)
                         backend_token = secrets.token_urlsafe(24)
                         restored_world = await _seed_tracker_api_world(
                             clone_media,
                             video,
-                            backend_url=host_forward_url(backend_origin),
+                            backend_url=backend_origin,
                             backend_token=backend_token,
                             label="restored",
                         )
@@ -1296,4 +1309,7 @@ async def exercise_video_tracker_queue_and_restore(
                                 try:
                                     owner_s3.close()
                                 finally:
-                                    await source_peer_stack.aclose()
+                                    try:
+                                        await source_peer_stack.aclose()
+                                    finally:
+                                        await bridge_stack.aclose()

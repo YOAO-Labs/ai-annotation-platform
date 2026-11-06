@@ -313,7 +313,7 @@ async def _checkpoint_cpu_backend(
             entered=entered,
             release=release,
             sessions=sessions,
-            origin=f"http://127.0.0.1:{listener.getsockname()[1]}",
+            origin=f"http://{listener.getsockname()[0]}:{listener.getsockname()[1]}",
             server_task=task,
             stop=stop_peer,
             is_stopped=lambda: stopped,

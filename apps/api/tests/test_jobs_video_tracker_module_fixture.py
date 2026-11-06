@@ -14,7 +14,7 @@ from yoao_jobs.queue_contract import load_queue_configuration
 from app.schemas.video_tracker_job import VideoTrackerPropagateRequest
 from tests.jobs_video_tracker_module_helpers import (
     _VIDEO_TRACKER_TASK_NAME,
-    _OwnedPeerLoopbackTransport,
+    _OwnedPeerTransport,
     _assert_tracker_envelope,
     _tracker_request,
     _unpack_tracker_envelope,
@@ -110,16 +110,14 @@ async def test_restore_operator_transport_reaches_only_its_owned_peer():
     try:
         origin = f"http://127.0.0.1:{server.server_port}"
         async with httpx.AsyncClient(
-            transport=_OwnedPeerLoopbackTransport(origin), trust_env=False, timeout=2
+            transport=_OwnedPeerTransport(origin), trust_env=False, timeout=2
         ) as client:
-            reply = await client.get(
-                f"http://host.docker.internal:{server.server_port}/"
-            )
+            reply = await client.get(f"{origin}/")
             assert reply.status_code == 200
             assert reply.content == b"owned tracker control peer"
             for unsafe in (
                 f"http://unowned.invalid:{server.server_port}/",
-                "http://host.docker.internal:1/",
+                "http://127.0.0.1:1/",
             ):
                 with pytest.raises(AssertionError):
                     await client.get(unsafe)
