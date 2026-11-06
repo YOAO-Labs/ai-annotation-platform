@@ -39,6 +39,7 @@ class SourceOwner:
                 {"kind": "volume", "id": self.volume, "name": self.volume},
                 {"kind": "network", "id": self.network, "name": "source-network"},
             ],
+            "fixture_process_birth": {"container_id": self.container, "pid": 42, "started_at": "start"},
             "fixture_intent": {"database": identity},
             "fixture_store": {
                 "state": "published", "database": identity,
@@ -177,6 +178,18 @@ class RasterFixtureSourceRetirementTests(unittest.TestCase):
             fixture_store._raster_stop_for_destroy(self.owner, self.owner.resources)
         self.assertEqual(self.owner.data["fixture_teardown"]["raster_shutdown"]["state"], "wait_acknowledged")
         self.assertEqual(len(self.owner.present), 3)
+
+    def test_restart_before_first_teardown_snapshot_is_not_original(self):
+        self.owner.container_info["State"].update(Pid=99, StartedAt="replacement")
+        with self.assertRaisesRegex(ContractError, "fixture_raster_shutdown_topology_changed"):
+            fixture_store._raster_stop_for_destroy(self.owner, self.owner.resources)
+        self.assertFalse(any(call[1] == "kill" for call in self.calls))
+
+    def test_missing_original_birth_is_not_adopted(self):
+        del self.owner.data["fixture_process_birth"]
+        with self.assertRaisesRegex(ContractError, "fixture_raster_shutdown_topology_changed"):
+            fixture_store._raster_stop_for_destroy(self.owner, self.owner.resources)
+        self.assertFalse(any(call[1] == "kill" for call in self.calls))
 
     def test_running_again_cannot_be_removed_even_after_successful_stop(self):
         fixture_store._raster_stop_for_destroy(self.owner, self.owner.resources)

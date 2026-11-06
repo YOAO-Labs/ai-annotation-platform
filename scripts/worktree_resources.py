@@ -659,6 +659,7 @@ class _WorktreeDestroyPreparation:
         self.phase = "prepared"
         self.storage = None
         self.raster_owner = None
+        self.raster_database_oid = None
         self.raster_redis_retired = False
         self.raster_source_stopped = False
 
@@ -1004,6 +1005,17 @@ class LocalResources:
         return {**self._environment(observed["port"]), **self._fixture_overrides}
 
     async def database(self, action: str = "inspect") -> dict | None:
+        return await self._database(action)
+
+    async def _database(self, action: str, *, raster_prepared=None) -> dict | None:
+        if raster_prepared is not None:
+            self._require_destroy_preparation(raster_prepared, "database_intent")
+            if (
+                action != "drop" or raster_prepared.storage != "raster_provider_retired"
+                or type(raster_prepared.raster_database_oid) is not int
+                or raster_prepared.raster_database_oid <= 0
+            ):
+                raise WorktreeError("Raster 数据库销毁身份不明确；保留资源")
         # Same session-lock / AUTOCOMMIT pattern as apps/api/scripts/prepare_e2e_db.py;
         # additionally require a database ownership marker rather than adopting by name.
         engine = create_async_engine(
@@ -1028,7 +1040,7 @@ class LocalResources:
                             (
                                 await connection.execute(
                                     text(
-                                        "SELECT shobj_description(oid, 'pg_database') AS owner, "
+                                        "SELECT oid, shobj_description(oid, 'pg_database') AS owner, "
                                         "(SELECT count(*) FROM pg_stat_activity WHERE datname = :name "
                                         "AND backend_type IS DISTINCT FROM 'autovacuum worker') AS sessions "
                                         "FROM pg_database WHERE datname = :name"
@@ -1041,9 +1053,16 @@ class LocalResources:
                         )
                         return dict(row) if row else None
 
+                    if raster_prepared is not None:
+                        self._require_raster_redis_retired(raster_prepared)
                     observed = await read()
                     if action == "inspect":
-                        return observed
+                        return {key: observed[key] for key in ("owner", "sessions")} if observed else None
+                    if raster_prepared is not None and (
+                        observed is None
+                        or observed["oid"] != raster_prepared.raster_database_oid
+                    ):
+                        raise WorktreeError("Raster 原始数据库不存在或身份已变化；保留资源")
                     present = require_owner(name, observed, self.resources["owner"])
                     quoted = engine.dialect.identifier_preparer.quote_identifier(name)
                     if action == "create" and not present:
@@ -1065,7 +1084,7 @@ class LocalResources:
                         raise WorktreeError("数据库创建未能验证")
                     if action == "drop" and verified is not None:
                         raise WorktreeError("数据库删除未能验证")
-                    return verified
+                    return {key: verified[key] for key in ("owner", "sessions")} if verified else None
                 finally:
                     if action != "inspect":
                         await connection.execute(
@@ -1162,16 +1181,29 @@ class LocalResources:
             },
         }
 
+    def _arm_raster_redis_birth(self, owner):
+        if (
+            self.resources["mode"] != "e2e"
+            or owner.data["raster"]["resources"] != self.resources
+            or "redis_birth" in owner.data["raster"]
+            or getattr(self, "_raster_redis_birth_owner", None) is not None
+        ):
+            raise WorktreeError("Raster Redis 出生身份无效；拒绝接管")
+        self._raster_redis_birth_owner = owner
+
     def start_redis(self) -> None:
         import redis
 
         name = self.resources["redis_name"]
         observed = self.redis_info()
         present = require_owner(name, observed, self.resources["owner"])
+        birth_owner = getattr(self, "_raster_redis_birth_owner", None)
+        if birth_owner is not None and present:
+            raise WorktreeError("Raster Redis 已存在；拒绝接管")
         if not present:
             data = state_path(self.root, self.resources["mode"], "redis")
             data.mkdir(mode=0o700, parents=True, exist_ok=True)
-            docker(
+            identifier = docker(
                 "run",
                 "-d",
                 "--name",
@@ -1191,6 +1223,28 @@ class LocalResources:
                 "--appendonly",
                 "yes",
             )
+            if birth_owner is not None:
+                if re.fullmatch(r"[0-9a-f]{64}", identifier) is None:
+                    raise WorktreeError("Raster Redis 创建身份不明确；保留资源")
+                started = json.loads(docker("container", "inspect", identifier))[0]
+                state = started.get("State") or {}
+                if not (
+                    started.get("Id") == identifier and started.get("Name") == "/" + name
+                    and (started.get("Config", {}).get("Labels") or {}).get(OWNER_LABEL)
+                        == self.resources["owner"]
+                    and started.get("Config", {}).get("Image") == "redis:7-alpine"
+                    and started.get("RestartCount") == 0
+                    and state.get("Status") == "running" and state.get("Running") is True
+                    and isinstance(state.get("Pid"), int) and state["Pid"] > 0
+                    and bool(state.get("StartedAt"))
+                ):
+                    raise WorktreeError("Raster Redis 出生进程未确认；保留资源")
+                birth_owner.data["raster"]["redis_birth"] = {
+                    "container_id": identifier, "pid": state["Pid"],
+                    "started_at": state["StartedAt"],
+                }
+                birth_owner.save()
+                self._raster_redis_birth_owner = None
         elif not observed["running"]:
             docker("start", name)
         deadline = time.monotonic() + 20
@@ -2572,26 +2626,33 @@ class LocalResources:
         ):
             raise WorktreeError("销毁准备或排他锁状态不一致；保留资源")
 
-    def _accept_retired_raster_provider(self, prepared, owner):
-        self._require_destroy_preparation(prepared, "prepared")
-        if prepared.storage is not None:
-            raise WorktreeError("Raster 存储退休状态重复")
-        from raster_exclusive_provider import require_retired_provider
-
-        require_retired_provider(owner, self.resources)
-        prepared.raster_owner = owner
-        prepared.storage = "raster_provider_retired"
-
-    def _retire_prepared_raster_redis(self, prepared, owner):
-        """Stop the exact Raster Redis without Docker stop's forced-kill fallback."""
+    def _bind_raster_destroy_identity(self, prepared, owner):
         self._require_destroy_preparation(prepared, "prepared")
         if (
-            prepared.storage != "raster_provider_retired"
-            or prepared.raster_owner is not owner
-            or prepared.raster_redis_retired
+            prepared.storage is not None or prepared.raster_owner is not None
+            or prepared.fixture_owner is None
+            or owner.data["raster"]["resources"] != self.resources
         ):
-            raise WorktreeError("Raster Redis 退休顺序不一致；保留资源")
+            raise WorktreeError("Raster 销毁身份不明确；保留资源")
+        identity = prepared.fixture_owner.data["fixture_store"]["database"]
+        oid = identity.get("database_oid")
+        if (
+            type(oid) is not int or oid <= 0
+            or identity.get("database") != self.resources["database"]
+            or identity.get("ownership") != self.resources["owner"]
+            or identity.get("resource_root") != self.resources["root"]
+        ):
+            raise WorktreeError("Raster 原始数据库身份不明确；保留资源")
+        from fixture_store import _raster_require_live_birth
+
+        _raster_require_live_birth(prepared.fixture_owner, self.resources)
+        self._raster_redis_live(owner)
+        prepared.raster_owner = owner
+        prepared.raster_database_oid = oid
+
+    def _raster_redis_live(self, owner):
         name = self.resources["redis_name"]
+        birth = owner.data["raster"].get("redis_birth") or {}
         ids = docker(
             "container", "ls", "-a", "--no-trunc", "--filter",
             f"name=^/{name}$", "--format", "{{.ID}}",
@@ -2603,17 +2664,45 @@ class LocalResources:
         state = observed.get("State") or {}
         if not (
             observed.get("Id") == identifier
+            and identifier == birth.get("container_id")
             and observed.get("Name") == "/" + name
             and (observed.get("Config", {}).get("Labels") or {}).get(OWNER_LABEL)
                 == self.resources["owner"]
             and observed.get("Config", {}).get("Image") == "redis:7-alpine"
             and observed.get("RestartCount") == 0
-            and state.get("Status") == "running"
-            and state.get("Running") is True
+            and state.get("Status") == "running" and state.get("Running") is True
             and isinstance(state.get("Pid"), int) and state["Pid"] > 0
             and bool(state.get("StartedAt"))
+            and state["Pid"] == birth.get("pid")
+            and state["StartedAt"] == birth.get("started_at")
         ):
-            raise WorktreeError("Raster Redis 进程身份不匹配；保留资源")
+            raise WorktreeError("Raster Redis 原始进程身份不匹配；保留资源")
+        return observed
+
+    def _accept_retired_raster_provider(self, prepared, owner):
+        self._require_destroy_preparation(prepared, "prepared")
+        if prepared.storage is not None or prepared.raster_owner is not owner:
+            raise WorktreeError("Raster 存储退休状态重复")
+        from raster_exclusive_provider import require_retired_provider
+
+        require_retired_provider(owner, self.resources)
+        prepared.storage = "raster_provider_retired"
+
+    def _retire_prepared_raster_redis(self, prepared, owner):
+        """Stop the exact Raster Redis without Docker stop's forced-kill fallback."""
+        self._require_destroy_preparation(prepared, "prepared")
+        if (
+            prepared.storage != "raster_provider_retired"
+            or prepared.raster_owner is not owner
+            or prepared.raster_redis_retired
+        ):
+            raise WorktreeError("Raster Redis 退休顺序不一致；保留资源")
+        if "redis_retirement" in owner.data["raster"]:
+            raise WorktreeError("Raster Redis 退休已开始；保留原始证据")
+        name = self.resources["redis_name"]
+        observed = self._raster_redis_live(owner)
+        identifier = observed["Id"]
+        state = observed["State"]
         receipt = {
             "state": "signal_intent", "container_id": identifier,
             "started_at": state["StartedAt"], "pid": state["Pid"],
@@ -2645,7 +2734,13 @@ class LocalResources:
             and bool(state.get("FinishedAt"))
         ):
             raise WorktreeError("Raster Redis 退出状态不明确；保留资源")
-        receipt.update(state="remove_intent", finished_at=state["FinishedAt"])
+        receipt.update(
+            state="remove_intent", finished_at=state["FinishedAt"],
+            exit_state={"status": state["Status"], "running": state["Running"],
+                        "pid": state["Pid"], "exit_code": state["ExitCode"],
+                        "oom_killed": state["OOMKilled"], "error_empty": not state.get("Error"),
+                        "restart_count": observed["RestartCount"]},
+        )
         owner.save()
         removed = docker("rm", identifier)
         if removed not in {identifier, name}:
@@ -2658,6 +2753,37 @@ class LocalResources:
         receipt["state"] = "retired"
         owner.save()
         prepared.raster_redis_retired = True
+
+    def _require_raster_redis_retired(self, prepared):
+        self._require_destroy_preparation(prepared, "database_intent")
+        owner = prepared.raster_owner
+        birth = owner.data["raster"].get("redis_birth") or {}
+        receipt = owner.data["raster"].get("redis_retirement") or {}
+        identifier = birth.get("container_id")
+        name = self.resources["redis_name"]
+        if not (
+            prepared.raster_redis_retired
+            and isinstance(identifier, str) and re.fullmatch(r"[0-9a-f]{64}", identifier)
+            and type(birth.get("pid")) is int and birth["pid"] > 0
+            and bool(birth.get("started_at"))
+            and receipt.get("state") == "retired"
+            and receipt.get("container_id") == identifier
+            and receipt.get("pid") == birth["pid"]
+            and receipt.get("started_at") == birth["started_at"]
+            and receipt.get("signal") == "SIGTERM"
+            and receipt.get("signal_ack") in {identifier, name}
+            and receipt.get("wait_exit") == 0 and bool(receipt.get("finished_at"))
+            and receipt.get("exit_state") == {
+                "status": "exited", "running": False, "pid": 0, "exit_code": 0,
+                "oom_killed": False, "error_empty": True, "restart_count": 0,
+            }
+            and receipt.get("removed") in {identifier, name}
+        ):
+            raise WorktreeError("Raster Redis 退休证明不完整；保留数据库")
+        for selector in (f"id={identifier}", f"name=^/{name}$"):
+            if docker("container", "ls", "-a", "--no-trunc", "--filter",
+                      selector, "--format", "{{.ID}}"):
+                raise WorktreeError("Raster Redis 退休后身份被替换；保留数据库")
 
     def _stop_prepared_raster_fixture_source(self, prepared, owner):
         """Use the already-guarded source owner while both destruction locks remain held."""
@@ -2687,7 +2813,10 @@ class LocalResources:
             _raster_require_stopped_for_destroy(prepared.fixture_owner, self.resources)
         prepared.phase = "database_intent"
         # Recheck each exact owner at the write boundary; never force DROP.
-        asyncio.run(self.database("drop"))
+        if prepared.storage == "raster_provider_retired":
+            asyncio.run(self._database("drop", raster_prepared=prepared))
+        else:
+            asyncio.run(self.database("drop"))
         if prepared.raster_owner is not None:
             prepared.raster_owner.data["raster"]["images"]["state"] = "database_removed"
             prepared.raster_owner.save()

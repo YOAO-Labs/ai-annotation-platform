@@ -141,6 +141,19 @@ def provision(owner: Owner, database_identity: dict):
         cmd=("server", "/data", "--console-address", ":9001"),
     )
     owner.start(container)
+    started = owner.verified(container)
+    process = started.get("State") or {}
+    require(
+        process.get("Status") == "running" and process.get("Running") is True
+        and isinstance(process.get("Pid"), int) and process["Pid"] > 0
+        and bool(process.get("StartedAt")) and started.get("RestartCount") == 0,
+        "fixture_source_birth_unconfirmed",
+    )
+    owner.data["fixture_process_birth"] = {
+        "container_id": container["id"], "pid": process["Pid"],
+        "started_at": process["StartedAt"],
+    }
+    owner.save()
     admin_endpoint = f"http://127.0.0.1:{host_port(owner, container, 9000)}"
     observed = owner.verified(container)
     address = observed["NetworkSettings"]["Networks"][network["name"]]["IPAddress"]
@@ -986,6 +999,22 @@ def _raster_volume_users(volume):
     ]).splitlines()
 
 
+def _raster_require_live_birth(owner, resources):
+    items = _raster_destroy_items(owner, resources)
+    birth = owner.data.get("fixture_process_birth") or {}
+    observed = owner.verified(items["container"])
+    state = observed.get("State") or {}
+    require(
+        state.get("Status") == "running" and state.get("Running") is True
+        and type(state.get("Pid")) is int and state["Pid"] > 0
+        and bool(state.get("StartedAt")) and observed.get("RestartCount") == 0
+        and birth.get("container_id") == items["container"]["id"]
+        and birth.get("pid") == state["Pid"]
+        and birth.get("started_at") == state["StartedAt"],
+        "fixture_raster_birth_changed",
+    )
+
+
 def _raster_stop_for_destroy(owner, resources):
     """Signal the exact already-fenced fixture source; retain uncertainty."""
     items = _raster_destroy_items(owner, resources)
@@ -994,11 +1023,15 @@ def _raster_stop_for_destroy(owner, resources):
     container, network = _physical(owner, owner.data["fixture_store"])
     volume = owner.verified(items["volume"])
     state = container.get("State") or {}
+    birth = owner.data.get("fixture_process_birth") or {}
     mounts = container.get("Mounts") or []
     require(
         state.get("Status") == "running" and state.get("Running") is True
         and isinstance(state.get("Pid"), int) and state["Pid"] > 0
         and bool(state.get("StartedAt")) and container.get("RestartCount") == 0
+        and birth.get("container_id") == items["container"]["id"]
+        and birth.get("pid") == state["Pid"]
+        and birth.get("started_at") == state["StartedAt"]
         and (container.get("HostConfig", {}).get("RestartPolicy") or {}).get("Name") == "no"
         and container.get("HostConfig", {}).get("AutoRemove") is False
         and container.get("Config", {}).get("Cmd")
@@ -1057,6 +1090,7 @@ def _raster_require_stopped_for_destroy(owner, resources):
     """Recheck affirmative stop evidence and the original physical identities."""
     items = _raster_destroy_items(owner, resources)
     receipt = owner.data["fixture_teardown"].get("raster_shutdown") or {}
+    birth = owner.data.get("fixture_process_birth") or {}
     container = owner.verified(items["container"])
     volume = owner.verified(items["volume"])
     network = owner.verified(items["network"])
@@ -1071,6 +1105,9 @@ def _raster_require_stopped_for_destroy(owner, resources):
         and receipt.get("signal_ack") in {items["container"]["id"], items["container"]["name"]}
         and receipt.get("wait_exit") == 0 and isinstance(receipt.get("pid"), int)
         and receipt["pid"] > 0 and bool(receipt.get("started_at"))
+        and birth.get("container_id") == receipt["container_id"]
+        and birth.get("pid") == receipt["pid"]
+        and birth.get("started_at") == receipt["started_at"]
         and bool(receipt.get("finished_at"))
         and receipt.get("exit_state") == {
             "status": "exited", "running": False, "pid": 0, "exit_code": 0,
@@ -1144,6 +1181,7 @@ def _raster_finish_removed_for_destroy(owner, resources):
     """Finish this source owner without invoking generic forced container cleanup."""
     items = _raster_destroy_items(owner, resources)
     receipt = owner.data["fixture_teardown"].get("raster_shutdown") or {}
+    birth = owner.data.get("fixture_process_birth") or {}
     require(
         receipt.get("state") == "retired"
         and receipt.get("signal") == "SIGTERM"
@@ -1151,6 +1189,9 @@ def _raster_finish_removed_for_destroy(owner, resources):
         and receipt.get("wait_exit") == 0
         and isinstance(receipt.get("pid"), int) and receipt["pid"] > 0
         and bool(receipt.get("started_at")) and bool(receipt.get("finished_at"))
+        and birth.get("container_id") == receipt.get("container_id")
+        and birth.get("pid") == receipt["pid"]
+        and birth.get("started_at") == receipt["started_at"]
         and receipt.get("exit_state") == {
             "status": "exited", "running": False, "pid": 0, "exit_code": 0,
             "oom_killed": False, "error_empty": True, "restart_count": 0,

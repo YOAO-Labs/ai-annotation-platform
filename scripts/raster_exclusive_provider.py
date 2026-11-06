@@ -83,6 +83,7 @@ def verify_exclusive_provider(owner, backend):
     config = container.get("Config") or {}
     mounts = container.get("Mounts") or []
     attached = (container.get("NetworkSettings") or {}).get("Networks") or {}
+    birth = store.get("provider_birth") or {}
     require(
         config.get("Image") == MINIO_IMAGE
         and config.get("Cmd") == ["server", "/data", "--console-address", ":9001"]
@@ -90,6 +91,9 @@ def verify_exclusive_provider(owner, backend):
         and state.get("Status") == "running"
         and isinstance(state.get("Pid"), int) and state["Pid"] > 0
         and bool(state.get("StartedAt"))
+        and birth.get("container_id") == items["container"]["id"]
+        and birth.get("pid") == state["Pid"]
+        and birth.get("started_at") == state["StartedAt"]
         and container.get("RestartCount") == 0
         and len(mounts) == 1
         and mounts[0].get("Type") == "volume"
@@ -228,6 +232,7 @@ def require_retired_provider(owner, resources):
     items = _items(owner, resources)
     _require_producer_boundary(owner)
     receipt = owner.data["raster"].get("provider_retirement") or {}
+    birth = owner.data["raster"].get("provider_birth") or {}
     require(
         receipt.get("state") == "retired"
         and receipt.get("container_id") == items["container"]["id"]
@@ -238,6 +243,10 @@ def require_retired_provider(owner, resources):
         and receipt.get("signal_ack") in {items["container"]["id"], items["container"]["name"]}
         and receipt.get("wait_exit") == 0
         and bool(receipt.get("started_at")) and bool(receipt.get("finished_at"))
+        and birth.get("container_id") == receipt.get("container_id")
+        and type(birth.get("pid")) is int and birth["pid"] > 0
+        and birth["pid"] == receipt.get("pid")
+        and birth.get("started_at") == receipt.get("started_at")
         and receipt.get("exit_state") == {
             "status": "exited", "running": False, "pid": 0, "exit_code": 0,
             "oom_killed": False, "error_empty": True, "restart_count": 0,

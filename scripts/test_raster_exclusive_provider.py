@@ -37,6 +37,7 @@ class FakeOwner:
                 "network_name": "raster-network", "volume_id": self.volume,
                 "endpoint": "127.0.0.1:19000", "state": "consumers_stopped",
                 "consumer_exit": 0, "pre_retirement_native_identities": ["actual-job"],
+                "provider_birth": {"container_id": self.container, "pid": 42, "started_at": "start"},
                 "images": {"state": "stopped", "shutdown_requested": True,
                            "exit_code": 0, "database_role_oid": 123},
             },
@@ -196,6 +197,19 @@ class RasterProviderTests(unittest.TestCase):
         self.assertEqual(self.calls, [])
         self.assertEqual(len(self.owner.present), 3)
 
+    def test_restart_before_first_teardown_snapshot_is_not_original(self):
+        self.owner.container_info["State"]["StartedAt"] = "replacement"
+        self.owner.container_info["State"]["Pid"] = 99
+        with self.assertRaisesRegex(ContractError, "raster_store_physical_identity_changed"):
+            provider.retire_provider(self.owner, self.backend)
+        self.assertFalse(any(call[1] == "kill" for call in self.calls))
+
+    def test_missing_original_birth_is_not_adopted(self):
+        del self.owner.data["raster"]["provider_birth"]
+        with self.assertRaisesRegex(ContractError, "raster_store_physical_identity_changed"):
+            provider.retire_provider(self.owner, self.backend)
+        self.assertFalse(any(call[1] == "kill" for call in self.calls))
+
 
 class RasterGuardOrderingTests(unittest.TestCase):
     def test_failed_fixture_guard_cannot_start_provider_or_drop_roles(self):
@@ -236,6 +250,9 @@ class RasterGuardOrderingTests(unittest.TestCase):
             def _prepare_owned_destruction(self, _confirmation):
                 yield object()
 
+            def _bind_raster_destroy_identity(self, _prepared, _owner):
+                pass
+
             def _destroy_prepared_database(self, _prepared):
                 events.append("database-dropped")
 
@@ -263,6 +280,9 @@ class RasterGuardOrderingTests(unittest.TestCase):
             def _prepare_owned_destruction(self, _confirmation):
                 events.append("fixture-guards")
                 yield object()
+
+            def _bind_raster_destroy_identity(self, _prepared, _owner):
+                events.append("identities-bound")
 
             def _accept_retired_raster_provider(self, _prepared, _owner):
                 events.append("provider-receipt")
@@ -294,7 +314,7 @@ class RasterGuardOrderingTests(unittest.TestCase):
               patch.object(runner, "retire_provider", side_effect=lambda *_: events.append("provider-retired"))):
             runner.destroy_with_images_role(Backend(), owner, "owned")
         self.assertEqual(events, [
-            "fence", "verify", "role-check", "fixture-guards", "provider-retired",
+            "fence", "verify", "role-check", "fixture-guards", "identities-bound", "provider-retired",
             "provider-receipt", "redis-retired", "source-stopped", "database-dropped", "services-removed",
             "role-drop", "local-removed",
         ])

@@ -422,6 +422,19 @@ def provision(resources, owner):
         cmd=("server", "/data", "--console-address", ":9001"),
     )
     owner.start(container)
+    started = owner.verified(container)
+    process = started.get("State") or {}
+    require(
+        process.get("Status") == "running" and process.get("Running") is True
+        and isinstance(process.get("Pid"), int) and process["Pid"] > 0
+        and bool(process.get("StartedAt")) and started.get("RestartCount") == 0,
+        "raster_provider_birth_unconfirmed",
+    )
+    owner.data["raster"]["provider_birth"] = {
+        "container_id": container["id"], "pid": process["Pid"],
+        "started_at": process["StartedAt"],
+    }
+    owner.save()
     endpoint = f"127.0.0.1:{host_port(owner, container, 9000)}"
     bucket = resources["buckets"]["MINIO_BUCKET"]
     policy = {
@@ -1504,6 +1517,7 @@ def destroy_with_images_role(backend, owner, confirmation):
         verify_exclusive_provider(owner, backend)
         asyncio.run(image_role(backend, owner, "check"))
         with backend._prepare_owned_destruction(confirmation) as prepared:
+            backend._bind_raster_destroy_identity(prepared, owner)
             retire_provider(owner, backend)
             backend._accept_retired_raster_provider(prepared, owner)
             backend._retire_prepared_raster_redis(prepared, owner)
@@ -1614,6 +1628,7 @@ def outer(arguments):
             )
             from fixture_inference_services import FixtureInferenceServices
 
+            backend._arm_raster_redis_birth(owner)
             backend.prepare(skip_migrations=options.skip_migrations)
             asyncio.run(backend.prepare_fixture_inference_database())
             owner.data["raster"]["images"]["state"] = "database_role_creation_intent"
