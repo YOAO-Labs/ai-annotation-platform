@@ -775,6 +775,32 @@ async def _exercise_api_tracker_phase(
                 "video_tracker_jobs_queue_diagnostics_error",
                 type(diagnostic_error).__name__,
             )
+        try:
+            record_property(
+                "video_tracker_worker_diagnostics",
+                await asyncio.to_thread(worker.capture_diagnostics),
+            )
+            record_property(
+                "video_tracker_backend_progress",
+                {
+                    "windows": [
+                        {
+                            "from_frame": call["from_frame"],
+                            "to_frame": call["to_frame"],
+                            "admission_header_present": call["admission_header_present"],
+                            "authorization_bound": call["authorization_bound"],
+                        }
+                        for call in peer.model_windows
+                    ],
+                    "gates_entered": [event.is_set() for event in peer.entered],
+                    "gates_released": [event.is_set() for event in peer.release],
+                },
+            )
+        except Exception as diagnostic_error:
+            record_property(
+                "video_tracker_worker_diagnostics_error",
+                type(diagnostic_error).__name__,
+            )
         raise
     finally:
         if (
