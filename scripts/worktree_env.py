@@ -330,20 +330,21 @@ def frontend_environment(environment: dict) -> dict:
 
 def application_environment(environment: dict) -> dict:
     """Remove migration/test credentials before launching application processes."""
-    owner_dsn_keys = {
-        f"INFERENCE_{owner}_DATABASE_URL{suffix}"
-        for owner in ("ROUTING", "HEALTH_OBSERVATION")
-        for suffix in ("", "_FILE")
-    }
-    owner_dsn_keys.update(
-        f"AAP_MODULE_DATA_INFERENCE_{owner}_URL"
-        for owner in ("ROUTING", "HEALTH_OBSERVATION")
-    )
+    def is_private_inference_dsn(key):
+        upper = key.upper()
+        return (
+            upper.startswith("INFERENCE_")
+            and upper.endswith(("_DATABASE_URL", "_DATABASE_URL_FILE"))
+        ) or (
+            upper.startswith("AAP_MODULE_DATA_INFERENCE_")
+            and upper.endswith(("_URL", "_URL_FILE"))
+        )
+
     return {
         **{
             key: value
             for key, value in environment.items()
-            if key.upper() not in owner_dsn_keys
+            if not is_private_inference_dsn(key)
         },
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",

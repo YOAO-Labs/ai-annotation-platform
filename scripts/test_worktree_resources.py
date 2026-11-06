@@ -568,6 +568,27 @@ class BucketUpgradeTests(unittest.TestCase):
 
 
 class FixtureInferenceIdentityTests(unittest.TestCase):
+    def test_private_gpu_selection_discards_inherited_file_and_case_aliases(self):
+        from fixture_inference_services import _set_private_gpu_selectors
+        from yoao_inference.__main__ import _environment_value
+
+        name = "INFERENCE_GPU_DATABASE_URL"
+        with patch.dict(
+            os.environ,
+            {
+                name: "postgresql://foreign/db",
+                name.lower(): "postgresql://foreign-lower/db",
+                name + "_FILE": "/foreign/secret",
+                (name + "_FILE").lower(): "/foreign/lower-secret",
+            },
+            clear=True,
+        ):
+            _set_private_gpu_selectors({name: "postgresql://fixture/db"})
+            self.assertEqual(_environment_value(name), "postgresql://fixture/db")
+            self.assertNotIn(name.lower(), os.environ)
+            self.assertNotIn(name + "_FILE", os.environ)
+            self.assertNotIn((name + "_FILE").lower(), os.environ)
+
     def test_credentials_are_private_and_bound_to_database_owner(self):
         from sqlalchemy.engine import make_url
 

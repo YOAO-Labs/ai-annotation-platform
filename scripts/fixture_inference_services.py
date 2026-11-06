@@ -62,6 +62,7 @@ _HEALTH = (
     "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
 )
 
+
 def _control_profiles():
     """The same function-only profiles enforced by the native owner."""
     from yoao_inference.backend_endpoint_postgres import _function_set
@@ -74,8 +75,13 @@ def _control_profiles():
     profiles = {
         f"endpoint_{purpose}": (endpoint_schema, _function_set(purpose))
         for purpose in (
-            "setup", "health_observation", "catalog_fallback", "stats",
-            "backend_read", "lifecycle", "execution",
+            "setup",
+            "health_observation",
+            "catalog_fallback",
+            "stats",
+            "backend_read",
+            "lifecycle",
+            "execution",
         )
     }
     profiles["backend_stats"] = (endpoint_schema, _STATS_FUNCTIONS)
@@ -90,9 +96,13 @@ def _control_profiles():
     profiles["gpu_authority"] = ("aap_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
     profiles["health_data"] = ("aap_inference_health_data_v1", health_functions)
     return {
-        kind: (schema, tuple(
-            f"{schema}.{name}({signature})" for name, signature in sorted(functions)
-        ))
+        kind: (
+            schema,
+            tuple(
+                f"{schema}.{name}({signature})"
+                for name, signature in sorted(functions)
+            ),
+        )
         for kind, (schema, functions) in profiles.items()
     }
 
@@ -101,6 +111,16 @@ def _port() -> int:
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         return listener.getsockname()[1]
+
+
+def _set_private_gpu_selectors(selectors):
+    """Discard inherited aliases and file selectors before selecting owner DSNs."""
+    protected = {name.upper() for name in selectors}
+    protected.update(name + "_FILE" for name in tuple(protected))
+    for key in tuple(os.environ):
+        if key.upper() in protected:
+            del os.environ[key]
+    os.environ.update(selectors)
 
 
 class FixtureInferenceServices:
@@ -141,11 +161,7 @@ class FixtureInferenceServices:
             "routing_role": self.resources["database"] + "_routing",
             "health_role": self.resources["database"] + "_health",
             **{
-                kind + "_role": (
-                    "inference_gpu_authority_client" if kind == "gpu_authority"
-                    else "inference_health_data_client" if kind == "health_data"
-                    else self.resources["database"] + f"_inf{index}"
-                )
+                kind + "_role": self.resources["database"] + f"_inf{index}"
                 for index, kind in enumerate(_control_profiles())
             },
         }
@@ -977,25 +993,41 @@ async def _serve(payload):
         lease_ttl_ms=payload["lease_ttl_ms"],
     )
     # Native GPU dispatch owns these separate profiles, even for CPU fixtures.
-    os.environ.update({
-        "INFERENCE_GPU_DATABASE_URL": dsn("gpu_authority"),
-        "INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL": dsn("gpu_endpoint_health_observation"),
-        "INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL": dsn("gpu_endpoint_gpu_control"),
-        "INFERENCE_HEALTH_DATA_DATABASE_URL": dsn("health_data"),
-    })
+    _set_private_gpu_selectors(
+        {
+            "INFERENCE_GPU_DATABASE_URL": dsn("gpu_authority"),
+            "INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL": dsn(
+                "gpu_endpoint_health_observation"
+            ),
+            "INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL": dsn(
+                "gpu_endpoint_gpu_control"
+            ),
+            "INFERENCE_HEALTH_DATA_DATABASE_URL": dsn("health_data"),
+        }
+    )
     for kind in (
-        "gpu_authority", "health_data",
-        "gpu_endpoint_health_observation", "gpu_endpoint_gpu_control",
+        "gpu_authority",
+        "health_data",
+        "gpu_endpoint_health_observation",
+        "gpu_endpoint_gpu_control",
     ):
         connection = await asyncpg.connect(dsn(kind), timeout=5, command_timeout=5)
         try:
             async with connection.transaction():
                 if kind == "gpu_authority":
-                    await GPUAuthorityPostgresData.bind(connection)
+                    await GPUAuthorityPostgresData.bind(
+                        connection, expected_role=payload["roles"][kind]["username"]
+                    )
                 elif kind == "health_data":
-                    await HealthDataPostgresData.bind(connection)
+                    await HealthDataPostgresData.bind(
+                        connection, expected_role=payload["roles"][kind]["username"]
+                    )
                 else:
-                    purpose = "health_observation" if kind.endswith("health_observation") else "gpu_control"
+                    purpose = (
+                        "health_observation"
+                        if kind.endswith("health_observation")
+                        else "gpu_control"
+                    )
                     await _verify_endpoint_profile(connection, purpose)
                     policy = await connection.fetchval(
                         "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
@@ -1007,15 +1039,27 @@ async def _serve(payload):
     stack = AsyncExitStack()
     options = _BackendOptions(ml_health_timeout=10, ml_predict_timeout=100)
     boundary, _ = await _gpu_runtime(
-        stack, routing, options, CapabilityLimits(), max_concurrency=8, admin=False
+        stack,
+        routing,
+        options,
+        CapabilityLimits(),
+        max_concurrency=8,
+        admin=False,
+        gpu_authority_role=payload["roles"]["gpu_authority"]["username"],
+        health_data_role=payload["roles"]["health_data"]["username"],
     )
     openers = {
         purpose: BackendEndpointManager(
             BackendEndpointPostgresData(dsn(f"endpoint_{purpose}"), purpose)
         )
         for purpose in (
-            "setup", "health_observation", "catalog_fallback", "stats",
-            "backend_read", "lifecycle", "execution",
+            "setup",
+            "health_observation",
+            "catalog_fallback",
+            "stats",
+            "backend_read",
+            "lifecycle",
+            "execution",
         )
     }
     backend_control = BackendControlManager(

@@ -83,6 +83,27 @@ class IdentityTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_application_process_cannot_inherit_private_inference_dsns(self):
+        from worktree_env import application_environment
+
+        private = {
+            "inference_gpu_database_url": "gpu-secret",
+            "INFERENCE_GPU_DATABASE_URL_FILE": "/gpu-secret",
+            "inference_backend_endpoint_setup_database_url_file": "/endpoint-secret",
+            "INFERENCE_BACKEND_STATS_DATABASE_URL": "stats-secret",
+            "aap_module_data_inference_gpu_url": "verifier-secret",
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL_FILE": "/verifier-secret",
+            "inference_health_data_database_url": "health-secret",
+        }
+        environment = application_environment(
+            {**private, "INFERENCE_BACKEND_CONTROL_URL": "http://fixture-owner"}
+        )
+        for key in private:
+            self.assertNotIn(key, environment)
+        self.assertEqual(
+            environment["INFERENCE_BACKEND_CONTROL_URL"], "http://fixture-owner"
+        )
+
     def test_every_identity_settings_database_selector_is_overridden(self):
         import ast
         from worktree_env import isolated_environment, load_identity, topology

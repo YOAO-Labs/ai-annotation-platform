@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from types import SimpleNamespace
 
 import asyncpg
@@ -15,6 +16,8 @@ from yoao_inference.health_data_postgres import (
     HealthDataPostgresData,
     HealthDataUnavailable,
 )
+from yoao_inference.gpu.native import GPUAuthorityPostgresData
+from yoao_inference_contract.gpu import GPUAuthorityUnavailable
 from yoao_inference_contract.capabilities import CapabilityLimits
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_inference_health_data_native import (
@@ -69,7 +72,9 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
             == "inference_health_data_client"
         )
         with pytest.raises(HealthDataUnavailable):
-            await HealthDataPostgresData.bind(client)
+            await HealthDataPostgresData.bind(
+                client, expected_role="inference_health_data_client"
+            )
         with _backend("gpu_echo" if gpu else "cpu_healthy", trace) as origin:
             await owner.execute(
                 "UPDATE ml_backend_registry SET url=$2,gpu_resource_id=$3,vram_budget_mb=$4 WHERE id=$1",
@@ -80,7 +85,9 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
             )
             tx = client.transaction()
             await tx.start()
-            data = await HealthDataPostgresData.bind(client)
+            data = await HealthDataPostgresData.bind(
+                client, expected_role="inference_health_data_client"
+            )
 
             def make_transport(row):
                 return BackendTransport(
@@ -132,7 +139,9 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
             try:
                 with pytest.raises(HealthDataUnavailable):
                     await data.get_backend(world["registry_id"])
-                fresh = await HealthDataPostgresData.bind(client)
+                fresh = await HealthDataPostgresData.bind(
+                    client, expected_role="inference_health_data_client"
+                )
                 assert await fresh.get_backend(world["registry_id"]) is not None
             finally:
                 await replacement.rollback()
@@ -167,7 +176,9 @@ async def test_cached_port_does_not_skip_full_jsonb_materialization(test_engine)
     tx = client.transaction()
     try:
         await tx.start()
-        data = await HealthDataPostgresData.bind(client)
+        data = await HealthDataPostgresData.bind(
+            client, expected_role="inference_health_data_client"
+        )
         row = await data.get_backend(world["registry_id"])
         row.url = "http://caller-pending.invalid"
         await owner.execute(
@@ -185,3 +196,63 @@ async def test_cached_port_does_not_skip_full_jsonb_materialization(test_engine)
             await _cleanup_world(owner, world)
         finally:
             await owner.close()
+
+
+@pytest.mark.parametrize("profile", ["health_data", "gpu_authority"])
+async def test_independent_function_login_requires_its_exact_expected_role(
+    test_engine, profile
+):
+    from yoao_inference.gpu.native import _AUTHORITY_FUNCTIONS
+    from yoao_inference.health_data_postgres import _FUNCTIONS
+
+    await assert_owned_test_database(test_engine)
+    role = "fixture_profile_" + uuid.uuid4().hex
+    password = uuid.uuid4().hex
+    schema, functions = (
+        ("aap_inference_health_data_v1", _FUNCTIONS)
+        if profile == "health_data"
+        else ("aap_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
+    )
+    grant_functions = ", ".join(
+        f"{schema}.{name}({signature})" for name, signature in sorted(functions)
+    )
+    owner = await _connect(test_engine)
+    client = None
+    created = False
+    try:
+        await owner.execute(
+            f"CREATE ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB "
+            f"NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'"
+        )
+        created = True
+        await owner.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
+        await owner.execute(f"GRANT EXECUTE ON FUNCTION {grant_functions} TO {role}")
+        url = test_engine.url.set(
+            drivername="postgresql", username=role, password=password
+        ).render_as_string(hide_password=False)
+        client = await asyncpg.connect(url, timeout=5, command_timeout=10)
+        binding, unavailable = (
+            (HealthDataPostgresData, HealthDataUnavailable)
+            if profile == "health_data"
+            else (GPUAuthorityPostgresData, GPUAuthorityUnavailable)
+        )
+        async with client.transaction():
+            with pytest.raises(unavailable):
+                await binding.bind(client, expected_role="another_owner")
+            await binding.bind(client, expected_role=role)
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await client.fetchval("SELECT count(*) FROM public.ml_backend_registry")
+        with pytest.raises(asyncpg.InsufficientPrivilegeError):
+            await client.fetchval(
+                "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
+            )
+    finally:
+        if client is not None:
+            await client.close()
+        if created:
+            await owner.execute(
+                f"REVOKE EXECUTE ON FUNCTION {grant_functions} FROM {role}"
+            )
+            await owner.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
+            await owner.execute(f"DROP ROLE {role}")
+        await owner.close()

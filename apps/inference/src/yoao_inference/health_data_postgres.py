@@ -319,7 +319,11 @@ class HealthDataPostgresData:
         self._intent: _ReconciliationIntent | None = None
 
     @classmethod
-    async def bind(cls, connection: Any) -> HealthDataPostgresData:
+    async def bind(
+        cls, connection: Any, *, expected_role: str
+    ) -> HealthDataPostgresData:
+        if type(expected_role) is not str or not expected_role:
+            raise HealthDataUnavailable()
         try:
             active = connection.is_in_transaction()
         except (AttributeError, TypeError, ValueError):
@@ -335,6 +339,7 @@ class HealthDataPostgresData:
                 connection,
                 schema=_SCHEMA,
                 functions=_FUNCTIONS,
+                role=expected_role,
             )
             policy = await connection.fetchval(_POLICY_SQL)
         except Exception:

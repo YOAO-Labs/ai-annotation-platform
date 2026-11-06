@@ -32,6 +32,7 @@ class PersistedGPUHealthRefresher:
         self,
         dsn: str,
         *,
+        expected_role: str,
         options: BackendOptions,
         capability_limits_factory: Callable[[], CapabilityLimits],
         observe: Observer | None = None,
@@ -42,6 +43,8 @@ class PersistedGPUHealthRefresher:
             type(dsn) is not str
             or not dsn.strip()
             or any(character.isspace() for character in dsn)
+            or type(expected_role) is not str
+            or not expected_role
             or not callable(capability_limits_factory)
             or type(connect_timeout_seconds) not in {int, float}
             or not math.isfinite(float(connect_timeout_seconds))
@@ -52,6 +55,7 @@ class PersistedGPUHealthRefresher:
         ):
             raise ValueError("Invalid GPU health refresh settings")
         self._dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
+        self._expected_role = expected_role
         self._options = options
         self._capability_limits_factory = capability_limits_factory
         self._observe = observe or _ignore_observation
@@ -82,7 +86,9 @@ class PersistedGPUHealthRefresher:
             )
             transaction = connection.transaction(readonly=False)
             await transaction.start()
-            data = await HealthDataPostgresData.bind(connection)
+            data = await HealthDataPostgresData.bind(
+                connection, expected_role=self._expected_role
+            )
             coordinator = BackendHealthCoordinator(
                 data,
                 client_factory=self._client_factory,

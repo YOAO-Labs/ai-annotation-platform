@@ -90,7 +90,15 @@ class _SystemClock:
 
 
 async def _gpu_runtime(
-    stack, routing_runtime, options, limits, *, max_concurrency, admin
+    stack,
+    routing_runtime,
+    options,
+    limits,
+    *,
+    max_concurrency,
+    admin,
+    gpu_authority_role,
+    health_data_role,
 ):
     import asyncpg
 
@@ -148,7 +156,7 @@ async def _gpu_runtime(
         return pool
 
     authority_pool = await pool_for("INFERENCE_GPU_DATABASE_URL", "aap-inference-gpu")
-    data = GPUAuthorityPoolData(authority_pool)
+    data = GPUAuthorityPoolData(authority_pool, expected_role=gpu_authority_role)
     endpoint_source = GPUOwnedBackendEndpointSource(
         {
             purpose: await pool_for(
@@ -169,6 +177,7 @@ async def _gpu_runtime(
 
     health_refresher = PersistedGPUHealthRefresher(
         _required_value("INFERENCE_HEALTH_DATA_DATABASE_URL"),
+        expected_role=health_data_role,
         options=options,
         capability_limits_factory=lambda: limits,
     )
@@ -321,6 +330,8 @@ async def run() -> None:
                 limits,
                 max_concurrency=max_concurrency,
                 admin=gpu_token is not None,
+                gpu_authority_role="inference_gpu_authority_client",
+                health_data_role="inference_health_data_client",
             )
             from .backend_endpoint import BackendEndpointManager
             from .backend_endpoint_postgres import BackendEndpointPostgresData
