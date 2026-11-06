@@ -35,21 +35,16 @@ async def seed(db, *, status="pending", task_id=None):
     return identifier
 
 
-@pytest.mark.parametrize("action", ["success", "failure"])
 @pytest.mark.parametrize("task_id", [None, "first-broker-delivery"])
 @pytest.mark.parametrize(
     "status", ["pending", "running", "completed", "failed", "cancelled"]
 )
 async def test_late_dispatch_response_only_updates_an_unassigned_pending_job(
-    owned_db, action, task_id, status
+    owned_db, task_id, status
 ):
     db = owned_db
     identifier = await seed(db, status=status, task_id=task_id)
-    changed = (
-        await media_jobs.record_dispatch(db, identifier, "late-broker-delivery")
-        if action == "success"
-        else await media_jobs.fail_dispatch(db, identifier)
-    )
+    changed = await media_jobs.record_dispatch(db, identifier, "late-broker-delivery")
     await db.commit()
     row = (
         (
@@ -62,16 +57,11 @@ async def test_late_dispatch_response_only_updates_an_unassigned_pending_job(
     )
     eligible = status == "pending" and task_id is None
     assert changed is eligible
-    assert row["status"] == ("failed" if eligible and action == "failure" else status)
-    assert row["celery_task_id"] == (
-        "late-broker-delivery" if eligible and action == "success" else task_id
-    )
-    if eligible and action == "failure":
-        assert row["completed_at"] is not None
-        assert row["error_message"] == "export_dispatch_failed"
+    assert row["status"] == status
+    assert row["celery_task_id"] == ("late-broker-delivery" if eligible else task_id)
 
 
-async def test_worker_claim_lock_fences_both_late_success_and_late_failure(owned_db):
+async def test_worker_claim_lock_fences_late_success(owned_db):
     db = owned_db
     identifier = await seed(db)
     factory = async_sessionmaker(db.bind, expire_on_commit=False)
@@ -88,13 +78,9 @@ async def test_worker_claim_lock_fences_both_late_success_and_late_failure(owned
         assert not await asyncio.wait_for(
             media_jobs.record_dispatch(db, identifier, "late"), timeout=1
         )
-        assert not await asyncio.wait_for(
-            media_jobs.fail_dispatch(db, identifier), timeout=1
-        )
         await db.commit()
         await worker.commit()
     assert not await media_jobs.record_dispatch(db, identifier, "later")
-    assert not await media_jobs.fail_dispatch(db, identifier)
     row = (
         await db.execute(
             text("SELECT status,celery_task_id FROM async_jobs WHERE id=:id"),

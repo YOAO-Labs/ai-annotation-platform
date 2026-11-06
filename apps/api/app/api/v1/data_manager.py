@@ -312,23 +312,16 @@ async def export_data_manager_tasks(
             "targets": targets,
         },
     )
-    try:
-        published_execution_id = await publish_prepared_dispatch(
-            db,
-            lease,
-            publish=lambda: dispatch_job(
-                task_name="app.workers.export.run_export",
-                execution_id=execution_id,
-                args=dispatch_args,
-                kwargs=dispatch_kwargs,
-            ),
-        )
-    except Exception:
-        from app.services.exporting.media_jobs import fail_dispatch
-
-        await fail_dispatch(db, job.id)
-        await db.commit()
-        raise
+    published_execution_id = await publish_prepared_dispatch(
+        db,
+        lease,
+        publish=lambda: dispatch_job(
+            task_name="app.workers.export.run_export",
+            execution_id=execution_id,
+            args=dispatch_args,
+            kwargs=dispatch_kwargs,
+        ),
+    )
     async_job_service.bind_execution_id(job, published_execution_id)
     await db.commit()
     return {"job_id": str(job.id), "status": "queued"}

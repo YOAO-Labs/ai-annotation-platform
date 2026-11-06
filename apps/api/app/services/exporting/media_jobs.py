@@ -1,7 +1,5 @@
 """Capture the format-specific immutable input contract before enqueue."""
 
-from datetime import datetime, timezone
-
 from sqlalchemy import select, update
 
 from app.db.models.async_job import AsyncJob
@@ -34,18 +32,6 @@ async def _record_dispatch(db, job_id, values):
 
 async def record_dispatch(db, job_id, task_id):
     return await _record_dispatch(db, job_id, {"celery_task_id": task_id})
-
-
-async def fail_dispatch(db, job_id):
-    return await _record_dispatch(
-        db,
-        job_id,
-        {
-            "status": "failed",
-            "completed_at": datetime.now(timezone.utc),
-            "error_message": "export_dispatch_failed",
-        },
-    )
 
 
 async def create_export_job(

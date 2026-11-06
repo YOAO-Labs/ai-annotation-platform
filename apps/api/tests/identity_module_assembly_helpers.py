@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -598,6 +599,35 @@ class IdentityModuleStack:
     @property
     def identity_origin(self) -> str:
         return self._identity_origin
+
+    @property
+    def jobs_queue_origin(self) -> str:
+        """Address only the live queue attachment on this verifier's owned network."""
+        network = self._dependency_network()
+        details = self._verify_project_ownership().get(_JOBS_QUEUE_SERVICE)
+        if network is None or details is None:
+            raise RuntimeError("Owned Jobs queue or network is unavailable")
+        state = details.get("State") or {}
+        attachments = (details.get("NetworkSettings") or {}).get("Networks") or {}
+        endpoint = attachments.get(network["Name"]) or {}
+        member = (network.get("Containers") or {}).get(details.get("Id")) or {}
+        if (
+            state.get("Running") is not True
+            or (state.get("Health") or {}).get("Status") != "healthy"
+            or set(attachments) != {network["Name"]}
+            or endpoint.get("NetworkID") != network["Id"]
+            or not endpoint.get("EndpointID")
+            or member.get("EndpointID") != endpoint["EndpointID"]
+        ):
+            raise RuntimeError("Jobs queue attachment is not the live owned endpoint")
+        try:
+            address = ipaddress.IPv4Address(endpoint["IPAddress"])
+            member_address = ipaddress.IPv4Interface(member["IPv4Address"]).ip
+        except (KeyError, ValueError):
+            raise RuntimeError("Jobs queue attachment has no valid IPv4 identity") from None
+        if address != member_address or address.is_unspecified or address.is_loopback:
+            raise RuntimeError("Jobs queue attachment address does not match its network")
+        return f"http://{address}:8190"
 
     @property
     def service_ids(self) -> dict[str, str]:

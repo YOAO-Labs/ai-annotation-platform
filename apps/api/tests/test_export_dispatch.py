@@ -98,14 +98,8 @@ def _route_boundary(monkeypatch, *, task_ids=(), failure=None):
     async def publish_dispatch(_db, lease, *, publish):
         return await publish()
 
-    async def mark_failed(_db, job_id, *, error):
-        assert job.id == job_id
-        events.append(("failed", error))
-        job.status = "failed"
-        job.error_message = error
 
     monkeypatch.setattr(async_job_service, "create_job", create_job)
-    monkeypatch.setattr(async_job_service, "mark_failed", mark_failed)
     monkeypatch.setattr(AuditService, "log", staticmethod(audit))
     monkeypatch.setattr(jobs_queue, "dispatch_job", dispatch)
     monkeypatch.setattr(data_manager, "dispatch_job", dispatch)
@@ -352,31 +346,3 @@ async def test_data_manager_scope_wire_and_bind_happen_after_durable_publish(
     assert db.job.celery_task_id == events[5][3]["execution_id"]
 
 
-@pytest.mark.asyncio
-async def test_data_manager_dispatch_failure_marks_failed_and_propagates(monkeypatch):
-    actor, project = _identity_project()
-    selected = [uuid.UUID("00000000-0000-0000-0000-000000000001")]
-    failure = RuntimeError("queue unavailable")
-    db, events = _route_boundary(monkeypatch, task_ids=selected, failure=failure)
-    payload = DataManagerTaskExportRequest(task_ids=selected, targets=["native_json"])
-
-    with pytest.raises(RuntimeError) as raised:
-        await _export_data_manager(db, actor, project, payload)
-
-    assert raised.value is failure
-    assert [event[0] for event in events] == [
-        "select",
-        "create",
-        "prepare",
-        "commit",
-        "audit",
-        "dispatch",
-        "failed",
-        "commit",
-    ]
-    assert events[3] == ("commit", "pending", None)
-    assert events[5][1:3] == ("pending", None)
-    assert events[6][1] == "dispatch failed: RuntimeError: queue unavailable"
-    assert db.job.status == "failed"
-    assert db.job.celery_task_id is None
-    assert events[7] == ("commit", "failed", None)
