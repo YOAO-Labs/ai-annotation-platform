@@ -243,7 +243,7 @@ class GPUAuthorityPostgresData(_BorrowedGPUData):
             if (
                 type(expected_role) is not str
                 or not expected_role
-                or not connection.is_in_transaction()
+                or connection.is_in_transaction() is not True
             ):
                 raise GPUAuthorityUnavailable()
             from yoao_owner_data.postgres import verify_function_only_role

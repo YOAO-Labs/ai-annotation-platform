@@ -278,9 +278,15 @@ def isolated_environment(
         # Inference owner's private database selectors into E2E consumers.
         for key in inherited:
             upper = key.upper()
-            if (
-                upper.startswith(("INFERENCE_BACKEND_ENDPOINT_", "INFERENCE_GPU_", "INFERENCE_HEALTH_DATA_", "INFERENCE_BACKEND_STATS_"))
-                and (upper.endswith("_DATABASE_URL") or upper.endswith("_DATABASE_URL_FILE"))
+            if upper.startswith(
+                (
+                    "INFERENCE_BACKEND_ENDPOINT_",
+                    "INFERENCE_GPU_",
+                    "INFERENCE_HEALTH_DATA_",
+                    "INFERENCE_BACKEND_STATS_",
+                )
+            ) and (
+                upper.endswith("_DATABASE_URL") or upper.endswith("_DATABASE_URL_FILE")
             ):
                 overrides[upper] = ""
     fixture_target_keys = (
@@ -330,6 +336,7 @@ def frontend_environment(environment: dict) -> dict:
 
 def application_environment(environment: dict) -> dict:
     """Remove migration/test credentials before launching application processes."""
+
     def is_private_inference_dsn(key):
         upper = key.upper()
         return (

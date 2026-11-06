@@ -28,7 +28,14 @@ from sqlalchemy.pool import NullPool
 
 from linux_pidfd import open_pidfd, pidfd_alive
 
-from worktree_env import WorktreeError, atomic_json, load_identity, read_state, state_path, topology
+from worktree_env import (
+    WorktreeError,
+    atomic_json,
+    load_identity,
+    read_state,
+    state_path,
+    topology,
+)
 from worktree_runtime import (
     process_handle,
     process_matches,
@@ -67,7 +74,10 @@ def _control_profiles():
     """The same function-only profiles enforced by the native owner."""
     from yoao_inference.backend_endpoint_postgres import _function_set
     from yoao_inference.backend_control_stats_postgres import _STATS_FUNCTIONS
-    from yoao_inference.gpu.endpoint_source import _ENDPOINT_FUNCTIONS, _ENDPOINT_OPENERS
+    from yoao_inference.gpu.endpoint_source import (
+        _ENDPOINT_FUNCTIONS,
+        _ENDPOINT_OPENERS,
+    )
     from yoao_inference.gpu.native import _AUTHORITY_FUNCTIONS
     from yoao_inference.health_data_postgres import _FUNCTIONS as health_functions
 
@@ -99,8 +109,7 @@ def _control_profiles():
         kind: (
             schema,
             tuple(
-                f"{schema}.{name}({signature})"
-                for name, signature in sorted(functions)
+                f"{schema}.{name}({signature})" for name, signature in sorted(functions)
             ),
         )
         for kind, (schema, functions) in profiles.items()
@@ -224,7 +233,9 @@ class FixtureInferenceServices:
 
     def _credential_digest(self):
         return hashlib.sha256(
-            json.dumps(self._credentials, sort_keys=True, separators=(",", ":")).encode()
+            json.dumps(
+                self._credentials, sort_keys=True, separators=(",", ":")
+            ).encode()
         ).hexdigest()
 
     def _paused_receipt(self):
@@ -250,7 +261,8 @@ class FixtureInferenceServices:
             or marker.get("phase") != "running"
             or not isinstance(marker.get("pid"), int)
             or not isinstance(marker.get("start_ticks"), int)
-            or receipt.get("drain") != {"nonce": marker.get("nonce"), "status": "drained"}
+            or receipt.get("drain")
+            != {"nonce": marker.get("nonce"), "status": "drained"}
             or receipt.get("pidfd_exit") is not True
             or receipt.get("control_removed") is not True
         ):
@@ -268,7 +280,10 @@ class FixtureInferenceServices:
             if not self.marker_path.exists():
                 raise WorktreeError("推理夹具重启结果不明；保留回执")
             return False
-        return not self.marker_path.exists() or read_state(self.marker_path) == receipt["marker"]
+        return (
+            not self.marker_path.exists()
+            or read_state(self.marker_path) == receipt["marker"]
+        )
 
     def recover_paused(self):
         with self._lifecycle_lock:
@@ -315,13 +330,17 @@ class FixtureInferenceServices:
                 else:
                     await self.backend.verify_database_server(connection)
                 operator = (
-                    await connection.execute(
-                        text(
-                            "SELECT oid,rolsuper,rolcreaterole FROM pg_roles "
-                            "WHERE rolname=current_user"
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT oid,rolsuper,rolcreaterole FROM pg_roles "
+                                "WHERE rolname=current_user"
+                            )
                         )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
                 profiles = {
                     "routing": ("aap_inference_routing_v1", _ROUTING),
                     "health": ("aap_inference_health_observation_v1", _HEALTH),
@@ -344,7 +363,9 @@ class FixtureInferenceServices:
                         raise WorktreeError("原推理夹具账号缺失；拒绝替换")
                     if action == "create" and observed is None:
                         if not (operator["rolsuper"] or operator["rolcreaterole"]):
-                            raise WorktreeError("迁移账号需要 CREATEROLE 创建推理夹具账号")
+                            raise WorktreeError(
+                                "迁移账号需要 CREATEROLE 创建推理夹具账号"
+                            )
                         await connection.execute(
                             text(
                                 "SELECT set_config('aap.fixture_role',:role,true), "
@@ -383,10 +404,14 @@ class FixtureInferenceServices:
                         if not operator["rolsuper"] and not (
                             operator["rolcreaterole"] and observed["operator_admin"]
                         ):
-                            raise WorktreeError("迁移账号不能删除推理夹具账号；保留资源")
+                            raise WorktreeError(
+                                "迁移账号不能删除推理夹具账号；保留资源"
+                            )
                         if action == "drop":
-                            quoted = engine.dialect.identifier_preparer.quote_identifier(
-                                role
+                            quoted = (
+                                engine.dialect.identifier_preparer.quote_identifier(
+                                    role
+                                )
                             )
                             await connection.exec_driver_sql(f"DROP ROLE {quoted}")
         finally:
@@ -607,7 +632,10 @@ class FixtureInferenceServices:
             if peer_pid != self.record["pid"] or peer_uid != os.geteuid():
                 raise WorktreeError("推理夹具控制 socket 对端身份不一致")
             connection.sendall(
-                (json.dumps({"command": command, "nonce": self.record["nonce"]}) + "\n").encode()
+                (
+                    json.dumps({"command": command, "nonce": self.record["nonce"]})
+                    + "\n"
+                ).encode()
             )
             data = b""
             while not data.endswith(b"\n"):
@@ -640,27 +668,22 @@ class FixtureInferenceServices:
             # Even a different identity at the old PID is not a settled receipt.
             raise WorktreeError("无法确认原推理夹具监督进程退出")
         script = str(self.code_root / "scripts/fixture_inference_services.py")
-        if (
-            not process_matches(marker, script)
-            or _start_ticks(marker["pid"]) != marker.get("start_ticks")
-        ):
+        if not process_matches(marker, script) or _start_ticks(
+            marker["pid"]
+        ) != marker.get("start_ticks"):
             raise WorktreeError("无法核对原推理夹具进程；保留记录")
         descriptor = open_pidfd(marker["pid"])
         try:
-            if (
-                not process_matches(marker, script)
-                or _start_ticks(marker["pid"]) != marker.get("start_ticks")
-            ):
+            if not process_matches(marker, script) or _start_ticks(
+                marker["pid"]
+            ) != marker.get("start_ticks"):
                 raise WorktreeError("推理夹具进程身份变化；保留记录")
             self._credentials = self._load_credentials()
             if self._credentials is None:
                 raise WorktreeError("推理夹具凭据缺失；拒绝接管")
             directory = Path(marker.get("control_directory", ""))
-            if (
-                directory.parent != Path("/tmp").resolve()
-                or not re.fullmatch(
-                    rf"aap-inference-{os.geteuid()}-[a-f0-9]{{32}}", directory.name
-                )
+            if directory.parent != Path("/tmp").resolve() or not re.fullmatch(
+                rf"aap-inference-{os.geteuid()}-[a-f0-9]{{32}}", directory.name
             ):
                 raise WorktreeError("推理夹具控制目录路径无效")
             self.control_path = directory / "control.sock"
@@ -674,7 +697,9 @@ class FixtureInferenceServices:
                 with opener.open(
                     f"http://127.0.0.1:{self._credentials['port']}/health", timeout=5
                 ) as response:
-                    if response.status != 200 or json.load(response) != {"status": "ready"}:
+                    if response.status != 200 or json.load(response) != {
+                        "status": "ready"
+                    }:
                         raise WorktreeError("原推理夹具未就绪；保留记录")
             parent = process_handle(os.getpid(), str(self.code_root))
             if (
@@ -702,7 +727,8 @@ class FixtureInferenceServices:
             self.marker_path.exists()
             and read_state(self.marker_path) == self.record
             and process_matches(
-                self.record, str(self.code_root / "scripts/fixture_inference_services.py")
+                self.record,
+                str(self.code_root / "scripts/fixture_inference_services.py"),
             )
             and _start_ticks(self.record["pid"]) == self.record.get("start_ticks")
         )
@@ -735,7 +761,13 @@ class FixtureInferenceServices:
             return [
                 {
                     key: self.record[key]
-                    for key in ("pid", "started", "scope", "command_hash", "start_ticks")
+                    for key in (
+                        "pid",
+                        "started",
+                        "scope",
+                        "command_hash",
+                        "start_ticks",
+                    )
                 }
             ]
 
@@ -870,14 +902,18 @@ class FixtureInferenceServices:
         try:
             async with engine.connect() as connection:
                 identity = (
-                    await connection.execute(
-                        text(
-                            "SELECT current_database() AS name, "
-                            "shobj_description(oid, 'pg_database') AS owner "
-                            "FROM pg_database WHERE datname=current_database()"
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT current_database() AS name, "
+                                "shobj_description(oid, 'pg_database') AS owner "
+                                "FROM pg_database WHERE datname=current_database()"
+                            )
                         )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
                 if identity["name"] != self.resources["database"] or not require_owner(
                     identity["name"], identity, self.resources["owner"]
                 ):
@@ -905,12 +941,16 @@ class FixtureInferenceServices:
         if self.poisoned:
             raise WorktreeError("推理夹具停止结果不明；保留原进程")
         with self.backend.fixture_authority_fence():
-            if self._credentials is not None and not asyncio.run(self._fixture_settled()):
+            if self._credentials is not None and not asyncio.run(
+                self._fixture_settled()
+            ):
                 raise WorktreeError("夹具责任尚未结算；保留推理 owner")
             self.pause()
 
 
-def verify_existing_serving(resources: dict, *, code_root: Path, environment: dict) -> None:
+def verify_existing_serving(
+    resources: dict, *, code_root: Path, environment: dict
+) -> None:
     """Read-only verification of the original selected native HTTP owner."""
     root = Path(resources["root"])
     if resources != topology(root, load_identity(root), "e2e"):
@@ -923,16 +963,17 @@ def verify_existing_serving(resources: dict, *, code_root: Path, environment: di
         or url.database != resources["database"]
     ):
         raise WorktreeError("推理夹具数据库身份不一致")
-    backend = SimpleNamespace(resources=resources, code_root=Path(code_root).resolve(), url=url)
+    backend = SimpleNamespace(
+        resources=resources, code_root=Path(code_root).resolve(), url=url
+    )
     owner = FixtureInferenceServices(backend, code_root=code_root)
     marker = read_state(owner.marker_path)
     require_owner("inference-owner", marker, resources["owner"])
     if marker.get("phase") != "running":
         raise WorktreeError("推理夹具 owner 未处于服务状态")
     directory = Path(marker.get("control_directory", ""))
-    if (
-        directory.parent != Path("/tmp").resolve()
-        or not re.fullmatch(rf"aap-inference-{os.geteuid()}-[a-f0-9]{{32}}", directory.name)
+    if directory.parent != Path("/tmp").resolve() or not re.fullmatch(
+        rf"aap-inference-{os.geteuid()}-[a-f0-9]{{32}}", directory.name
     ):
         raise WorktreeError("推理夹具控制目录路径无效")
     owner.record = marker
@@ -948,11 +989,14 @@ def verify_existing_serving(resources: dict, *, code_root: Path, environment: di
         if not owner.is_alive():
             raise WorktreeError("推理夹具进程身份变化")
         if owner._control("inspect", time.monotonic() + 5) != {
-            "nonce": marker["nonce"], "status": "serving"
+            "nonce": marker["nonce"],
+            "status": "serving",
         }:
             raise WorktreeError("推理夹具控制状态不一致")
         opener = build_opener(ProxyHandler({}))
-        with opener.open(f"{selection['INFERENCE_ROUTING_URL']}/health", timeout=5) as response:
+        with opener.open(
+            f"{selection['INFERENCE_ROUTING_URL']}/health", timeout=5
+        ) as response:
             if response.status != 200 or json.load(response) != {"status": "ready"}:
                 raise WorktreeError("推理夹具未就绪")
         if not owner.is_alive():
@@ -965,7 +1009,9 @@ async def _serve(payload):
     from contextlib import AsyncExitStack
     from yoao_inference.__main__ import _BackendOptions, _gpu_runtime
     from yoao_inference.backend_control_manager import BackendControlManager
-    from yoao_inference.backend_control_stats_postgres import BackendControlStatsPostgresData
+    from yoao_inference.backend_control_stats_postgres import (
+        BackendControlStatsPostgresData,
+    )
     from yoao_inference.backend_endpoint import BackendEndpointManager
     from yoao_inference.backend_endpoint_postgres import BackendEndpointPostgresData
     from yoao_inference.gpu.endpoint_source import _verify_endpoint_profile
@@ -973,9 +1019,13 @@ async def _serve(payload):
     from yoao_inference.health_data_postgres import HealthDataPostgresData
     from yoao_inference_contract.backend_endpoint import backend_endpoint_policy_ready
     import asyncpg
-    from yoao_inference.owner_transport import RoutingBackendControlRequestContextFactory
+    from yoao_inference.owner_transport import (
+        RoutingBackendControlRequestContextFactory,
+    )
     from yoao_inference_contract.capabilities import CapabilityLimits
-    from yoao_inference.health_observation_manager import BackendHealthObservationManager
+    from yoao_inference.health_observation_manager import (
+        BackendHealthObservationManager,
+    )
     from yoao_inference.health_observation_postgres import (
         BackendHealthObservationPostgresData,
     )
@@ -1162,7 +1212,9 @@ async def _serve(payload):
             else:
                 return
             writer.write(
-                (json.dumps({"nonce": payload["nonce"], "status": status}) + "\n").encode()
+                (
+                    json.dumps({"nonce": payload["nonce"], "status": status}) + "\n"
+                ).encode()
             )
             await writer.drain()
         except (OSError, ValueError, TimeoutError, asyncio.LimitOverrunError):
