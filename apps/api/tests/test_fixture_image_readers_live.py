@@ -29,7 +29,7 @@ import pytest
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from tests.identity_e2e_support import fixture_routing_owner
+from tests.identity_e2e_support import e2e_consumer, fenced_http, fixture_routing_owner
 from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
 from tests.seed_owner_support import (
     OwnedSuite,
@@ -595,8 +595,8 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         owner = _PreservedSeedOwner(process, owner_log)
         suite = OwnedSuite(owner, uuid.uuid4())
         await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
-        run = suite.new_run("reuse" + uuid.uuid4().hex[:8])
-        neighbor = suite.new_run("neighbor" + uuid.uuid4().hex[:8])
+        run = suite.new_run("reuse" + uuid.uuid4().hex[:7])
+        neighbor = suite.new_run("nbr" + uuid.uuid4().hex[:8])
         world = await _build_owned(owner, run, image_canvas="5k")
         await _build_owned(owner, neighbor)
         versions = await _fixture_versions(test_engine, run)
