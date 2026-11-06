@@ -1365,6 +1365,92 @@ async def prepare_fixture_suite(suite_id: str, family: str):
         os.close(lock_fd)
 
 
+async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
+    """Provision and register an admitted run's exact native output target."""
+    from app.services.storage_access import mark_unsettled
+    from fixture_media_control import register_native_target
+    from fixture_store import provision_native_output, verified_native_output
+    from verify_storage_candidates import Owner
+
+    _refuse_unless(
+        isinstance(run_id, uuid.UUID) and isinstance(admission_id, uuid.UUID),
+        "fixture_native_run_invalid",
+    )
+    owner_url, resources, identity = await _verified_database()
+    root = _resource_root(resources)
+    manifest = state_path(root, resources["mode"], "fixture-store-owner.json")
+    lock_path = state_path(root, resources["mode"], "fixture-store.lock")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+    owner = None
+    registration_started = False
+    try:
+        info = os.fstat(descriptor)
+        current = lock_path.lstat()
+        _refuse_unless(
+            stat.S_ISREG(info.st_mode)
+            and info.st_uid == os.geteuid()
+            and stat.S_IMODE(info.st_mode) == 0o600
+            and info.st_nlink == 1
+            and (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino),
+            "fixture_lock_invalid",
+        )
+        await _settled_thread(fcntl.flock, descriptor, fcntl.LOCK_EX)
+        current = lock_path.lstat()
+        _refuse_unless(
+            (info.st_dev, info.st_ino, info.st_nlink)
+            == (current.st_dev, current.st_ino, current.st_nlink),
+            "fixture_lock_changed",
+        )
+        engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
+        try:
+            async with engine.connect() as connection:
+                admitted = await connection.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_runs r "
+                        "JOIN yoao_fixture_v1.fixture_runs s ON s.id = r.parent_run_id "
+                        "JOIN yoao_fixture_v1.fixture_run_admissions a ON a.run_id = r.id "
+                        "WHERE r.id = :run AND a.id = :admission "
+                        "AND a.state = 'active' AND r.state = 'open' AND s.state = 'open')"
+                    ),
+                    {"run": run_id, "admission": admission_id},
+                )
+            _refuse_unless(admitted is True, "fixture_native_admission_missing")
+        finally:
+            await engine.dispose()
+        _refuse_unless(
+            manifest.exists() and not manifest.is_symlink(),
+            "fixture_store_not_prepared",
+        )
+        owner = Owner(manifest)
+        _refuse_unless(
+            not owner.data["cleaned"] and "fixture_teardown" not in owner.data,
+            "fixture_store_unavailable",
+        )
+        targets = owner.data.get("fixture_native_outputs", {})
+        _refuse_unless(isinstance(targets, dict), "fixture_native_targets_invalid")
+        if run_id.hex in targets:
+            target = await _settled_thread(verified_native_output, owner, identity, run_id)
+        else:
+            target = await _settled_thread(provision_native_output, owner, identity, run_id)
+        registration_started = True
+        registered = await _settled(
+            asyncio.create_task(register_native_target(run_id, owner, identity))
+        )
+        _refuse_unless(registered == target, "fixture_native_target_changed")
+        return target
+    except BaseException as failure:
+        if registration_started or (
+            owner is not None
+            and isinstance(owner.data.get("fixture_native_outputs"), dict)
+            and run_id.hex in owner.data["fixture_native_outputs"]
+        ):
+            mark_unsettled(failure)
+        raise
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
 if __name__ == "__main__":
     if sys.argv[1:] != ["--complete-provisioning"]:
         raise SystemExit(2)
