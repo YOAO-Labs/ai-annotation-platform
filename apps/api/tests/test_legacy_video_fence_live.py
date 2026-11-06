@@ -62,6 +62,7 @@ from tests.test_workspace_video_tracker_worker_live import (
     _VideoTrackerCeleryWorker,
     _prepared,
     _seed_tracker_world,
+    _tracker_fixture_bridge,
 )
 from tests.test_workspace_worker_assembly_live import (
     _broker_state,
@@ -487,9 +488,11 @@ async def test_owned_local_fence_blocks_stale_video_tracker_redelivery(
             "inference_routing_token_file": "",
         }.items():
             monkeypatch.setattr(settings, name, value)
-        async with _video_runtime(test_engine, tmp_path) as media:
+        bridge = await peer_stack.enter_async_context(_tracker_fixture_bridge())
+        async with _video_runtime(test_engine, tmp_path, tracker_bridge=bridge) as media:
             owner_s3 = media.owner
-            listener, backend_origin = _reserve_port()
+            listener, backend_origin = bridge.reserve_listener()
+            peer_stack.callback(listener.close)
             backend_token = secrets.token_urlsafe(24)
             world = await _seed_tracker_world(
                 media,

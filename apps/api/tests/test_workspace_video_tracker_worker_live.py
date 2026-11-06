@@ -122,9 +122,10 @@ class _TrackerFixtureBridge:
         address = ip_address(self.gateway)
         if (
             not isinstance(address, IPv4Address)
-            or not address.is_private
-            or address.is_loopback
-            or address.is_link_local
+            or not any(
+                address in ip_network(cidr)
+                for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            )
         ):
             raise RuntimeError("Tracker bridge gateway is not a private IPv4 address")
         return self.gateway
