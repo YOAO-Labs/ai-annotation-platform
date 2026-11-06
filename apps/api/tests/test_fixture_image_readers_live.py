@@ -155,7 +155,7 @@ async def _prepare(media, actor, task):
     return uuid.UUID(data["data"]["work"]["job_id"])
 
 
-def _start_worker(media, tmp_path, name, job_id, control_dsn_path, target_file, gate=None):
+def _start_worker(media, tmp_path, name, job_id, gate=None):
     environment = _runtime_environment(
         tmp_path=tmp_path,
         role="worker",
@@ -171,8 +171,6 @@ def _start_worker(media, tmp_path, name, job_id, control_dsn_path, target_file, 
         srgb_profile=media.srgb_profile,
         vips_gate=gate,
     )
-    environment["AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"] = str(control_dsn_path)
-    environment["AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE"] = str(target_file)
     for suffix in ("ENDPOINT", "BUCKET", "ACCESS_KEY", "SECRET_KEY"):
         name_env = "AAP_ASSETS_ADDITIONAL_ORIGINAL_" + suffix
         environment[name_env] = os.environ[name_env]
@@ -208,7 +206,7 @@ async def _operations(engine, creation):
         ]
 
 
-async def _thumbnail(target_record, engine, worker, log, job_id, source_bytes):
+async def _thumbnail(media, engine, worker, log, job_id, source_bytes):
     assert (
         await _wait_process_exit(
             worker, timeout=120, message="Images worker did not exit"
@@ -220,24 +218,11 @@ async def _thumbnail(target_record, engine, worker, log, job_id, source_bytes):
     assert job["result"]["source_sha256"] == hashlib.sha256(source_bytes).hexdigest()
     artifact = job["result"]["artifact"]
     assert artifact["key"].startswith(f"image-assets/{job_id}/")
-    async with engine.connect() as connection:
-        version = await connection.scalar(
-            text(
-                "SELECT version_id FROM aap_assets_v1.fixture_native_cache_writes "
-                "WHERE job_id=:job AND object_key=:key AND state='verified'"
-            ),
-            {"job": job_id, "key": artifact["key"]},
-        )
-    assert version and version != "null"
-    from fixture_store import _client
-
-    target = json.loads(Path(target_record["reader_file"]).read_text())
-    with closing(_client(target["endpoint"], target["access_key"], target["secret_key"])) as client:
-        response = await asyncio.to_thread(
-            client.get_object, Bucket=target["bucket"], Key=artifact["key"], VersionId=version
-        )
-        with closing(response["Body"]) as body:
-            output = body.read()
+    response = await asyncio.to_thread(
+        media.owner_s3.get_object, Bucket=media.cache_bucket, Key=artifact["key"]
+    )
+    with closing(response["Body"]) as body:
+        output = body.read()
     with (
         Image.open(BytesIO(source_bytes)) as original,
         Image.open(BytesIO(output)) as rendered,
@@ -290,19 +275,6 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
         run_b = suite.new_run("imgb" + uuid.uuid4().hex[:8])
         world_a = await asyncio.wait_for(_build_owned(owner, run_a), 120)
         world_b = await asyncio.wait_for(_build_owned(owner, run_b), 120)
-        if str(ROOT / "scripts") not in sys.path:
-            sys.path.insert(0, str(ROOT / "scripts"))
-        import fixture_media_control
-
-        controls = {}
-        targets = {}
-        for run in (run_a, run_b):
-            secret = await fixture_media_control.receipt_path(run.run_id)
-            await fixture_media_control.provision(test_engine.url, run.run_id, secret)
-            controls[run.run_id] = await fixture_media_control.worker_dsn_path(
-                run.run_id, secret
-            )
-            targets[run.run_id] = await fixture_media_control.native_target(run.run_id)
         versions_a = await _fixture_versions(test_engine, run_a)
         versions_b = await _fixture_versions(test_engine, run_b)
         actor_a, task_a, source_a, row_a = await _fixture_source(
@@ -321,8 +293,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             monkeypatch.setenv("AAP_IMAGE_READER_GATE_KEY", row_a["object_key"])
             gate, state = _transport_gate(tmp_path)
             worker_a, stream_a, log_a = _start_worker(
-                media, tmp_path, "image-reader-a", job_a, controls[run_a.run_id],
-                targets[run_a.run_id]["writer_file"], (gate, state)
+                media, tmp_path, "image-reader-a", job_a, (gate, state)
             )
             workers.append((worker_a, stream_a))
             media.image_process, media.image_stream = worker_a, stream_a
@@ -350,6 +321,27 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             assert len(operations) == 1
             assert operations[0]["location_id"] == row_a["location_id"]
             assert operations[0]["node_id"] == "aap-assets-media"
+            async with test_engine.connect() as db:
+                source = (
+                    await db.execute(
+                        text(
+                            "SELECT source_operation_id,creation_id,run_id,item_id,job_generation,"
+                            "lease_token,source_snapshot,state FROM aap_assets_v1.fixture_external_media_sources "
+                            "WHERE family='image' AND job_id=:job"
+                        ),
+                        {"job": job_a},
+                    )
+                ).mappings().one()
+                assert source["source_operation_id"] == operations[0]["id"]
+                assert source["creation_id"] == row_a["id"] and source["run_id"] == run_a.run_id
+                assert source["item_id"] == source_a.item_id and source["job_generation"] == job["generation"]
+                assert source["lease_token"] == job["lease_token"] and source["source_snapshot"] == job["source_snapshot"]
+                assert source["state"] == "open"
+                assert not await db.scalar(
+                    text("SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                         "WHERE family='image' AND job_id=:job)"),
+                    {"job": job_a},
+                )
             cleanup = asyncio.create_task(_cleanup_owned(owner, run_a))
 
             async def sealed():
@@ -408,6 +400,12 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                 == 0
             ), _process_log(log_a)
             assert await _operations(test_engine, row_a["id"]) == []
+            async with test_engine.connect() as db:
+                assert await db.scalar(
+                    text("SELECT state FROM aap_assets_v1.fixture_external_media_sources "
+                         "WHERE source_operation_id=:operation"),
+                    {"operation": operations[0]["id"]},
+                ) == "settled"
             retired = await asyncio.wait_for(cleanup, 120)
             assert retired.status_code == 200, retired.text
             for bucket, key, version in bytes_a:
@@ -426,12 +424,11 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             )
             job_b = await _prepare(media, actor_b, task_b)
             worker_b, stream_b, log_b = _start_worker(
-                media, tmp_path, "image-reader-b", job_b, controls[run_b.run_id],
-                targets[run_b.run_id]["writer_file"]
+                media, tmp_path, "image-reader-b", job_b
             )
             workers.append((worker_b, stream_b))
             media.image_process, media.image_stream = worker_b, stream_b
-            await _thumbnail(targets[run_b.run_id], test_engine, worker_b, log_b, job_b, bytes_b[key_b])
+            await _thumbnail(media, test_engine, worker_b, log_b, job_b, bytes_b[key_b])
             assert await _operations(test_engine, row_b["id"]) == []
             assert (
                 await asyncio.to_thread(_read_versions, reader, versions_b) == bytes_b
@@ -453,8 +450,6 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                 tmp_path,
                 "image-reader-cancelled",
                 job_c,
-                controls[run_b.run_id],
-                targets[run_b.run_id]["writer_file"],
                 (cancel_gate, cancel_state),
             )
             workers.append((cancelled, cancel_stream))
@@ -507,13 +502,12 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
                         break
                     await asyncio.sleep(5)
             recovered, recover_stream, recover_log = _start_worker(
-                media, tmp_path, "image-reader-recovered", job_c, controls[run_b.run_id],
-                targets[run_b.run_id]["writer_file"]
+                media, tmp_path, "image-reader-recovered", job_c
             )
             workers.append((recovered, recover_stream))
             media.image_process, media.image_stream = recovered, recover_stream
             await _thumbnail(
-                targets[run_b.run_id], test_engine, recovered, recover_log, job_c, bytes_b[key_c]
+                media, test_engine, recovered, recover_log, job_c, bytes_b[key_c]
             )
             assert await _operations(test_engine, row_c["id"]) == []
             assert (
