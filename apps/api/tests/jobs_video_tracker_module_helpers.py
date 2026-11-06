@@ -208,6 +208,7 @@ async def _seed_tracker_api_world(
             "task_id": task_id,
             "dataset_item_id": item_id,
             "registry_id": registry.id,
+            "backend_port": urlsplit(backend_url).port,
             "backend_token": backend_token,
         }
 

@@ -296,6 +296,7 @@ print(json.dumps(observed, sort_keys=True, separators=(',', ':')))
                 {
                     "project_id": str(world["project_id"]),
                     "registry_id": str(world["registry_id"]),
+                    "backend_port": world["backend_port"],
                 }
                 for world in worlds.values()
             ],
@@ -304,12 +305,14 @@ print(json.dumps(observed, sort_keys=True, separators=(',', ':')))
         code = """import asyncio, json, sys
 
 stage = 'imports'
+health_diagnostics = None
 
 async def main():
-    global stage
+    global stage, health_diagnostics
     import uuid
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
     from app.config import settings
+    from app.services.inference_health_data import InferenceHealthData
     from app.services.ml_backend import MLBackendService
     from app.services.ml_routing.authority import RoutingAuthority
 
@@ -326,7 +329,32 @@ async def main():
             async with sessions.begin() as db:
                 service = MLBackendService(db)
                 stage = 'health'
+                data = InferenceHealthData(db)
+                before = await data.get_backend(registry_id)
                 if not await service.check_health(registry_id):
+                    try:
+                        after = await data.get_backend(registry_id)
+                        health_diagnostics = {
+                            'backend_found_before': before is not None,
+                            'backend_found_after': after is not None,
+                            'backend_was_connected': before is not None and before.state == 'connected',
+                            'backend_now_error': after is not None and after.state == 'error',
+                            'last_checked_changed': before is not None and after is not None
+                            and before.last_checked_at != after.last_checked_at,
+                        }
+                        try:
+                            _, writer = await asyncio.wait_for(
+                                asyncio.open_connection('host.docker.internal', record['backend_port']),
+                                timeout=3,
+                            )
+                        except (OSError, TimeoutError) as probe_error:
+                            health_diagnostics['backend_tcp'] = type(probe_error).__name__
+                        else:
+                            writer.close()
+                            await writer.wait_closed()
+                            health_diagnostics['backend_tcp'] = 'connected'
+                    except Exception as diagnostic_error:
+                        health_diagnostics = {'error': type(diagnostic_error).__name__}
                     raise RuntimeError('backend health check failed')
                 stage = 'selection'
                 selected = await service.get_tracker_backend_for_capabilities(
@@ -364,7 +392,7 @@ except Exception as error:
         cause = getattr(cause, 'orig', None) or cause.__cause__
     print(json.dumps({
         'ok': False, 'stage': stage, 'error': type(error).__name__,
-        'sqlstate': sqlstate,
+        'sqlstate': sqlstate, 'health': health_diagnostics,
     }, separators=(',', ':')))
 else:
     print(json.dumps({'ok': True, 'results': results}, separators=(',', ':')))
@@ -491,6 +519,7 @@ async def _seed_tracker_world(
             "task_id": task_id,
             "job_id": job.id,
             "registry_id": registry.id,
+            "backend_port": urlsplit(backend_url).port,
             "backend_token": backend_token,
         }
 
