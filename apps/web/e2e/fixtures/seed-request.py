@@ -790,7 +790,7 @@ async def serve_authority(ready_fd):
         await control.resume()
         await runtime.prepare(run_id, admission_id)
         if api_port is not None and control.api is None:
-            control.start_api(api_port)
+            await control.start_api(api_port)
         import fixture_media_control
 
         receipt = await fixture_media_control.receipt_path(run_id)
@@ -1301,7 +1301,7 @@ async def serve_authority(ready_fd):
                                 or str(payload["port"]) != original_environment.get("PLAYWRIGHT_ISOLATED_API_PORT")
                             ):
                                 raise SeedSetupRefused("Invalid Raster native API start")
-                            api = native_control.start_api(payload["port"])
+                            api = await native_control.start_api(payload["port"])
                             response = {"status": 200, "body": json.dumps(api)}
                         elif operation == "owner_native_suite_retire":
                             if native_control is None or set(payload) != {"operation"}:

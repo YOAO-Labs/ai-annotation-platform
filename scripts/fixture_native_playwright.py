@@ -300,6 +300,31 @@ def _wait_ready(process, descriptor, origin):
     raise RuntimeError("fixture_native_control_not_ready")
 
 
+def _wait_api_ready(process, descriptor, ready_fd, port):
+    deadline = time.monotonic() + 60
+    readiness = b""
+    while True:
+        _require(pidfd_alive(descriptor) and process.poll() is None, "fixture_native_api_exited")
+        remaining = deadline - time.monotonic()
+        _require(remaining > 0, "fixture_native_api_start_timeout")
+        readable, _, _ = select.select([ready_fd, descriptor], [], [], remaining)
+        if ready_fd in readable:
+            chunk = os.read(ready_fd, 7 - len(readiness))
+            readiness += chunk
+            _require(len(readiness) <= 6, "fixture_native_api_readiness_invalid")
+            if not chunk:
+                _require(readiness == b"ready\n", "fixture_native_api_readiness_invalid")
+                break
+    _require(pidfd_alive(descriptor) and process.poll() is None, "fixture_native_api_exited")
+    with httpx.Client(timeout=15, trust_env=False) as client:
+        response = client.get(f"http://127.0.0.1:{port}/health/db")
+    _require(
+        response.status_code == 200 and response.json().get("status") == "ok",
+        f"fixture_native_api_database_unhealthy:{response.status_code}",
+    )
+    _require(pidfd_alive(descriptor) and process.poll() is None, "fixture_native_api_exited")
+
+
 def _drain(process, descriptor):
     from raster_consumer_process import _drain_consumer, _track_consumer_descendants
 
@@ -439,29 +464,39 @@ class NativeSuiteControl:
         self.journal["control_incarnation"] = self.journal.get("control_incarnation", 0) + 1
         await self.start()
 
-    def start_api(self, port):
+    async def start_api(self, port):
         _require(self.api_owned and self.api is None and type(port) is int and 1 <= port <= 65535, "fixture_native_api_invalid")
         environment = _api_environment(self.environment, self.origin, self.token)
         if self.raster_owner is not None:
             environment.update(RASTER_MASK_READ_ENABLED="true", RASTER_MASK_CREATE_ENABLED="true")
         self.journal["state"] = "api_starting"
         atomic_json(self.journal_path, self.journal)
-        log = _private_log(self.directory / "native-api.log")
+        ready_read, ready_write = os.pipe()
         try:
-            self.api = subprocess.Popen(
-                [sys.executable, str(ROOT / "scripts/raster_api_process.py"), "--port", str(port)],
-                cwd=ROOT / "apps/api", env=environment, stdin=subprocess.DEVNULL,
-                stdout=log, stderr=log, start_new_session=True,
-            )
+            log = _private_log(self.directory / "native-api.log")
+            try:
+                self.api = subprocess.Popen(
+                    [sys.executable, str(ROOT / "scripts/raster_api_process.py"), "--port", str(port), "--ready-fd", str(ready_write)],
+                    cwd=ROOT / "apps/api", env=environment, stdin=subprocess.DEVNULL,
+                    stdout=log, stderr=log, pass_fds=(ready_write,), start_new_session=True,
+                )
+            finally:
+                os.close(log)
+            os.close(ready_write)
+            ready_write = None
+            self.journal.update(api={"pid": self.api.pid, "port": port}, business_file=str(self.business))
+            atomic_json(self.journal_path, self.journal)
+            self.api_pidfd = open_pidfd(self.api.pid)
+            self.journal["api"]["start"] = _start_ticks(self.api.pid)
+            atomic_json(self.journal_path, self.journal)
+            await _settled_thread(_wait_api_ready, self.api, self.api_pidfd, ready_read, port)
+            self.journal["state"] = "serving"
+            atomic_json(self.journal_path, self.journal)
+            return self.journal["api"]
         finally:
-            os.close(log)
-        self.api_pidfd = open_pidfd(self.api.pid)
-        self.journal.update(
-            state="serving", api={"pid": self.api.pid, "start": _start_ticks(self.api.pid), "port": port},
-            business_file=str(self.business),
-        )
-        atomic_json(self.journal_path, self.journal)
-        return self.journal["api"]
+            if ready_write is not None:
+                os.close(ready_write)
+            os.close(ready_read)
 
     async def _retire_api(self):
         self.journal["state"] = "stopping_api"
@@ -580,7 +615,7 @@ def run(port):
     control = NativeSuiteControl(environment, suite, resources, directory, journal, journal_path)
     try:
         asyncio.run(control.prepare())
-        control.start_api(port)
+        asyncio.run(control.start_api(port))
         stopping = False
         def stop(_signal, _frame):
             nonlocal stopping
