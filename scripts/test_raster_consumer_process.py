@@ -130,6 +130,87 @@ class RasterConsumerShutdownTests(unittest.TestCase):
                     for descriptor in tracked.values():
                         os.close(descriptor)
 
+    def test_adopted_exits_are_reaped_and_failures_preserved(self):
+        import raster_consumer_process as consumer
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        old = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(old), 0, 0, 0), 0)
+        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
+        self.addCleanup(libc.prctl, 36, old.value, 0, 0, 0)
+        grandchild = """
+import os, pathlib, sys, time
+root = pathlib.Path(sys.argv[1])
+(root / "pid").write_text(str(os.getpid()))
+while not (root / "release").exists():
+    time.sleep(0.01)
+sys.exit(int(sys.argv[2]))
+"""
+        leader = """
+import os, subprocess, sys
+child = subprocess.Popen(
+    [sys.executable, "-c", sys.argv[1], sys.argv[2], sys.argv[3]],
+    start_new_session=True,
+)
+os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT)
+os._exit(0)
+"""
+        for status in (0, 7):
+            with (
+                self.subTest(status=status),
+                tempfile.TemporaryDirectory(prefix="raster-adopted-exit-") as root,
+            ):
+                marker = Path(root) / "pid"
+                capture = consumer._track_consumer_descendants
+
+                def release_captured_child(root_pid, tracked):
+                    capture(root_pid, tracked)
+                    if marker.exists() and int(marker.read_text()) in tracked:
+                        (Path(root) / "release").touch()
+
+                try:
+                    with patch.object(
+                        consumer, "_track_consumer_descendants", release_captured_child
+                    ):
+                        command = [
+                            sys.executable,
+                            "-c",
+                            leader,
+                            grandchild,
+                            root,
+                            str(status),
+                        ]
+                        if status:
+                            with self.assertRaises(ContractError) as raised:
+                                run_product(
+                                    command, dict(os.environ), None, None, cwd=root
+                                )
+                            self.assertEqual(raised.exception.leader_status, 0)
+                            self.assertEqual(
+                                raised.exception.descendant_outcomes[
+                                    int(marker.read_text())
+                                ],
+                                {"code": os.CLD_EXITED, "status": status},
+                            )
+                        else:
+                            self.assertEqual(
+                                run_product(
+                                    command, dict(os.environ), None, None, cwd=root
+                                ),
+                                0,
+                            )
+                    with self.assertRaises(ChildProcessError):
+                        os.waitpid(int(marker.read_text()), os.WNOHANG)
+                    require_no_children()
+                finally:
+                    if marker.exists():
+                        self.stop_adopted(int(marker.read_text()))
+                    while _unsettled_consumers:
+                        child, tracked = _unsettled_consumers.pop()
+                        child.wait(timeout=2)
+                        for descriptor in tracked.values():
+                            os.close(descriptor)
+
     def test_descendant_reaped_before_signal_delivery_does_not_block_success(self):
         import raster_consumer_process as consumer
         from linux_pidfd import open_pidfd

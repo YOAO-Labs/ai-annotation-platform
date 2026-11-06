@@ -1,6 +1,7 @@
 """Supervise the finite Mask consumer's process group and observed descendants."""
 
 import builtins
+import errno
 import os
 from pathlib import Path
 import signal
@@ -185,12 +186,19 @@ def _drain_consumer(child, tracked):
             raise unsettled
         time.sleep(0.05)
     result = child.wait(timeout=0.1)
-    outcomes = _descendant_outcomes(signalled, reap=True)
+    # Adopted children may exit before we signal them. Reap their actual status
+    # too; only an unsignalled child already reaped by its parent may be absent.
+    outcomes = _descendant_outcomes(tracked, reap=True)
     if any(
         outcome is None
         or outcome.get("code") != os.CLD_EXITED
         or outcome.get("status") != 0
-        for outcome in outcomes.values()
+        for pid, outcome in outcomes.items()
+        if not (
+            pid not in signalled
+            and outcome is not None
+            and outcome.get("errno") == errno.ECHILD
+        )
     ):
         error = ContractError("raster_consumer_descendant_exit_unsettled")
         error.descendant_outcomes = outcomes
