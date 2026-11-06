@@ -330,10 +330,22 @@ class S3MediaStorage:
         _validate_cache_key(key)
         try:
             return await _run_blocking(self._upload_cache, path, key)
-        except MediaFailure:
+        except BaseException as exc:
+            from .original_read import fixture_original_active
+
+            fixture = fixture_original_active()
+            if fixture:
+                exc.storage_operation_unsettled = True
+            if isinstance(exc, MediaFailure):
+                raise
+            if fixture and isinstance(exc, BaseExceptionGroup):
+                raise
+            if isinstance(exc, Exception):
+                failure = _storage_error(exc)
+                if fixture:
+                    failure.storage_operation_unsettled = True
+                raise failure from None
             raise
-        except Exception as exc:
-            raise _storage_error(exc) from None
 
     def _upload_cache(self, path: Path, key: str) -> Artifact:
         content_type = {

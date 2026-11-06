@@ -7,8 +7,17 @@ import builtins
 import hashlib
 import json
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from yoao_assets_media import contract as c
+
+
+_fixture_original_active = ContextVar("media_fixture_original_active", default=False)
+
+
+def fixture_original_active():
+    return _fixture_original_active.get()
+
 
 
 def blocks_physical_source(permit, endpoint, bucket):
@@ -55,10 +64,8 @@ async def _finish(database, operation, permit):
         task.result()
     except BaseException as exc:
         if cancelled is not None:
-            raise builtins.BaseExceptionGroup(
-                "Media source settlement was cancelled and then failed",
-                [cancelled, exc],
-            ) from None
+            cancelled.storage_operation_unsettled = True
+            raise cancelled from exc
         raise
     if cancelled is not None:
         cancelled.storage_operation_settled = True
@@ -72,12 +79,14 @@ async def original_permit(database, operation, request, finish_operation):
     if not isinstance(permit, c.OriginalRead):
         raise c.MediaFailure("invalid_response")
     failure = None
+    context = _fixture_original_active.set(permit.ownership == "fixture")
     try:
         yield permit
     except BaseException as exc:
         failure = exc
         raise
     finally:
+        _fixture_original_active.reset(context)
         # Uncertain provider handles retain the durable operation even if local
         # cancellation or process death makes a later settlement impossible.
         if permit.ownership == "fixture" and not _unsettled(failure):
@@ -89,6 +98,10 @@ async def original_permit(database, operation, request, finish_operation):
                 )
                 if uncertain:
                     finish_error.storage_operation_unsettled = True
+                if isinstance(failure, asyncio.CancelledError):
+                    if uncertain:
+                        failure.storage_operation_unsettled = True
+                    raise failure from finish_error
                 if failure is not None:
                     combined = builtins.BaseExceptionGroup(
                         "Media source read and permit settlement both failed",
