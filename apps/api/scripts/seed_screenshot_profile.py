@@ -1290,6 +1290,7 @@ async def prepare_screenshot_seed_media(
             await db.commit()
             image_work_intents.append(intent)
         elif dataset.data_type == "video":
+            from app.services.content_snapshot import ContentError
             from app.services.fixture_media_execution import screenshot_producer_scope
             from app.services import video_derivative_originals as originals
             from app.services import video_derivatives as derivatives
@@ -1317,7 +1318,14 @@ async def prepare_screenshot_seed_media(
                         await producer.settle(output_id, prepared[0][0].delivery_id)
                     else:
                         await db.commit()
-                        await producer.reuse(output_id)
+                        try:
+                            await producer.reuse(output_id)
+                        except ContentError as exc:
+                            if exc.code == "fixture_media_reuse_unqualified":
+                                exc.add_note(
+                                    "Unqualified older screenshot output requires a fresh isolated run."
+                                )
+                            raise
                 if needs_dispatch:
                     await derivatives.publish_dispatch(prepared)
                 video_outputs.append((dataset.display_id, output_id))
