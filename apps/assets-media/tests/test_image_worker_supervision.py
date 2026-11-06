@@ -10,7 +10,7 @@ import pytest
 from yoao_assets_images_runtime import worker
 
 
-def _runtime(monkeypatch, *, input_poll, image_poll):
+def _runtime(monkeypatch, *, input_poll, image_poll, poll_seconds=30):
     closed = []
     database = SimpleNamespace(pool=object())
 
@@ -62,7 +62,7 @@ def _runtime(monkeypatch, *, input_poll, image_poll):
         worker,
         "load_config",
         lambda: SimpleNamespace(
-            storage=object(), srgb_profile="profile", poll_seconds=30
+            storage=object(), srgb_profile="profile", poll_seconds=poll_seconds
         ),
     )
     monkeypatch.setattr(worker, "_connect_worker_database", connect)
@@ -295,4 +295,88 @@ async def test_selected_one_shot_signal_cancels_and_waits_for_physical_drain(
     assert not closed
     release.set()
     await asyncio.wait_for(task, 1)
+    assert closed == ["input", "image", "database"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("once", [False, True])
+async def test_only_continuous_polling_retries_a_rejected_native_claim(
+    monkeypatch, once
+):
+    stopped, ready = asyncio.Event(), asyncio.Event()
+    attempts = 0
+
+    async def claim(_operation, _request):
+        nonlocal attempts
+        attempts += 1
+        assert not ready.is_set()
+        if attempts == 1:
+            raise worker.ImageFailure("operation_busy")
+        return worker.ClaimedImageWork(claim=None)
+
+    executor = worker.ImageExecutor(SimpleNamespace(call=claim), object())
+
+    async def poll_input(_executor):
+        return None
+
+    closed = _runtime(
+        monkeypatch,
+        input_poll=poll_input,
+        image_poll=executor.execute_once,
+        poll_seconds=0,
+    )
+
+    def mark_ready():
+        ready.set()
+        stopped.set()
+
+    execution = worker._run_worker(
+        once=once,
+        job_id=None,
+        shutdown_event=stopped,
+        ready_callback=None if once else mark_ready,
+        strict=True,
+    )
+    if once:
+        with pytest.raises(worker.ImageFailure) as failure:
+            await asyncio.wait_for(execution, 1)
+        assert failure.value.code == "operation_busy"
+    else:
+        await asyncio.wait_for(execution, 1)
+    assert attempts == (1 if once else 2)
+    assert ready.is_set() is not once
+    assert closed == ["input", "image", "database"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("strict", [False, True])
+async def test_busy_after_admission_cannot_be_treated_as_a_rejected_claim(
+    monkeypatch, strict
+):
+    stopped, ready = asyncio.Event(), asyncio.Event()
+
+    async def poll_input(_executor):
+        return None
+
+    async def poll_image():
+        stopped.set()
+        raise worker.ImageFailure("operation_busy")
+
+    closed = _runtime(monkeypatch, input_poll=poll_input, image_poll=poll_image)
+    execution = worker._run_worker(
+        once=False,
+        job_id=None,
+        shutdown_event=stopped,
+        ready_callback=ready.set if strict else None,
+        strict=strict,
+    )
+    if strict:
+        with pytest.raises(worker.ImageFailure) as failure:
+            await asyncio.wait_for(execution, 1)
+        assert failure.value.code == "operation_busy"
+    else:
+        with pytest.raises(RuntimeError) as failure:
+            await asyncio.wait_for(execution, 1)
+        assert not isinstance(failure.value, worker.ImageFailure)
+    assert not ready.is_set()
     assert closed == ["input", "image", "database"]

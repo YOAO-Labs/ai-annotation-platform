@@ -283,6 +283,10 @@ async def _job_storage_call(heartbeat, operation, /, *args, **kwargs):
     return result
 
 
+class _ImageClaimBusy(ImageFailure):
+    """Native claim rejection with no accepted lease or physical work."""
+
+
 class ImageExecutor:
     """Execute accepted image work with no database or owner lock over S3 I/O."""
 
@@ -306,15 +310,20 @@ class ImageExecutor:
         if self._closed:
             raise RuntimeError("image executor is closed")
         default_policy = ImagePolicy()
-        claimed = await self.database.call(
-            "claim_image_media",
-            ClaimImageMediaRequest(
-                worker_id=self.worker_id,
-                job_id=job_id,
-                lease_seconds=default_policy.lease_seconds,
-                kinds=["dimensions", "thumbnail", "pyramid", "image_backfill"],
-            ),
-        )
+        try:
+            claimed = await self.database.call(
+                "claim_image_media",
+                ClaimImageMediaRequest(
+                    worker_id=self.worker_id,
+                    job_id=job_id,
+                    lease_seconds=default_policy.lease_seconds,
+                    kinds=["dimensions", "thumbnail", "pyramid", "image_backfill"],
+                ),
+            )
+        except ImageFailure as exc:
+            if exc.code == "operation_busy":
+                raise _ImageClaimBusy(exc.code) from exc
+            raise
         if not isinstance(claimed, ClaimedImageWork):
             raise ImageFailure("invalid_response")
         claim = claimed.claim
@@ -1624,6 +1633,8 @@ async def _run_worker(
                         ready_callback()
                         ready = True
                     did_work = input_work is not None or image_work is not None
+                except _ImageClaimBusy:
+                    did_work = False
                 except (ImageFailure, InputFailure) as exc:
                     unsettled = True
                     if strict:
