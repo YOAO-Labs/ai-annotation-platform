@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import time
 from urllib.parse import urlsplit
 import uuid
@@ -20,6 +21,16 @@ from sqlalchemy.exc import ArgumentError
 from tests.test_identity_admission_live import ROOT, _dsn
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_sessions_live import _verify_redis
+
+
+def create_retained_realm() -> Path:
+    """Create mount sources outside pytest and TemporaryDirectory finalizers."""
+    parent = ROOT / ".worktree" / "jobs-cold-realms"
+    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if parent.is_symlink():
+        raise RuntimeError("Cold realm parent must not be a symlink")
+    parent.chmod(0o700)
+    return Path(tempfile.mkdtemp(prefix="jobs-cold-", dir=parent))
 
 
 _IDENTITY_DATABASES = {
@@ -360,6 +371,7 @@ class IdentityModuleStack:
         jobs_queue_token: str | None = None,
     ) -> None:
         self.test_engine = test_engine
+        self._retention_guards = []
         self.directory = Path(directory).resolve()
         self._secret_directory = self.directory / "identity-module-secrets"
         self._compose_env_file = self._secret_directory / "compose.env"
@@ -637,6 +649,14 @@ class IdentityModuleStack:
     def inspection_evidence(self) -> dict[str, dict]:
         return json.loads(json.dumps(self._inspection_evidence))
 
+    def retain_while(self, guard) -> None:
+        """Register an owner whose unproved work must keep the assembly intact."""
+        self._retention_guards.append(guard)
+
+    @property
+    def retention_required(self) -> bool:
+        return any(guard() for guard in self._retention_guards)
+
     def redact(self, value: str) -> str:
         values = [
             self._secret,
@@ -706,6 +726,22 @@ class IdentityModuleStack:
                     check=False,
                 )
                 records[service] = {
+                    "container_id": details.get("Id"),
+                    "image_id": details.get("Image"),
+                    "networks": {
+                        name: {
+                            "network_id": attachment.get("NetworkID"),
+                            "endpoint_id": attachment.get("EndpointID"),
+                            "address": attachment.get("IPAddress"),
+                        }
+                        for name, attachment in (
+                            (details.get("NetworkSettings") or {}).get("Networks") or {}
+                        ).items()
+                    },
+                    "mount_sources": [
+                        {"source": mount.get("Source"), "destination": mount.get("Destination")}
+                        for mount in details.get("Mounts") or []
+                    ],
                     "state": details.get("State"),
                     "logs": self.redact(result.stdout + result.stderr),
                 }
@@ -731,6 +767,8 @@ class IdentityModuleStack:
         self._refresh_inspection_evidence()
 
     async def stop(self) -> None:
+        if self.retention_required:
+            raise RuntimeError("Identity assembly retained: owner retirement is unproved")
         if not self._compose_env_file.is_file() or not self._override_file.is_file():
             return
         containers = self._verify_project_ownership()
@@ -964,6 +1002,8 @@ class IdentityModuleStack:
         self._refresh_inspection_evidence()
 
     async def switch_database(self, database_name: str) -> None:
+        if self.retention_required:
+            raise RuntimeError("Identity assembly retained: owner retirement is unproved")
         database_name = self._validate_database_name(database_name)
         self._prepare_files()
         containers = self._verify_project_ownership()

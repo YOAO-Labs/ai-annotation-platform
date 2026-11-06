@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -109,6 +110,39 @@ def test_jobs_queue_origin_requires_the_verified_owned_attachment(violation):
     else:
         with pytest.raises(RuntimeError):
             _ = stack.jobs_queue_origin
+
+
+def test_stack_destruction_waits_for_every_owner_guard():
+    stack = object.__new__(IdentityModuleStack)
+    stack._retention_guards = []
+    states = {"export": True, "tracker": False}
+    stack.retain_while(lambda: states["export"])
+    stack.retain_while(lambda: states["tracker"])
+
+    class ForbiddenPath:
+        def is_file(self):
+            raise AssertionError("retained stack attempted destruction")
+
+    stack._compose_env_file = ForbiddenPath()
+    assert stack.retention_required
+    with pytest.raises(RuntimeError, match="owner retirement is unproved"):
+        asyncio.run(stack.stop())
+    with pytest.raises(RuntimeError, match="owner retirement is unproved"):
+        asyncio.run(stack.switch_database("foreign_test"))
+    states["export"] = False
+    states["tracker"] = True
+    assert stack.retention_required
+    with pytest.raises(RuntimeError, match="owner retirement is unproved"):
+        asyncio.run(stack.stop())
+    states["tracker"] = False
+    assert not stack.retention_required
+
+    def unknown_guard():
+        raise RuntimeError("owner proof unavailable")
+
+    stack.retain_while(unknown_guard)
+    with pytest.raises(RuntimeError, match="owner proof unavailable"):
+        asyncio.run(stack.stop())
 
 
 def test_jobs_queue_image_requires_complete_source_bound_inputs():

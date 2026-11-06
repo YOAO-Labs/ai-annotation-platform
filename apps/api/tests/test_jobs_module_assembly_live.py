@@ -9,7 +9,9 @@ from datetime import datetime, timezone
 import json
 from io import BytesIO
 import os
+from pathlib import Path
 import secrets
+import shutil
 import sys
 import time
 from urllib.parse import urlsplit
@@ -32,7 +34,7 @@ from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.task import Task
 from app.db.models.user import User
 from tests.factory import DEFAULT_PASSWORD, create_batch
-from tests.identity_module_assembly_helpers import IdentityModuleStack
+from tests.identity_module_assembly_helpers import IdentityModuleStack, create_retained_realm
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
@@ -643,6 +645,39 @@ async def _assert_completed_job_http_read(
     }
 
 
+class _ColdExportRealm:
+    """Retain original mounted paths until exact native retirement succeeds."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.unsettled = False
+        self.worker = None
+        self.scope_path = None
+        self.guard_error = None
+
+    def begin(self, directory, scope, world):
+        self.unsettled = True
+        directory = Path(directory)
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.scope_path = directory / "retained-export-scope.json"
+        payload = {
+            "project_id": str(world["project_id"]),
+            "source_key": world["source_key"],
+            "container": scope["container"],
+            "bucket": scope["bucket"],
+            "inputs_bucket": scope["inputs_bucket"],
+            "config": scope["config"],
+            "policy": scope["policy"],
+            "user_created": scope["user_created"],
+            "policy_created": scope["policy_created"],
+            "access_key": scope["access_key"],
+            "secret_key": scope["secret_key"],
+        }
+        fd = os.open(self.scope_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as target:
+            json.dump(payload, target)
+
+
 async def _exercise_export_dispatch(
     test_engine,
     stack,
@@ -652,6 +687,7 @@ async def _exercise_export_dispatch(
     directory,
     known_task_ids,
     queue_token,
+    realm,
     *,
     check_outage,
 ):
@@ -671,6 +707,7 @@ async def _exercise_export_dispatch(
     receipts = []
     outages = []
     try:
+        realm.begin(directory, scope, world)
         owner_s3.put_object(
             Bucket=resources["buckets"]["MINIO_DATASETS_BUCKET"],
             Key=world["source_key"],
@@ -908,6 +945,7 @@ async def _exercise_export_dispatch(
                 object_store_buckets=resources["buckets"],
                 queue_name="export",
             )
+            realm.worker = worker
             assert worker.object_store_access_key != settings.minio_access_key
             assert worker.object_store_secret_key != settings.minio_secret_key
             worker.start()
@@ -1002,7 +1040,7 @@ async def _exercise_export_dispatch(
                     raise RuntimeError("Export native execution or publication remains unsettled")
             except BaseException as exc:
                 cleanup_errors.append(exc)
-        if worker is not None:
+        if retired and worker is not None:
             try:
                 worker.stop()
             except BaseException as exc:
@@ -1012,6 +1050,9 @@ async def _exercise_export_dispatch(
                 destroy_scope(scope)
             except BaseException as exc:
                 cleanup_errors.append(exc)
+        if retired and not cleanup_errors:
+            realm.unsettled = False
+            realm.worker = None
         if not retired:
             message = "Export storage credentials retained: native retirement unconfirmed"
             if primary is not None:
@@ -1142,6 +1183,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
         os.environ[name] for name in _JOBS_QUEUE_IMAGE_INPUTS
     )
     inbox = SMTPInbox()
+    tmp_path = create_retained_realm()
+    realm = _ColdExportRealm(tmp_path)
     snapshot = tmp_path / "jobs-queue-module.dump"
     stack = None
     sender = None
@@ -1150,31 +1193,44 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
     clone_engine = None
     known_task_ids: set[str] = set()
 
+    def retain_realm():
+        if realm.unsettled:
+            return True
+        if stack is None:
+            return False
+        try:
+            return stack.retention_required
+        except BaseException as exc:
+            realm.guard_error = exc
+            return True
+
     @asynccontextmanager
     async def restored_database_with_cleanup():
-        async with _restored_database(test_engine, snapshot) as restored_database:
+        async with _restored_database(
+            test_engine, snapshot, retain=retain_realm
+        ) as restored_database:
             try:
                 yield restored_database
             finally:
                 try:
-                    if clone_worker is not None:
+                    if clone_worker is not None and not retain_realm():
                         clone_worker.stop()
                 finally:
                     try:
-                        if stack is not None:
+                        if stack is not None and not retain_realm():
                             await stack.stop()
                     finally:
-                        if clone_engine is not None:
+                        if clone_engine is not None and not retain_realm():
                             await clone_engine.dispose()
 
     @asynccontextmanager
     async def redis_users_with_stack_cleanup():
-        async with _login_redis() as (login_url, _login_owner):
-            async with _publisher_redis() as (publisher_url, _publisher_owner):
+        async with _login_redis(retain=retain_realm) as (login_url, _login_owner):
+            async with _publisher_redis(retain=retain_realm) as (publisher_url, _publisher_owner):
                 try:
                     yield login_url, publisher_url
                 finally:
-                    if stack is not None:
+                    if stack is not None and not retain_realm():
                         await stack.stop()
 
     try:
@@ -1205,6 +1261,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 jobs_queue_source_revision=queue_revision,
                 jobs_queue_token=queue_token,
             )
+            stack.retain_while(lambda: realm.unsettled)
             await stack.start()
             queue_evidence = stack.inspection_evidence["jobs-queue"]
             assert queue_evidence["user"] == "10005:10005"
@@ -1345,6 +1402,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 tmp_path / "jobs-export-before-restore",
                 known_task_ids,
                 queue_token,
+                realm,
                 check_outage=True,
             )
             record_property(
@@ -1510,6 +1568,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             tmp_path / "jobs-export-after-restore",
                             known_task_ids,
                             queue_token,
+                            realm,
                             check_outage=False,
                         )
                         record_property(
@@ -1583,7 +1642,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 "jobs_queue_execution_ids",
                 sorted(known_task_ids),
             )
-    except BaseException:
+    except BaseException as primary:
         if stack is not None:
             try:
                 record_property(
@@ -1594,26 +1653,65 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                     "jobs_queue_module_diagnostics_error",
                     type(diagnostic_error).__name__,
                 )
+        if retain_realm():
+            primary.add_note(f"Cold Jobs realm retained at {tmp_path}")
+            try:
+                manifest = {
+                    "realm": str(tmp_path),
+                    "database": stack._database_name if stack is not None else None,
+                    "stack_project": stack.project_name if stack is not None else None,
+                    "service_ids": stack.service_ids if stack is not None else {},
+                    "scope_file": str(realm.scope_path) if realm.scope_path else None,
+                    "worker": (
+                        {
+                            "container_id": realm.worker.container_id,
+                            "network_id": realm.worker.network_id,
+                            "directory": str(realm.worker.directory),
+                            "queue": realm.worker.queue,
+                        }
+                        if realm.worker is not None
+                        else None
+                    ),
+                }
+                path = tmp_path / "retained-realm.json"
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as target:
+                    json.dump(manifest, target, indent=2)
+                record_property("jobs_cold_retained_realm", str(path))
+            except BaseException as diagnostic_error:
+                primary.add_note(f"Retained realm manifest failed: {diagnostic_error!r}")
+            if realm.guard_error is not None:
+                primary.add_note(f"Retention guard failed: {realm.guard_error!r}")
+            if realm.worker is not None:
+                try:
+                    record_property(
+                        "jobs_export_worker_diagnostics", realm.worker.capture_diagnostics()
+                    )
+                except BaseException as diagnostic_error:
+                    primary.add_note(f"Export worker diagnostics failed: {diagnostic_error!r}")
         raise
     finally:
-        try:
-            if clone_worker is not None:
-                clone_worker.stop()
-        finally:
+        if not retain_realm():
             try:
-                if worker is not None:
-                    worker.stop()
+                if clone_worker is not None:
+                    clone_worker.stop()
             finally:
                 try:
-                    if stack is not None:
-                        await stack.stop()
+                    if worker is not None:
+                        worker.stop()
                 finally:
-                    if clone_engine is not None:
-                        await clone_engine.dispose()
-                    if sender is not None:
-                        sender.close()
-                    inbox.close()
-                    destroy_guide_scope(guide_scope)
+                    try:
+                        if stack is not None:
+                            await stack.stop()
+                    finally:
+                        if clone_engine is not None:
+                            await clone_engine.dispose()
+                        if sender is not None:
+                            sender.close()
+                        inbox.close()
+                        destroy_guide_scope(guide_scope)
+        if sys.exception() is None and not retain_realm():
+            shutil.rmtree(tmp_path)
 
 
 async def test_cold_jobs_queue_cancel_and_terminal_replay(

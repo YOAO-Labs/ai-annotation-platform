@@ -60,7 +60,7 @@ pytestmark = [
 
 
 @asynccontextmanager
-async def _publisher_redis():
+async def _publisher_redis(*, retain=None):
     url = _verify_redis()
     name, password = (
         "identity-publisher-" + uuid.uuid4().hex[:12],
@@ -98,12 +98,28 @@ async def _publisher_redis():
             await scoped.publish("outside-identity", "denied")
         yield dsn, owner
     finally:
-        if scoped is not None:
-            await scoped.aclose()
-        if created:
-            _verify_redis()
-            assert await owner.execute_command("ACL", "DELUSER", name) == 1
-        await owner.aclose()
+        primary = sys.exception()
+        errors = []
+        try:
+            if scoped is not None:
+                await scoped.aclose()
+        except BaseException as exc:
+            errors.append(exc)
+        try:
+            if created and not errors and not (retain is not None and retain()):
+                _verify_redis()
+                assert await owner.execute_command("ACL", "DELUSER", name) == 1
+        except BaseException as exc:
+            errors.append(exc)
+        try:
+            await owner.aclose()
+        except BaseException as exc:
+            errors.append(exc)
+        if errors:
+            raise BaseExceptionGroup(
+                "Identity publisher Redis cleanup failed",
+                ([primary] if primary is not None else []) + errors,
+            ) from None
 
 
 async def _assert_consumer_is_restricted(test_engine, actor):
@@ -169,7 +185,7 @@ async def _briefs_consumer_world(maker, actor, suffix):
 
 
 @asynccontextmanager
-async def _restored_database(test_engine, snapshot):
+async def _restored_database(test_engine, snapshot, *, retain=None):
     """Copy database ACLs as well as the full dump; retain global LOGIN identities."""
     clone = f"aap_identity_module_restore_{uuid.uuid4().hex[:12]}_test"
     marker = "identity-module-restore:" + str(uuid.uuid4())
@@ -215,29 +231,42 @@ async def _restored_database(test_engine, snapshot):
         )
         yield clone
     finally:
-        if created:
-            async with admin.connect() as db:
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=:name"
-                        ),
-                        {"name": clone},
+        primary = sys.exception()
+        errors = []
+        try:
+            if created and not (retain is not None and retain()):
+                async with admin.connect() as db:
+                    assert (
+                        await db.scalar(
+                            text(
+                                "SELECT shobj_description(oid,'pg_database') FROM pg_database WHERE datname=:name"
+                            ),
+                            {"name": clone},
+                        )
+                        == marker
                     )
-                    == marker
-                )
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT count(*) FROM pg_stat_activity WHERE datname=:name "
-                            "AND backend_type IS DISTINCT FROM 'autovacuum worker'"
-                        ),
-                        {"name": clone},
+                    assert (
+                        await db.scalar(
+                            text(
+                                "SELECT count(*) FROM pg_stat_activity WHERE datname=:name "
+                                "AND backend_type IS DISTINCT FROM 'autovacuum worker'"
+                            ),
+                            {"name": clone},
+                        )
+                        == 0
                     )
-                    == 0
-                )
-                await db.execute(text(f'DROP DATABASE "{clone}"'))
-        await admin.dispose()
+                    await db.execute(text(f'DROP DATABASE "{clone}"'))
+        except BaseException as exc:
+            errors.append(exc)
+        try:
+            await admin.dispose()
+        except BaseException as exc:
+            errors.append(exc)
+        if errors:
+            raise BaseExceptionGroup(
+                "Identity restored database cleanup failed",
+                ([primary] if primary is not None else []) + errors,
+            ) from None
 
 
 async def test_complete_compose_remote_api_workers_restart_and_restore(

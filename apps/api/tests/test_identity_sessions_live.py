@@ -9,6 +9,7 @@ import json
 import os
 import secrets
 import subprocess
+import sys
 import uuid
 
 import httpx
@@ -56,7 +57,7 @@ def _verify_redis():
 
 
 @asynccontextmanager
-async def _login_redis():
+async def _login_redis(*, retain=None):
     url = _verify_redis()
     name, password = (
         "identity-login-" + uuid.uuid4().hex[:12],
@@ -101,14 +102,28 @@ async def _login_redis():
             await scoped.publish("unrelated", "denied")
         yield dsn, owner
     finally:
-        if scoped is not None:
-            await scoped.aclose()
+        primary = sys.exception()
+        errors = []
         try:
-            if created:
+            if scoped is not None:
+                await scoped.aclose()
+        except BaseException as exc:
+            errors.append(exc)
+        try:
+            if created and not errors and not (retain is not None and retain()):
                 _verify_redis()
                 assert await owner.acl_deluser(name) == 1
-        finally:
+        except BaseException as exc:
+            errors.append(exc)
+        try:
             await owner.aclose()
+        except BaseException as exc:
+            errors.append(exc)
+        if errors:
+            raise BaseExceptionGroup(
+                "Identity Redis cleanup failed",
+                ([primary] if primary is not None else []) + errors,
+            ) from None
 
 
 def _command(operation, *, token=None, payload=None, operation_id=None):
