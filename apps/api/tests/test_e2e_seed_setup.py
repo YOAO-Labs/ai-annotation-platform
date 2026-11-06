@@ -4,11 +4,9 @@ import json
 import os
 from pathlib import Path
 import select
-import shutil
 import socket
 import subprocess
 import sys
-import tempfile
 import textwrap
 import uuid
 
@@ -144,8 +142,10 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
         AsyncEngine.dispose = fail_disposal
         asyncio.run(module.serve_authority(ready_fd))
     """)
-    socket_base = tempfile.mkdtemp(prefix="fixture-disposal-", dir="/tmp")
+    runtime_tmp = tmp_path / ("worktree-temporary-" + "x" * 100)
+    runtime_tmp.mkdir(mode=0o700)
     process = None
+    record = None
     try:
         process = subprocess.Popen(
             [sys.executable, "-c", program, str(root), str(directory), str(write_fd)],
@@ -153,7 +153,7 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
             pass_fds=(write_fd,),
             stdout=subprocess.DEVNULL,
             stderr=subprocess.PIPE,
-            env={**os.environ, "TMPDIR": socket_base},
+            env={**os.environ, "TMPDIR": str(runtime_tmp)},
         )
         os.close(write_fd)
         write_fd = None
@@ -208,4 +208,14 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
                 process.kill()
             process.wait(timeout=10)
             process.stderr.close()
-        shutil.rmtree(socket_base)
+        if record is not None:
+            assert record["pid"] == process.pid
+            socket_path = Path(record["socket"])
+            socket_info = socket_path.lstat()
+            assert [socket_info.st_dev, socket_info.st_ino] == record["socket_identity"]
+            directory_info = socket_path.parent.lstat()
+            assert [directory_info.st_dev, directory_info.st_ino] == record[
+                "socket_dir_identity"
+            ]
+            socket_path.unlink()
+            socket_path.parent.rmdir()

@@ -97,6 +97,10 @@ router。已核验资源根和模式对应唯一私有 authority，其 Unix sock
 - 夹具进程使用启动器注入的资源根，且其 identity、资源清单、数据库 owner 标记和受限 runtime LOGIN 均通过核验；
 - `production` 环境永不挂载路由。
 
+authority 的 Unix socket 使用 `/tmp` 下的私有随机短目录，避免工作树 `TMPDIR` 超过
+系统 socket 路径长度限制；准确目录、socket 身份和原进程仍登记在该模式的私有记录中。
+临时目录的位置不会改变资源归属，不能按目录前缀批量清理。
+
 截图入口使用已核验工作树的受限 `DATABASE_URL` 和仅供私有夹具进程使用的
 `PLAYWRIGHT_E2E_DATABASE_URL`，并固定 `SCREENSHOT_FIXTURE_RUN_ID`。仍须核对实际
 API／worker 目标，不能以测试库后缀或单独指定的连接代替资源归属和服务身份核验。
