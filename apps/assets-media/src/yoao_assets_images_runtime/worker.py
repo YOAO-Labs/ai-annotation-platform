@@ -974,15 +974,32 @@ class ImageExecutor:
                     artifact=artifact,
                 )
 
-            rows = await asyncio.gather(
-                *(upload_tile(tile) for tile in batch), return_exceptions=True
-            )
-            failure = next(
-                (row for row in rows if isinstance(row, BaseException)), None
-            )
-            if failure is not None:
-                if isinstance(failure, ImageFailure):
-                    raise failure
+            try:
+                rows = await asyncio.gather(
+                    *(upload_tile(tile) for tile in batch), return_exceptions=True
+                )
+            except asyncio.CancelledError as exc:
+                from .original_read import fixture_original_active
+
+                if fixture_original_active():
+                    exc.storage_operation_unsettled = True
+                raise
+            failures = [row for row in rows if isinstance(row, BaseException)]
+            if failures:
+                from .original_read import _unsettled, fixture_original_active
+
+                if fixture_original_active():
+                    for failure in failures:
+                        if isinstance(failure, asyncio.CancelledError):
+                            failure.storage_operation_unsettled = True
+                if any(_unsettled(failure) for failure in failures):
+                    if len(failures) == 1:
+                        raise failures[0]
+                    combined = BaseExceptionGroup("Image tile uploads failed", failures)
+                    combined.storage_operation_unsettled = True
+                    raise combined from None
+                if isinstance(failures[0], ImageFailure):
+                    raise failures[0]
                 raise ImageFailure("storage_unavailable") from None
             uploaded_tiles.extend(
                 row for row in rows if isinstance(row, ImageTileArtifact)
