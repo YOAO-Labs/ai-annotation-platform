@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -769,14 +770,20 @@ class WorkspaceCeleryWorker:
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.hostname
-            or parsed.username
-            or parsed.password
+            or parsed.username is not None
+            or parsed.password is not None
             or parsed.path not in {"", "/"}
             or parsed.query
             or parsed.fragment
         ):
             raise ValueError("Verifier supplied an invalid object storage endpoint")
-        parsed.port
+        port = parsed.port
+        try:
+            loopback = ipaddress.ip_address(parsed.hostname).is_loopback
+        except ValueError:
+            loopback = parsed.hostname == "localhost"
+        if loopback:
+            return f"host.docker.internal:{port}" if port is not None else "host.docker.internal"
         return parsed.netloc
 
     def _inspect(self, identity: str, *, required: bool = True) -> dict | None:
