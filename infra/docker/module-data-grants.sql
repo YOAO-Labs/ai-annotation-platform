@@ -4319,6 +4319,7 @@ ALTER FUNCTION public.image_export_snapshot_datasets(jsonb) OWNER TO :"export_ow
 ALTER FUNCTION public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[]) OWNER TO :"export_owner";
 ALTER FUNCTION public.image_export_scope_matches(uuid,uuid) OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_image_export_scope() OWNER TO :"export_owner";
+ALTER FUNCTION public.guard_image_export_scope_transition() OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_image_export_job_birth() OWNER TO :"export_owner";
 ALTER FUNCTION public.guard_image_export_fixture_dataset_birth() OWNER TO :"export_owner";
 ALTER FUNCTION public.check_image_export_scope_committed() OWNER TO :"export_owner";

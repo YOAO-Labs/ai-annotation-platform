@@ -1,13 +1,13 @@
 -- Export's immutable producer binding augments, but never weakens, Jobs' typed scope.
 CREATE FUNCTION aap_jobs_v1.fixture_job_dataset_scope(
     p_id uuid, p_kind text, p_payload jsonb, p_project_id uuid, p_user_id uuid
-) RETURNS jsonb LANGUAGE plpgsql STABLE PARALLEL UNSAFE
+) RETURNS jsonb LANGUAGE plpgsql VOLATILE PARALLEL UNSAFE
 SET search_path = pg_catalog, pg_temp AS $function$
 DECLARE v_datasets uuid[];
 BEGIN
     IF p_kind = 'export' THEN
         SELECT scope.dataset_ids INTO v_datasets FROM public.image_export_scopes AS scope
-        WHERE scope.job_id = p_id
+        WHERE scope.job_id = p_id AND scope.job_born
           AND (p_project_id IS NULL OR scope.project_id = p_project_id)
           AND (p_user_id IS NULL OR scope.actor_id = p_user_id);
         IF FOUND THEN
@@ -143,6 +143,9 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
 BEGIN
+    IF pg_catalog.current_setting('transaction_isolation') <> 'read committed' THEN
+        RAISE EXCEPTION USING ERRCODE = '0A000', MESSAGE = 'fixture_dataset_isolation_unsupported';
+    END IF;
     IF pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 5) <> '_test'
        AND pg_catalog.right(pg_catalog.lower(pg_catalog.current_database()), 4) <> '_e2e' THEN
         RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'Jobs fixture cleanup requires a test database';

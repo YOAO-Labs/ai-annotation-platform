@@ -307,6 +307,45 @@ BEGIN
 END
 $jobs_update_acl$;
 """
+_IMAGE_EXPORT_SCOPE_RUNTIME_ACL = """
+DO $image_export_scope_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+    v_columns text;
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid = 'public.image_export_scopes'::regclass
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) THEN
+        RAISE EXCEPTION 'The runtime role must not own or inherit image export scope authority';
+    END IF;
+    EXECUTE format('REVOKE ALL ON TABLE public.image_export_scopes FROM %I, PUBLIC', v_runtime);
+    SELECT string_agg(format('%I', attname), ', ' ORDER BY attnum)
+    INTO v_columns FROM pg_catalog.pg_attribute
+    WHERE attrelid = 'public.image_export_scopes'::regclass
+      AND attnum > 0 AND NOT attisdropped;
+    IF v_columns IS NOT NULL THEN
+        EXECUTE format('REVOKE ALL (%s) ON TABLE public.image_export_scopes FROM %I, PUBLIC',
+                       v_columns, v_runtime);
+    END IF;
+    IF pg_catalog.has_table_privilege(v_runtime, 'public.image_export_scopes',
+           'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.image_export_scopes',
+           'SELECT,INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role retains private image export scope access';
+    END IF;
+    IF NOT pg_catalog.has_function_privilege(v_runtime,
+           'public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[])', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+           'public.image_export_scope_matches(uuid,uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The runtime role is missing image export scope capabilities';
+    END IF;
+END
+$image_export_scope_acl$;
+"""
+
+
 _IDENTITY_PRIVATE_RUNTIME_ACL = """
 -- Preserve embedded command capabilities while denying direct Identity storage.
 DO $identity_private_acl$
@@ -1647,6 +1686,8 @@ class LocalResources:
                     "public.fixture_export_execution_admitted(uuid), "
                     "public.begin_fixture_export_execution(uuid,uuid,uuid), "
                     "public.finish_fixture_export_execution(uuid,uuid), "
+                    "public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[]), "
+                    "public.image_export_scope_matches(uuid,uuid), "
                     "public.fixture_native_export_lifetime(uuid,uuid), "
                     "public.fixture_native_export_cleanup_eligible(uuid), "
                     "aap_labeling_v1.append_dataset_items(uuid, uuid[], uuid), "
@@ -1705,6 +1746,7 @@ class LocalResources:
                 await connection.exec_driver_sql(_JOBS_DELETE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_JOBS_UPDATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_JOBS_DISPATCH_RUNTIME_ACL)
+                await connection.exec_driver_sql(_IMAGE_EXPORT_SCOPE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_IDENTITY_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(_AUDIT_PRIVATE_RUNTIME_ACL)
                 await connection.exec_driver_sql(self.private_runtime_acl("labeling"))

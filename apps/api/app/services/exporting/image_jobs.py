@@ -153,12 +153,17 @@ def validate_message(
 
 
 async def create_scoped_job(
-    db, project, *, actor_id, payload, batch_id, targets, opts, task_ids=None
+    db, project, *, actor_id, payload, batch_id, targets, opts, task_ids=None,
+    job_id=None,
 ):
     """Capture the source scope before the Job can be admitted or dispatched."""
     from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
 
     from app.db.models.async_job import AsyncJob
+
+    if await db.scalar(text("SHOW transaction_isolation")) != "read committed":
+        reject("image_export_isolation_unsupported")
 
     inputs = await image_inputs.collect(
         db, project.id, batch_id, targets, opts, task_ids=task_ids, lock=True
@@ -171,20 +176,27 @@ async def create_scoped_job(
         for entry in data["media"]
         if entry["source"]["owner_kind"] == "dataset_asset"
     )
-    job_id, bundle_id = uuid.uuid4(), uuid.uuid4()
-    await db.execute(
-        text(
-            "SELECT public.prepare_image_export_scope("
-            ":job_id, :bundle_id, :project_id, :actor_id, CAST(:datasets AS uuid[]))"
-        ),
-        {
-            "job_id": job_id,
-            "bundle_id": bundle_id,
-            "project_id": project.id,
-            "actor_id": actor_id,
-            "datasets": sorted(datasets, key=str),
-        },
-    )
+    job_id = uuid.UUID(_uuid(job_id)) if job_id is not None else uuid.uuid4()
+    bundle_id = uuid.uuid4()
+    try:
+        await db.execute(
+            text(
+                "SELECT public.prepare_image_export_scope("
+                ":job_id, :bundle_id, :project_id, :actor_id, CAST(:datasets AS uuid[]))"
+            ),
+            {
+                "job_id": job_id,
+                "bundle_id": bundle_id,
+                "project_id": project.id,
+                "actor_id": actor_id,
+                "datasets": sorted(datasets, key=str),
+            },
+        )
+    except DBAPIError as exc:
+        state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        if state == "55P03":
+            reject("image_export_inputs_busy")
+        raise
     job = AsyncJob(
         id=job_id,
         kind="export",

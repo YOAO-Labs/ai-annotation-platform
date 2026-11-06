@@ -67,6 +67,8 @@ GRANT USAGE, CREATE ON SCHEMA public TO :"application_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO :"application_role";
 REVOKE ALL ON TABLE public.fixture_export_zip_retirements FROM :"application_role", PUBLIC;
 REVOKE ALL ON TABLE public.image_export_scopes FROM :"application_role", PUBLIC;
+REVOKE ALL (job_id, bundle_id, project_id, actor_id, job_born, dataset_ids)
+    ON TABLE public.image_export_scopes FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION public.fixture_export_owner_session(),
     public.retire_fixture_native_export_output(uuid),
     public.confirm_fixture_export_zip_absent(uuid) FROM :"application_role", PUBLIC;
@@ -839,6 +841,28 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_assets_v1.pending_storage_deletions(uuid, integer),
     aap_assets_v1.complete_storage_deletion(uuid, uuid)
     TO :"application_role";
+DO $image_export_scope_acl$
+DECLARE
+    v_runtime name := current_setting('aap.application_role');
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_class
+        WHERE oid = 'public.image_export_scopes'::regclass
+          AND pg_catalog.pg_has_role(v_runtime, relowner, 'MEMBER')
+    ) OR pg_catalog.has_table_privilege(v_runtime, 'public.image_export_scopes',
+           'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+       OR pg_catalog.has_any_column_privilege(v_runtime, 'public.image_export_scopes',
+           'SELECT,INSERT,UPDATE,REFERENCES') THEN
+        RAISE EXCEPTION 'The runtime role retains private image export scope access';
+    END IF;
+    IF NOT pg_catalog.has_function_privilege(v_runtime,
+           'public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[])', 'EXECUTE')
+       OR NOT pg_catalog.has_function_privilege(v_runtime,
+           'public.image_export_scope_matches(uuid,uuid)', 'EXECUTE') THEN
+        RAISE EXCEPTION 'The runtime role is missing image export scope capabilities';
+    END IF;
+END;
+$image_export_scope_acl$;
 -- Compose the existing Spatial native contract for default API/worker calls.
 GRANT SELECT ON aap_assets_v1.spatial_item_references,
     aap_assets_v1.spatial_scene_references,

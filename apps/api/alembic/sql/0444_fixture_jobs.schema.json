@@ -37,7 +37,7 @@
     "aap_jobs_v1.fixture_job_dataset_scope": {
       "arguments": "uuid, text, jsonb, uuid, uuid",
       "returns": "jsonb",
-      "volatility": "stable",
+      "volatility": "volatile",
       "parallel": "unsafe"
     },
     "aap_jobs_v1.guard_fixture_dataset_jobs": {
@@ -74,14 +74,16 @@
     "search_path": "pg_catalog,pg_temp"
   },
   "x-errors": {
+    "0A000": "fixture Dataset cleanup requires READ COMMITTED isolation",
     "42501": "non-test database or missing capability",
     "22023": "NULL/null-element scope or malformed Workspace guard",
     "23514": "video_execution_not_retired, fixture_job_execution_unsettled or fixture_dataset_job_unsettled",
-    "55P03": "project NOWAIT lock contention"
+    "55P03": "project or image export Dataset scope contention"
   },
   "x-transactions": {
     "commit": false,
     "rollback": false,
+    "isolation": "READ COMMITTED for Dataset cleanup",
     "locks": "Workspace project/retirement guard retained in caller transaction",
     "triggers": "original DELETE constraints and triggers retained"
   }

@@ -69,7 +69,7 @@ async def create_export_job(
     job = await async_job.create_job(
         db, kind="export", user_id=actor_id, project_id=project.id, payload=payload
     )
-    receipt = await capture_job(
+    receipt = await _capture_non_image_job(
         db,
         job,
         project,
@@ -81,19 +81,9 @@ async def create_export_job(
     return job, receipt
 
 
-async def capture_job(db, job, project, *, batch_id, targets, opts, task_ids=None):
-    if project.data_type == "image":
-        from app.services.exporting.image_jobs import capture_job as capture_image
-
-        return await capture_image(
-            db,
-            job,
-            project,
-            batch_id=batch_id,
-            targets=targets,
-            opts=opts,
-            task_ids=task_ids,
-        )
+async def _capture_non_image_job(
+    db, job, project, *, batch_id, targets, opts, task_ids=None
+):
     if project.data_type == "video":
         from app.services.exporting.video_jobs import capture_job as capture_video
 

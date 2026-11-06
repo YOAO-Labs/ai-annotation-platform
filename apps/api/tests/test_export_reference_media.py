@@ -154,14 +154,34 @@ async def make_export(
 
 
 async def make_image_export(db, world, *, targets, opts):
-    """Keep reference authority independent while allocating real image facts."""
-    _, project, _, _ = world
-    job, media = await make_export(db, world)
-    job.status = "pending"
-    job.payload = {**job.payload, "targets": targets, "batch_id": None, **opts}
-    receipt = await image_jobs.capture_job(
-        db, job, project, batch_id=None, targets=targets, opts=opts
+    """Bind the real frozen image sources before the Job is born."""
+    _, project, _, content = world
+    actor = content[2]
+    request = SimpleNamespace(
+        state=SimpleNamespace(api_key_id=None, api_key_scopes=None, identity_principal=None),
+        headers={},
     )
+    payload = {
+        "output_authority": await output_authority.capture(db, project, actor, request),
+        "targets": targets,
+        "batch_id": None,
+        **opts,
+    }
+    job, receipt = await image_jobs.create_scoped_job(
+        db, project, actor_id=actor.id, payload=payload, batch_id=None,
+        targets=targets, opts=opts,
+    )
+    proof = await capture_export_authority(
+        db, project, actor, request, frozen_snapshot=receipt.input_snapshot,
+    )
+    media = None
+    if proof:
+        job.payload = {**job.payload, "export_authority": proof}
+        media = ReferenceExportMedia(
+            db, job.id, proof, project_id=project.id, batch_id=None,
+            task_ids=None, node_id="worker:content@test",
+        )
+        await media.validate()
     await db.commit()
     return job, media, receipt
 
