@@ -10,11 +10,22 @@ from contextvars import ContextVar
 from yoao_assets_images import contract as c
 
 
-_fixture_original_active = ContextVar("image_fixture_original_active", default=False)
+_fixture_original = ContextVar("image_fixture_original", default=None)
 
 
 def fixture_original_active():
-    return _fixture_original_active.get()
+    return _fixture_original.get() is not None
+
+
+def fixture_upload_started():
+    context = _fixture_original.get()
+    if context is not None:
+        context["write_started"] = True
+
+
+def fixture_upload_was_started():
+    context = _fixture_original.get()
+    return context is not None and context["write_started"]
 
 
 def _unsettled(failure):
@@ -61,14 +72,17 @@ async def admitted_original(database, storage, operation, request, finish_operat
     if not isinstance(permit, c.OriginalRead):
         raise c.ImageFailure("invalid_response")
     failure = None
-    context = _fixture_original_active.set(permit.ownership == "fixture")
+    evidence = {"write_started": False} if permit.ownership == "fixture" else None
+    context = _fixture_original.set(evidence)
     try:
         yield storage.bind_original(permit)
     except BaseException as exc:
         failure = exc
+        if evidence is not None and evidence["write_started"]:
+            exc.storage_operation_unsettled = True
         raise
     finally:
-        _fixture_original_active.reset(context)
+        _fixture_original.reset(context)
         if permit.ownership == "fixture" and not _unsettled(failure):
             try:
                 await _finish(database, finish_operation, permit)

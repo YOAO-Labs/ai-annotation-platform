@@ -362,6 +362,9 @@ class S3ImageStorage:
             "x-amz-meta-sha256": digest,
         }
         body = _FileBody(path, info.st_size, digest)
+        from .original_read import fixture_upload_started
+
+        fixture_upload_started()
         try:
             response = await self._get_http_client().put(
                 url,

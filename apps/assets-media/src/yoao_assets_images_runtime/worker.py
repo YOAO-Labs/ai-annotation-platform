@@ -343,23 +343,7 @@ class ImageExecutor:
         try:
             if isinstance(claim.spec, ImageBackfillSpec):
                 return await self._advance_backfill(claim, heartbeat)
-            result = await self._execute_source_claim(claim, heartbeat)
-            heartbeat.check()
-            try:
-                require_result_scope(claim, result)
-                finish = FinishImageMediaRequest(
-                    job_id=claim.job_id,
-                    generation=claim.generation,
-                    lease_token=claim.lease_token,
-                    result=result,
-                )
-                _check_finish_request_budget(finish)
-            except (TypeError, ValueError):
-                raise ImageFailure("invalid_response") from None
-            outcome = await self._finish_with_retries(finish, heartbeat)
-            if not isinstance(outcome, ImageWorkOutcome):
-                raise ImageFailure("invalid_response")
-            return outcome
+            return await self._execute_source_claim(claim, heartbeat)
         except ImageFailure as exc:
             if getattr(exc, "storage_operation_unsettled", False):
                 raise
@@ -420,7 +404,7 @@ class ImageExecutor:
 
     async def _execute_source_claim(
         self, claim: ImageClaim, heartbeat: _LeaseHeartbeat
-    ) -> ImageWorkResult:
+    ) -> ImageWorkOutcome:
         source = claim.source
         if source is None or source.object_identity is None:
             raise ImageFailure("invalid_response")
@@ -445,9 +429,29 @@ class ImageExecutor:
             ),
             "finish_image_original_worker",
         ) as source_storage:
-            return await self._execute_admitted_source_claim(
+            result = await self._execute_admitted_source_claim(
                 claim, heartbeat, source, source_storage
             )
+            heartbeat.check()
+            try:
+                require_result_scope(claim, result)
+                finish = FinishImageMediaRequest(
+                    job_id=claim.job_id,
+                    generation=claim.generation,
+                    lease_token=claim.lease_token,
+                    result=result,
+                )
+                _check_finish_request_budget(finish)
+            except (TypeError, ValueError):
+                raise ImageFailure("invalid_response") from None
+            outcome = await self._finish_with_retries(finish, heartbeat)
+            if not isinstance(outcome, ImageWorkOutcome):
+                raise ImageFailure("invalid_response")
+            from .original_read import fixture_upload_was_started
+
+            if fixture_upload_was_started() and outcome.outcome != "published":
+                raise RuntimeError("fixture image publication was not proven")
+            return outcome
 
     async def _execute_admitted_source_claim(
         self, claim, heartbeat, source, source_storage
