@@ -258,7 +258,7 @@ def isolated_environment(
         overrides.update(
             {
                 f"INFERENCE_{owner}_{suffix}": ""
-                for owner in ("ROUTING", "HEALTH_OBSERVATION")
+                for owner in ("ROUTING", "HEALTH_OBSERVATION", "BACKEND_CONTROL")
                 for suffix in (
                     "URL",
                     "TOKEN",
@@ -274,6 +274,15 @@ def isolated_environment(
                 for owner in ("ROUTING", "HEALTH_OBSERVATION")
             }
         )
+        # Fixture owners have their own credentials; never inherit another
+        # Inference owner's private database selectors into E2E consumers.
+        for key in inherited:
+            upper = key.upper()
+            if (
+                upper.startswith(("INFERENCE_BACKEND_ENDPOINT_", "INFERENCE_GPU_", "INFERENCE_HEALTH_DATA_", "INFERENCE_BACKEND_STATS_"))
+                and (upper.endswith("_DATABASE_URL") or upper.endswith("_DATABASE_URL_FILE"))
+            ):
+                overrides[upper] = ""
     fixture_target_keys = (
         FIXTURE_ORIGINAL_ENV_KEYS if resources["mode"] in {"test", "e2e"} else ()
     )

@@ -62,6 +62,40 @@ _HEALTH = (
     "aap_inference_health_observation_v1.seal_health_observation(text,uuid,uuid,text)",
 )
 
+def _control_profiles():
+    """The same function-only profiles enforced by the native owner."""
+    from yoao_inference.backend_endpoint_postgres import _function_set
+    from yoao_inference.backend_control_stats_postgres import _STATS_FUNCTIONS
+    from yoao_inference.gpu.endpoint_source import _ENDPOINT_FUNCTIONS, _ENDPOINT_OPENERS
+    from yoao_inference.gpu.native import _AUTHORITY_FUNCTIONS
+    from yoao_inference.health_data_postgres import _FUNCTIONS as health_functions
+
+    endpoint_schema = "aap_inference_backend_endpoint_v1"
+    profiles = {
+        f"endpoint_{purpose}": (endpoint_schema, _function_set(purpose))
+        for purpose in (
+            "setup", "health_observation", "catalog_fallback", "stats",
+            "backend_read", "lifecycle", "execution",
+        )
+    }
+    profiles["backend_stats"] = (endpoint_schema, _STATS_FUNCTIONS)
+    for purpose in ("health_observation", "gpu_control"):
+        opener = _ENDPOINT_OPENERS[purpose]
+        functions = _ENDPOINT_FUNCTIONS | {(opener[0], opener[1])}
+        if purpose == "gpu_control":
+            functions = functions | {
+                ("open_installation_terminal_endpoint", "uuid, uuid, text, text, text")
+            }
+        profiles[f"gpu_endpoint_{purpose}"] = (endpoint_schema, functions)
+    profiles["gpu_authority"] = ("aap_inference_gpu_v1", _AUTHORITY_FUNCTIONS)
+    profiles["health_data"] = ("aap_inference_health_data_v1", health_functions)
+    return {
+        kind: (schema, tuple(
+            f"{schema}.{name}({signature})" for name, signature in sorted(functions)
+        ))
+        for kind, (schema, functions) in profiles.items()
+    }
+
 
 def _port() -> int:
     with socket.socket() as listener:
@@ -106,6 +140,14 @@ class FixtureInferenceServices:
             },
             "routing_role": self.resources["database"] + "_routing",
             "health_role": self.resources["database"] + "_health",
+            **{
+                kind + "_role": (
+                    "inference_gpu_authority_client" if kind == "gpu_authority"
+                    else "inference_health_data_client" if kind == "health_data"
+                    else self.resources["database"] + f"_inf{index}"
+                )
+                for index, kind in enumerate(_control_profiles())
+            },
         }
 
     def _load_credentials(self, *, create=False):
@@ -119,6 +161,11 @@ class FixtureInferenceServices:
                 "health_password": secrets.token_urlsafe(32),
                 "routing_token": secrets.token_urlsafe(32),
                 "health_token": secrets.token_urlsafe(32),
+                "backend_control_token": secrets.token_urlsafe(32),
+                **{
+                    kind + "_password": secrets.token_urlsafe(32)
+                    for kind in _control_profiles()
+                },
                 "port": _port(),
             }
             atomic_json(path, value, exclusive=True)
@@ -141,6 +188,8 @@ class FixtureInferenceServices:
             "health_password",
             "routing_token",
             "health_token",
+            "backend_control_token",
+            *(kind + "_password" for kind in _control_profiles()),
         )
         if (
             not isinstance(value, dict)
@@ -257,10 +306,12 @@ class FixtureInferenceServices:
                         )
                     )
                 ).mappings().one()
-                for kind, schema, functions in (
-                    ("routing", "aap_inference_routing_v1", _ROUTING),
-                    ("health", "aap_inference_health_observation_v1", _HEALTH),
-                ):
+                profiles = {
+                    "routing": ("aap_inference_routing_v1", _ROUTING),
+                    "health": ("aap_inference_health_observation_v1", _HEALTH),
+                    **_control_profiles(),
+                }
+                for kind, (schema, functions) in profiles.items():
                     role = self._identity()[kind + "_role"]
                     await connection.execute(
                         text("SELECT pg_advisory_xact_lock(hashtext(:role))"),
@@ -466,10 +517,11 @@ class FixtureInferenceServices:
                     "username": values[kind + "_role"],
                     "password": values[kind + "_password"],
                 }
-                for kind in ("routing", "health")
+                for kind in ("routing", "health", *_control_profiles())
             },
             "routing_token": values["routing_token"],
             "health_token": values["health_token"],
+            "backend_control_token": values["backend_control_token"],
             "port": values["port"],
             "nonce": nonce,
             "health_max_age_seconds": (
@@ -714,6 +766,9 @@ class FixtureInferenceServices:
             "INFERENCE_HEALTH_OBSERVATION_URL": origin,
             "INFERENCE_HEALTH_OBSERVATION_TOKEN": value["health_token"],
             "INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE": "",
+            "INFERENCE_BACKEND_CONTROL_URL": origin,
+            "INFERENCE_BACKEND_CONTROL_TOKEN": value["backend_control_token"],
+            "INFERENCE_BACKEND_CONTROL_TOKEN_FILE": "",
             "ML_BACKEND_ROUTER_MODE": "enforce",
         }
 
@@ -891,6 +946,19 @@ def verify_existing_serving(resources: dict, *, code_root: Path, environment: di
 
 
 async def _serve(payload):
+    from contextlib import AsyncExitStack
+    from yoao_inference.__main__ import _BackendOptions, _gpu_runtime
+    from yoao_inference.backend_control_manager import BackendControlManager
+    from yoao_inference.backend_control_stats_postgres import BackendControlStatsPostgresData
+    from yoao_inference.backend_endpoint import BackendEndpointManager
+    from yoao_inference.backend_endpoint_postgres import BackendEndpointPostgresData
+    from yoao_inference.gpu.endpoint_source import _verify_endpoint_profile
+    from yoao_inference.gpu.native import GPUAuthorityPostgresData
+    from yoao_inference.health_data_postgres import HealthDataPostgresData
+    from yoao_inference_contract.backend_endpoint import backend_endpoint_policy_ready
+    import asyncpg
+    from yoao_inference.owner_transport import RoutingBackendControlRequestContextFactory
+    from yoao_inference_contract.capabilities import CapabilityLimits
     from yoao_inference.health_observation_manager import BackendHealthObservationManager
     from yoao_inference.health_observation_postgres import (
         BackendHealthObservationPostgresData,
@@ -908,6 +976,56 @@ async def _serve(payload):
         health_max_age_seconds=payload["health_max_age_seconds"],
         lease_ttl_ms=payload["lease_ttl_ms"],
     )
+    # Native GPU dispatch owns these separate profiles, even for CPU fixtures.
+    os.environ.update({
+        "INFERENCE_GPU_DATABASE_URL": dsn("gpu_authority"),
+        "INFERENCE_GPU_ENDPOINT_HEALTH_OBSERVATION_DATABASE_URL": dsn("gpu_endpoint_health_observation"),
+        "INFERENCE_GPU_ENDPOINT_GPU_CONTROL_DATABASE_URL": dsn("gpu_endpoint_gpu_control"),
+        "INFERENCE_HEALTH_DATA_DATABASE_URL": dsn("health_data"),
+    })
+    for kind in (
+        "gpu_authority", "health_data",
+        "gpu_endpoint_health_observation", "gpu_endpoint_gpu_control",
+    ):
+        connection = await asyncpg.connect(dsn(kind), timeout=5, command_timeout=5)
+        try:
+            async with connection.transaction():
+                if kind == "gpu_authority":
+                    await GPUAuthorityPostgresData.bind(connection)
+                elif kind == "health_data":
+                    await HealthDataPostgresData.bind(connection)
+                else:
+                    purpose = "health_observation" if kind.endswith("health_observation") else "gpu_control"
+                    await _verify_endpoint_profile(connection, purpose)
+                    policy = await connection.fetchval(
+                        "SELECT aap_inference_backend_endpoint_v1.backend_endpoint_policy()"
+                    )
+                    if not backend_endpoint_policy_ready(policy):
+                        raise RuntimeError("Fixture GPU endpoint policy unavailable")
+        finally:
+            await connection.close()
+    stack = AsyncExitStack()
+    options = _BackendOptions(ml_health_timeout=10, ml_predict_timeout=100)
+    boundary, _ = await _gpu_runtime(
+        stack, routing, options, CapabilityLimits(), max_concurrency=8, admin=False
+    )
+    openers = {
+        purpose: BackendEndpointManager(
+            BackendEndpointPostgresData(dsn(f"endpoint_{purpose}"), purpose)
+        )
+        for purpose in (
+            "setup", "health_observation", "catalog_fallback", "stats",
+            "backend_read", "lifecycle", "execution",
+        )
+    }
+    backend_control = BackendControlManager(
+        openers,
+        options,
+        request_context_factory=RoutingBackendControlRequestContextFactory(routing),
+        dispatch_context_factory=boundary,
+        unregistered_smoke_dispatch=boundary.unregistered_smoke_dispatch,
+        stats_data=BackendControlStatsPostgresData(dsn("backend_stats")),
+    )
     health_data = BackendHealthObservationPostgresData(dsn("health"))
     server = PipelineHttpServer(
         None,
@@ -919,7 +1037,9 @@ async def _serve(payload):
         routing_control_token=payload["routing_token"],
         health_observation_manager=BackendHealthObservationManager(health_data),
         health_observation_control_token=payload["health_token"],
-        required_capabilities=("routing", "health_observation"),
+        backend_control_manager=backend_control,
+        backend_control_token=payload["backend_control_token"],
+        required_capabilities=("routing", "health_observation", "backend_control"),
     )
     control_path = Path(payload["control_path"])
     if control_path.exists() or control_path.is_symlink():
@@ -945,6 +1065,7 @@ async def _serve(payload):
         await server.close()
         await routing.close()
         await health_data.close()
+        await stack.aclose()
 
     async def control(reader, writer):
         nonlocal drain_task
