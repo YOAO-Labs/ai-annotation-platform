@@ -9,6 +9,14 @@ from contextlib import asynccontextmanager
 from yoao_assets_images import contract as c
 
 
+def _unsettled(failure):
+    if getattr(failure, "storage_operation_unsettled", False):
+        return True
+    return isinstance(failure, BaseExceptionGroup) and any(
+        _unsettled(child) for child in failure.exceptions
+    )
+
+
 async def _finish(database, operation, permit):
     task = asyncio.create_task(
         database.call(
@@ -31,10 +39,8 @@ async def _finish(database, operation, permit):
         task.result()
     except BaseException as exc:
         if cancelled is not None:
-            raise builtins.BaseExceptionGroup(
-                "Image source settlement was cancelled and then failed",
-                [cancelled, exc],
-            ) from None
+            cancelled.storage_operation_unsettled = True
+            raise cancelled from exc
         raise
     if cancelled is not None:
         cancelled.storage_operation_settled = True
@@ -53,9 +59,7 @@ async def admitted_original(database, storage, operation, request, finish_operat
         failure = exc
         raise
     finally:
-        if permit.ownership == "fixture" and not getattr(
-            failure, "storage_operation_unsettled", False
-        ):
+        if permit.ownership == "fixture" and not _unsettled(failure):
             try:
                 await _finish(database, finish_operation, permit)
             except BaseException as finish_error:
@@ -64,6 +68,10 @@ async def admitted_original(database, storage, operation, request, finish_operat
                 )
                 if uncertain:
                     finish_error.storage_operation_unsettled = True
+                if isinstance(failure, asyncio.CancelledError):
+                    if uncertain:
+                        failure.storage_operation_unsettled = True
+                    raise failure from finish_error
                 if failure is not None:
                     combined = builtins.BaseExceptionGroup(
                         "Image source read and permit settlement both failed",
