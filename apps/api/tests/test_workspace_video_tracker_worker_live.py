@@ -301,13 +301,19 @@ print(json.dumps(observed, sort_keys=True, separators=(',', ':')))
             ],
             separators=(",", ":"),
         )
-        code = """import asyncio, json, sys, uuid
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from app.config import settings
-from app.services.ml_backend import MLBackendService
-from app.services.ml_routing.authority import RoutingAuthority
+        code = """import asyncio, json, sys
+
+stage = 'imports'
 
 async def main():
+    global stage
+    import uuid
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.config import settings
+    from app.services.ml_backend import MLBackendService
+    from app.services.ml_routing.authority import RoutingAuthority
+
+    stage = 'database_setup'
     records = json.loads(sys.argv[1])
     engine = create_async_engine(settings.database_url, hide_parameters=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -319,13 +325,16 @@ async def main():
             project_id = uuid.UUID(record['project_id'])
             async with sessions.begin() as db:
                 service = MLBackendService(db)
+                stage = 'health'
                 if not await service.check_health(registry_id):
                     raise RuntimeError('backend health check failed')
+                stage = 'selection'
                 selected = await service.get_tracker_backend_for_capabilities(
                     project_id, ['sam2_video']
                 )
                 if selected is None or selected.id != registry_id:
                     raise RuntimeError('tracker backend selection mismatch')
+            stage = 'reconcile'
             result = await authority.execute('reconcile', {
                 'registry_id': str(registry_id),
                 'control_id': str(uuid.uuid4()),
@@ -338,9 +347,27 @@ async def main():
             })
     finally:
         await engine.dispose()
-    print(json.dumps(results, separators=(',', ':')))
+    return results
 
-asyncio.run(main())
+try:
+    results = asyncio.run(main())
+except Exception as error:
+    cause = error
+    sqlstate = None
+    seen = set()
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        value = getattr(cause, 'sqlstate', None) or getattr(cause, 'pgcode', None)
+        if isinstance(value, str) and len(value) == 5 and value.isalnum():
+            sqlstate = value
+            break
+        cause = getattr(cause, 'orig', None) or cause.__cause__
+    print(json.dumps({
+        'ok': False, 'stage': stage, 'error': type(error).__name__,
+        'sqlstate': sqlstate,
+    }, separators=(',', ':')))
+else:
+    print(json.dumps({'ok': True, 'results': results}, separators=(',', ':')))
 """
         result = self._docker(
             "exec",
@@ -351,7 +378,10 @@ asyncio.run(main())
             payload,
             timeout=120,
         )
-        return json.loads(result)
+        evidence = json.loads(result)
+        if evidence.get("ok") is not True:
+            raise RuntimeError(f"Tracker route bootstrap failed: {evidence!r}")
+        return evidence["results"]
 
     def _write_env_file(self, path, values: dict[str, str]) -> None:
         super()._write_env_file(path, {**values, **self._tracker_environment})
