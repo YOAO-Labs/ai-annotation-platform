@@ -175,9 +175,9 @@ async def test_suite_cleanup_retries_provider_close_after_durable_retirement(
     assert (await committed_owner.get(FixtureRun, run.suite_id)).state == "retired"
 
 
-@pytest.mark.parametrize("held", [False, True])
+@pytest.mark.parametrize("reader", ["none", "released", "held"])
 async def test_suite_reader_budget_does_not_expire_between_children(
-    fixture_and_fenced_http, owner_fault_http, test_engine, monkeypatch, held
+    fixture_and_fenced_http, owner_fault_http, test_engine, monkeypatch, reader
 ):
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -211,9 +211,6 @@ async def test_suite_reader_budget_does_not_expire_between_children(
             second_waiting.set()
         return await real_wait(factory, run_id, **kwargs)
 
-    # The transport margin is widened only for this in-process test so real
-    # multi-child reclaim can finish after deliberately crossing three seconds.
-    monkeypatch.setattr(_test_seed, "_SUITE_READER_OVERALL_SECONDS", 30)
     monkeypatch.setattr(
         retirement, "retire_fixture_prediction_work", delay_real_routing
     )
@@ -221,7 +218,7 @@ async def test_suite_reader_budget_does_not_expire_between_children(
         retirement, "wait_for_fixture_original_readers", observe_real_reader
     )
     async with AsyncExitStack() as stack:
-        if held:
+        if reader != "none":
             db = await stack.enter_async_context(factory())
             world = worlds[second.run_id]
             actor = await db.scalar(
@@ -248,12 +245,13 @@ async def test_suite_reader_budget_does_not_expire_between_children(
                 "/api/v1/__test/seed/owned", json=first.payload()
             )
             assert late.status_code == 409, late.text
-            # Actual Routing preflight is held beyond the reader budget.
+            # Real Routing preflight outlasts both the reader wait and the former
+            # whole-suite transport limit; later readers still get their own wait.
             with pytest.raises(TimeoutError):
-                await asyncio.wait_for(asyncio.Event().wait(), 3.1)
+                await asyncio.wait_for(asyncio.Event().wait(), 5.1)
             release_preflight.set()
             await asyncio.wait_for(second_waiting.wait(), 10)
-            if held:
+            if reader != "none":
                 async with test_engine.connect() as observer:
                     empty = await observer.scalar(
                         text(
@@ -262,8 +260,29 @@ async def test_suite_reader_budget_does_not_expire_between_children(
                         {"run": second.run_id},
                     )
                 assert empty is False and not cleanup.done()
-                await stack.aclose()
+                if reader == "released":
+                    await stack.aclose()
             response = await asyncio.wait_for(cleanup, 30)
+            if reader == "held":
+                assert response.status_code == 409, response.text
+                assert response.json()["detail"] == {
+                    "code": "fixture_prediction_retirement_blocked",
+                    "reason": "original_reader_pending",
+                }
+                async with factory() as db:
+                    for run in runs:
+                        assert (await db.get(FixtureRun, run.run_id)).state == "sealing"
+                        assert (
+                            await db.get(
+                                Project, uuid.UUID(worlds[run.run_id]["project_id"])
+                            )
+                            is not None
+                        )
+                await stack.aclose()
+                response = await owner_fault_http.post(
+                    "/api/v1/__test/seed/cleanup",
+                    json={"suite_id": str(suite.suite_id)},
+                )
             assert response.status_code == 200, response.text
         finally:
             release_preflight.set()

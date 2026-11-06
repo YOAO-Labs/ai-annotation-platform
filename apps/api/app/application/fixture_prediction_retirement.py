@@ -83,7 +83,7 @@ async def _inventory(session_factory, run_id, project_ids, task_ids):
 
 
 # The individual private request has a 60-second transport deadline. The
-# suite caller supplies its own shorter, shared absolute deadline.
+# suite caller supplies a fresh shorter deadline for each reader wait.
 _READER_DRAIN_SECONDS = 45
 _LISTENER_CLOSE_SECONDS = 0.25
 

@@ -16,7 +16,8 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
     if (!suiteId) throw new Error("Fixture suite identity is required for teardown");
     const response = await postFixture(`${apiBase}/api/v1/__test/seed/cleanup`, {
       data: { suite_id: suiteId },
-      timeout: 5_000,
+      // Reader waits are bounded by the owner; physical retirement must settle.
+      timeout: 0,
     });
     if (!response.ok()) {
       throw new Error(`seed/cleanup failed: ${response.status()} ${await response.text()}`);
@@ -26,13 +27,17 @@ export default async function globalTeardown(_config: FullConfig): Promise<void>
     }
   } catch (error) {
     failed = true;
-    failure = error;
+    failure =
+      error instanceof Error && "operationId" in error && typeof error.operationId === "string"
+        ? new Error(`${error.message} (fixture operation ${error.operationId})`, { cause: error })
+        : error;
   }
   try {
     await closeFixtureTransport();
   } catch (error) {
     if (failed) {
-      throw new AggregateError([failure, error], "Fixture cleanup and transport shutdown failed");
+      const reason = failure instanceof Error ? failure.message : "Fixture cleanup failed";
+      throw new AggregateError([failure, error], `${reason}; fixture transport shutdown failed`);
     }
     throw error;
   }
