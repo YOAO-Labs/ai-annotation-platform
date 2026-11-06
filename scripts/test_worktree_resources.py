@@ -5,6 +5,7 @@ import json
 import os
 import re
 import unittest
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -651,6 +652,164 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
                 with backend.fixture_authority_fence():
                     self.fail("an owner record must block destruction")
             self.assertTrue(owner.exists())
+
+    def test_closed_generation_cannot_hide_unsettled_native_children(self):
+        for suite_directory in (False, True):
+            with (
+                self.subTest(suite_directory=suite_directory),
+                TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary).resolve()
+                resources = topology(root, load_identity(root, create=True), "e2e")
+                backend = LocalResources.__new__(LocalResources)
+                backend.root, backend.resources = root, resources
+                suite_id, run_id = uuid.uuid4(), uuid.uuid4()
+                directory = root / ".worktree/e2e/fixture-authority"
+                directory.mkdir(mode=0o700, parents=True)
+                if suite_directory:
+                    directory /= "suite-" + suite_id.hex
+                directory.mkdir(mode=0o700, exist_ok=True)
+                atomic_json(
+                    directory / "generation.json",
+                    {
+                        "resources": resources,
+                        "nonce": "a" * 64,
+                        "state": "closed",
+                    },
+                )
+                child = directory / ("native-run-" + run_id.hex)
+                child.mkdir(mode=0o700)
+                children = (
+                    "celery-media",
+                    "celery-pyramid",
+                    "media-worker",
+                    "image-worker",
+                    "proxy",
+                )
+                outcomes = {
+                    name: {
+                        "pid": index + 100,
+                        "start": index + 1000,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "descendants_drained": True,
+                        "acknowledgment": "warm_exit"
+                        if name.startswith("celery-")
+                        else "settled",
+                    }
+                    for index, name in enumerate(children)
+                }
+                run = {
+                    "schema": "aap-fixture-native-run/v1",
+                    "suite_id": str(suite_id),
+                    "run_id": str(run_id),
+                    "state": "retired",
+                    "drained": list(children),
+                    "child_dispositions": outcomes,
+                    "target_proof": {
+                        "schema": "aap-fixture-native-target-retirement/v1",
+                        "run_id": str(run_id),
+                        "storage_identity": "a" * 64,
+                        "target_receipt_sha256": "b" * 64,
+                        "retirement_id": str(uuid.uuid4()),
+                        "location_id": str(uuid.uuid4()),
+                        "binding_generation": 1,
+                    },
+                }
+                supervisor = {
+                    "schema": "aap-fixture-native-supervisor/v1",
+                    "suite_id": str(suite_id),
+                    "resources": resources,
+                    "state": "retired",
+                    "native_run_ids": [str(run_id)],
+                    "resolver_retired": True,
+                    "business_retired": True,
+                    "api": {"pid": 10, "start": 100},
+                    "control": {"pid": 20, "start": 200},
+                    "api_disposition": {
+                        "pid": 10,
+                        "start": 100,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "lifespan_shutdown": True,
+                    },
+                    "control_disposition": {
+                        "pid": 20,
+                        "start": 200,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "settled_ack": True,
+                    },
+                }
+                atomic_json(directory / "native-supervisor.json", supervisor)
+                atomic_json(child / "owner.json", run)
+                protected = root / "protected-resource"
+                protected.write_bytes(b"owned data")
+                for damage in (
+                    "unknown_supervisor",
+                    "forced_api_exit",
+                    "undrained_child",
+                    "missing_child",
+                ):
+                    with self.subTest(damage=damage):
+                        current_supervisor = json.loads(json.dumps(supervisor))
+                        current_run = json.loads(json.dumps(run))
+                        if damage == "unknown_supervisor":
+                            current_supervisor["state"] = "unsettled"
+                        elif damage == "forced_api_exit":
+                            current_supervisor["api_disposition"]["exit_code"] = -15
+                        elif damage == "undrained_child":
+                            current_run["child_dispositions"]["proxy"][
+                                "descendants_drained"
+                            ] = False
+                        atomic_json(
+                            directory / "native-supervisor.json", current_supervisor
+                        )
+                        atomic_json(child / "owner.json", current_run)
+                        if damage == "missing_child":
+                            (child / "owner.json").unlink()
+                        with self.assertRaises(WorktreeError):
+                            with backend.fixture_authority_fence():
+                                protected.unlink()
+                        self.assertEqual(protected.read_bytes(), b"owned data")
+                atomic_json(directory / "native-supervisor.json", supervisor)
+                atomic_json(child / "owner.json", run)
+                extra = directory / ("native-run-" + uuid.uuid4().hex)
+                extra.mkdir(mode=0o700)
+                with self.assertRaises(WorktreeError):
+                    with backend.fixture_authority_fence():
+                        protected.unlink()
+                self.assertEqual(protected.read_bytes(), b"owned data")
+                extra.rmdir()
+                with backend.fixture_authority_fence():
+                    protected.unlink()
+                self.assertFalse(protected.exists())
+
+    def test_closed_suite_cannot_hide_another_unclosed_suite(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = LocalResources.__new__(LocalResources)
+            backend.root, backend.resources = root, resources
+            directory = root / ".worktree/e2e/fixture-authority"
+            directory.mkdir(mode=0o700, parents=True)
+            first = directory / ("suite-" + uuid.uuid4().hex)
+            second = directory / ("suite-" + uuid.uuid4().hex)
+            first.mkdir(mode=0o700, parents=True)
+            second.mkdir(mode=0o700)
+            record = {"resources": resources, "nonce": "a" * 64, "state": "closed"}
+            atomic_json(first / "generation.json", record)
+            atomic_json(second / "generation.json", {**record, "state": "running"})
+            protected = root / "protected-resource"
+            protected.write_bytes(b"neighbor remains")
+            with self.assertRaises(WorktreeError):
+                with backend.fixture_authority_fence():
+                    protected.unlink()
+            self.assertEqual(protected.read_bytes(), b"neighbor remains")
+            atomic_json(second / "generation.json", record)
+            with backend.fixture_authority_fence():
+                protected.unlink()
+            self.assertFalse(protected.exists())
 
 
 if __name__ == "__main__":

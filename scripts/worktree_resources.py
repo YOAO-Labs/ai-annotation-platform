@@ -18,6 +18,7 @@ import socket
 import subprocess
 import sys
 import time
+import uuid
 import warnings
 from urllib.parse import urlsplit
 
@@ -627,7 +628,9 @@ def verified_shared_bootstrap_minio(endpoint_url: str, *, container_id=None):
         or path.stat().st_uid != os.getuid()
         or path.stat().st_mode & 0o077
     ):
-        raise WorktreeError("Shared bootstrap owner manifest is not a private owned file")
+        raise WorktreeError(
+            "Shared bootstrap owner manifest is not a private owned file"
+        )
     owner = Owner(path)
     verification = owner.data.get("verification")
     if (
@@ -691,7 +694,9 @@ def verified_shared_bootstrap_minio(endpoint_url: str, *, container_id=None):
     ) or []
     attachments = [
         item
-        for item in (container.get("NetworkSettings", {}).get("Networks") or {}).values()
+        for item in (
+            container.get("NetworkSettings", {}).get("Networks") or {}
+        ).values()
         if item.get("NetworkID") == networks[0]["id"]
     ]
     member = (network.get("Containers") or {}).get(containers[0]["id"]) or {}
@@ -700,7 +705,8 @@ def verified_shared_bootstrap_minio(endpoint_url: str, *, container_id=None):
         or not re.fullmatch(r"sha256:[0-9a-f]{64}", container.get("Image", ""))
         or (container.get("Config", {}).get("Labels") or {}).get(
             "com.docker.compose.service"
-        ) != "minio"
+        )
+        != "minio"
         or len(bindings) != 1
         or bindings[0].get("HostIp") != str(gateways[0])
         or bindings[0].get("HostPort") != str(endpoint.port)
@@ -2620,6 +2626,149 @@ class LocalResources:
             if verified and verified["running"]:
                 raise WorktreeError("独立 Redis 停止未能验证")
 
+    def _fixture_native_supervisor_closed(self, directory):
+        evidence = {
+            path.name: path
+            for path in directory.iterdir()
+            if path.name.startswith("native-")
+        }
+        if not evidence:
+            return False
+
+        def record(path):
+            try:
+                descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+                with os.fdopen(descriptor) as stream:
+                    info, current = os.fstat(stream.fileno()), path.lstat()
+                    if (
+                        not stat.S_ISREG(info.st_mode)
+                        or info.st_uid != os.geteuid()
+                        or stat.S_IMODE(info.st_mode) != 0o600
+                        or info.st_nlink != 1
+                        or (info.st_dev, info.st_ino)
+                        != (current.st_dev, current.st_ino)
+                    ):
+                        raise WorktreeError("原生进程回执身份或权限无效；保留资源")
+                    value = json.load(stream)
+            except (OSError, ValueError, UnicodeError) as exc:
+                raise WorktreeError("原生进程回执缺失或损坏；保留资源") from exc
+            if not isinstance(value, dict):
+                raise WorktreeError("原生进程回执无效；保留资源")
+            return value
+
+        def canonical_uuid(value):
+            try:
+                return isinstance(value, str) and str(uuid.UUID(value)) == value
+            except (ValueError, TypeError, AttributeError):
+                return False
+
+        def disposition(value):
+            return (
+                isinstance(value, dict)
+                and type(value.get("pid")) is int
+                and value["pid"] > 0
+                and type(value.get("start")) is int
+                and value["start"] > 0
+                and type(value.get("exit_code")) is int
+                and value["exit_code"] == 0
+                and value.get("pidfd_exit") is True
+            )
+
+        supervisor = record(directory / "native-supervisor.json")
+        suite_id = supervisor.get("suite_id")
+        run_ids = supervisor.get("native_run_ids")
+        if (
+            supervisor.get("schema") != "aap-fixture-native-supervisor/v1"
+            or supervisor.get("resources") != self.resources
+            or not canonical_uuid(suite_id)
+            or (
+                directory.name.startswith("suite-")
+                and directory.name != "suite-" + uuid.UUID(suite_id).hex
+            )
+            or supervisor.get("state") != "retired"
+            or not isinstance(run_ids, list)
+            or not all(canonical_uuid(run_id) for run_id in run_ids)
+            or len(set(run_ids)) != len(run_ids)
+            or supervisor.get("resolver_retired") is not True
+            or supervisor.get("business_retired") is not True
+        ):
+            raise WorktreeError("原生套件监督器未确认完整退役；保留资源")
+        for name, acknowledgment in (
+            ("api", "lifespan_shutdown"),
+            ("control", "settled_ack"),
+        ):
+            result = supervisor.get(name + "_disposition")
+            birth = supervisor.get(name)
+            if (
+                not disposition(result)
+                or result.get(acknowledgment) is not True
+                or not isinstance(birth, dict)
+                or (result["pid"], result["start"])
+                != (birth.get("pid"), birth.get("start"))
+            ):
+                raise WorktreeError("原生套件子进程未确认物理退出；保留资源")
+        expected_directories = {
+            "native-run-" + uuid.UUID(run_id).hex for run_id in run_ids
+        }
+        if {
+            name for name in evidence if name.startswith("native-run-")
+        } != expected_directories:
+            raise WorktreeError("原生子运行回执集合不一致；保留资源")
+        children = {
+            "celery-media",
+            "celery-pyramid",
+            "media-worker",
+            "image-worker",
+            "proxy",
+        }
+        for run_id in run_ids:
+            child = evidence["native-run-" + uuid.UUID(run_id).hex]
+            info = child.lstat()
+            if (
+                not stat.S_ISDIR(info.st_mode)
+                or info.st_uid != os.geteuid()
+                or stat.S_IMODE(info.st_mode) != 0o700
+            ):
+                raise WorktreeError("原生子运行目录身份无效；保留资源")
+            run = record(child / "owner.json")
+            drained = run.get("drained")
+            outcomes = run.get("child_dispositions")
+            proof = run.get("target_proof")
+            if (
+                run.get("schema") != "aap-fixture-native-run/v1"
+                or run.get("suite_id") != suite_id
+                or run.get("run_id") != run_id
+                or run.get("state") != "retired"
+                or not isinstance(drained, list)
+                or not all(isinstance(name, str) for name in drained)
+                or len(drained) != len(children)
+                or set(drained) != children
+                or not isinstance(outcomes, dict)
+                or set(outcomes) != children
+                or not isinstance(proof, dict)
+                or proof.get("schema") != "aap-fixture-native-target-retirement/v1"
+                or proof.get("run_id") != run_id
+                or not canonical_uuid(proof.get("retirement_id"))
+                or not canonical_uuid(proof.get("location_id"))
+                or type(proof.get("binding_generation")) is not int
+                or proof["binding_generation"] < 1
+                or not all(
+                    isinstance(proof.get(key), str)
+                    and re.fullmatch(r"[a-f0-9]{64}", proof[key])
+                    for key in ("storage_identity", "target_receipt_sha256")
+                )
+            ):
+                raise WorktreeError("原生子运行未确认完整退役；保留资源")
+            for name, result in outcomes.items():
+                if (
+                    not disposition(result)
+                    or result.get("acknowledgment")
+                    != ("warm_exit" if name.startswith("celery-") else "settled")
+                    or result.get("descendants_drained") is not True
+                ):
+                    raise WorktreeError("原生子运行后代仍未确认排空；保留资源")
+        return True
+
     @contextmanager
     def fixture_authority_fence(self):
         if self.resources["mode"] not in {"test", "e2e"}:
@@ -2646,18 +2795,49 @@ class LocalResources:
             current = path.lstat()
             if (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino):
                 raise WorktreeError("夹具 authority 锁身份变化；保留资源")
-            owner_path = state_path(
-                self.root, self.resources["mode"], "fixture-authority", "owner.json"
+            authority_root = state_path(
+                self.root, self.resources["mode"], "fixture-authority"
             )
-            generation_path = state_path(
-                self.root,
-                self.resources["mode"],
-                "fixture-authority",
-                "generation.json",
-            )
-            if owner_path.exists():
-                raise WorktreeError("夹具 authority 所有者记录仍存在；保留资源")
-            if generation_path.exists():
+            directories = []
+            if authority_root.exists() or authority_root.is_symlink():
+                root_info = authority_root.lstat()
+                if (
+                    not stat.S_ISDIR(root_info.st_mode)
+                    or root_info.st_uid != os.geteuid()
+                    or stat.S_IMODE(root_info.st_mode) != 0o700
+                ):
+                    raise WorktreeError("夹具 authority 目录身份或权限无效；保留资源")
+                directories.append(authority_root)
+                for child in sorted(authority_root.iterdir()):
+                    child_info = child.lstat()
+                    if not stat.S_ISDIR(child_info.st_mode) and not child.is_symlink():
+                        continue
+                    if re.fullmatch(
+                        r"native-run-[a-f0-9]{32}", child.name
+                    ) and stat.S_ISDIR(child_info.st_mode):
+                        continue
+                    if (
+                        not re.fullmatch(r"suite-[a-f0-9]{32}", child.name)
+                        or not stat.S_ISDIR(child_info.st_mode)
+                        or child_info.st_uid != os.geteuid()
+                        or stat.S_IMODE(child_info.st_mode) != 0o700
+                    ):
+                        raise WorktreeError(
+                            "夹具 suite authority 目录身份无效；保留资源"
+                        )
+                    directories.append(child)
+            for directory in directories:
+                native_closed = self._fixture_native_supervisor_closed(directory)
+                owner_path = directory / "owner.json"
+                generation_path = directory / "generation.json"
+                if owner_path.exists() or owner_path.is_symlink():
+                    raise WorktreeError("夹具 authority 所有者记录仍存在；保留资源")
+                if not generation_path.exists() and not generation_path.is_symlink():
+                    if directory != authority_root or native_closed:
+                        raise WorktreeError(
+                            "夹具 suite authority 缺少代次记录；保留资源"
+                        )
+                    continue
                 generation_fd = os.open(generation_path, os.O_RDONLY | os.O_NOFOLLOW)
                 with os.fdopen(generation_fd) as generation_stream:
                     generation_info = os.fstat(generation_stream.fileno())

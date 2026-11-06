@@ -644,7 +644,14 @@ def verified_store(owner: Owner, database_identity: dict):
 
 
 _NATIVE_OUTPUT_SCHEMA = "aap-fixture-native-output-target/v1"
-_NATIVE_OUTPUT_PREFIXES = ("image-assets/", "image-pyramids/", "media-assets/")
+_NATIVE_OUTPUT_PREFIXES = (
+    "image-assets/",
+    "image-pyramids/",
+    "media-assets/",
+    "_aap_managed/media-cache/thumbnails/objects/",
+    "_aap_managed/media-cache/image-pyramids/objects/",
+    "_aap_managed/media-cache/video-derivatives/objects/",
+)
 _NATIVE_OUTPUT_OWNER_TAG = "aap-fixture-native-owner"
 
 
@@ -677,7 +684,9 @@ def _native_output_policy(bucket, *, role):
                     "Resource": [f"arn:aws:s3:::{bucket}"],
                     "Condition": {
                         "StringLike": {
-                            "s3:prefix": [f"{prefix}*" for prefix in _NATIVE_OUTPUT_PREFIXES]
+                            "s3:prefix": [
+                                f"{prefix}*" for prefix in _NATIVE_OUTPUT_PREFIXES
+                            ]
                         }
                     },
                 },
@@ -706,7 +715,9 @@ def _native_output_policy(bucket, *, role):
                     "Resource": [f"arn:aws:s3:::{bucket}"],
                     "Condition": {
                         "StringLike": {
-                            "s3:prefix": [f"{prefix}*" for prefix in _NATIVE_OUTPUT_PREFIXES]
+                            "s3:prefix": [
+                                f"{prefix}*" for prefix in _NATIVE_OUTPUT_PREFIXES
+                            ]
                         }
                     },
                 },
@@ -736,7 +747,8 @@ def _canonical_native_output_policy(value):
     for statement in value["Statement"]:
         require(
             isinstance(statement, dict)
-            and set(statement) in (
+            and set(statement)
+            in (
                 {"Effect", "Action", "Resource"},
                 {"Effect", "Action", "Resource", "Condition"},
             )
@@ -815,10 +827,30 @@ def _native_output_accounts(owner, store, entry, paths):
     original = credentials(owner, store)
     original_reader = reader_credentials(owner, store)
     require(
-        len({root_access, original["access_key"], original_reader["access_key"],
-             *(accounts[role]["access_key"] for role in ("writer", "reader", "cleanup"))}) == 6
-        and len({root_secret, original["secret_key"], original_reader["secret_key"],
-                 *(accounts[role]["secret_key"] for role in ("writer", "reader", "cleanup"))}) == 6,
+        len(
+            {
+                root_access,
+                original["access_key"],
+                original_reader["access_key"],
+                *(
+                    accounts[role]["access_key"]
+                    for role in ("writer", "reader", "cleanup")
+                ),
+            }
+        )
+        == 6
+        and len(
+            {
+                root_secret,
+                original["secret_key"],
+                original_reader["secret_key"],
+                *(
+                    accounts[role]["secret_key"]
+                    for role in ("writer", "reader", "cleanup")
+                ),
+            }
+        )
+        == 6,
         "fixture_native_accounts_not_distinct",
     )
     mc_env = {
@@ -845,7 +877,15 @@ def _native_output_accounts(owner, store, entry, paths):
         name = entry[role + "_policy"]
         info = json.loads(
             command(
-                ["mc", "--json", "admin", "user", "info", "fixture", account["access_key"]],
+                [
+                    "mc",
+                    "--json",
+                    "admin",
+                    "user",
+                    "info",
+                    "fixture",
+                    account["access_key"],
+                ],
                 env=mc_env,
             )
         )
@@ -863,11 +903,14 @@ def _native_output_accounts(owner, store, entry, paths):
             and info.get("policyName") == name
             and not info.get("memberOf")
             and observed.get("status") == "success"
-            and _canonical_native_output_policy(observed["policyInfo"]["Policy"]) == expected,
+            and _canonical_native_output_policy(observed["policyInfo"]["Policy"])
+            == expected,
             "fixture_native_account_policy_changed",
         )
         evidence[role] = {
-            "identity_sha256": hashlib.sha256(account["access_key"].encode()).hexdigest(),
+            "identity_sha256": hashlib.sha256(
+                account["access_key"].encode()
+            ).hexdigest(),
             "policy_name": name,
             "policy_sha256": hashlib.sha256(
                 json.dumps(expected, sort_keys=True, separators=(",", ":")).encode()
@@ -882,7 +925,8 @@ def _native_output_bucket(owner, store, entry, *, require_empty=False):
         head = root.head_bucket(Bucket=entry["bucket"])
         require(
             head.get("ResponseMetadata", {}).get("HTTPStatusCode") == 200
-            and root.get_bucket_versioning(Bucket=entry["bucket"]).get("Status") == "Enabled"
+            and root.get_bucket_versioning(Bucket=entry["bucket"]).get("Status")
+            == "Enabled"
             and root.get_bucket_tagging(Bucket=entry["bucket"]).get("TagSet")
             == [{"Key": _NATIVE_OUTPUT_OWNER_TAG, "Value": entry["bucket_owner"]}],
             "fixture_native_bucket_changed",
@@ -894,10 +938,13 @@ def _native_output_bucket(owner, store, entry, *, require_empty=False):
 def _native_output_listings(store, entry, accounts, *, require_empty=False):
     for role in ("writer", "cleanup"):
         account = accounts[role]
-        with closing(_client(store["endpoint"], account["access_key"], account["secret_key"])) as client:
+        with closing(
+            _client(store["endpoint"], account["access_key"], account["secret_key"])
+        ) as client:
             if role == "cleanup":
                 require(
-                    client.get_bucket_versioning(Bucket=entry["bucket"]).get("Status") == "Enabled",
+                    client.get_bucket_versioning(Bucket=entry["bucket"]).get("Status")
+                    == "Enabled",
                     "fixture_native_cleanup_versioning_unproven",
                 )
             for prefix in _NATIVE_OUTPUT_PREFIXES:
@@ -924,15 +971,27 @@ def _native_output_listings(store, entry, accounts, *, require_empty=False):
                 )
 
 
+def _native_output_provider(owner, store):
+    return {
+        "owner_nonce": owner.data["nonce"],
+        "container_id": store["container_id"],
+        "network_id": store["network_id"],
+        "volume_id": store["volume_id"],
+    }
+
+
 def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.UUID):
     """Reverify a completed target; the caller must hold the fixture store lock."""
-    require(owner.data.get("cleaned") is False and "fixture_teardown" not in owner.data,
-            "fixture_native_owner_unavailable")
+    require(
+        owner.data.get("cleaned") is False and "fixture_teardown" not in owner.data,
+        "fixture_native_owner_unavailable",
+    )
     store, _ = verified_store(owner, database_identity)
     paths = _native_output_paths(owner, run_id)
     entry = owner.data.get("fixture_native_outputs", {}).get(run_id.hex)
     require(
-        isinstance(entry, dict) and entry.get("state") == "ready"
+        isinstance(entry, dict)
+        and entry.get("state") == "ready"
         and entry.get("run_id") == str(run_id)
         and entry.get("bucket") == "fixture-media-" + run_id.hex
         and entry.get("endpoint") == store["endpoint"]
@@ -946,7 +1005,9 @@ def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.U
     identity = hashlib.sha256(
         json.dumps([store["endpoint"].rstrip("/"), entry["bucket"]]).encode()
     ).hexdigest()
-    require(entry.get("storage_identity") == identity, "fixture_native_identity_changed")
+    require(
+        entry.get("storage_identity") == identity, "fixture_native_identity_changed"
+    )
     accounts, evidence = _native_output_accounts(owner, store, entry, paths)
     _native_output_bucket(owner, store, entry)
     _native_output_listings(store, entry, accounts)
@@ -954,7 +1015,8 @@ def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.U
     digest = hashlib.sha256(receipt).hexdigest()
     require(digest == entry.get("receipt_sha256"), "fixture_native_receipt_changed")
     require(
-        json.loads(receipt) == {
+        json.loads(receipt)
+        == {
             "schema": _NATIVE_OUTPUT_SCHEMA,
             "run_id": str(run_id),
             "endpoint": store["endpoint"],
@@ -963,6 +1025,7 @@ def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.U
             "bucket_owner": entry["bucket_owner"],
             "versioning": "Enabled",
             "accounts": evidence,
+            "provider": _native_output_provider(owner, store),
             "initial_bucket_absent": True,
             "initial_inventory_empty": True,
         },
@@ -989,33 +1052,74 @@ def verified_native_output(owner: Owner, database_identity: dict, run_id: uuid.U
     }
 
 
+def verified_native_output_birth(
+    owner: Owner, database_identity: dict, run_id: uuid.UUID
+) -> str:
+    """Return exact private birth bytes after verification under fixture-store.lock."""
+    verified_native_output(owner, database_identity, run_id)
+    return _private_bytes(_native_output_paths(owner, run_id)["receipt"]).decode(
+        "utf-8"
+    )
+
+
 def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.UUID):
     """Create a fresh per-run target under the caller-held fixture store lock."""
-    require(owner.data.get("cleaned") is False and "fixture_teardown" not in owner.data,
-            "fixture_native_owner_unavailable")
+    require(
+        owner.data.get("cleaned") is False and "fixture_teardown" not in owner.data,
+        "fixture_native_owner_unavailable",
+    )
     store, original = verified_store(owner, database_identity)
     paths = _native_output_paths(owner, run_id)
     targets = owner.data.setdefault("fixture_native_outputs", {})
-    require(isinstance(targets, dict) and run_id.hex not in targets,
-            "fixture_native_birth_already_recorded")
     require(
-        all(isinstance(item, dict) and item.get("state") == "ready" for item in targets.values()),
+        isinstance(targets, dict) and run_id.hex not in targets,
+        "fixture_native_birth_already_recorded",
+    )
+    require(
+        all(
+            isinstance(item, dict) and item.get("state") in {"ready", "retired"}
+            for item in targets.values()
+        ),
         "fixture_native_birth_unsettled",
     )
-    require(not any(path.exists() or path.is_symlink() for path in paths.values()),
-            "fixture_native_birth_files_exist")
+    require(
+        not any(path.exists() or path.is_symlink() for path in paths.values()),
+        "fixture_native_birth_files_exist",
+    )
     root_access, root_secret = _root_credentials(owner)
     original_reader = reader_credentials(owner, store)
     accounts = {
-        role: {"access_key": "fixture" + secrets.token_hex(12),
-               "secret_key": secrets.token_urlsafe(32)}
+        role: {
+            "access_key": "fixture" + secrets.token_hex(12),
+            "secret_key": secrets.token_urlsafe(32),
+        }
         for role in ("writer", "reader", "cleanup")
     }
     require(
-        len({root_access, original["access_key"], original_reader["access_key"],
-             *(accounts[role]["access_key"] for role in ("writer", "reader", "cleanup"))}) == 6
-        and len({root_secret, original["secret_key"], original_reader["secret_key"],
-                 *(accounts[role]["secret_key"] for role in ("writer", "reader", "cleanup"))}) == 6,
+        len(
+            {
+                root_access,
+                original["access_key"],
+                original_reader["access_key"],
+                *(
+                    accounts[role]["access_key"]
+                    for role in ("writer", "reader", "cleanup")
+                ),
+            }
+        )
+        == 6
+        and len(
+            {
+                root_secret,
+                original["secret_key"],
+                original_reader["secret_key"],
+                *(
+                    accounts[role]["secret_key"]
+                    for role in ("writer", "reader", "cleanup")
+                ),
+            }
+        )
+        == 6,
         "fixture_native_accounts_not_distinct",
     )
     bucket = "fixture-media-" + run_id.hex
@@ -1054,16 +1158,23 @@ def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.
     }
     with closing(_client(store["admin_endpoint"], root_access, root_secret)) as root:
         require(
-            bucket not in {item["Name"] for item in root.list_buckets().get("Buckets", [])},
+            bucket
+            not in {item["Name"] for item in root.list_buckets().get("Buckets", [])},
             "fixture_native_bucket_already_exists",
         )
         entry["initial_bucket_absent"] = True
         owner.save()
         root.create_bucket(Bucket=bucket)
-        root.put_bucket_versioning(Bucket=bucket, VersioningConfiguration={"Status": "Enabled"})
+        root.put_bucket_versioning(
+            Bucket=bucket, VersioningConfiguration={"Status": "Enabled"}
+        )
         root.put_bucket_tagging(
             Bucket=bucket,
-            Tagging={"TagSet": [{"Key": _NATIVE_OUTPUT_OWNER_TAG, "Value": entry["bucket_owner"]}]},
+            Tagging={
+                "TagSet": [
+                    {"Key": _NATIVE_OUTPUT_OWNER_TAG, "Value": entry["bucket_owner"]}
+                ]
+            },
         )
     _native_output_bucket(owner, store, entry, require_empty=True)
     for role in ("writer", "reader", "cleanup"):
@@ -1074,13 +1185,28 @@ def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.
             env=mc_env,
         )
         command(
-            ["mc", "admin", "policy", "create", "fixture", entry[role + "_policy"],
-             str(paths[role + "_policy"])],
+            [
+                "mc",
+                "admin",
+                "policy",
+                "create",
+                "fixture",
+                entry[role + "_policy"],
+                str(paths[role + "_policy"]),
+            ],
             env=mc_env,
         )
         command(
-            ["mc", "admin", "policy", "attach", "fixture", entry[role + "_policy"],
-             "--user", account["access_key"]],
+            [
+                "mc",
+                "admin",
+                "policy",
+                "attach",
+                "fixture",
+                entry[role + "_policy"],
+                "--user",
+                account["access_key"],
+            ],
             env=mc_env,
         )
     accounts, evidence = _native_output_accounts(owner, store, entry, paths)
@@ -1096,25 +1222,361 @@ def provision_native_output(owner: Owner, database_identity: dict, run_id: uuid.
             "bucket_owner": entry["bucket_owner"],
             "versioning": "Enabled",
             "accounts": evidence,
+            "provider": _native_output_provider(owner, store),
             "initial_bucket_absent": True,
             "initial_inventory_empty": True,
         },
-        sort_keys=True, separators=(",", ":"),
+        sort_keys=True,
+        separators=(",", ":"),
     ).encode()
     private_write(paths["receipt"], receipt)
     entry["receipt_sha256"] = hashlib.sha256(receipt).hexdigest()
     public = {
-        "run_id": str(run_id), "endpoint": store["endpoint"], "bucket": bucket,
-        "storage_identity": entry["storage_identity"], "receipt_sha256": entry["receipt_sha256"],
+        "run_id": str(run_id),
+        "endpoint": store["endpoint"],
+        "bucket": bucket,
+        "storage_identity": entry["storage_identity"],
+        "receipt_sha256": entry["receipt_sha256"],
     }
     for role in ("writer", "reader", "cleanup"):
         private_write(
             paths[role + "_file"],
-            json.dumps({"schema": _NATIVE_OUTPUT_SCHEMA, **public, **accounts[role]}).encode(),
+            json.dumps(
+                {"schema": _NATIVE_OUTPUT_SCHEMA, **public, **accounts[role]}
+            ).encode(),
         )
     entry["state"] = "ready"
     owner.save()
     return verified_native_output(owner, database_identity, run_id)
+
+
+def _native_retirement_receipt(entry, run_id, receipt):
+    require(
+        isinstance(receipt, dict)
+        and set(receipt)
+        == {
+            "schema",
+            "run_id",
+            "storage_identity",
+            "target_receipt_sha256",
+            "retirement_id",
+            "location_id",
+            "binding_generation",
+        }
+        and receipt["schema"] == "aap-fixture-native-target-retirement/v1"
+        and receipt["run_id"] == str(run_id)
+        and receipt["storage_identity"] == entry["storage_identity"]
+        and receipt["target_receipt_sha256"] == entry["receipt_sha256"]
+        and type(receipt["binding_generation"]) is int
+        and receipt["binding_generation"] > 0,
+        "fixture_native_retirement_receipt_invalid",
+    )
+    try:
+        canonical = all(
+            str(uuid.UUID(receipt[key])) == receipt[key]
+            for key in ("retirement_id", "location_id")
+        )
+    except (ValueError, TypeError, AttributeError):
+        canonical = False
+    require(canonical, "fixture_native_retirement_receipt_invalid")
+
+
+def _native_iam_info(mc_env, kind, name):
+    result = subprocess.run(
+        ["mc", "--json", "admin", kind, "info", "fixture", name],
+        env=mc_env,
+        capture_output=True,
+        timeout=30,
+    )
+    try:
+        value = json.loads(result.stdout)
+    except (ValueError, UnicodeError):
+        raise ContractError("fixture_native_iam_response_invalid") from None
+    require(isinstance(value, dict), "fixture_native_iam_response_invalid")
+    if result.returncode == 0 and value.get("status") == "success":
+        return value
+    error = value.get("error")
+    cause = error.get("cause") if isinstance(error, dict) else None
+    detail = cause.get("error") if isinstance(cause, dict) else None
+    require(
+        result.returncode == 1
+        and value.get("status") == "error"
+        and isinstance(detail, dict)
+        and detail.get("Code")
+        == ("XMinioAdminNoSuchUser" if kind == "user" else "XMinioAdminNoSuchPolicy"),
+        "fixture_native_iam_absence_unproven",
+    )
+    return None
+
+
+def _native_physical_retirement_receipt(owner, run_id, proof):
+    entry = owner.data["fixture_native_outputs"][run_id.hex]
+    retirement = entry["retirement"]
+    require(
+        retirement["bucket"] == "absent"
+        and retirement["iam"]
+        == {
+            role + ":" + kind: "absent"
+            for role in ("writer", "reader", "cleanup")
+            for kind in ("user", "policy")
+        },
+        "fixture_native_retirement_required",
+    )
+    raw = _private_bytes(_native_output_paths(owner, run_id)["receipt"])
+    require(
+        hashlib.sha256(raw).hexdigest() == entry["receipt_sha256"],
+        "fixture_native_receipt_changed",
+    )
+    birth = json.loads(raw)
+    require(
+        birth["provider"] == _native_output_provider(owner, owner.data["fixture_store"])
+        and birth["run_id"] == str(run_id)
+        and birth["storage_identity"] == entry["storage_identity"]
+        and birth["bucket"] == entry["bucket"],
+        "fixture_native_receipt_identity_changed",
+    )
+    return {
+        "schema": "aap-fixture-native-target-physical-retirement/v1",
+        "native_receipt": dict(proof),
+        "provider": birth["provider"],
+        "bucket": birth["bucket"],
+        "accounts": birth["accounts"],
+        "bucket_absent": True,
+        "iam_absent": dict.fromkeys(retirement["iam"], True),
+    }
+
+
+def _retire_native_output_physical(owner, database_identity, run_id, proof):
+    store, _ = verified_store(owner, database_identity)
+    paths = _native_output_paths(owner, run_id)
+    entry = owner.data["fixture_native_outputs"][run_id.hex]
+    _native_retirement_receipt(entry, run_id, proof)
+    if entry["state"] == "ready":
+        verified_native_output(owner, database_identity, run_id)
+        _native_output_bucket(owner, store, entry, require_empty=True)
+        entry["retirement"] = {
+            "schema": "aap-fixture-native-target-physical-retirement/v1",
+            "native_receipt": dict(proof),
+            "files": {
+                key: hashlib.sha256(_private_bytes(path)).hexdigest()
+                for key, path in paths.items()
+            },
+            "iam": {
+                role + ":" + kind: "present"
+                for role in ("writer", "reader", "cleanup")
+                for kind in ("user", "policy")
+            },
+            "bucket": "present",
+        }
+        entry["state"] = "retiring"
+        owner.save()
+    require(
+        entry["state"] in {"retiring", "retired"}, "fixture_native_retirement_state"
+    )
+    retirement = entry["retirement"]
+    require(
+        retirement["schema"] == "aap-fixture-native-target-physical-retirement/v1"
+        and retirement["native_receipt"] == proof
+        and retirement["files"]
+        == {
+            key: hashlib.sha256(_private_bytes(path)).hexdigest()
+            for key, path in paths.items()
+        },
+        "fixture_native_retirement_evidence_changed",
+    )
+    accounts = json.loads(_private_bytes(paths["seed"]))
+    root_access, root_secret = _root_credentials(owner)
+    mc_env = {
+        "PATH": os.environ["PATH"],
+        "MC_CONFIG_DIR": str(owner.private / "mc"),
+        "MC_HOST_fixture": (
+            "http://"
+            + urllib.parse.quote(root_access, safe="")
+            + ":"
+            + urllib.parse.quote(root_secret, safe="")
+            + "@"
+            + urllib.parse.urlsplit(store["admin_endpoint"]).netloc
+        ),
+    }
+    for role in ("writer", "reader", "cleanup"):
+        policy_name = entry[role + "_policy"]
+        for kind, name in (
+            ("user", accounts[role]["access_key"]),
+            ("policy", policy_name),
+        ):
+            key = role + ":" + kind
+            state = retirement["iam"][key]
+            require(
+                state in {"present", "removing", "absent"}, "fixture_native_iam_state"
+            )
+            observed = _native_iam_info(mc_env, kind, name)
+            if observed is None:
+                require(state != "present", "fixture_native_iam_disappeared")
+            else:
+                require(state != "absent", "fixture_native_iam_reappeared")
+                if kind == "user":
+                    require(
+                        observed.get("accessKey") == name
+                        and observed.get("userStatus") == "enabled"
+                        and observed.get("policyName") == policy_name
+                        and not observed.get("memberOf"),
+                        "fixture_native_account_policy_changed",
+                    )
+                else:
+                    require(
+                        _canonical_native_output_policy(
+                            observed["policyInfo"]["Policy"]
+                        )
+                        == _canonical_native_output_policy(
+                            json.loads(_private_bytes(paths[role + "_policy"]))
+                        ),
+                        "fixture_native_account_policy_changed",
+                    )
+                retirement["iam"][key] = "removing"
+                owner.save()
+                command(
+                    ["mc", "--json", "admin", kind, "remove", "fixture", name],
+                    env=mc_env,
+                )
+                require(
+                    _native_iam_info(mc_env, kind, name) is None,
+                    "fixture_native_iam_removal_unproven",
+                )
+            retirement["iam"][key] = "absent"
+            owner.save()
+    with closing(_client(store["admin_endpoint"], root_access, root_secret)) as root:
+        buckets = {item["Name"] for item in root.list_buckets().get("Buckets", [])}
+        require(store["bucket"] in buckets, "fixture_original_bucket_disappeared")
+        require(
+            retirement["bucket"] in {"present", "removing", "absent"},
+            "fixture_native_bucket_retirement_state",
+        )
+        if entry["bucket"] in buckets:
+            require(
+                retirement["bucket"] != "absent", "fixture_native_bucket_reappeared"
+            )
+            _native_output_bucket(owner, store, entry, require_empty=True)
+            retirement["bucket"] = "removing"
+            owner.save()
+            result = root.delete_bucket(Bucket=entry["bucket"])
+            require(
+                result.get("ResponseMetadata", {}).get("HTTPStatusCode") == 204,
+                "fixture_native_bucket_removal_unproven",
+            )
+            require(
+                entry["bucket"]
+                not in {
+                    item["Name"] for item in root.list_buckets().get("Buckets", [])
+                },
+                "fixture_native_bucket_absence_unproven",
+            )
+        else:
+            require(
+                retirement["bucket"] != "present", "fixture_native_bucket_disappeared"
+            )
+    retirement["bucket"] = "absent"
+    physical_receipt = _native_physical_retirement_receipt(owner, run_id, proof)
+    physical_sha256 = hashlib.sha256(
+        json.dumps(physical_receipt, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    if "physical_receipt" in retirement:
+        require(
+            retirement["physical_receipt"] == physical_receipt
+            and retirement.get("physical_receipt_sha256") == physical_sha256,
+            "fixture_native_physical_receipt_changed",
+        )
+    else:
+        require(entry["state"] == "retiring", "fixture_native_physical_receipt_missing")
+        retirement["physical_receipt"] = physical_receipt
+        retirement["physical_receipt_sha256"] = physical_sha256
+    entry["state"] = "retired"
+    owner.save()
+    return dict(proof)
+
+
+async def retire_native_output(
+    owner, database_identity, run_id: uuid.UUID, *, control_url
+):
+    """Retire a Native-proven target while the caller holds fixture-store.lock."""
+    from sqlalchemy import text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from fixture_suite_coordinator import _settled_thread
+
+    require(
+        isinstance(run_id, uuid.UUID)
+        and owner.data.get("cleaned") is False
+        and "fixture_teardown" not in owner.data
+        and owner.data["fixture_store"]["database"] == database_identity,
+        "fixture_native_owner_unavailable",
+    )
+    entry = owner.data.get("fixture_native_outputs", {}).get(run_id.hex)
+    require(
+        isinstance(entry, dict)
+        and entry.get("state") in {"ready", "retiring", "retired"}
+        and entry.get("run_id") == str(run_id),
+        "fixture_native_target_unavailable",
+    )
+    url = make_url(control_url)
+    require(
+        url.drivername == "postgresql+asyncpg"
+        and url.host == database_identity["postgres_host"]
+        and (url.port or 5432) == database_identity["postgres_port"]
+        and url.database == database_identity["database"]
+        and url.username == "aap_fixture_media_" + run_id.hex
+        and not url.query,
+        "fixture_native_control_database_changed",
+    )
+    engine = create_async_engine(url, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with engine.begin() as connection:
+            row = (
+                await connection.execute(
+                    text(
+                        "SELECT d.oid, d.datname, pg_catalog.pg_get_userbyid(d.datdba), "
+                        "pg_catalog.shobj_description(d.oid,'pg_database'), "
+                        "current_user, session_user, r.rolcanlogin, r.rolsuper, r.rolinherit, "
+                        "r.rolcreatedb, r.rolcreaterole, r.rolreplication, r.rolbypassrls, "
+                        "EXISTS(SELECT 1 FROM pg_catalog.pg_auth_members m "
+                        "WHERE m.member=r.oid OR m.roleid=r.oid), "
+                        "pg_catalog.shobj_description(r.oid,'pg_authid') "
+                        "FROM pg_catalog.pg_database d, pg_catalog.pg_roles r "
+                        "WHERE d.datname=current_database() AND r.rolname=session_user"
+                    )
+                )
+            ).one()
+            require(
+                row[0] == database_identity["database_oid"]
+                and row[1] == database_identity["database"]
+                and row[2] == database_identity["database_owner"]
+                and row[3] == database_identity["ownership"]
+                and row[4] == row[5] == url.username
+                and row[6] is True
+                and not any(row[7:14])
+                and row[14]
+                == database_identity["ownership"] + ":fixture-media:" + str(run_id),
+                "fixture_native_control_identity_changed",
+            )
+            proof = (
+                await connection.execute(
+                    text(
+                        "SELECT aap_assets_v1.retire_fixture_native_target(:run,:identity,:receipt)"
+                    ),
+                    {
+                        "run": run_id,
+                        "identity": entry["storage_identity"],
+                        "receipt": entry["receipt_sha256"],
+                    },
+                )
+            ).scalar_one()
+            _native_retirement_receipt(entry, run_id, proof)
+    finally:
+        await engine.dispose()
+    return await _settled_thread(
+        _retire_native_output_physical, owner, database_identity, run_id, proof
+    )
 
 
 def probe_reader(owner, store):
@@ -1339,7 +1801,65 @@ def _root_credentials(owner):
 
 def verify_empty_for_destroy(owner, database_identity):
     """Prove the exact owned bucket is settled and contains no remaining versions."""
-    require(not owner.data.get("fixture_native_outputs"), "fixture_native_retirement_required")
+    targets = owner.data.get("fixture_native_outputs", {})
+    require(isinstance(targets, dict), "fixture_native_inventory_invalid")
+    for run_hex, entry in targets.items():
+        try:
+            run_id = uuid.UUID(hex=run_hex)
+        except (ValueError, TypeError, AttributeError):
+            raise ContractError("fixture_native_inventory_invalid") from None
+        require(
+            run_id.hex == run_hex
+            and isinstance(entry, dict)
+            and entry.get("run_id") == str(run_id)
+            and entry.get("state") == "retired",
+            "fixture_native_retirement_required",
+        )
+        retirement = entry.get("retirement")
+        require(
+            isinstance(retirement, dict)
+            and retirement.get("schema")
+            == "aap-fixture-native-target-physical-retirement/v1"
+            and retirement.get("bucket") == "absent"
+            and retirement.get("iam")
+            == {
+                role + ":" + kind: "absent"
+                for role in ("writer", "reader", "cleanup")
+                for kind in ("user", "policy")
+            },
+            "fixture_native_retirement_required",
+        )
+        _native_retirement_receipt(entry, run_id, retirement.get("native_receipt"))
+        physical_receipt = _native_physical_retirement_receipt(
+            owner, run_id, retirement["native_receipt"]
+        )
+        require(
+            retirement.get("physical_receipt") == physical_receipt
+            and retirement.get("physical_receipt_sha256")
+            == hashlib.sha256(
+                json.dumps(
+                    physical_receipt, sort_keys=True, separators=(",", ":")
+                ).encode()
+            ).hexdigest(),
+            "fixture_native_physical_receipt_changed",
+        )
+    business = owner.data.get("fixture_native_business", {})
+    require(isinstance(business, dict), "fixture_native_business_inventory_invalid")
+    for suite_hex, entry in business.items():
+        try:
+            suite_id = uuid.UUID(hex=suite_hex)
+        except (ValueError, TypeError, AttributeError):
+            raise ContractError("fixture_native_business_inventory_invalid") from None
+        require(
+            suite_id.hex == suite_hex
+            and isinstance(entry, dict)
+            and entry.get("suite_id") == str(suite_id),
+            "fixture_native_business_inventory_invalid",
+        )
+        require(
+            entry.get("state") == "retired",
+            "fixture_native_business_retirement_required",
+        )
     store = owner.data["fixture_store"]
     require(store["database"] == database_identity, "fixture_database_changed")
     _physical(owner, store)
