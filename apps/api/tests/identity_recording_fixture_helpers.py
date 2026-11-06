@@ -130,8 +130,11 @@ async def recording_graph(engine):
     if str(ROOT / "scripts") not in sys.path:
         sys.path.insert(0, str(ROOT / "scripts"))
     from fixture_suite_coordinator import verified_fixture_owner_url
+    from tests.identity_e2e_support import fixture_routing_owner
 
-    async with private_seed_owner() as owner:
+    monkeypatch = pytest.MonkeyPatch()
+
+    async with fixture_routing_owner(engine, monkeypatch), private_seed_owner() as owner:
         owner_url = await verified_fixture_owner_url()
         parsed = make_url(owner_url)
         assert (parsed.host, parsed.port or 5432, parsed.database) == (

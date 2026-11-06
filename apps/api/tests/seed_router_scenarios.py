@@ -431,7 +431,7 @@ async def seed_raster_mask_project_opt_in_and_content_fixtures(
     assert healthy.json()["mask"]["size"] == [48, 64]
 
     for canvas, size in (("5k", [2880, 5120]), ("8k", [8192, 8192])):
-        large_run = httpx_client.owner_suite.new_run(NAMESPACE)
+        large_run = httpx_client.owner_suite.new_run(f"{NAMESPACE}{canvas}")
         large = await _build_owned(httpx_client, large_run, image_canvas=canvas)
         await _assert_verified_image_canvas(
             db_session, large_run, large["task_ids"][0], (size[1], size[0])
