@@ -198,6 +198,18 @@ export async function prepareFixtureSuite(suiteId, family) {
   return JSON.parse(response.body);
 }
 
+export async function verifyFixtureSuite(suiteId, family) {
+  transport ??= startOwner();
+  const response = await transport.post(
+    { operation: "verify_fixture_suite", data: { suite_id: suiteId, family } },
+    120_000,
+  );
+  if (response.status !== 200) {
+    throw new Error(`Fixture suite verification failed: ${response.status}`);
+  }
+  return JSON.parse(response.body);
+}
+
 export async function runMaskSliceLifecycle(data) {
   transport ??= startOwner();
   const response = await transport.post({ operation: "mask_slice_lifecycle", data }, 120_000);

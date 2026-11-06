@@ -10,6 +10,7 @@ from contextlib import redirect_stdout
 from datetime import datetime, timezone
 import asyncio
 import fcntl
+import hashlib
 import json
 import re
 import os
@@ -1193,8 +1194,8 @@ def finalize_store_destruction(owner, resources):
         os.close(descriptor)
 
 
-async def prepare_fixture_suite(suite_id: str, family: str):
-    """Register an open suite against the already enrolled dedicated store."""
+async def prepare_fixture_suite(suite_id: str, family: str, *, verify_only: bool = False):
+    """Register or verify an open suite against the enrolled dedicated store."""
     from app.core.crypto import decrypt_secret
     from app.db.models.dataset_asset import StorageLocation
     from app.db.models.fixture_run import FixtureOriginalTarget, FixtureRun
@@ -1333,6 +1334,7 @@ async def prepare_fixture_suite(suite_id: str, family: str):
                     .with_for_update()
                 )
                 if root is None:
+                    _refuse_unless(not verify_only, "fixture_suite_missing")
                     db.add(
                         FixtureRun(
                             id=identifier,
@@ -1446,6 +1448,80 @@ async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
         ):
             mark_unsettled(failure)
         raise
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+async def retire_native_run_target(run_id: uuid.UUID, control_url):
+    """Retire one physically verified target under its still-active Native owner."""
+    from fixture_store import retire_native_output
+    from verify_storage_candidates import Owner
+
+    _refuse_unless(isinstance(run_id, uuid.UUID), "fixture_native_run_invalid")
+    owner_url, resources, identity = await _verified_database()
+    root = _resource_root(resources)
+    manifest = state_path(root, resources["mode"], "fixture-store-owner.json")
+    lock_path = state_path(root, resources["mode"], "fixture-store.lock")
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        info, current = os.fstat(descriptor), lock_path.lstat()
+        _refuse_unless(
+            stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
+            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+            and (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino),
+            "fixture_lock_invalid",
+        )
+        await _settled_thread(fcntl.flock, descriptor, fcntl.LOCK_EX)
+        current = lock_path.lstat()
+        _refuse_unless(
+            (info.st_dev, info.st_ino, info.st_nlink)
+            == (current.st_dev, current.st_ino, current.st_nlink),
+            "fixture_lock_changed",
+        )
+        _refuse_unless(
+            manifest.exists() and not manifest.is_symlink(),
+            "fixture_store_not_prepared",
+        )
+        owner = Owner(manifest)
+
+        async def retire_and_acknowledge():
+            proof = await retire_native_output(
+                owner, identity, run_id, control_url=control_url
+            )
+            retirement = owner.data["fixture_native_outputs"][run_id.hex]["retirement"]
+            receipt = retirement["physical_receipt"]
+            _refuse_unless(
+                isinstance(receipt, dict)
+                and receipt.get("schema") == "aap-fixture-native-target-physical-retirement/v1"
+                and receipt.get("native_receipt") == proof
+                and receipt.get("bucket_absent") is True,
+                "fixture_native_physical_receipt_changed",
+            )
+            serialized = json.dumps(receipt, sort_keys=True, separators=(",", ":"))
+            digest = hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+            _refuse_unless(
+                digest == retirement.get("physical_receipt_sha256"),
+                "fixture_native_physical_receipt_changed",
+            )
+            engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
+            try:
+                async with engine.begin() as connection:
+                    acknowledged = await connection.scalar(
+                        text(
+                            "SELECT aap_assets_v1."
+                            "acknowledge_fixture_native_target_physical_retirement(:receipt,:sha256)"
+                        ),
+                        {"receipt": serialized, "sha256": digest},
+                    )
+                    _refuse_unless(
+                        acknowledged is True, "fixture_native_database_retirement_unconfirmed"
+                    )
+            finally:
+                await engine.dispose()
+            return proof
+
+        return await _settled(asyncio.create_task(retire_and_acknowledge()))
     finally:
         fcntl.flock(descriptor, fcntl.LOCK_UN)
         os.close(descriptor)

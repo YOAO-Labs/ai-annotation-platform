@@ -48,6 +48,9 @@ if (rasterMaskMatrix !== "readonly") excludedTags.push("@mask-readonly");
 const pointcloudWebGpuQualification = process.env.PLAYWRIGHT_POINTCLOUD_WEBGPU === "1";
 const configDir = dirname(fileURLToPath(import.meta.url));
 const isCI = Boolean(process.env.CI);
+if (worktreeMode && !rasterOffline) {
+  process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
+}
 const useIsolatedServers = Boolean(worktreeMode) || !isCI || Boolean(rasterMaskMatrix);
 const isolatedApiPort = process.env.PLAYWRIGHT_ISOLATED_API_PORT ?? "8010";
 const isolatedWebPort = process.env.PLAYWRIGHT_ISOLATED_WEB_PORT ?? "3001";
@@ -81,7 +84,9 @@ const isolatedApiCommand = [
     ? []
     : ['DATABASE_URL="$MIGRATION_DATABASE_URL" uv run python scripts/prepare_e2e_db.py']),
   "uv run alembic upgrade head",
-  `MIGRATION_DATABASE_URL= TEST_DATABASE_URL= PLAYWRIGHT_E2E_DATABASE_URL= uv run uvicorn app.main:app --host 127.0.0.1 --port ${isolatedApiPort}`,
+  worktreeMode
+    ? `uv run python ../../scripts/fixture_native_playwright.py --port ${isolatedApiPort}`
+    : `MIGRATION_DATABASE_URL= TEST_DATABASE_URL= PLAYWRIGHT_E2E_DATABASE_URL= uv run uvicorn app.main:app --host 127.0.0.1 --port ${isolatedApiPort}`,
 ].join(" && ");
 
 /**

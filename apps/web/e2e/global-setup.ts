@@ -1,5 +1,5 @@
 import type { FullConfig } from "@playwright/test";
-import { closeFixtureTransport, prepareFixtureSuite } from "./helpers/seed-owner-transport.mjs";
+import { closeFixtureTransport, prepareFixtureSuite, verifyFixtureSuite } from "./helpers/seed-owner-transport.mjs";
 
 export default async function globalSetup(_config: FullConfig): Promise<void> {
   let failure: unknown;
@@ -7,7 +7,11 @@ export default async function globalSetup(_config: FullConfig): Promise<void> {
   try {
     const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
     if (!suiteId) throw new Error("Fixture suite identity is required for setup");
-    await prepareFixtureSuite(suiteId, "owned");
+    if (process.env.AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE === suiteId) {
+      await verifyFixtureSuite(suiteId, "owned");
+    } else {
+      await prepareFixtureSuite(suiteId, "owned");
+    }
   } catch (error) {
     failed = true;
     failure = error;

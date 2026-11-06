@@ -42,6 +42,7 @@ from fixture_store import (  # noqa: E402
     verify_prerequisites,
 )
 from raster_consumer_process import run_product  # noqa: E402
+from linux_pidfd import open_pidfd, pidfd_alive  # noqa: E402
 from raster_web_process import RasterWebServer  # noqa: E402
 from raster_images_process import (  # noqa: E402
     RasterImagesProcess,
@@ -61,6 +62,36 @@ from worktree_runtime import (  # noqa: E402
 )
 
 _RETAINED_SEED_CLIENTS = []
+
+
+class NativeApiObserver:
+    """Observe the API actually owned and reaped by the fixture authority."""
+
+    def __init__(self, record, port):
+        require(
+            isinstance(record, dict) and set(record) == {"pid", "start", "port"}
+            and type(record["pid"]) is int and type(record["start"]) is int
+            and record["port"] == port,
+            "raster_api_identity_changed",
+        )
+        self.pid = record["pid"]
+        self.descriptor = open_pidfd(self.pid)
+        try:
+            value = Path(f"/proc/{self.pid}/stat").read_text()
+            require(
+                pidfd_alive(self.descriptor)
+                and int(value[value.rfind(")") + 2:].split()[19]) == record["start"],
+                "raster_api_identity_changed",
+            )
+        except BaseException:
+            os.close(self.descriptor)
+            raise
+
+    def poll(self):
+        return None if pidfd_alive(self.descriptor) else 1
+
+    def close(self):
+        os.close(self.descriptor)
 
 
 def seed_operation(process, owner, payload):
@@ -1047,6 +1078,77 @@ def require_no_children():
         raise error
 
 
+def archive_closed_native_authority(environment, resources, suite):
+    """Move only the closed Raster owner's exact Native evidence into its suite."""
+    from fixture_native_business import _backend, _private_bytes, _private_json
+    from fixture_native_playwright import _verify_run_receipts
+
+    identifier = uuid.UUID(suite)
+    require(str(identifier) == suite, "raster_native_suite_changed")
+    root = state_path(ROOT, "e2e", "fixture-authority")
+    backend = _backend(environment, resources)
+    try:
+        with backend.fixture_authority_fence():
+            require(not os.path.lexists(root / "owner.json"), "raster_fixture_owner_still_present")
+            generation_path = root / "generation.json"
+            generation = _private_json(generation_path)
+            require(
+                set(generation) == {"resources", "nonce", "state"}
+                and generation["resources"] == resources and generation["state"] == "closed",
+                "raster_fixture_generation_changed",
+            )
+            generation_bytes = _private_bytes(generation_path)
+            supervisor = _private_json(root / "native-supervisor.json")
+            require(
+                supervisor.get("suite_id") == suite
+                and supervisor.get("resources") == resources
+                and supervisor.get("state") == "retired"
+                and isinstance(supervisor.get("native_run_ids"), list),
+                "raster_native_supervisor_unsettled",
+            )
+            _verify_run_receipts(root, identifier, supervisor["native_run_ids"])
+            evidence = sorted(
+                (path for path in root.iterdir() if path.name.startswith("native-")),
+                key=lambda path: path.name,
+            )
+            require(
+                any(path.name == "native-supervisor.json" for path in evidence),
+                "raster_native_supervisor_unsettled",
+            )
+            for path in evidence:
+                info = path.lstat()
+                require(
+                    info.st_uid == os.geteuid()
+                    and ((stat.S_ISREG(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1)
+                         or (stat.S_ISDIR(info.st_mode) and stat.S_IMODE(info.st_mode) == 0o700)),
+                    "raster_native_evidence_changed",
+                )
+            rename = ctypes.CDLL(None, use_errno=True).renameat2
+            rename.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            rename.restype = ctypes.c_int
+            destination = root / ("suite-" + identifier.hex)
+            destination.mkdir(mode=0o700)
+            private_write(destination / "generation.json", generation_bytes)
+            root_fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            destination_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(destination_fd)
+                os.fsync(root_fd)
+                ordered = [path for path in evidence if path.name != "native-supervisor.json"]
+                ordered.append(root / "native-supervisor.json")
+                for source in ordered:
+                    if rename(root_fd, os.fsencode(source.name), destination_fd, os.fsencode(source.name), 1) != 0:
+                        error = ctypes.get_errno()
+                        raise OSError(error, os.strerror(error))
+                    os.fsync(destination_fd)
+                    os.fsync(root_fd)
+            finally:
+                os.close(destination_fd)
+                os.close(root_fd)
+    finally:
+        backend.s3.close()
+
+
 def require_only_fixture_owner(fenced):
     """Prove the only surviving descendants are the sealed original owners."""
     record_path = state_path(ROOT, "e2e", "fixture-authority", "owner.json")
@@ -1100,6 +1202,10 @@ def require_only_fixture_owner(fenced):
             and offline.get("phase") == "sealed"
             and offline.get("engine_disposed") is True
             and offline.get("requires_native") is True
+            and offline.get("native_runs_paused") is True
+            and offline.get("native_control_paused") is True
+            and offline.get("native_runs_resumed") is False
+            and offline.get("native_control_resumed") is False
             and len(offline.get("providers", [])) == len(providers)
             and [
                 {"pid": item["pid"], "start": item["start"]}
@@ -1182,6 +1288,11 @@ def inside_with_inference(path, arguments, inference):
         }
     )
     suite = str(uuid.uuid4())
+    restricted.update({
+        "AAP_PRIVATE_FIXTURE_RASTER_OWNER": str(Path(path)),
+        "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": suite,
+        "PLAYWRIGHT_FIXTURE_RUN_ID": suite,
+    })
     cases, references, fenced = request_fixtures(
         owner, restricted, suite, configured_attempts(arguments)
     )
@@ -1207,7 +1318,7 @@ def inside_with_inference(path, arguments, inference):
         ).encode(),
     )
     from raster_fixture_relay import RasterFixtureRelay
-    from worktree_env import application_environment, frontend_environment
+    from worktree_env import frontend_environment
     from worktree_runtime import http_ready
 
     browser_environment = frontend_environment(restricted)
@@ -1233,13 +1344,6 @@ def inside_with_inference(path, arguments, inference):
     )
     api_port = int(restricted["PLAYWRIGHT_ISOLATED_API_PORT"])
     require(1 <= api_port <= 65535, "raster_api_port_invalid")
-    api_environment = application_environment(restricted)
-    api_environment.update(
-        {
-            "RASTER_MASK_READ_ENABLED": "true",
-            "RASTER_MASK_CREATE_ENABLED": "true",
-        }
-    )
     entries = [entry for group in cases.values() for entry in group]
     socket_dir = Path(tempfile.mkdtemp(prefix="aap-raster-", dir="/tmp"))
     directory_identity = socket_dir.stat()
@@ -1282,7 +1386,6 @@ def inside_with_inference(path, arguments, inference):
     result = None
     failure = None
     shutdown_failures = []
-    api_shutdown_requested = False
 
     def record_unsettled(reason):
         recorded = Owner(path)
@@ -1305,16 +1408,10 @@ def inside_with_inference(path, arguments, inference):
             image_environment(owner, restricted), root=ROOT, journal=record_images
         )
         images.start()
-        api = subprocess.Popen(
-            [
-                sys.executable,
-                str(ROOT / "scripts/raster_api_process.py"),
-                "--port",
-                str(api_port),
-            ],
-            cwd=ROOT / "apps/api",
-            env=api_environment,
+        api_record = seed_once(
+            owner, restricted, {"operation": "owner_native_api_start", "port": api_port}
         )
+        api = NativeApiObserver(api_record, api_port)
         deadline = time.monotonic() + 120
         while not http_ready(api_port, "/health/db"):
             images.observe()
@@ -1350,13 +1447,18 @@ def inside_with_inference(path, arguments, inference):
     except BaseException as error:
         failure = error
         retain_unsettled("raster_consumer_shutdown_failed")
-    if api is not None and api.poll() is None:
+    if api is not None:
         try:
-            api.terminate()
-            api_shutdown_requested = True
+            disposition = seed_once(owner, restricted, {"operation": "owner_native_api_retire"})
+            require(
+                disposition.get("state") == "retired" and api.poll() is not None,
+                "raster_api_exit_unsettled",
+            )
         except BaseException as error:
             shutdown_failures.append(error)
             retain_unsettled("raster_api_shutdown_failed")
+        finally:
+            api.close()
     try:
         relay.close(on_unsettled=record_unsettled)
     except BaseException as error:
@@ -1369,23 +1471,6 @@ def inside_with_inference(path, arguments, inference):
         except BaseException as error:
             shutdown_failures.append(error)
             retain_unsettled("raster_images_shutdown_failed")
-    if api is not None:
-        try:
-            api_result = api.wait(timeout=3)
-            if not api_shutdown_requested or api_result != 0:
-                error = ContractError("raster_api_exit_unsettled")
-                error.api_outcome = {
-                    "exit_code": api_result,
-                    "shutdown_requested": api_shutdown_requested,
-                }
-                shutdown_failures.append(error)
-                retain_unsettled("raster_api_exit_unsettled")
-        except subprocess.TimeoutExpired:
-            shutdown_failures.append(ContractError("raster_api_shutdown_unsettled"))
-            retain_unsettled("raster_api_shutdown_unsettled")
-        except BaseException as error:
-            shutdown_failures.append(error)
-            retain_unsettled("raster_api_shutdown_failed")
     if failure is not None:
         shutdown_failures.insert(0, failure)
     if result and shutdown_failures:
@@ -1412,11 +1497,12 @@ def inside_with_inference(path, arguments, inference):
         owner = Owner(path)
         owner.data["raster"]["pre_retirement_native_identities"] = native_inventory
         owner.save()
-        shutdown = seed_once(owner, restricted, {"operation": "owner_shutdown"})
+        shutdown = seed_once(owner, restricted, {"operation": "owner_shutdown", "suite_id": suite})
         require(
             shutdown.get("state") == "stopped", "raster_fixture_shutdown_unconfirmed"
         )
         inference.pause()
+        archive_closed_native_authority(restricted, owner.data["raster"]["resources"], suite)
     except BaseException as error:
         retain_unsettled("raster_owner_shutdown_unsettled")
         errors = [error, *shutdown_failures]

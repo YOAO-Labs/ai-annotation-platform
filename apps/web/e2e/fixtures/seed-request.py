@@ -55,7 +55,7 @@ def prepare(payload):
         != (runtime.host, runtime.port or 5432, runtime.database)
     ):
         raise SeedSetupRefused("Fixture setup requires the same disposable database")
-    if payload.get("operation") == "prepare_fixture_suite":
+    if payload.get("operation") in {"prepare_fixture_suite", "verify_fixture_suite"}:
         data = payload.get("data")
         if (
             set(payload) != {"operation", "data"}
@@ -110,6 +110,28 @@ def process_start(pid):
     return int(text[text.rfind(")") + 2 :].split()[19])
 
 
+def supervised_suite():
+    value = os.environ.get("AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE")
+    if not value:
+        return None
+    try:
+        suite = UUID(value)
+    except (TypeError, ValueError, AttributeError):
+        raise SeedSetupRefused("Invalid supervised fixture suite") from None
+    if (
+        str(suite) != value
+        or value != os.environ.get("PLAYWRIGHT_FIXTURE_RUN_ID")
+        or os.environ.get("AAP_WORKTREE_MODE") not in {"test", "e2e"}
+        or (os.environ.get("PLAYWRIGHT_RASTER_OFFLINE") == "1"
+            and not os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"))
+        or (os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
+            and (os.environ.get("AAP_WORKTREE_MODE") != "e2e"
+                 or not Path(os.environ["AAP_PRIVATE_FIXTURE_RASTER_OWNER"]).is_absolute()))
+    ):
+        raise SeedSetupRefused("Invalid supervised fixture suite")
+    return suite
+
+
 def owner_paths():
     from fixture_suite_coordinator import _verified_resources
     from worktree_env import state_path
@@ -117,6 +139,17 @@ def owner_paths():
     root, resources, _ = _verified_resources(os.environ)
     directory = state_path(root, resources["mode"], "fixture-authority")
     directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    suite = supervised_suite()
+    if suite is not None and not os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
+        parent = directory.lstat()
+        if (
+            not stat.S_ISDIR(parent.st_mode)
+            or parent.st_uid != os.getuid()
+            or stat.S_IMODE(parent.st_mode) != 0o700
+        ):
+            raise SeedSetupRefused("Fixture authority directory is not private")
+        directory = directory / ("suite-" + suite.hex)
+        directory.mkdir(mode=0o700, exist_ok=True)
     info = directory.lstat()
     if (
         not stat.S_ISDIR(info.st_mode)
@@ -146,6 +179,57 @@ def private_record(path):
     finally:
         if descriptor >= 0:
             os.close(descriptor)
+
+
+def bind_supervised_control():
+    suite = supervised_suite()
+    if suite is None:
+        return
+    from linux_pidfd import pidfd_alive
+
+    resources, directory = owner_paths()
+    if os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") and not (directory / "native-control.json").exists():
+        if not os.path.lexists(directory / "owner.json"):
+            return
+        raise SeedSetupRefused("Fixture native control binding is missing")
+    value = private_record(directory / "native-control.json")
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"schema", "suite_id", "resources", "pid", "start", "origin", "token"}
+        or value["schema"] != "aap-fixture-native-control-binding/v1"
+        or value["suite_id"] != str(suite)
+        or value["resources"] != resources
+        or type(value["pid"]) is not int
+        or value["pid"] <= 0
+        or type(value["start"]) is not int
+        or value["start"] <= 0
+        or not isinstance(value["token"], str)
+        or re.fullmatch(r"[A-Za-z0-9_-]{43}", value["token"]) is None
+    ):
+        raise SeedSetupRefused("Fixture native control binding is invalid")
+    try:
+        origin = urlsplit(value["origin"])
+        if (
+            origin.scheme != "http"
+            or origin.hostname != "127.0.0.1"
+            or origin.port is None
+            or origin.username is not None
+            or origin.password is not None
+            or origin.path
+            or origin.query
+            or origin.fragment
+        ):
+            raise ValueError
+        descriptor = open_pidfd(value["pid"])
+        try:
+            if not pidfd_alive(descriptor) or process_start(value["pid"]) != value["start"]:
+                raise ValueError
+        finally:
+            os.close(descriptor)
+    except (OSError, TypeError, ValueError):
+        raise SeedSetupRefused("Fixture native control owner is unavailable") from None
+    os.environ["ASSETS_MEDIA_URL"] = value["origin"]
+    os.environ["ASSETS_MEDIA_TOKEN"] = value["token"]
 
 
 def open_private_append(path):
@@ -344,6 +428,7 @@ def connect_owner(*, create):
                 os.close(read_fd)
                 if write_fd >= 0:
                     os.close(write_fd)
+        bind_supervised_control()
         record = read_owner(directory, resources)
         pidfd = open_pidfd(record["pid"])
         channel = None
@@ -459,10 +544,12 @@ def finish_authority(record):
 
 
 async def serve_authority(ready_fd):
+    if not os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
+        bind_supervised_control()
     os.environ["DEBUG"] = "false"
     resources, directory = owner_paths()
     original_environment = dict(os.environ)
-    from worktree_env import state_path
+    from worktree_env import atomic_json, state_path
 
     guard_path = state_path(
         Path(resources["root"]), resources["mode"], "fixture-authority.lock"
@@ -498,12 +585,33 @@ async def serve_authority(ready_fd):
         raise SeedSetupRefused("Fixture authority start intent changed")
     root = Path(__file__).resolve().parents[4]
     sys.path.insert(0, str(root / "apps/api"))
-    config_digest = authority_config_digest()
-    from fixture_suite_coordinator import _verified_database, prepare_fixture_suite
+    from fixture_suite_coordinator import _settled, _verified_database, prepare_fixture_suite
 
     _, checked_resources, identity = await _verified_database()
     if checked_resources != resources:
         raise SeedSetupRefused("Fixture authority database changed")
+    native_control = None
+    raster_owner = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
+    if raster_owner:
+        from fixture_native_playwright import NativeSuiteControl
+
+        suite = supervised_suite()
+        if suite is None:
+            raise SeedSetupRefused("Raster native suite identity is missing")
+        journal_path = directory / "native-supervisor.json"
+        journal = {
+            "schema": "aap-fixture-native-supervisor/v1", "suite_id": str(suite),
+            "resources": resources, "pid": os.getpid(), "start": process_start(os.getpid()),
+            "state": "preparing",
+        }
+        atomic_json(journal_path, journal, exclusive=True)
+        native_control = NativeSuiteControl(
+            original_environment, suite, resources, directory, journal, journal_path,
+            raster_owner=Path(raster_owner),
+        )
+        await native_control.prepare()
+        original_environment = dict(os.environ)
+    config_digest = authority_config_digest()
     socket_dir = Path(tempfile.mkdtemp(prefix="aap-fixture-owner-", dir="/tmp"))
     socket_path = socket_dir / "owner.sock"
     token = secrets.token_urlsafe(32)
@@ -725,6 +833,18 @@ async def serve_authority(ready_fd):
                                     "Fixture operation outcomes remain unacknowledged"
                                 )
                             app, engine = state["app"], state["engine"]
+                            native = (
+                                getattr(app.state, "fixture_native_runtime", None)
+                                if app is not None
+                                else None
+                            )
+                            selected_suite = supervised_suite()
+                            if selected_suite is not None and payload.get("suite_id") != str(selected_suite):
+                                raise SeedSetupRefused("Fixture authority suite changed")
+                            if native is not None and native.runs:
+                                raise SeedSetupRefused("Fixture native runs remain owned")
+                            if native_control is not None and native_control.journal.get("state") != "retired":
+                                raise SeedSetupRefused("Fixture native suite remains owned")
                             providers = (
                                 set(app.state.fixture_backends.runs)
                                 if app is not None
@@ -748,11 +868,14 @@ async def serve_authority(ready_fd):
                                         await db.execute(
                                             text(
                                                 "SELECT id, parent_run_id, state FROM yoao_fixture_v1.fixture_runs "
-                                                "WHERE state <> 'retired' OR id = :suite_id "
-                                                "OR id = ANY(CAST(:provider_ids AS uuid[]))"
+                                                "WHERE (state <> 'retired' OR id = :suite_id "
+                                                "OR id = ANY(CAST(:provider_ids AS uuid[]))) "
+                                                "AND (:scoped IS FALSE OR id = :suite_id OR parent_run_id = :suite_id "
+                                                "OR id = ANY(CAST(:provider_ids AS uuid[])))"
                                             ),
                                             {
                                                 "suite_id": suite_uuid,
+                                                "scoped": selected_suite is not None,
                                                 "provider_ids": list(providers),
                                             },
                                         )
@@ -836,6 +959,11 @@ async def serve_authority(ready_fd):
                                         for run_id, provider in app.state.fixture_backends.runs.items()
                                     ],
                                 }
+                                if native_control is not None:
+                                    state["offline"].update({
+                                        "native_runs_paused": False, "native_control_paused": False,
+                                        "native_control_resumed": False, "native_runs_resumed": False,
+                                    })
                                 persist_offline()
                             else:
                                 check_offline()
@@ -856,6 +984,15 @@ async def serve_authority(ready_fd):
                             try:
                                 offline["phase"] = "sealing"
                                 persist_offline()
+                                if native_control is not None:
+                                    if not offline["native_runs_paused"]:
+                                        await _settled(asyncio.create_task(app.state.fixture_native_runtime.offline_seal()))
+                                        offline["native_runs_paused"] = True
+                                        persist_offline()
+                                    if not offline["native_control_paused"]:
+                                        await _settled(asyncio.create_task(native_control.stop(offline=True)))
+                                        offline["native_control_paused"] = True
+                                        persist_offline()
                                 for item in offline["providers"]:
                                     if item["sealed"]:
                                         continue
@@ -922,6 +1059,15 @@ async def serve_authority(ready_fd):
                                         )
                                         item["resumed"] = True
                                         persist_offline()
+                                if native_control is not None:
+                                    if not offline["native_control_resumed"]:
+                                        await _settled(asyncio.create_task(native_control.resume()))
+                                        offline["native_control_resumed"] = True
+                                        persist_offline()
+                                    if not offline["native_runs_resumed"]:
+                                        await _settled(asyncio.create_task(state["app"].state.fixture_native_runtime.offline_resume()))
+                                        offline["native_runs_resumed"] = True
+                                        persist_offline()
                                 owned = read_owner(directory, resources)
                                 del owned["seal_secret"]
                                 del owned["offline_seal"]
@@ -931,6 +1077,27 @@ async def serve_authority(ready_fd):
                                 raise
                             state["offline"] = None
                             response = {"status": 200, "body": "{}"}
+                        elif operation == "owner_native_api_start":
+                            if (
+                                native_control is None or set(payload) != {"operation", "port"}
+                                or type(payload["port"]) is not int
+                                or str(payload["port"]) != original_environment.get("PLAYWRIGHT_ISOLATED_API_PORT")
+                            ):
+                                raise SeedSetupRefused("Invalid Raster native API start")
+                            api = native_control.start_api(payload["port"])
+                            response = {"status": 200, "body": json.dumps(api)}
+                        elif operation == "owner_native_api_retire":
+                            if native_control is None or set(payload) != {"operation"}:
+                                raise SeedSetupRefused("Invalid Raster native API retirement")
+                            if any(
+                                key != operation_id and not item["acknowledged"]
+                                for key, item in operations.items()
+                            ):
+                                raise SeedSetupRefused("Fixture operation outcomes remain unacknowledged")
+                            if state["app"].state.fixture_native_runtime.runs:
+                                raise SeedSetupRefused("Fixture native runs remain owned")
+                            await _settled(asyncio.create_task(native_control.retire_suite()))
+                            response = {"status": 200, "body": json.dumps({"state": "retired"})}
                         elif operation == "owner_offline_status":
                             offline = state["offline"]
                             response = {
@@ -966,15 +1133,25 @@ async def serve_authority(ready_fd):
 
                                 app = FastAPI()
                                 app.state.fixture_backends = FixtureBackends()
+                                suite = supervised_suite()
+                                if suite is not None:
+                                    from app.services.fixture_native_runtime import (
+                                        FixtureNativeRuntime,
+                                    )
+
+                                    app.state.fixture_native_runtime = FixtureNativeRuntime(
+                                        original_environment, suite, directory
+                                    )
                                 app.include_router(router, prefix="/api/v1/__test")
                                 state["app"], state["engine"] = app, engine
                             import httpx
 
                             operation_failure = None
                             try:
-                                if operation == "prepare_fixture_suite":
+                                if operation in {"prepare_fixture_suite", "verify_fixture_suite"}:
                                     result = await prepare_fixture_suite(
-                                        **payload["data"]
+                                        **payload["data"],
+                                        verify_only=operation == "verify_fixture_suite",
                                     )
                                     status, body = 200, json.dumps(result)
                                 elif operation == "mask_slice_lifecycle":
@@ -1112,6 +1289,8 @@ def validate_client_payload(payload):
         "owner_offline_seal",
         "owner_offline_resume",
         "owner_offline_status",
+        "owner_native_api_start",
+        "owner_native_api_retire",
     }:
         return
     keys = (
@@ -1157,6 +1336,7 @@ def validate_client_envelope(request):
 
 
 async def main():
+    bind_supervised_control()
     line = await asyncio.to_thread(sys.stdin.buffer.readline)
     if not line:
         return

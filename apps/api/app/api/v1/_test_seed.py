@@ -686,6 +686,61 @@ async def _fixture_video_source_operations(db, receipts):
         raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
 
 
+async def _prepare_fixture_native_video_cleanup(db, scope, runtime, run_id):
+    from app.db.models.dataset import DatasetItem
+
+    deadline = asyncio.get_running_loop().time() + FIXTURE_VIDEO_DRAIN_SECONDS
+    _, pending = await _fixture_video_outputs(db, scope)
+    if not await _drain_fixture_video_operations(
+        db,
+        deadline,
+        locations=_fixture_video_source_locations(pending),
+        purposes=_fixture_video_purposes(pending),
+    ):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_operation_unsettled"})
+    try:
+        item_ids, outputs = await _fixture_video_outputs(
+            db, scope, lock=True, deadline=deadline
+        )
+    except DBAPIError as exc:
+        busy = _fixture_video_busy(exc)
+        if busy is None:
+            raise
+        raise busy from None
+    await _fixture_video_foreign_refs(db, item_ids, [output.id for output in outputs])
+    await _fixture_video_source_operations(db, outputs)
+    item_datasets = dict(
+        (await db.execute(
+            select(DatasetItem.id, DatasetItem.dataset_id).where(DatasetItem.id.in_(item_ids))
+        )).all()
+    )
+    if set(item_datasets) != set(item_ids):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
+    by_id = {output.id: output for output in outputs}
+    incoming = {output.id: 0 for output in outputs}
+    for output in outputs:
+        if output.metadata_output_id is not None:
+            target = by_id.get(output.metadata_output_id)
+            if target is None or target.dataset_item_id != output.dataset_item_id:
+                raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
+            incoming[target.id] += 1
+    ready = sorted((output_id for output_id, count in incoming.items() if not count), key=str)
+    ordered = []
+    while ready:
+        output_id = ready.pop(0)
+        output = by_id[output_id]
+        ordered.append((item_datasets[output.dataset_item_id], output.id))
+        if output.metadata_output_id is not None:
+            incoming[output.metadata_output_id] -= 1
+            if incoming[output.metadata_output_id] == 0:
+                ready.append(output.metadata_output_id)
+                ready.sort(key=str)
+    if len(ordered) != len(outputs):
+        raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
+    await runtime.classify_video_outputs(run_id, ordered)
+    await db.commit()
+
+
 async def _prepare_fixture_video_cleanup(db, scope):
     from app.services import video_derivative_objects as objects
 
@@ -1625,6 +1680,7 @@ async def _cleanup_owned_e2e_fixtures(
     family="owned",
     registry=None,
     providers=None,
+    native_runtime=None,
     drained_runs=frozenset(),
 ):
     """Seal and reclaim one exact run through the existing fixture cleanup owners."""
@@ -1671,6 +1727,8 @@ async def _cleanup_owned_e2e_fixtures(
             )
         )
         if run.state == "retired":
+            if native_runtime is not None and run_id not in native_runtime.retired_runs:
+                raise HTTPException(409, detail={"code": "fixture_native_run_unsettled"})
             if active_window is not None:
                 raise HTTPException(
                     409, detail={"code": "fixture_maintenance_window_changed"}
@@ -1681,6 +1739,31 @@ async def _cleanup_owned_e2e_fixtures(
         scope = await _retire_fixture_execution_work(
             db, owned, family=family, drained_runs=drained_runs
         )
+
+        def fixture_context(context):
+            if not isinstance(context, PlaybackContext) or not isinstance(
+                context.original, AuthorizedOriginal
+            ):
+                return False
+            resource = context.original.resource
+            if not isinstance(resource, Resource):
+                return False
+            return (
+                resource.kind == "task" and resource.task_id in scope.task_ids
+            ) or (
+                resource.kind == "item" and resource.dataset_id in scope.dataset_ids
+            )
+
+        if native_runtime is not None and run_id not in native_runtime.retired_runs:
+            await db.commit()
+            await native_runtime.stop_producers(run_id)
+            if registry is not None:
+                await registry.revoke_contexts(fixture_context)
+            if not native_runtime.video_scope_prepared(run_id):
+                await _prepare_fixture_native_video_cleanup(db, scope, native_runtime, run_id)
+            await native_runtime.retire_datasets(db, run_id, scope.dataset_ids)
+            await db.commit()
+            await native_runtime.retire_roles(run_id)
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
                 FixtureMaintenanceWindow.run_id == run_id,
@@ -1775,33 +1858,23 @@ async def _cleanup_owned_e2e_fixtures(
         try:
             plan = await attachments.prepare(db, scope)
             if registry is not None:
-
-                def fixture_context(context):
-                    if not isinstance(context, PlaybackContext) or not isinstance(
-                        context.original, AuthorizedOriginal
-                    ):
-                        return False
-                    resource = context.original.resource
-                    if not isinstance(resource, Resource):
-                        return False
-                    return (
-                        resource.kind == "task" and resource.task_id in scope.task_ids
-                    ) or (
-                        resource.kind == "item"
-                        and resource.dataset_id in scope.dataset_ids
-                    )
-
                 await registry.revoke_contexts(fixture_context)
-            video_plan = await _prepare_fixture_video_cleanup(db, scope)
+            video_plan = (
+                await _prepare_fixture_video_cleanup(db, scope)
+                if native_runtime is None
+                else None
+            )
             if registry is not None:
                 await registry.revoke_contexts(fixture_context)
             await attachments.delete_objects(db, plan, resolve)
-            await _delete_fixture_video_objects(db, video_plan, resolve)
+            if video_plan is not None:
+                await _delete_fixture_video_objects(db, video_plan, resolve)
             await db.commit()
 
             async def retire_guides():
                 await guides.retire_references(db, scope)
-                await _finalize_fixture_video_cleanup(db, video_plan, resolve)
+                if video_plan is not None:
+                    await _finalize_fixture_video_cleanup(db, video_plan, resolve)
 
             await attachments.finalize(db, plan, resolve, before_gate=retire_guides)
             await _guard_fixture_export_anchors(db, run_id, scope.project_ids)
@@ -2033,6 +2106,7 @@ async def seed_cleanup(
             owned=scope,
             registry=getattr(request.app.state, "original_playback_registry", None),
             providers=providers,
+            native_runtime=getattr(request.app.state, "fixture_native_runtime", None),
             drained_runs=frozenset(drained_runs),
         )
     root = await ownership._lock_run(db, payload.suite_id)
@@ -2435,9 +2509,12 @@ def _request_owned_scope(payload: SeedOwnedRequest) -> _OwnedFixtureScope:
     return _OwnedFixtureScope(namespace=token, run_id=payload.run_id)
 
 
-async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build):
+async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build, request: Request):
     from app.services import fixture_run_ownership as ownership
     from app.services.storage_access import failure_unsettled, finish
+    native = getattr(request.app.state, "fixture_native_runtime", None)
+    if native is not None and native.suite_id != payload.suite_id:
+        raise HTTPException(409, detail={"code": "fixture_native_suite_changed"})
 
     scope = _request_owned_scope(payload)
     await ownership.start_owned_scope(
@@ -2449,6 +2526,8 @@ async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build):
     admission_id = await ownership.admit(db, payload.run_id, kind)
     await db.commit()
     try:
+        if native is not None:
+            await native.prepare(payload.run_id, admission_id)
         result = await build(scope, admission_id)
     except BaseException as failure:
         unsettled = failure_unsettled(failure)
@@ -2556,7 +2635,7 @@ async def seed_owned(
             ),
         )
 
-    return await _run_owned_seed(db, payload, "owned_seed", build)
+    return await _run_owned_seed(db, payload, "owned_seed", build, request)
 
 
 class FixtureBackendControlRequest(SeedOwnedRequest):
@@ -2624,6 +2703,7 @@ async def seed_owned_cleanup(
         owned=scope,
         registry=getattr(request.app.state, "original_playback_registry", None),
         providers=getattr(request.app.state, "fixture_backends", None),
+        native_runtime=getattr(request.app.state, "fixture_native_runtime", None),
     )
     await db.commit()
     return SeedCleanup()
@@ -3289,7 +3369,7 @@ async def seed_project_roles(
     async def build(scope, admission_id):
         return await _build_project_roles(db, scope, admission_id)
 
-    return await _run_owned_seed(db, payload, "project_roles_seed", build)
+    return await _run_owned_seed(db, payload, "project_roles_seed", build, request)
 
 
 class SeedFilteringRequest(SeedOwnedRequest):
@@ -3318,7 +3398,7 @@ async def seed_filtering(
             video_ready=payload.video_ready,
         )
 
-    return await _run_owned_seed(db, payload, "filtering_seed", build)
+    return await _run_owned_seed(db, payload, "filtering_seed", build, request)
 
 
 class SeedLidar(BaseModel):
@@ -3435,14 +3515,14 @@ class SeedLidarRequest(SeedOwnedRequest):
     include_in_schema=False,
 )
 async def seed_lidar(
-    payload: SeedLidarRequest, db: AsyncSession = Depends(get_db)
+    payload: SeedLidarRequest, request: Request, db: AsyncSession = Depends(get_db)
 ) -> SeedLidar:
     """Build point-cloud and camera fixtures within one explicit run."""
 
     async def build(scope, admission_id):
         return await _build_owned_lidar(db, scope, admission_id)
 
-    return await _run_owned_seed(db, payload, "lidar_seed", build)
+    return await _run_owned_seed(db, payload, "lidar_seed", build, request)
 
 
 async def _build_owned_lidar(db, scope, admission_id):
@@ -4120,6 +4200,7 @@ class SeedVideoTaskResponse(BaseModel):
 )
 async def seed_video_task(
     payload: SeedVideoTaskRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoTaskResponse:
     """Add one deterministic video task to an owned workbench fixture."""
@@ -4127,7 +4208,7 @@ async def seed_video_task(
     async def build(scope, admission_id):
         return await _build_video_task(db, payload, scope, admission_id)
 
-    return await _run_owned_seed(db, payload, "video_task_seed", build)
+    return await _run_owned_seed(db, payload, "video_task_seed", build, request)
 
 
 async def _build_video_task(db, payload, scope, admission_id):
@@ -4261,6 +4342,7 @@ class SeedVideoWebCodecsResponse(BaseModel):
 )
 async def seed_video_webcodecs(
     payload: SeedVideoWebCodecsRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoWebCodecsResponse:
     """Seed a deterministic H.264 WebCodecs fixture for precise-frame E2E.
@@ -4275,7 +4357,7 @@ async def seed_video_webcodecs(
     async def build(scope, admission_id):
         return await _build_video_webcodecs(db, payload, scope, admission_id)
 
-    return await _run_owned_seed(db, payload, "video_webcodecs_seed", build)
+    return await _run_owned_seed(db, payload, "video_webcodecs_seed", build, request)
 
 
 async def _build_video_webcodecs(db, payload, scope, admission_id):
@@ -4491,6 +4573,7 @@ class SeedVideoIssueContextHistoryResponse(BaseModel):
 )
 async def seed_video_issue_context_history(
     payload: SeedVideoIssueContextHistoryRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> SeedVideoIssueContextHistoryResponse:
     async def build(scope, admission_id):
@@ -4580,7 +4663,7 @@ async def seed_video_issue_context_history(
             feedback_id=feedback.id, anchor_position=anchor_position
         )
 
-    return await _run_owned_seed(db, payload, "video_issue_history", build)
+    return await _run_owned_seed(db, payload, "video_issue_history", build, request)
 
 
 class SeedVideoWebCodecsTransitionRequest(BaseModel):

@@ -167,17 +167,26 @@ authority 中，后续变更拒绝执行，不能用重建 owner 消除该故障
 不得重放原操作。完整原始结果只保存在私有 authority 和证据中，普通输出仍需脱敏。
 Node 恢复接口的 `privateOperationResponse` 保存未脱敏的已知失败正文，且不会随普通
 对象枚举输出；仅限私有诊断，不得打印该字段。
-私有记录位于对应工作树模式的 `fixture-authority/owner.json`，只应由拥有该
-隔离环境的调用方读取。Raster 中断在封闭阶段时，恢复方先核对原始进程与资源身份，
-再通过同一私有客户端执行 `owner_offline_status`。只有 `phase: sealed` 同时证明每个
-原提供方已封闭并完成在途工作、seed 数据库连接池已释放；`sealing`、`resuming` 和
-`incomplete` 均不是静默证明。先恢复同一原生 Routing/Health 端点，再以记录中的封闭
-凭据显式请求 `owner_offline_resume`；部分恢复仍不能报告为已封闭。不要将记录内容或
-凭据打印到终端。完成准确 suite 清理后以其 UUID 请求 `owner_shutdown`；若还有其他
+私有记录位于对应工作树模式的 `fixture-authority/`；隔离 Playwright suite 使用
+`suite-<suite UUID 的小写十六进制>/owner.json`，Raster 独占流程保留根目录下的
+`owner.json`。只有环境所有者可以读取这些记录。Raster 中断在封闭阶段时，恢复方先
+核对原始进程与资源身份，再通过同一私有客户端执行 `owner_offline_status`。只有
+`phase: sealed` 同时证明原提供方完成在途工作、每个 run 的原生 worker、Celery worker
+和代理已实际排空，原生控制进程已退出且 seed 数据库连接池已释放；`sealing`、
+`resuming` 和 `incomplete` 均不是完成证明。原生监听地址由同一 owner 保留，
+恢复时重新启动并验证实际进程，不重建目标或改写地址。先恢复同一原生
+Routing/Health 端点，再以记录中的封闭凭据显式请求 `owner_offline_resume`；
+部分恢复仍不能报告为已封闭。Raster 的产品 API 在恢复后由该私有 authority 启动并
+回收，沿用启动器分配的端口与受限业务凭据；必须取得实际退出与 lifespan 关闭回执，
+再退休控制进程及 suite，不能以 PID 消失代替成功。
+不要将记录内容或凭据打印到终端。完成准确 suite 清理后以其 UUID 请求 `owner_shutdown`；若还有其他
 suite，返回的 `shared` 表示 authority 继续持有邻居，并不表示该邻居已退休。
 最终关闭必须由持有 pidfd 的客户端证明原进程退出并完成精确记录收尾；若该客户端在
 确认结果后、证明退出之前失联，则保留原 generation 和证据为未决状态，报告失败，
 不得自动重建 authority、重放操作或销毁资源。最终退出后的原 authority 不再提供查询。
+Raster 确认 authority 退出及 generation 关闭后，在独占 authority 锁内将该次
+Native 回执原样归档到相同 suite 子目录；目的地冲突或部分迁移必须保留并拒绝重用，
+不能覆盖或删除已有回执。
 已收到最终关闭结果的调用方可由新的私有客户端直接确认原 UUID；该客户端仍须核验
 同一 authority 的当前记录、精确进程退出及记录收尾，`shared` 确认不会结束共享 owner。
 原生推理 owner 必须通过原始进程身份与私有控制通道核验；完整暂停的退出回执保留在
