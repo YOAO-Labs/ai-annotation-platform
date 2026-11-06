@@ -1,6 +1,8 @@
 """Bind physical export I/O to the current independently owned execution."""
 
-from contextvars import ContextVar
+import asyncio
+from contextvars import ContextVar, copy_context
+from functools import partial
 from pathlib import Path
 
 from sqlalchemy.engine import make_url
@@ -51,5 +53,53 @@ def current():
     return execution
 
 
+def current_optional():
+    return _current.get()
+
+
 async def enter_io():
     await current().enter_io()
+
+
+async def settle_io(primary=None):
+    try:
+        await current().settle_io()
+    except BaseException as closing:
+        if primary is None:
+            raise
+        primary.add_note(f"Export I/O settlement failed: {closing!r}")
+
+
+async def run_sync(call, *args, **kwargs):
+    """Drain a synchronous physical call before releasing its export checkpoint."""
+    owner = current_optional()
+    if owner is None:
+        return await asyncio.to_thread(call, *args, **kwargs)
+    from app.services import storage_access
+
+    await owner.enter_io()
+    future, failure = None, None
+    try:
+        try:
+            future = asyncio.get_running_loop().run_in_executor(
+                None, copy_context().run, partial(call, *args, **kwargs)
+            )
+        except BaseException as exc:
+            raise storage_access.mark_unsettled(exc)
+        return await asyncio.shield(future)
+    except BaseException as exc:
+        failure = exc
+        if future is not None:
+            try:
+                await storage_access.finish(future)
+            except BaseException as later:
+                if storage_access.failure_unsettled(later):
+                    storage_access.mark_unsettled(exc)
+        raise
+    finally:
+        if (
+            future is not None
+            and future.done()
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await settle_io(failure)

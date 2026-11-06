@@ -76,7 +76,7 @@ Worker 将 active annotation 的 `max(updated_at) + count` 与 scope、targets�
 
 真正构建时按块读取任务与标注，ZIP写磁盘tempfile，先取得独立SHA/大小并提交ExportOutput pending归属、随机候选键和固定七天截止，再在durable permit中上传并完整回读。最终短事务复核原请求Key证明、账号/项目/任务/引用来源、取消、候选快照和维护代次，共同发布ready、缓存索引、Job结果与通知。异常/取消或commit应答未知保留pending及字节，不猜测删除；等真实线程收尾后才清tempfile并释放所属Redis锁。到期后无读取permit的ready对象先提交retired和缓存移除，再沿保存桶重试精确清理。项目或Job清理不会丢失独立Output责任。
 
-Export worker 持有业务会话围栏，并使用独立受限控制连接记录执行 generation、nonce 与首次物理 I/O 边界。只在已记录未进入 I/O 且旧会话围栏已释放时允许接续；进入后的未确认结果保留原执行证据与对象责任。结束和清理需要真实发布、执行及相应读写许可的结算证明，作业终态、消息丢失或 worker 退出不能替代证明。普通导出的固定期限为 168 小时，fixture 专属期限独立计算。
+Export worker 持有业务会话围栏，并使用独立受限控制连接记录执行 generation、nonce 与物理 I/O 边界。每次操作必须有线程排空、句柄关闭和许可结算的积极证据，才可回到静止状态；已知关闭后的业务错误与物理结果未知分别处理。只在该 generation 已记录从未进入 I/O 且旧会话围栏已释放时允许接续；静止状态不代表部分复制可重放。未知结果保留原执行证据与对象责任，作业终态、消息丢失或 worker 退出不能替代证明。普通导出的固定期限为 168 小时，fixture 专属期限独立计算。
 
 代码索引：
 

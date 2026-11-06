@@ -409,8 +409,10 @@ def _budget(deadline):
 
 
 def _unavailable(exc):
+    if isinstance(exc, BaseExceptionGroup):
+        return exc
     error = ExportStorageError("export_storage_unavailable", status_code=503)
-    if getattr(exc, "storage_operation_unsettled", False):
+    if storage_access.failure_unsettled(exc):
         storage_access.mark_unsettled(error)
     return error
 
@@ -420,7 +422,7 @@ def file_receipt(path) -> tuple[str, int]:
     deadline = time.monotonic() + VERIFY_SECONDS
     checksum, size = hashlib.sha256(), 0
     try:
-        with Path(path).open("rb") as source:
+        with storage_access.closing_registered(Path(path).open("rb")) as source:
             while True:
                 _budget(deadline)
                 chunk = source.read(CHUNK_BYTES)
@@ -431,10 +433,14 @@ def file_receipt(path) -> tuple[str, int]:
                     _reject("export_storage_integrity_mismatch")
                 checksum.update(chunk)
         _budget(deadline)
-    except ExportStorageError:
+    except BaseException as exc:
+        if storage_access.failure_unsettled(exc) and exc.__context__ is not None:
+            raise BaseExceptionGroup(
+                "Export hashing and local file close failed", [exc.__context__, exc]
+            ) from None
+        if isinstance(exc, OSError):
+            raise _unavailable(exc) from None
         raise
-    except OSError as exc:
-        raise _unavailable(exc) from None
     if size <= 0:
         _reject("export_storage_integrity_mismatch")
     return checksum.hexdigest(), size

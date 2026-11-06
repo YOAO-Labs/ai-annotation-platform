@@ -28,7 +28,12 @@ from app.db.models.scene_pose import SceneFramePose
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.services import async_job as async_job_svc
-from app.services import export_execution_context, export_outputs, export_storage
+from app.services import (
+    export_execution_context,
+    export_outputs,
+    export_storage,
+    storage_access,
+)
 from app.services.identity_account_lock_data import IdentityAccountLockData
 from app.services.jobs_lifecycle_data import job_lock_statement
 from app.services.labeling_core_read_relations import annotation_row, task_row
@@ -86,6 +91,12 @@ class _ExportExecution:
         self.entered = False
         self.takeover = False
         self.job_id: uuid.UUID | None = None
+        self._io_lock = asyncio.Lock()
+        self._active_io = 0
+
+    @property
+    def active_io(self) -> int:
+        return self._active_io
 
     async def assert_owned(self) -> None:
         if self.lost or self.connection.invalidated:
@@ -160,15 +171,46 @@ class _ExportExecution:
             self.fixture_token = token
 
     async def enter_io(self) -> None:
-        await self.assert_owned()
-        self.entered = True
-        entered = await self.control.scalar(
-            text("SELECT aap_export_v1.enter_execution_io(:job_id, :token)"),
-            {"job_id": self.job_id, "token": self.token},
-        )
-        if entered is not True:
-            raise ExportExecutionLost("export physical execution authority was lost")
-        await self.control.commit()
+        async with self._io_lock:
+            if self.unsettled:
+                raise ExportExecutionLost("export physical work is unsettled")
+            if self._active_io == 0:
+                await self.assert_owned()
+                self.entered = True
+                try:
+                    entered = await self.control.scalar(
+                        text("SELECT aap_export_v1.enter_execution_io(:job_id, :token)"),
+                        {"job_id": self.job_id, "token": self.token},
+                    )
+                    if entered is not True:
+                        raise ExportExecutionLost("export physical execution authority was lost")
+                    await self.control.commit()
+                except BaseException:
+                    self.unsettled = True
+                    raise
+            self._active_io += 1
+
+    async def settle_io(self) -> None:
+        async with self._io_lock:
+            if self._active_io <= 0:
+                self.unsettled = True
+                raise ExportExecutionLost("export physical operation was not admitted")
+            self._active_io -= 1
+            if self._active_io != 0 or self.unsettled:
+                return
+            try:
+                await self.assert_owned()
+                settled = await self.control.scalar(
+                    text("SELECT aap_export_v1.quiesce_execution_io(:job_id, :token)"),
+                    {"job_id": self.job_id, "token": self.token},
+                )
+                if settled is not True:
+                    raise ExportExecutionLost("export physical checkpoint could not be settled")
+                await self.control.commit()
+            except BaseException:
+                self.unsettled = True
+                raise
+            self.entered = False
 
     async def finish(self, job_id: uuid.UUID) -> None:
         await self.assert_owned()
@@ -181,6 +223,28 @@ class _ExportExecution:
         await self.control.commit()
 
 
+async def _close_export_cache_lock(execution, client, key, token, acquired, observed, entered):
+    failure = None
+    try:
+        if acquired:
+            await client.eval(_RELEASE_LOCK_LUA, 1, key, token)
+    except BaseException as exc:
+        failure = exc
+    try:
+        await client.aclose()
+    except BaseException as closing:
+        if failure is None:
+            failure = closing
+        else:
+            failure = BaseExceptionGroup(
+                "Export cache lock release and client close failed", [failure, closing]
+            )
+    if failure is not None:
+        raise failure
+    if entered and observed:
+        await execution.settle_io()
+
+
 async def _update_export_progress(db, job_uuid, pct):
     # A duplicate delivery can outlive the winning publication. Serialize each
     # progress write with completion so it cannot lower a terminal job's 100%.
@@ -191,7 +255,9 @@ async def _update_export_progress(db, job_uuid, pct):
 async def _sign_export_output(db, job, candidate, download_name, *, prepared=None):
     if candidate.storage_ref["schema"] == 1 and prepared is None:
         await output_authority.validate(db, job, lock=True)
-        return export_storage.sign(candidate, download_name=download_name)
+        return await export_execution_context.run_sync(
+            export_storage.sign, candidate, download_name=download_name
+        )
     url = await export_outputs.prepared_download(
         db, candidate, download_name=download_name, prepared=prepared
     )
@@ -590,7 +656,7 @@ async def _multicamera_coco_scope_digest(
         )
 
     async def head_item(item: DatasetItem) -> tuple[uuid.UUID, dict | None]:
-        head = await asyncio.to_thread(
+        head = await export_execution_context.run_sync(
             storage_service.verify_upload,
             item.file_path,
             storage_service.datasets_bucket,
@@ -784,6 +850,8 @@ async def _run_export(
     lock_key: str | None = None
     lock_owner: str | None = None
     lock_acquired = False
+    lock_entered = False
+    lock_observed = False
     reference_media = None
     owned_media = False
     owned_terminal_guard = False
@@ -886,7 +954,6 @@ async def _run_export(
                             celery_task_id=celery_task_id,
                         )
                         return
-                await execution.enter_io()
                 await async_job_svc.mark_running(
                     db, job_uuid, celery_task_id=celery_task_id
                 )
@@ -1008,6 +1075,8 @@ async def _run_export(
                         socket_connect_timeout=3,
                         socket_timeout=3,
                     )
+                    await execution.enter_io()
+                    lock_entered = True
                     lock_acquired = bool(
                         await lock_client.set(
                             lock_key,
@@ -1016,6 +1085,7 @@ async def _run_export(
                             ex=6 * 60 * 60,
                         )
                     )
+                    lock_observed = True
                     if not lock_acquired:
                         raise ExportBuildInProgress(
                             "another worker is building the same export cache key"
@@ -1078,12 +1148,18 @@ async def _run_export(
                     )
                     revision = await export_outputs.write(db, candidate, zip_path)
                 finally:
-                    # Hashing and storage_access.run drain their physical threads,
-                    # including repeated cancellation, before releasing this path.
-                    try:
-                        os.unlink(zip_path)
-                    except OSError:
-                        pass
+                    if not execution.unsettled and (
+                        not execution.entered
+                        or (lock_entered and lock_observed and execution.active_io == 1)
+                    ):
+                        original = sys.exception()
+                        try:
+                            os.unlink(zip_path)
+                        except OSError as closing:
+                            if original is None:
+                                raise
+                            original.add_note(f"Export temporary ZIP cleanup failed: {closing!r}")
+                            raise original
 
                 await execution.assert_owned()
                 await _update_export_progress(db, job_uuid, 90)
@@ -1154,8 +1230,8 @@ async def _run_export(
                     size_bytes,
                 )
             except Exception as exc:  # noqa: BLE001
-                execution.unsettled = execution.entered or bool(
-                    getattr(exc, "storage_operation_unsettled", False)
+                execution.unsettled = (
+                    execution.unsettled or storage_access.failure_unsettled(exc)
                 )
                 await db.rollback()
                 execution.lost = execution.lost or connection.invalidated
@@ -1213,40 +1289,59 @@ async def _run_export(
                     await db.rollback()
                 raise
             finally:
+                original = sys.exception()
+                cleanup_failure = None
                 try:
-                    if execution.token is not None:
-                        original = sys.exc_info()[1]
+                    if lock_client is not None:
                         try:
-                            if (
-                                execution.unsettled
-                                or (execution.entered and original is not None)
-                                or getattr(
-                                    original, "storage_operation_unsettled", False
-                                )
+                            await _close_export_cache_lock(
+                                execution, lock_client, lock_key, lock_owner,
+                                lock_acquired, lock_observed, lock_entered,
+                            )
+                        except BaseException as closing:
+                            cleanup_failure = closing
+                            if original is not None:
+                                original.add_note(f"Export cache cleanup failed: {closing!r}")
+                        finally:
+                            lock_client = None
+                    if execution.token is not None:
+                        try:
+                            if execution.unsettled or execution.entered or (
+                                original is not None
+                                and storage_access.failure_unsettled(original)
                             ):
-                                raise ExportExecutionLost(
-                                    "export physical work is unsettled"
-                                )
+                                raise ExportExecutionLost("export physical work is unsettled")
                             await db.rollback()
                             await execution.finish(job_uuid)
-                        except BaseException:
-                            if original is None:
-                                raise
-                            log.exception("export execution remains unsettled")
+                        except BaseException as closing:
+                            if original is not None:
+                                original.add_note(f"Export execution settlement failed: {closing!r}")
+                                raise original
+                            if cleanup_failure is not None:
+                                cleanup_failure.add_note(
+                                    f"Export execution settlement failed: {closing!r}"
+                                )
+                                raise cleanup_failure
+                            raise
+                    if cleanup_failure is not None:
+                        if original is not None:
+                            raise original
+                        raise cleanup_failure
                 finally:
                     export_execution_context.reset(context_token)
     finally:
-        if lock_client is not None:
-            if lock_acquired and lock_key and lock_owner:
-                try:
-                    await lock_client.eval(
-                        _RELEASE_LOCK_LUA,
-                        1,
-                        lock_key,
-                        lock_owner,
-                    )
-                except Exception:  # noqa: BLE001
-                    log.exception("export single-flight lock release failed")
-            await lock_client.aclose()
-        await engine.dispose()
-        await control_engine.dispose()
+        original = sys.exception()
+        disposal_errors = []
+        for owned_engine in (engine, control_engine):
+            try:
+                await owned_engine.dispose()
+            except BaseException as closing:
+                disposal_errors.append(closing)
+        if disposal_errors:
+            if original is not None:
+                for closing in disposal_errors:
+                    original.add_note(f"Export database cleanup failed: {closing!r}")
+                raise original
+            if len(disposal_errors) == 1:
+                raise disposal_errors[0]
+            raise BaseExceptionGroup("Export database cleanup failed", disposal_errors)

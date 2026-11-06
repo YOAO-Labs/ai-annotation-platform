@@ -19,6 +19,7 @@ from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import (
+    export_execution_context,
     export_media_storage,
     export_storage,
     export_zip_accounting,
@@ -120,13 +121,18 @@ async def _locked(db, identifier):
 
 
 async def _settled_thread(call, *args):
-    task = None
+    task, failure, entered = None, None, False
+    owner = export_execution_context.current_optional()
+    if owner is not None:
+        await owner.enter_io()
+        entered = True
     try:
         task = asyncio.get_running_loop().run_in_executor(
             None, copy_context().run, partial(call, *args)
         )
         return await asyncio.shield(task)
     except BaseException as interrupted:
+        failure = interrupted
         if task is None:
             raise storage_access.mark_unsettled(interrupted)
         # The temporary ZIP remains owned until hashing physically finishes.
@@ -139,9 +145,17 @@ async def _settled_thread(call, *args):
         try:
             task.result()
         except BaseException as late:
-            if getattr(late, "storage_operation_unsettled", False):
+            if storage_access.failure_unsettled(late):
                 storage_access.mark_unsettled(interrupted)
         raise
+    finally:
+        if (
+            entered
+            and task is not None
+            and task.done()
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)
 
 
 def _identifier(value):
@@ -631,7 +645,9 @@ async def prepared_download(db, receipt, *, download_name, prepared):
         await storage_access.check(
             db, uuid.UUID(receipt.storage_ref["location_id"]), lock=True
         )
-        return export_storage.sign(receipt, download_name=download_name)
+        return await export_execution_context.run_sync(
+            export_storage.sign, receipt, download_name=download_name
+        )
     if (
         not isinstance(prepared, PreparedDownload)
         or prepared.download_name != download_name
@@ -676,7 +692,9 @@ async def sign_cached(
     if hit.read_route is None and hit.output.storage_ref["schema"] == 1:
         if before_sign is not None:
             await before_sign()
-        return export_storage.sign(hit.output, download_name=download_name)
+        return await export_execution_context.run_sync(
+            export_storage.sign, hit.output, download_name=download_name
+        )
     if (
         not isinstance(prepared, PreparedDownload)
         or prepared.read_route != hit.read_route

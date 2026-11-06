@@ -272,23 +272,53 @@ async def run(
     **kwargs,
 ):
     """Persist optional owner evidence before starting registered executor I/O."""
-    async with await acquire(
+    from app.services import export_execution_context
+
+    owner = export_execution_context.current_optional()
+    permit = await acquire(
         db, location_id, purpose, expected_revision=expected_revision, node_id=node_id
-    ) as permit:
-        if on_acquired is not None:
-            await on_acquired(permit)
-        future = asyncio.get_running_loop().run_in_executor(
-            None, copy_context().run, partial(call, *args, **kwargs)
-        )
-        try:
-            if timeout is None:
-                return await asyncio.shield(future)
-            return await asyncio.wait_for(asyncio.shield(future), timeout)
-        except (asyncio.CancelledError, TimeoutError) as interrupted:
-            # Cancellation of an await is not evidence the physical handle closed.
+    )
+    entered, future, failure = False, None, None
+    try:
+        async with permit:
+            if on_acquired is not None:
+                await on_acquired(permit)
+            if owner is not None:
+                await owner.enter_io()
+                entered = True
             try:
-                await finish(future)
-            except BaseException as late:
-                if failure_unsettled(late):
-                    mark_unsettled(interrupted)
-            raise
+                future = asyncio.get_running_loop().run_in_executor(
+                    None, copy_context().run, partial(call, *args, **kwargs)
+                )
+            except BaseException as exc:
+                if owner is not None:
+                    raise mark_unsettled(exc)
+                raise
+            try:
+                if timeout is None:
+                    return await asyncio.shield(future)
+                return await asyncio.wait_for(asyncio.shield(future), timeout)
+            except (asyncio.CancelledError, TimeoutError) as interrupted:
+                try:
+                    await finish(future)
+                except BaseException as late:
+                    if failure_unsettled(late):
+                        mark_unsettled(interrupted)
+                raise
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if (
+            entered
+            and permit._settled
+            and future is not None
+            and future.done()
+            and (failure is None or not failure_unsettled(failure))
+        ):
+            try:
+                await owner.settle_io()
+            except BaseException as closing:
+                if failure is None:
+                    raise
+                failure.add_note(f"Export I/O settlement failed: {closing!r}")

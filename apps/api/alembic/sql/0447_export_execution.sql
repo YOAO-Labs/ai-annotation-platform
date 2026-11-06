@@ -10,6 +10,10 @@ ALTER TABLE aap_export_v1.executions ADD COLUMN checkpoint text
 -- aap-statement-break
 ALTER TABLE aap_export_v1.executions ADD COLUMN business_backend_pid integer;
 -- aap-statement-break
+-- A quiescent operation is physically closed, but a partially built export
+-- is not necessarily replayable. Only pre-I/O loss permits takeover.
+ALTER TABLE aap_export_v1.executions ADD COLUMN ever_entered boolean NOT NULL DEFAULT false;
+-- aap-statement-break
 REVOKE ALL ON aap_export_v1.executions FROM PUBLIC;
 -- aap-statement-break
 CREATE TABLE aap_export_v1.execution_deliveries (
@@ -113,6 +117,7 @@ BEGIN
     SELECT * INTO v_execution FROM aap_export_v1.executions WHERE job_id = p_job FOR UPDATE;
     IF NOT FOUND OR v_execution.project_id <> p_project OR v_execution.state = 'retired'
        OR v_execution.checkpoint IS NULL OR v_execution.checkpoint = 'entered'
+       OR (v_execution.state = 'running' AND v_execution.ever_entered)
        OR NOT EXISTS (SELECT 1 FROM aap_export_v1.execution_deliveries
                       WHERE job_id = p_job AND project_id = p_project AND execution_id = p_delivery) THEN
         RETURN 'blocked';
@@ -121,7 +126,7 @@ BEGIN
     UPDATE aap_export_v1.executions
     SET state = 'running', generation = generation + 1, token = p_token,
         backend_pid = pg_catalog.pg_backend_pid(), business_backend_pid = p_business_pid,
-        checkpoint = 'quiescent'
+        checkpoint = 'quiescent', ever_entered = false
     WHERE job_id = p_job;
     RETURN (CASE WHEN v_execution.run_id IS NULL THEN '' ELSE 'fixture_' END)
         || (CASE WHEN v_takeover THEN 'takeover' ELSE 'started' END);
@@ -138,7 +143,7 @@ BEGIN
         RETURN false;
     END IF;
     UPDATE aap_export_v1.executions
-    SET checkpoint = 'entered'
+    SET checkpoint = 'entered', ever_entered = true
     WHERE job_id = p_job AND state = 'running' AND token = p_token
       AND backend_pid = pg_catalog.pg_backend_pid() AND checkpoint IN ('quiescent', 'entered')
       AND aap_export_v1.session_holds_lock('aap-export:job:', p_job, business_backend_pid);
@@ -147,6 +152,24 @@ END;
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_export_v1.enter_execution_io(uuid,uuid) FROM PUBLIC;
+-- aap-statement-break
+CREATE FUNCTION aap_export_v1.quiesce_execution_io(p_job uuid, p_token uuid)
+RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF NOT aap_export_v1.session_holds_lock('aap-export:control:', p_job, pg_catalog.pg_backend_pid()) THEN
+        RETURN false;
+    END IF;
+    UPDATE aap_export_v1.executions
+    SET checkpoint = 'quiescent'
+    WHERE job_id = p_job AND state = 'running' AND token = p_token
+      AND backend_pid = pg_catalog.pg_backend_pid() AND checkpoint = 'entered'
+      AND aap_export_v1.session_holds_lock('aap-export:job:', p_job, business_backend_pid);
+    RETURN FOUND;
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_export_v1.quiesce_execution_io(uuid,uuid) FROM PUBLIC;
 -- aap-statement-break
 CREATE FUNCTION aap_export_v1.finish_execution(p_job uuid, p_token uuid)
 RETURNS boolean LANGUAGE plpgsql VOLATILE SECURITY DEFINER
@@ -159,7 +182,7 @@ BEGIN
     SET state = 'settled', token = NULL, backend_pid = NULL,
         business_backend_pid = NULL, checkpoint = 'settled'
     WHERE job_id = p_job AND state = 'running' AND token = p_token
-      AND backend_pid = pg_catalog.pg_backend_pid()
+      AND backend_pid = pg_catalog.pg_backend_pid() AND checkpoint = 'quiescent'
       AND aap_export_v1.session_holds_lock('aap-export:job:', p_job, business_backend_pid);
     RETURN FOUND;
 END;

@@ -779,7 +779,7 @@ docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml \
 
 额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` 与 `JOBS_PUBLICATION_DATABASE_URL_FILE`，各文件只含对应专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 使用受限的账本及发布控制函数凭据与 bearer，不持有 broker。业务发布入口也需配置 `JOBS_PUBLICATION_DATABASE_URL` 或 `_FILE`；export worker 另需仅供该 worker 使用的 `EXPORT_EXECUTION_DATABASE_URL` 或 `_FILE`，并使用 Jobs 发布凭据记录其 Celery 重投。不得向 API 授予 Export 执行完成函数或私表写权限。每组直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
 
-发布在调用 broker 前记录物理尝试；未确认的尝试不会因租约到期或进程退出而视为完成。后续有效代次仍可按原消息和全部执行 ID 重投；即使重投成功，旧代次的不确定物理责任仍保留，不能据此清理资源或撤销凭据。Export 执行同样在首次物理读写前记录进入状态，只有持有独立控制会话及业务会话的 worker 才能记录完成。普通导出保留 168 小时策略，fixture 导出的独立保留期限不变。
+发布在调用 broker 前记录物理尝试；未确认的尝试不会因租约到期或进程退出而视为完成。后续有效代次仍可按原消息和全部执行 ID 重投；即使重投成功，旧代次的不确定物理责任仍保留，不能据此清理资源或撤销凭据。Export worker 在实际物理操作前登记进入，只有操作线程排空、资源真实关闭且相关许可确认结算后才回到静止状态；已知关闭后的业务错误可正常结算，未知关闭和会话丢失继续保留责任。丢失中的 generation 只允许在该代从未进入物理操作时安全接续；静止状态不代表可重放已完成的部分复制。普通导出保留 168 小时策略，fixture 导出的独立保留期限不变。
 
 本机已有基础设施时，可用独立 Compose project 复用已核实的网络，不再要求把 Redis
 服务定义合入队列配置。私有 Compose 环境文件还需设置

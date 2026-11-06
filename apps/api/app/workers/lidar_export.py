@@ -5,6 +5,7 @@ protocol, sharing physical, cache and publication fences with image exports.
 """
 
 import logging
+import sys
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -147,27 +148,39 @@ async def _io(
         uuid.UUID(receipt.storage_ref["location_id"]),
         expected_revision=expected_revision,
     )
-    failure, result = None, None
+    failure, result, entered = None, None, False
     try:
-        await export_execution_context.enter_io()
         await transfer._async(fresh(permit.revision))
+        await export_execution_context.enter_io()
+        entered = True
         result = await transfer.physical_work(call)
         await transfer._async(fresh(permit.revision))
     except BaseException as exc:
         failure = exc
     finally:
-        if not getattr(failure, "storage_operation_unsettled", False):
+        if failure is None or not storage_access.failure_unsettled(failure):
             try:
                 await transfer._settle(permit)
             except BaseException as closing:
+                if not permit._settled:
+                    storage_access.mark_unsettled(closing)
                 if failure is None:
                     failure = closing
                 else:
+                    failure.add_note(f"Storage permit settlement failed: {closing!r}")
                     transfer._uncertainty(failure, closing)
         if accounting is not None:
             from app.services import export_zip_accounting
 
             failure = await export_zip_accounting.finish(accounting, failure)
+        if entered and permit._settled and (
+            failure is None or not storage_access.failure_unsettled(failure)
+        ):
+            await export_execution_context.settle_io(failure)
+        elif entered and failure is None:
+            failure = storage_access.mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            )
     if failure is not None:
         raise failure
     return result, permit.revision
@@ -186,7 +199,7 @@ async def _read_io(db, receipt, route, call, *, guard):
         await transfer._async(fresh())
 
     await transfer._async(fresh())
-    await export_execution_context.enter_io()
+    # The routed read owns both physical permits and the execution checkpoint.
     async with transfer._session(db) as owned:
         result = await artifact_reads.run(
             owned, route, transfer.purpose(receipt), call, on_acquired=acquired
@@ -815,7 +828,6 @@ async def run_owned(
             else:
                 await check_cancelled(db, receipt.job_id)
 
-        await export_execution_context.enter_io()
         path, file_count, size = await build_export_zip(
             db,
             receipt.project_id,
@@ -934,6 +946,12 @@ async def run_owned(
             await db.rollback()
         raise
     finally:
-        if path is not None:
-            # Every source/ZIP thread has physically drained before this unlink.
-            Path(path).unlink(missing_ok=True)
+        original = sys.exception()
+        if path is not None and not execution.entered and not execution.unsettled:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except BaseException as closing:
+                if original is None:
+                    raise
+                original.add_note(f"Export temporary ZIP cleanup failed: {closing!r}")
+                raise original

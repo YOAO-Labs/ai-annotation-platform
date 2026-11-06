@@ -674,7 +674,12 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
             self.takeover = False
             self.unsettled = False
             self.entered = False
+            self._active_io = 0
             self.lost = False
+
+        @property
+        def active_io(self):
+            return self._active_io
 
         async def acquire(self, key):
             self.key = key
@@ -683,7 +688,12 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
             assert self.key == f"job:{job_id}" and delivery_id == "test-export"
 
         async def enter_io(self):
+            self._active_io += 1
             self.entered = True
+
+        async def settle_io(self):
+            self._active_io -= 1
+            self.entered = self._active_io != 0
 
     monkeypatch.setattr(worker, "_ExportExecution", IsolatedExecution)
     monkeypatch.setattr(

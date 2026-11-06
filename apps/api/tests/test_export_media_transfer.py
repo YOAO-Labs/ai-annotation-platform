@@ -116,7 +116,7 @@ class Runtime:
                     revision,
                     purpose,
                 )
-                self.settled = False
+                self.settled = self._settled = False
 
             async def _settle(self):
                 runtime.events.append("settle")
@@ -124,7 +124,7 @@ class Runtime:
                 await asyncio.sleep(0)
                 if runtime.settle_failure:
                     raise runtime.settle_failure
-                self.settled = True
+                self.settled = self._settled = True
 
         async def acquire(owned, location, purpose, *, expected_revision=None):
             assert owned in self.sessions and not owned.closed
@@ -220,6 +220,9 @@ class Runtime:
 
     async def enter_io(self):
         self.execution_entries += 1
+
+    async def settle_io(self):
+        self.execution_entries -= 1
 
     def physical(self, event, minimum_permits):
         assert all(session.closed for session in self.sessions)
@@ -344,6 +347,7 @@ async def test_guard_revocation_at_every_boundary_never_returns_delivery(
     assert all(permit.settled for permit in runtime.permits)
     assert all(session.closed for session in runtime.sessions)
     assert transfer._slots._value == 2
+    assert runtime.execution_entries == 0
     if boundary < 6:
         assert not runtime.client.calls
 
@@ -384,6 +388,7 @@ async def test_repeated_cancellation_waits_for_real_work_close_and_keeps_admissi
     assert all(stage.file.closed for stage in runtime.stages)
     assert all(permit.settled for permit in runtime.permits)
     assert transfer._slots._value == 2
+    assert runtime.execution_entries == 0
 
 
 @pytest.mark.parametrize("interrupt", [SoftTimeLimitExceeded, BaseLimit])
@@ -478,6 +483,7 @@ async def test_late_capture_stage_is_closed_before_interruption_can_return(
     )
     assert transfer._slots._value == (1 if unknown_close else 2)
     assert all(permit.settled != unknown_close for permit in runtime.permits)
+    assert runtime.execution_entries == int(unknown_close)
     assert not runtime.output_constructs
 
 
@@ -522,7 +528,23 @@ async def test_unknown_constructor_or_close_keeps_both_ledger_and_admission(
     assert caught.value.storage_operation_unsettled
     assert runtime.permits and not any(permit.settled for permit in runtime.permits)
     assert transfer._slots._value == 1
+    assert runtime.execution_entries == 1
     assert all(stage.file.closed for stage in runtime.stages)
+
+
+async def test_nested_read_and_close_failure_remains_unsettled(runtime):
+    def fail_read(_body):
+        raise ValueError("source read failed")
+
+    runtime.provider.read_hook = fail_read
+    runtime.provider.body_close_error = OSError("source body close failed")
+    with pytest.raises(ExceptionGroup) as caught:
+        await runtime.copy()
+    assert storage_access.failure_unsettled(caught.value)
+    assert any("source read failed" in str(item) for item in caught.value.exceptions)
+    assert any("source body close failed" in str(item) for item in caught.value.exceptions)
+    assert runtime.execution_entries == 1
+    assert not any(permit.settled for permit in runtime.permits)
 
 
 async def test_two_slots_remain_held_through_output_work_and_third_source_gets_no_bytes(
@@ -554,7 +576,23 @@ async def test_settlement_failure_keeps_remaining_responsibility_and_admission(r
     assert failure.value.storage_operation_unsettled
     assert not any(permit.settled for permit in runtime.permits)
     assert transfer._slots._value == 1
+    assert runtime.execution_entries == 1
     assert all(stage.file.closed for stage in runtime.stages)
+
+
+async def test_revocation_preserves_unconfirmed_permit_settlement_error(runtime):
+    runtime.revoke_at = 3
+    runtime.settle_failure = OSError("database settlement uncertain")
+    with pytest.raises(ContentError) as caught:
+        await runtime.copy()
+    assert caught.value.code == "access_revoked"
+    assert storage_access.failure_unsettled(caught.value)
+    assert any(
+        "database settlement uncertain" in note
+        for note in caught.value.__notes__
+    )
+    assert runtime.execution_entries == 1
+    assert not any(permit.settled for permit in runtime.permits)
 
 
 async def test_known_late_settlement_success_continues_remaining_cleanup(runtime):
@@ -702,6 +740,7 @@ async def test_read_copy_rechecks_authority_at_every_boundary(runtime, boundary)
     assert all(permit.settled for permit in runtime.permits)
     assert all(stage.file.closed for stage in runtime.stages)
     assert transfer._slots._value == 2
+    assert runtime.execution_entries == 0
 
 
 async def test_read_copy_repeated_cancellation_keeps_stage_until_callback_really_finishes(
@@ -731,6 +770,7 @@ async def test_read_copy_repeated_cancellation_keeps_stage_until_callback_really
         runtime.release.set()
     assert runtime.stages[0].file.closed and runtime.permits[0].settled
     assert transfer._slots._value == 2
+    assert runtime.execution_entries == 0
 
 
 @pytest.mark.parametrize("where", ["constructor", "client_close", "stage_close"])
@@ -752,6 +792,7 @@ async def test_read_copy_unknown_physical_handles_keep_owner_and_slot(
     assert failure.value.storage_operation_unsettled
     assert len(runtime.permits) == 1 and not runtime.permits[0].settled
     assert transfer._slots._value == 1
+    assert runtime.execution_entries == 1
     assert all(stage.file.closed for stage in runtime.stages)
 
 

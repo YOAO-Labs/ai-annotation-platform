@@ -546,7 +546,7 @@ async def _wait_export_build_gate(test_engine, worker, world, gate_pid) -> dict:
                 (
                     await db.execute(
                         text(
-                            "SELECT state, checkpoint, generation, business_backend_pid "
+                            "SELECT state, checkpoint, generation, business_backend_pid, ever_entered "
                             "FROM aap_export_v1.executions WHERE job_id=:job AND project_id=:project"
                         ),
                         {"job": world["job_id"], "project": world["project_id"]},
@@ -567,6 +567,7 @@ async def _wait_export_build_gate(test_engine, worker, world, gate_pid) -> dict:
             and execution is not None
             and execution["state"] == "running"
             and execution["checkpoint"] == "quiescent"
+            and execution["ever_entered"] is False
         ):
             query = str(activity["query"])
             return {
@@ -1103,6 +1104,24 @@ async def test_export_recovers_after_worker_loss(
             == "FAILURE"
         ), revoked_outcome
         assert "download_url_path" not in revoked_outcome["job"]["result"]
+        async with test_engine.connect() as db:
+            revoked_execution = (
+                await db.execute(
+                    text(
+                        "SELECT state, checkpoint, generation, ever_entered FROM aap_export_v1.executions "
+                        "WHERE job_id=:job AND project_id=:project"
+                    ),
+                    {
+                        "job": world["revoked_job_id"],
+                        "project": world["project_id"],
+                    },
+                )
+            ).mappings().one()
+        assert revoked_execution["state"] == "settled"
+        assert revoked_execution["checkpoint"] == "settled"
+        assert revoked_execution["generation"] == 1
+        assert revoked_execution["ever_entered"] is False
+        observation["queued_revocation"]["execution"] = dict(revoked_execution)
         revoked_ack = await _wait_failure_delivery_ack(
             sender, worker, revoked_delivery_id
         )

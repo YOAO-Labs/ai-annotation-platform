@@ -22,6 +22,7 @@ from app.services import export_media_removal_accounting, storage_presigning
 from app.services.storage_access import (
     close_registered,
     closing_registered,
+    failure_unsettled,
     mark_unsettled,
 )
 
@@ -388,9 +389,9 @@ def _expected(record, owner, relative):
 
 
 def _translate(exc):
-    if isinstance(exc, ExportMediaStorageError) and not getattr(
-        exc, "storage_operation_unsettled", False
-    ):
+    if isinstance(exc, BaseExceptionGroup):
+        return exc
+    if isinstance(exc, ExportMediaStorageError) and not failure_unsettled(exc):
         return exc
     code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
     suffix = (
@@ -401,7 +402,7 @@ def _translate(exc):
         else "unavailable"
     )
     result = ExportMediaStorageError(suffix)
-    if getattr(exc, "storage_operation_unsettled", False):
+    if failure_unsettled(exc):
         mark_unsettled(result)
     return result
 

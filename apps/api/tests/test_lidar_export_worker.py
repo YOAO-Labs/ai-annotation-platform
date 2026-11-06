@@ -75,6 +75,7 @@ class Harness:
         self.notices = []
         self.takeover = False
         self.execution_entries = 0
+        self.unsettled = False
         monkeypatch.setattr(export_execution_context, "current", lambda: self)
 
         async def authorize(db, *_args, **_kwargs):
@@ -177,6 +178,13 @@ class Harness:
 
     async def enter_io(self):
         self.execution_entries += 1
+
+    async def settle_io(self):
+        self.execution_entries -= 1
+
+    @property
+    def entered(self):
+        return self.execution_entries != 0
 
 
 async def request(db, project, *, targets=None, axis_frame=None):
