@@ -776,8 +776,8 @@ class WorkspaceCeleryWorker:
             or parsed.fragment
         ):
             raise ValueError("Verifier supplied an invalid object storage endpoint")
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return f"host.docker.internal{port}"
+        parsed.port
+        return parsed.netloc
 
     def _inspect(self, identity: str, *, required: bool = True) -> dict | None:
         result = subprocess.run(

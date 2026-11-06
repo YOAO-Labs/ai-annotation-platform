@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from contextlib import suppress
+from contextlib import closing, suppress
 from datetime import timedelta
 import hashlib
 import json
@@ -50,7 +50,6 @@ from tests.test_workspace_cross_frame_worker_live import (
 )
 from tests.test_workspace_worker_assembly_live import (
     _broker_state,
-    _delete_owned_queue,
     _wait_broker_ack,
     _wait_worker_ready,
 )
@@ -747,40 +746,6 @@ async def _owned_objects(owner_s3, bucket: str, prefix: str) -> set[str]:
     }
 
 
-def _delete_owned_object_prefix(owner_s3, bucket: str, prefix: str, *, exact=False) -> None:
-    paginator = owner_s3.get_paginator("list_object_versions")
-    versions = []
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        versions.extend(
-            {"Key": item["Key"], "VersionId": item["VersionId"]}
-            for item in page.get("Versions", [])
-            if not exact or item["Key"] == prefix
-        )
-        versions.extend(
-            {"Key": item["Key"], "VersionId": item["VersionId"]}
-            for item in page.get("DeleteMarkers", [])
-            if not exact or item["Key"] == prefix
-        )
-    if not versions:
-        for page in owner_s3.get_paginator("list_objects_v2").paginate(
-            Bucket=bucket, Prefix=prefix
-        ):
-            objects = [
-                {"Key": item["Key"]}
-                for item in page.get("Contents", [])
-                if not exact or item["Key"] == prefix
-            ]
-            if objects:
-                owner_s3.delete_objects(
-                    Bucket=bucket,
-                    Delete={"Objects": objects, "Quiet": True},
-                )
-        return
-    for start in range(0, len(versions), 1000):
-        owner_s3.delete_objects(
-            Bucket=bucket,
-            Delete={"Objects": versions[start : start + 1000], "Quiet": True},
-        )
 
 
 async def _assert_ordinary_output_retention(test_engine, job_id):
@@ -874,17 +839,18 @@ def _send_export(
 
 
 async def test_export_recovers_after_worker_loss(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, request
 ):
     assert test_engine.url.database and str(test_engine.url.database).endswith("_test")
     _verify_postgres(test_engine.url)
     resources, _, owner_s3 = await assert_workspace_identity(test_engine)
+    request.addfinalizer(owner_s3.close)
     export_bucket = resources["buckets"]["MINIO_EXPORT_BUCKET"]
     minio_origin = endpoint_url()
     minio_parts = urlsplit(minio_origin)
     assert minio_parts.scheme in {"http", "https"} and minio_parts.hostname
     world = await _seed_export_world(test_engine)
-    scope, destroy_scope = _create_export_storage_scope(
+    scope, _ = _create_export_storage_scope(
         resources, owner_s3, settings, world
     )
     worker = None
@@ -906,10 +872,10 @@ async def test_export_recovers_after_worker_loss(
             Body=_SOURCE_PNG,
             ContentType="image/png",
         )
-        source_readback = owner_s3.get_object(
-            Bucket=source_bucket,
-            Key=world["source_key"],
-        )["Body"].read()
+        with closing(
+            owner_s3.get_object(Bucket=source_bucket, Key=world["source_key"])["Body"]
+        ) as body:
+            source_readback = body.read()
         assert source_readback == _SOURCE_PNG
         await _verify_export_source(test_engine, world)
         world["job_id"] = await _create_fresh_job(
@@ -1449,7 +1415,7 @@ async def test_export_recovers_after_worker_loss(
         record_property(
             "workspace_export_hard_loss_probe", json.dumps(observation, default=str)
         )
-    except BaseException:
+    except BaseException as primary:
         if worker is not None:
             with suppress(Exception):
                 observation["failure_diagnostics"] = worker.capture_diagnostics()
@@ -1466,110 +1432,55 @@ async def test_export_recovers_after_worker_loss(
                         if worker
                         else type(result.result).__name__,
                     }
-        record_property(
-            "workspace_export_hard_loss_probe", json.dumps(observation, default=str)
-        )
+        try:
+            record_property(
+                "workspace_export_hard_loss_probe", json.dumps(observation, default=str)
+            )
+        except Exception as exc:
+            primary.add_note(f"Could not record failure evidence: {exc!r}")
         raise
     finally:
-        cleanup_outcomes: dict[str, object] = {}
+        primary = sys.exception()
+        cleanup_outcomes = {
+            "retained": "ordinary export execution settlement and delivery fence unproven",
+            "storage_policy": scope["policy"],
+            "bundle_policies": [bundle["policy"] for bundle in owned_bundles],
+            "bundles": [str(bundle["job_id"]) for bundle in owned_bundles],
+            "deliveries": list(deliveries),
+            "worker": worker.container_name if worker is not None else None,
+            "queue": worker.queue if worker is not None else None,
+        }
+        errors = []
         if gate_tx is not None:
-            with suppress(Exception):
-                if worker is not None and worker.container_id is not None:
-                    with suppress(Exception):
-                        worker.kill()
+            try:
                 await gate_tx.rollback()
                 cleanup_outcomes["gate_released"] = True
+            except Exception as exc:
+                errors.append(f"gate rollback: {exc!r}")
         if gate is not None:
-            with suppress(Exception):
+            try:
                 await gate.close()
-        if sender is not None and worker is not None:
-            for delivery_id in deliveries:
-                with suppress(Exception):
-                    sender.control.revoke(
-                        delivery_id,
-                        terminate=True,
-                        destination=[worker.node_name],
-                    )
-        if worker is not None:
-            try:
-                worker.stop()
-                cleanup_outcomes["worker_stopped"] = True
-                cleanup_outcomes["container_id_after_stop"] = worker.container_id
-                cleanup_outcomes["network_id_after_stop"] = worker.network_id
             except Exception as exc:
-                cleanup_outcomes["worker_stop_error"] = type(exc).__name__
-        if sender is not None and worker is not None:
-            try:
-                await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)
-                cleanup_outcomes["queue_deleted"] = True
-            except Exception as exc:
-                cleanup_outcomes["queue_delete_error"] = type(exc).__name__
-            for delivery_id in deliveries:
-                try:
-                    await asyncio.to_thread(sender.AsyncResult(delivery_id).forget)
-                except Exception as exc:
-                    cleanup_outcomes.setdefault("result_forget_errors", {})[
-                        delivery_id
-                    ] = type(exc).__name__
+                errors.append(f"gate close: {exc!r}")
+        if sender is not None:
             try:
                 sender.close()
-                cleanup_outcomes["sender_closed"] = True
             except Exception as exc:
-                cleanup_outcomes["sender_close_error"] = type(exc).__name__
-        if worker is not None and not cleanup_outcomes.get("worker_stopped"):
-            cleanup_outcomes["storage_retained"] = "worker_stop_unproven"
+                errors.append(f"sender close: {exc!r}")
+        cleanup_outcomes["errors"] = errors
+        try:
             record_property(
                 "workspace_export_hard_loss_cleanup",
                 json.dumps(cleanup_outcomes, default=str),
             )
-            raise RuntimeError("Export worker stop was not proven; storage retained")
-        try:
-            _delete_owned_object_prefix(
-                owner_s3, source_bucket, world["source_key"], exact=True
-            )
-            for bundle in owned_bundles:
-                _delete_owned_object_prefix(
-                    owner_s3, export_bucket, bundle["zip_key"], exact=True
-                )
-            for bundle in owned_bundles:
-                _delete_owned_object_prefix(owner_s3, export_bucket, bundle["prefix"])
-            cleanup_outcomes["owned_objects_deleted"] = True
         except Exception as exc:
-            cleanup_outcomes["object_cleanup_error"] = type(exc).__name__
-        from verify_module_data_boundary import _cleanup_mc
-
-        policy_errors = []
-        for bundle in owned_bundles:
-            try:
-                if bundle["attached"]:
-                    _cleanup_mc(
-                        scope,
-                        ["admin", "policy", "detach", "scoped", bundle["policy"], "--user", scope["access_key"]],
-                    )
-                if bundle.get("created"):
-                    _cleanup_mc(scope, ["admin", "policy", "remove", "scoped", bundle["policy"]])
-            except Exception as exc:
-                policy_errors.append(type(exc).__name__)
-        cleanup_outcomes["bundle_policy_errors"] = policy_errors
-        try:
-            destroy_scope(scope)
-            cleanup_outcomes["storage_scope_destroyed"] = True
-        except Exception as exc:
-            cleanup_outcomes["storage_scope_destroy_error"] = type(exc).__name__
-        record_property(
-            "workspace_export_hard_loss_cleanup",
-            json.dumps(cleanup_outcomes, default=str),
+            errors.append(f"record cleanup evidence: {exc!r}")
+        message = (
+            "Retained worker, broker, objects and credentials: ordinary export has no "
+            "durable execution-settlement and delivery-fencing proof for cleanup; "
+            f"cleanup evidence: {cleanup_outcomes}"
         )
-        assert cleanup_outcomes.get("worker_stop_error") is None, cleanup_outcomes
-        assert cleanup_outcomes.get("container_id_after_stop") is None, cleanup_outcomes
-        assert cleanup_outcomes.get("network_id_after_stop") is None, cleanup_outcomes
-        assert cleanup_outcomes.get("queue_delete_error") is None, cleanup_outcomes
-        assert cleanup_outcomes.get("result_forget_errors", {}) == {}, cleanup_outcomes
-        assert cleanup_outcomes.get("sender_close_error") is None, cleanup_outcomes
-        assert cleanup_outcomes.get("object_cleanup_error") is None, cleanup_outcomes
-        assert cleanup_outcomes["bundle_policy_errors"] == [], cleanup_outcomes
-        assert cleanup_outcomes.get("owned_objects_deleted") is True, cleanup_outcomes
-        assert cleanup_outcomes.get("storage_scope_destroy_error") is None, (
-            cleanup_outcomes
-        )
-        assert cleanup_outcomes.get("storage_scope_destroyed") is True, cleanup_outcomes
+        if primary is not None:
+            primary.add_note(message)
+        else:
+            raise RuntimeError(message)
