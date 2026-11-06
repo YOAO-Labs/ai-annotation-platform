@@ -57,6 +57,7 @@ from tests.test_workspace_export_worker_live import (
     _SOURCE_PNG,
     _create_export_storage_scope,
     _seed_export_world,
+    _verify_export_source,
 )
 from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
 from tests.jobs_quality_module_helpers import exercise_quality_dispatch
@@ -736,6 +737,7 @@ async def _exercise_export_dispatch(
             Body=_SOURCE_PNG,
             ContentType="image/png",
         )
+        await _verify_export_source(test_engine, world)
         project_path = f"/api/v1/projects/{world['project_id']}"
         requests = [
             ("project", project_path + "/export?targets=native_json", None),

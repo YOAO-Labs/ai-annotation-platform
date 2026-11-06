@@ -26,13 +26,16 @@ import pytest
 
 from app.config import settings
 from app.db.models.annotation import Annotation
-from app.db.models.async_job import AsyncJob, AsyncJobStatus
+from app.db.models.async_job import AsyncJob
 from app.db.models.dataset import Dataset, DatasetItem
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
+from app.services import legacy_asset_verification
+from app.services.dataset_assets import register_item_asset
+from app.services.exporting import image_jobs
 from tests.factory import create_project, create_user
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
@@ -175,28 +178,6 @@ async def _seed_export_world(test_engine) -> dict:
             was_cancelled=False,
         )
         db.add(annotation)
-        first_job = AsyncJob(
-            id=uuid.uuid4(),
-            kind="export",
-            user_id=reviewer.id,
-            project_id=project.id,
-            status=AsyncJobStatus.PENDING.value,
-            progress_pct=0,
-            payload=_new_job_payload(project),
-            result={},
-        )
-        db.add(first_job)
-        revoked_job = AsyncJob(
-            id=uuid.uuid4(),
-            kind="export",
-            user_id=revoked_reviewer.id,
-            project_id=project.id,
-            status=AsyncJobStatus.PENDING.value,
-            progress_pct=0,
-            payload=_new_job_payload(project),
-            result={},
-        )
-        db.add(revoked_job)
         await db.flush()
 
     return {
@@ -216,9 +197,31 @@ async def _seed_export_world(test_engine) -> dict:
         "task_id": task.id,
         "task_display_id": task.display_id,
         "annotation_id": annotation.id,
-        "job_id": first_job.id,
-        "revoked_job_id": revoked_job.id,
     }
+
+
+async def _verify_export_source(test_engine, world) -> None:
+    """Publish source trust only after real conditional object-store reads."""
+    sessions = async_sessionmaker(test_engine, expire_on_commit=False)
+    async with sessions.begin() as db:
+        item = await db.get(DatasetItem, world["item_id"])
+        assert item is not None and item.dataset_id == world["dataset_id"]
+        assert item.file_path == world["source_key"]
+        assert item.file_size == len(_SOURCE_PNG)
+        await register_item_asset(db, item)
+    observed = await legacy_asset_verification.verify(sessions, world["item_id"])
+    assert observed["status"] == "preview"
+    preview = legacy_asset_verification.Preview.parse(
+        {key: value for key, value in observed.items() if key != "status"}
+    )
+    assert preview.item_id == world["item_id"]
+    assert preview.dataset_id == world["dataset_id"]
+    assert preview.sha256 == hashlib.sha256(_SOURCE_PNG).hexdigest()
+    assert preview.size_bytes == len(_SOURCE_PNG)
+    verified = await legacy_asset_verification.verify(
+        sessions, world["item_id"], expected=preview
+    )
+    assert verified["status"] == "verified"
 
 
 def _create_export_storage_scope(resources, owner_s3, settings, world):
@@ -244,7 +247,7 @@ def _create_export_storage_scope(resources, owner_s3, settings, world):
         "Statement": [
             {
                 "Effect": "Allow",
-                "Action": ["s3:GetObject"],
+                "Action": ["s3:GetObject", "s3:GetObjectVersion"],
                 "Resource": [source_arn],
             },
             {
@@ -638,26 +641,26 @@ async def _wait_failure_delivery_ack(
 
 
 async def _create_fresh_job(
-    test_engine, world, *, opts: dict | None = None
+    test_engine,
+    world,
+    *,
+    opts: dict | None = None,
+    actor_id: uuid.UUID | None = None,
 ) -> uuid.UUID:
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    job_id = uuid.uuid4()
     async with maker.begin() as db:
         project = await db.get(Project, world["project_id"])
         assert project is not None
-        db.add(
-            AsyncJob(
-                id=job_id,
-                kind="export",
-                user_id=world["reviewer_id"],
-                project_id=project.id,
-                status=AsyncJobStatus.PENDING.value,
-                progress_pct=0,
-                payload=_new_job_payload(project, opts),
-                result={},
-            )
+        job, _ = await image_jobs.create_scoped_job(
+            db,
+            project,
+            actor_id=world["reviewer_id"] if actor_id is None else actor_id,
+            payload=_new_job_payload(project, opts),
+            batch_id=None,
+            targets=["native_json"],
+            opts=dict(_TASK_OPTS if opts is None else opts),
         )
-    return job_id
+    return job.id
 
 
 async def _owned_objects(owner_s3, bucket: str, prefix: str) -> set[str]:
@@ -811,6 +814,12 @@ async def test_export_recovers_after_worker_loss(
             Key=world["source_key"],
         )["Body"].read()
         assert source_readback == _SOURCE_PNG
+        await _verify_export_source(test_engine, world)
+        world["job_id"] = await _create_fresh_job(test_engine, world)
+        world["revoked_job_id"] = await _create_fresh_job(
+            test_engine, world, actor_id=world["revoked_reviewer_id"]
+        )
+        observation["world"] = {key: str(value) for key, value in world.items()}
         worker = WorkspaceCeleryWorker(
             test_engine,
             tmp_path,

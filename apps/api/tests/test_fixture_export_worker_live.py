@@ -1,7 +1,9 @@
-"""Real public admission, installed worker and private export expiry.
+"""Real public admission, installed worker and scoped export expiry.
 
 No deadline is shortened by mutation; uncertain workers and ownership evidence
 remain available for recovery if any physical boundary fails.
+The ordinary neighbor keeps its 168-hour birth deadline and delivery through
+private fixture retirement; the test does not accelerate ordinary expiration.
 """
 
 import asyncio
@@ -45,19 +47,21 @@ from tests.seed_owner_support import (
     _read_versions,
     fixture_original_reader,
 )
+from tests.test_asset_storage_cleanup_runtime import _verify_bucket_owner
 from tests.test_fixture_inference_retirement_live import (
     _PreservedSeedOwner,
-    _keep_owner_pipes,
     _login,
     _start_image_worker,
     _start_media_runtime,
-    _stop_known_process,
     _stop_media_runtime,
 )
 from tests.test_workspace_export_worker_live import (
+    _SOURCE_PNG,
     _TASK_NAME,
     _TASK_OPTS,
     _job_snapshot,
+    _seed_export_world,
+    _verify_export_source,
 )
 from tests.test_workspace_worker_assembly_live import (
     _delete_owned_queue,
@@ -85,8 +89,8 @@ pytestmark = [
 _RETAINED_UNCERTAIN = []
 
 
-def _export_writer(resources, store):
-    """Only the verifier's export bucket; no private-source mutation or admin."""
+def _export_writer(resources, store, ordinary):
+    """Export writes and one ordinary source read; no private-source mutation."""
     scope = _cleanup_storage_scope(
         SimpleNamespace(settings=settings, resources=resources, s3=store)
     )
@@ -110,6 +114,14 @@ def _export_writer(resources, store):
                     "s3:AbortMultipartUpload",
                 ],
                 "Resource": [f"arn:aws:s3:::{bucket}/*"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:GetObjectVersion"],
+                "Resource": [
+                    f"arn:aws:s3:::{resources['buckets']['MINIO_DATASETS_BUCKET']}"
+                    f"/{ordinary['source_key']}"
+                ],
             },
         ],
     }
@@ -150,6 +162,61 @@ def _export_writer(resources, store):
         raise
 
 
+async def _wait_export_delivery(engine, sender, worker, job_id, deliveries):
+    async with asyncio.timeout(180):
+        while True:
+            status = await _job_snapshot(engine, job_id)
+            if status["status"] in {"completed", "failed", "cancelled"}:
+                break
+            await asyncio.sleep(0.25)
+    assert status["status"] == "completed", worker.redact(json.dumps(status))
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        job = await db.get(AsyncJob, job_id)
+        delivery, payload = job.celery_task_id, dict(job.payload)
+    assert delivery
+    deliveries.append(delivery)
+    return payload, await _wait_broker_ack(sender, worker, delivery)
+
+
+async def _export_snapshot(engine, job_id):
+    async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+        job = await db.get(AsyncJob, job_id)
+        output = (
+            await db.scalars(select(ExportOutput).where(ExportOutput.job_id == job_id))
+        ).one()
+        bundle = (
+            await db.execute(
+                text(
+                    "SELECT created_at,expires_at,fixture_run_id FROM public.export_media_bundles "
+                    "WHERE id=:bundle AND job_id=:job"
+                ),
+                {"bundle": output.media_bundle_id, "job": job_id},
+            )
+        ).one()
+        assert job.status == "completed"
+        assert output.state == "ready"
+        assert output.expires_at == bundle.expires_at
+        return {
+            "id": output.id,
+            "format": output.format,
+            "fixture_run_id": bundle.fixture_run_id,
+            "version_id": (
+                output.upload_proof["version_id"]
+                if output.upload_proof is not None
+                else None
+            ),
+            "object_key": output.storage_ref["object_key"],
+            "sha256": output.sha256,
+            "size_bytes": output.size_bytes,
+            "created_at": output.created_at,
+            "expires_at": output.expires_at,
+            "bundle_created_at": bundle.created_at,
+            "retention_seconds": (
+                bundle.expires_at - bundle.created_at
+            ).total_seconds(),
+        }
+
+
 async def test_installed_worker_reads_private_original_and_retires_real_delivery(
     fenced_http, test_engine, monkeypatch, tmp_path, record_property
 ):
@@ -158,10 +225,11 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
     )
     monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    owner = suite = keeper = media = worker = sender = scope = owner_log = None
+    owner = suite = media = worker = sender = scope = owner_log = None
     neighbor_suite = None
     store = None
     run_a = run_b = run_c = job_id = None
+    ordinary = ordinary_job_id = None
     deliveries = []
     completed = False
     evidence = {}
@@ -187,7 +255,6 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
             start_new_session=True,
             bufsize=0,
         )
-        keeper = _keep_owner_pipes(process)
         owner = _PreservedSeedOwner(process, owner_log)
         suite = OwnedSuite(owner, uuid.uuid4())
         await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
@@ -224,7 +291,22 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
             Bucket=bucket,
             VersioningConfiguration={"Status": "Enabled"},
         )
-        scope = await asyncio.to_thread(_export_writer, resources, store)
+        ordinary = await _seed_export_world(test_engine)
+        await asyncio.to_thread(
+            _verify_bucket_owner,
+            store,
+            resources["buckets"]["MINIO_DATASETS_BUCKET"],
+            resources["owner"],
+        )
+        await asyncio.to_thread(
+            store.put_object,
+            Bucket=resources["buckets"]["MINIO_DATASETS_BUCKET"],
+            Key=ordinary["source_key"],
+            Body=_SOURCE_PNG,
+            ContentType="image/png",
+        )
+        await _verify_export_source(test_engine, ordinary)
+        scope = await asyncio.to_thread(_export_writer, resources, store, ordinary)
         worker = WorkspaceCeleryWorker(
             test_engine,
             tmp_path,
@@ -253,7 +335,7 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
         accepted = await asyncio.wait_for(
             fenced_http.post(
                 f"/api/v1/projects/{world['project_id']}/export",
-                params={"targets": "native_json"},
+                params=[("targets", "native_json"), ("targets", "coco")],
                 headers=headers,
             ),
             120,
@@ -261,59 +343,34 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
         assert accepted.status_code == 202, accepted.text
         job_id = uuid.UUID(accepted.json()["job_id"])
         sessions = async_sessionmaker(test_engine, expire_on_commit=False)
-        async with sessions() as db:
-            job = await db.get(AsyncJob, job_id)
-            payload = dict(job.payload)
-        async with asyncio.timeout(180):
-            while True:
-                status = await _job_snapshot(test_engine, job_id)
-                if status["status"] in {"completed", "failed", "cancelled"}:
-                    break
-                await asyncio.sleep(0.25)
-        assert status["status"] == "completed", worker.redact(json.dumps(status))
-        async with sessions() as db:
-            delivery = (await db.get(AsyncJob, job_id)).celery_task_id
-        assert delivery
-        deliveries.append(delivery)
-        evidence["broker_ack"] = await _wait_broker_ack(sender, worker, delivery)
-        async with sessions() as db:
-            output = (
-                await db.scalars(
-                    select(ExportOutput).where(ExportOutput.job_id == job_id)
-                )
-            ).one()
-            assert output.state == "ready" and output.upload_proof["version_id"]
-            output_id, proof = output.id, dict(output.upload_proof)
-            object_key, digest = output.storage_ref["object_key"], output.sha256
-            evidence["output"] = {
-                "id": str(output_id),
-                "version_id": proof["version_id"],
-                "sha256": digest,
-            }
-            deadline = await db.scalar(
-                text(
-                    "SELECT expires_at FROM public.export_media_bundles WHERE job_id=:job"
-                ),
-                {"job": job_id},
-            )
-            lifespan = await db.scalar(
-                text(
-                    "SELECT EXTRACT(EPOCH FROM (expires_at-created_at)) FROM public.export_media_bundles WHERE job_id=:job"
-                ),
-                {"job": job_id},
-            )
-            assert lifespan == 900
+        payload, evidence["broker_ack"] = await _wait_export_delivery(
+            test_engine, sender, worker, job_id, deliveries
+        )
+        output = await _export_snapshot(test_engine, job_id)
+        assert output["format"] == "coco,native_json"
+        assert output["retention_seconds"] == 900
+        assert output["fixture_run_id"] == run_a.run_id
+        assert output["version_id"] not in (None, "", "null")
+        output_id, version_id = output["id"], output["version_id"]
+        object_key, digest = output["object_key"], output["sha256"]
+        deadline = output["expires_at"]
+        evidence["output"] = output
         response = await asyncio.to_thread(
             store.get_object,
             Bucket=bucket,
             Key=object_key,
-            VersionId=proof["version_id"],
+            VersionId=version_id,
         )
         with closing(response["Body"]) as body:
             archive_bytes = body.read()
         assert hashlib.sha256(archive_bytes).hexdigest() == digest
         with ZipFile(BytesIO(archive_bytes)) as archive:
             images = json.loads(archive.read("images_manifest.json"))["images"]
+            native = json.loads(archive.read("native_json/annotations.json"))
+            coco = json.loads(archive.read("coco/annotations.json"))
+            paths = {image["archive_path"] for image in images}
+            assert {task["file_path"] for task in native["tasks"]} == paths
+            assert {image["file_name"] for image in coco["images"]} == paths
         assert {image["task_id"] for image in images} == set(world["task_ids"])
         expected_images = {
             hashlib.sha256(value).hexdigest(): value for value in bytes_a.values()
@@ -325,6 +382,53 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
                 assert delivered.status_code == 200
                 assert delivered.content == expected_images[image["sha256"]]
                 assert len(delivered.content) == image["size_bytes"]
+        ordinary_headers = await _login(
+            owner, {"admin_email": ordinary["reviewer_email"]}
+        )
+        ordinary_accepted = await asyncio.wait_for(
+            fenced_http.post(
+                f"/api/v1/projects/{ordinary['project_id']}/export",
+                params={"targets": "native_json"},
+                headers=ordinary_headers,
+            ),
+            120,
+        )
+        assert ordinary_accepted.status_code == 202, ordinary_accepted.text
+        ordinary_job_id = uuid.UUID(ordinary_accepted.json()["job_id"])
+        _, evidence["ordinary_broker_ack"] = await _wait_export_delivery(
+            test_engine, sender, worker, ordinary_job_id, deliveries
+        )
+        ordinary_output = await _export_snapshot(test_engine, ordinary_job_id)
+        assert ordinary_output["retention_seconds"] == 168 * 60 * 60
+        assert ordinary_output["format"] == "native_json"
+        assert ordinary_output["fixture_run_id"] is None
+        ordinary_response = await asyncio.to_thread(
+            store.get_object,
+            Bucket=bucket,
+            Key=ordinary_output["object_key"],
+        )
+        ordinary_version = ordinary_response["VersionId"]
+        assert ordinary_version not in ("", "null")
+        evidence["ordinary_observed_version"] = ordinary_version
+        with closing(ordinary_response["Body"]) as body:
+            ordinary_archive = body.read()
+        assert hashlib.sha256(ordinary_archive).hexdigest() == ordinary_output["sha256"]
+        with ZipFile(BytesIO(ordinary_archive)) as archive:
+            ordinary_native = json.loads(archive.read("annotations.json"))
+            ordinary_images = json.loads(archive.read("images_manifest.json"))["images"]
+        assert {image["task_id"] for image in ordinary_images} == {
+            str(ordinary["task_id"])
+        }
+        assert (
+            ordinary_native["tasks"][0]["task_match"]["display_id"]
+            == ordinary["task_display_id"]
+        )
+        assert ordinary_native["tasks"][0]["annotations"][0]["class_name"] == "car"
+        async with httpx.AsyncClient(trust_env=False, timeout=30) as consumer:
+            ordinary_source = await consumer.get(ordinary_images[0]["presigned_url"])
+            assert ordinary_source.status_code == 200
+            assert ordinary_source.content == _SOURCE_PNG
+        evidence["ordinary_output"] = ordinary_output
         early = await asyncio.wait_for(_cleanup_owned(owner, run_a), 120)
         assert early.status_code == 409, early.text
         assert early.json()["detail"]["code"] == "fixture_export_retirement_unsettled"
@@ -341,7 +445,7 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
                 store.head_object,
                 Bucket=bucket,
                 Key=object_key,
-                VersionId=proof["version_id"],
+                VersionId=version_id,
             )
         assert missing.value.response["Error"]["Code"] in {
             "404",
@@ -383,31 +487,43 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
         retired_b = await asyncio.wait_for(_cleanup_owned(owner, run_b), 120)
         assert retired_b.status_code == 200, retired_b.text
         await asyncio.wait_for(neighbor_suite.finish(), 120)
+        assert await _export_snapshot(test_engine, ordinary_job_id) == ordinary_output
+        ordinary_preserved = await asyncio.to_thread(
+            store.get_object,
+            Bucket=bucket,
+            Key=ordinary_output["object_key"],
+        )
+        assert ordinary_preserved["VersionId"] == ordinary_version
+        with closing(ordinary_preserved["Body"]) as body:
+            assert body.read() == ordinary_archive
+        async with httpx.AsyncClient(trust_env=False, timeout=30) as consumer:
+            ordinary_source = await consumer.get(ordinary_images[0]["presigned_url"])
+            assert ordinary_source.status_code == 200
+            assert ordinary_source.content == _SOURCE_PNG
+        evidence["ordinary_survives_fixture_retirement"] = True
+        worker.stop()
+        await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)
+        for delivery in deliveries:
+            await asyncio.to_thread(sender.AsyncResult(delivery).forget)
+        sender.close()
+        await asyncio.to_thread(_destroy_cleanup_storage_scope, scope)
+        await owner.shutdown_authority(neighbor_suite.suite_id)
+        owner.process.stdin.close()
+        await asyncio.to_thread(owner.process.wait, timeout=30)
+        assert owner.process.returncode == 0
+        owner_log.close()
+        await _stop_media_runtime(media)
+        await routing.__aexit__(None, None, None)
+        store.close()
         record_property("installed_private_export", json.dumps(evidence, default=str))
         completed = True
     finally:
-        if completed:
-            worker.stop()
-            await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)
-            for delivery in deliveries:
-                await asyncio.to_thread(sender.AsyncResult(delivery).forget)
-            sender.close()
-            await asyncio.to_thread(_destroy_cleanup_storage_scope, scope)
-            await _stop_known_process(keeper)
-            owner.process.stdin.close()
-            await asyncio.to_thread(owner.process.wait, timeout=30)
-            assert owner.process.returncode == 0
-            owner_log.close()
-            await _stop_media_runtime(media)
-            await routing.__aexit__(None, None, None)
-            store.close()
-        else:
+        if not completed:
             _RETAINED_UNCERTAIN.append(
                 (
                     owner,
                     suite,
                     neighbor_suite,
-                    keeper,
                     media,
                     worker,
                     sender,
@@ -427,8 +543,9 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
                 f"suite={suite.suite_id if suite else None} "
                 f"neighbor_suite={neighbor_suite.suite_id if neighbor_suite else None} "
                 f"runs={run_a},{run_b},{run_c} job={job_id} "
+                f"ordinary_project={ordinary['project_id'] if ordinary else None} ordinary_job={ordinary_job_id} "
                 f"worker={worker.container_id if worker else None} owner_pid={owner.process.pid if owner else None} "
-                f"keeper_pid={keeper.pid if keeper else None} media_pid={media.control_process.pid if media else None}; "
+                f"media_pid={media.control_process.pid if media else None}; "
                 "no forced cleanup attempted",
                 flush=True,
             )
