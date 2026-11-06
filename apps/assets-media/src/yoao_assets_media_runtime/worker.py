@@ -444,6 +444,10 @@ class MediaExecutor:
                 try:
                     await self.source_cache.verify_current(verified, source_storage)
                 except MediaFailure as exc:
+                    from .original_read import fixture_upload_was_started
+
+                    if fixture_upload_was_started():
+                        raise
                     if getattr(exc, "storage_operation_unsettled", False):
                         raise
                     if exc.code == "object_missing":
@@ -465,6 +469,10 @@ class MediaExecutor:
                     ),
                 )
                 assert isinstance(result, WorkOutcome)
+                from .original_read import fixture_upload_was_started
+
+                if fixture_upload_was_started() and result.outcome != "published":
+                    raise RuntimeError("fixture media publication was not proven")
                 return result
 
     async def _upload_artifact(self, artifact: ProcessedArtifact) -> None:

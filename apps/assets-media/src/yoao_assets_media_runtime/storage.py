@@ -361,6 +361,9 @@ class S3MediaStorage:
             raise MediaFailure("invalid_response")
         digest = _sha256_file(path)
         byte_size = path.stat().st_size
+        from .original_read import fixture_upload_started
+
+        fixture_upload_started()
         try:
             self._client.upload_file(
                 str(path),
