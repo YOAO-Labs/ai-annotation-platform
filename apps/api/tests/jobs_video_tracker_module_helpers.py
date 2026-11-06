@@ -904,7 +904,10 @@ async def exercise_video_tracker_queue_and_restore(
     from tests.test_workspace_video_tracker_worker_live import (
         _tracker_fixture_bridge,
     )
-    from tests.test_video_window_recovery_live import _bbox_artifact
+    from tests.test_video_window_recovery_live import (
+        _bbox_artifact,
+        _checkpoint_cpu_backend,
+    )
     from tests.test_workspace_worker_assembly_live import _broker_state
 
     assert test_engine.url.database and str(test_engine.url.database).endswith("_test")
