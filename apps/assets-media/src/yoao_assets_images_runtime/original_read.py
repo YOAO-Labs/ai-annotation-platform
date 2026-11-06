@@ -5,8 +5,16 @@ from __future__ import annotations
 import asyncio
 import builtins
 from contextlib import asynccontextmanager
+from contextvars import ContextVar
 
 from yoao_assets_images import contract as c
+
+
+_fixture_original_active = ContextVar("image_fixture_original_active", default=False)
+
+
+def fixture_original_active():
+    return _fixture_original_active.get()
 
 
 def _unsettled(failure):
@@ -53,12 +61,14 @@ async def admitted_original(database, storage, operation, request, finish_operat
     if not isinstance(permit, c.OriginalRead):
         raise c.ImageFailure("invalid_response")
     failure = None
+    context = _fixture_original_active.set(permit.ownership == "fixture")
     try:
         yield storage.bind_original(permit)
     except BaseException as exc:
         failure = exc
         raise
     finally:
+        _fixture_original_active.reset(context)
         if permit.ownership == "fixture" and not _unsettled(failure):
             try:
                 await _finish(database, finish_operation, permit)

@@ -277,8 +277,11 @@ async def _job_storage_call(heartbeat, operation, /, *args, **kwargs):
     try:
         async with asyncio.timeout_at(heartbeat.deadline):
             result = await operation(*args, **kwargs)
-    except TimeoutError:
-        raise ImageFailure("timeout") from None
+    except TimeoutError as exc:
+        failure = ImageFailure("timeout")
+        if getattr(exc.__cause__, "storage_operation_unsettled", False):
+            failure.storage_operation_unsettled = True
+        raise failure from None
     heartbeat.check()
     return result
 

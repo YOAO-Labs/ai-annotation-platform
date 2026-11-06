@@ -10,6 +10,7 @@ import hashlib
 import logging
 from pathlib import Path
 import re
+import sys
 from typing import AsyncIterator, Protocol
 from urllib.parse import parse_qsl
 
@@ -48,6 +49,15 @@ _IMAGE_GENERATION_KEY = re.compile(
 _HASH_CHUNK_BYTES = 1024 * 1024
 _S3_LIST_PAGE_SIZE = 1000
 _HTTPX_REQUEST_LOG_FORMAT = 'HTTP Request: %s %s "%s %d %s"'
+
+
+def _mark_fixture_upload_uncertain(failure):
+    from .original_read import fixture_original_active
+
+    if fixture_original_active():
+        failure.storage_operation_unsettled = True
+    return failure
+
 
 
 def _has_sigv4_query(url: httpx.URL) -> bool:
@@ -369,14 +379,33 @@ class S3ImageStorage:
             ):
                 raise ImageFailure("upload_verification_failed")
             return Artifact(key=key, byte_size=info.st_size, sha256=digest)
-        except ImageFailure:
-            raise
-        except asyncio.CancelledError:
+        except (ImageFailure, asyncio.CancelledError) as exc:
+            _mark_fixture_upload_uncertain(exc)
             raise
         except Exception:
-            raise ImageFailure("storage_unavailable") from None
+            raise _mark_fixture_upload_uncertain(
+                ImageFailure("storage_unavailable")
+            ) from None
         finally:
-            await body.aclose()
+            failure = sys.exception()
+            try:
+                await body.aclose()
+            except BaseException as close_error:
+                from .original_read import fixture_original_active
+
+                if not fixture_original_active():
+                    raise
+                _mark_fixture_upload_uncertain(close_error)
+                if isinstance(failure, asyncio.CancelledError):
+                    _mark_fixture_upload_uncertain(failure)
+                    raise failure from close_error
+                if failure is not None:
+                    combined = BaseExceptionGroup(
+                        "Image upload and stream close both failed", [failure, close_error]
+                    )
+                    _mark_fixture_upload_uncertain(combined)
+                    raise combined from None
+                raise
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str:
         _validate_cache_key(key)
