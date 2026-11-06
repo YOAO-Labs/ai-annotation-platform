@@ -152,15 +152,17 @@ def _descendant_outcomes(signalled, *, reap):
     return outcomes
 
 
-def _drain_consumer(child, tracked):
-    """Request cooperative exit and prove the exact group and descendants exited."""
+def _drain_consumer(child, tracked, *, request_stop=True):
+    """Observe exact exit; only interrupted/failed consumers need a stop request."""
     capture_failure = None
     try:
         _track_consumer_descendants(child.pid, tracked)
         _track_group_members(child.pid, tracked)
     except Exception as error:
         capture_failure = error
-    signalled = _signal_consumer(child.pid, tracked, signal.SIGTERM)
+    signalled = (
+        _signal_consumer(child.pid, tracked, signal.SIGTERM) if request_stop else {}
+    )
     deadline = time.monotonic() + 3
     while _group_live(child.pid) or any(_pidfd_live(fd) for fd in tracked.values()):
         if time.monotonic() >= deadline:
@@ -169,7 +171,7 @@ def _drain_consumer(child, tracked):
             # a deadline as physical settlement.
             unsettled.child = child
             unsettled.pidfds = tracked
-            unsettled.descendant_outcomes = _descendant_outcomes(signalled, reap=False)
+            unsettled.descendant_outcomes = _descendant_outcomes(tracked, reap=False)
             observed = os.waitid(
                 os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
             )
@@ -211,7 +213,7 @@ def _drain_consumer(child, tracked):
     return result
 
 
-def run_product(command, environment, api, relay, *, cwd):
+def run_product(command, environment, api, relay, *, cwd, web=None):
     tracked = {}
     observed = None
     retain = False
@@ -234,6 +236,8 @@ def run_product(command, environment, api, relay, *, cwd):
                 if interrupted_by is not None:
                     raise InterruptedError(f"raster_consumer_signal_{interrupted_by}")
                 _track_consumer_descendants(child.pid, tracked)
+                if web is not None:
+                    web.observe()
                 observed = os.waitid(
                     os.P_PID, child.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT
                 )
@@ -249,7 +253,16 @@ def run_product(command, environment, api, relay, *, cwd):
         except BaseException as error:
             failure = error
         try:
-            result = _drain_consumer(child, tracked)
+            result = _drain_consumer(
+                child,
+                tracked,
+                request_stop=(
+                    failure is not None
+                    or observed is None
+                    or observed.si_code != os.CLD_EXITED
+                    or observed.si_status != 0
+                ),
+            )
         except BaseException as error:
             retain = True
             _unsettled_consumers.append((child, tracked))

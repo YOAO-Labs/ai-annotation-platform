@@ -100,11 +100,14 @@ class RasterConsumerShutdownTests(unittest.TestCase):
                 "time.sleep(60)"
             )
             consumer = (
-                "import pathlib, subprocess, sys, time; "
-                "subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]], start_new_session=True); "
+                "import os, pathlib, subprocess, sys, time; "
+                "child = subprocess.Popen([sys.executable, '-c', sys.argv[1], sys.argv[2]], start_new_session=True); "
                 "path = pathlib.Path(sys.argv[2]); "
                 "exec('while not path.exists():\\n time.sleep(0.01)'); "
-                "time.sleep(0.6)"
+                "time.sleep(0.6); "
+                "child.terminate(); "
+                "os.waitid(os.P_PID, child.pid, os.WEXITED | os.WNOWAIT); "
+                "os._exit(0)"
             )
             try:
                 with self.assertRaises(ContractError) as raised:
@@ -202,6 +205,85 @@ os._exit(0)
                     with self.assertRaises(ChildProcessError):
                         os.waitpid(int(marker.read_text()), os.WNOHANG)
                     require_no_children()
+                finally:
+                    if marker.exists():
+                        self.stop_adopted(int(marker.read_text()))
+                    while _unsettled_consumers:
+                        child, tracked = _unsettled_consumers.pop()
+                        child.wait(timeout=2)
+                        for descriptor in tracked.values():
+                            os.close(descriptor)
+
+    def test_successful_leader_observes_live_children_without_signalling(self):
+        import raster_consumer_process as consumer
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        old = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(old), 0, 0, 0), 0)
+        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
+        self.addCleanup(libc.prctl, 36, old.value, 0, 0, 0)
+        grandchild = """
+import os, pathlib, signal, sys, time
+root = pathlib.Path(sys.argv[1])
+def interrupted(signum, frame):
+    (root / "unexpected-signal").write_text(str(signum))
+    sys.exit(17)
+signal.signal(signal.SIGTERM, interrupted)
+parent = os.getppid()
+(root / "pid").write_text(str(os.getpid()))
+while os.getppid() == parent:
+    time.sleep(0.01)
+time.sleep(0.3 if sys.argv[2] == "natural" else 60)
+"""
+        leader = """
+import os, pathlib, subprocess, sys, time
+subprocess.Popen(
+    [sys.executable, "-c", sys.argv[1], sys.argv[2], sys.argv[3]],
+    start_new_session=True,
+)
+while not (pathlib.Path(sys.argv[2]) / "captured").exists():
+    time.sleep(0.01)
+os._exit(0)
+"""
+        for mode in ("natural", "stuck"):
+            with (
+                self.subTest(mode=mode),
+                tempfile.TemporaryDirectory(prefix="raster-natural-close-") as root,
+            ):
+                marker = Path(root) / "pid"
+                capture = consumer._track_consumer_descendants
+
+                def release_captured_child(root_pid, tracked):
+                    capture(root_pid, tracked)
+                    if marker.exists() and int(marker.read_text()) in tracked:
+                        (Path(root) / "captured").touch()
+
+                try:
+                    with patch.object(
+                        consumer, "_track_consumer_descendants", release_captured_child
+                    ):
+                        command = [sys.executable, "-c", leader, grandchild, root, mode]
+                        if mode == "natural":
+                            self.assertEqual(
+                                run_product(
+                                    command, dict(os.environ), None, None, cwd=root
+                                ),
+                                0,
+                            )
+                            with self.assertRaises(ChildProcessError):
+                                os.waitpid(int(marker.read_text()), os.WNOHANG)
+                        else:
+                            with self.assertRaises(ContractError) as raised:
+                                run_product(
+                                    command, dict(os.environ), None, None, cwd=root
+                                )
+                            self.assertEqual(
+                                str(raised.exception), "raster_consumer_group_unsettled"
+                            )
+                            pid = int(marker.read_text())
+                            self.assertEqual(os.waitpid(pid, os.WNOHANG), (0, 0))
+                            self.assertIn(pid, _unsettled_consumers[-1][1])
+                    self.assertFalse((Path(root) / "unexpected-signal").exists())
                 finally:
                     if marker.exists():
                         self.stop_adopted(int(marker.read_text()))

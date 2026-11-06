@@ -42,6 +42,7 @@ from fixture_store import (  # noqa: E402
     verify_prerequisites,
 )
 from raster_consumer_process import run_product  # noqa: E402
+from raster_web_process import RasterWebServer  # noqa: E402
 from storage_s3_contract import ContractError, require  # noqa: E402
 from verify_storage_candidates import Owner, command, host_port, private_write  # noqa: E402
 from worktree_env import load_identity, state_path, topology  # noqa: E402
@@ -1234,24 +1235,28 @@ def inside_with_inference(path, arguments, inference):
             )
             require(time.monotonic() < deadline, "raster_api_start_timeout")
             time.sleep(0.1)
-        result = run_product(
-            [
-                "pnpm",
-                "exec",
-                "playwright",
-                "test",
-                "--config=playwright.mask-product.config.ts",
-                "e2e/tests/raster-mask-native.spec.ts",
-                "e2e/tests/mask-advanced-operations.spec.ts",
-                "e2e/tests/mask-editor.spec.ts",
-                "--project=chromium",
-                *arguments,
-            ],
-            browser_environment,
-            api,
-            relay,
-            cwd=ROOT / "apps/web",
-        )
+        with RasterWebServer(
+            browser_environment, cwd=ROOT / "apps/web", preview=True
+        ) as web:
+            result = run_product(
+                [
+                    "pnpm",
+                    "exec",
+                    "playwright",
+                    "test",
+                    "--config=playwright.mask-product.config.ts",
+                    "e2e/tests/raster-mask-native.spec.ts",
+                    "e2e/tests/mask-advanced-operations.spec.ts",
+                    "e2e/tests/mask-editor.spec.ts",
+                    "--project=chromium",
+                    *arguments,
+                ],
+                browser_environment,
+                api,
+                relay,
+                cwd=ROOT / "apps/web",
+                web=web,
+            )
     except BaseException as error:
         failure = error
         retain_unsettled("raster_consumer_shutdown_failed")
@@ -1351,25 +1356,29 @@ def inside_with_inference(path, arguments, inference):
     socket_path.unlink()
     socket_dir.rmdir()
     browser_environment.pop("PLAYWRIGHT_RASTER_FIXTURE_SOCKET")
-    result = run_product(
-        [
-            "pnpm",
-            "exec",
-            "playwright",
-            "test",
-            "--config=playwright.browser-integration.config.ts",
-            "--project=chromium",
-            *arguments,
-        ],
-        browser_environment,
-        None,
-        None,
-        cwd=ROOT / "apps/web",
-    )
     try:
+        with RasterWebServer(
+            browser_environment, cwd=ROOT / "apps/web", preview=False
+        ) as web:
+            result = run_product(
+                [
+                    "pnpm",
+                    "exec",
+                    "playwright",
+                    "test",
+                    "--config=playwright.browser-integration.config.ts",
+                    "--project=chromium",
+                    *arguments,
+                ],
+                browser_environment,
+                None,
+                None,
+                cwd=ROOT / "apps/web",
+                web=web,
+            )
         require_no_children()
     except BaseException as error:
-        retain_unsettled("raster_consumer_descendants_still_running")
+        retain_unsettled("raster_final_browser_shutdown_failed")
         errors = [error, *shutdown_failures]
         if result:
             errors.insert(0, RuntimeError(f"raster_consumer_exit_{result}"))
@@ -1407,6 +1416,8 @@ def failure_evidence(error):
         value["children_live"] = error.children_live
     if hasattr(error, "api_outcome"):
         value["api_outcome"] = error.api_outcome
+    if hasattr(error, "web_outcome"):
+        value["web_outcome"] = error.web_outcome
     if isinstance(error, OSError) and error.errno is not None:
         value["errno"] = error.errno
     if error.__cause__ is not None:

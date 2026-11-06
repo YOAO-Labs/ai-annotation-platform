@@ -41,9 +41,11 @@ CI 功能用例最多重试一次；视觉基线不重试，压力用例最多�
 Mask 场景用 `@mask-native`／`@mask-readonly` 标签按
 `PLAYWRIGHT_RASTER_MASK_MATRIX` 选择，未指定矩阵时不选这两组标签；不要用条件
 `test.skip` 把另一部署开关下的场景混入当前选集。`test:e2e:mask-native` 先构建
-产品，再用 `playwright.mask-product.config.ts` 验证真实 API 和 `vite preview`；
-源码 Worker 由 `playwright.browser-integration.config.ts` 单独启动 Vite、独立报告，
+产品，再用 `playwright.mask-product.config.ts` 验证真实 API 和 Vite preview；
+源码 Worker 使用 `playwright.browser-integration.config.ts` 独立报告，
 不需要 API、认证或数据库，也不能代替构建产物的保存和恢复证据。
+两阶段的 Vite 都由 Raster 启动器直接管理，配置不再自行启动 `webServer`；
+收尾通过私有控制管道等待真实 `server.close()` 和准确进程退出，不向整个进程组发信号。
 该入口在启动 API、浏览器前准备专用版本化存储及故障夹具。测试进程仅持有本次
 suite 的本地夹具通道和公开 manifest 路径；数据库 owner、连接器密钥与存储写入
 凭据只进入启动器、受限 API 和私有夹具进程。通道限制为本 suite 的固定夹具
