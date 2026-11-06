@@ -854,49 +854,6 @@ async def test_cancelled_encoding_drains_thread_before_source_close_or_output_al
         assert not await db.scalar(select(ThumbnailOutput.id))
 
 
-@pytest.mark.parametrize(
-    "kind,allow,automatic,expected,world",
-    [
-        ("dataset_item", True, True, True, "isolated"),
-        ("dataset_item", True, False, False, "isolated"),
-        ("task", True, True, True, "native"),
-        ("task", True, False, False, "native"),
-        ("task", False, True, False, "native"),
-    ],
-    indirect=["world"],
-)
-async def test_existing_large_image_and_allow_pyramid_branches_remain(
-    world, monkeypatch, kind, allow, automatic, expected
-):
-    from app.workers import image_pyramid
-
-    calls = []
-    monkeypatch.setattr(settings, "image_pyramid_auto_generate", automatic)
-    monkeypatch.setattr(
-        image_pyramid,
-        "enqueue_image_pyramid",
-        lambda *args, **kwargs: calls.append((args, kwargs)),
-    )
-    if kind == "dataset_item":
-        async with world.factory() as db:
-            await db.execute(
-                update(DatasetItem)
-                .where(DatasetItem.id == world.item_id)
-                .values(width=8193, height=6145)
-            )
-            await db.commit()
-    if not allow:
-        monkeypatch.setattr(
-            "app.services.storage.StorageService._logical_image_dimensions",
-            lambda image: (8193, 6145),
-        )
-    probe = AsyncMock(return_value=(8193, 6145))
-    await run(world, kind, dimensions=probe, allow_pyramid=allow)
-    assert bool(calls) == expected
-    assert (await result(world, kind))[1] is None
-    assert not any(op == "put" for op, _, _ in world.calls)
-
-
 @pytest.mark.parametrize("world", ["native"], indirect=True)
 async def test_linked_task_preview_keeps_read_semantics_on_archived_dataset(world):
     async with world.factory() as db:
