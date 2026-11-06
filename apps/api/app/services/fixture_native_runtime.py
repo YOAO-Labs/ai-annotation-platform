@@ -573,15 +573,18 @@ class FixtureNativeRuntime:
         self._journal(run, "producers_stopped")
 
     async def retire_datasets(self, db, run_id, dataset_ids):
+        """Record completion only after the caller's transaction commits."""
         from app.services.fixture_media_retirement import retire_dataset
 
         run = self.runs[run_id]
         state = run["journal"]["state"]
         if state in {"datasets_retired", "proxy_stopped", "reader_retired", "native_proven", "anchors_retired", "target_retired"}:
+            await db.commit()
             return
         _require(state == "producers_stopped", "fixture_native_run_unsettled")
         for dataset_id in dataset_ids:
             await _settled(asyncio.create_task(retire_dataset(db, run_id, dataset_id, run["control_url"], native_cleanup_file=run["target"]["cleanup_file"])))
+        await db.commit()
         self._journal(run, "datasets_retired")
 
     async def retire_roles(self, run_id):

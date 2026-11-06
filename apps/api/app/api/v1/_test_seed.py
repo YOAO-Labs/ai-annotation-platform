@@ -1762,7 +1762,6 @@ async def _cleanup_owned_e2e_fixtures(
             if not native_runtime.video_scope_prepared(run_id):
                 await _prepare_fixture_native_video_cleanup(db, scope, native_runtime, run_id)
             await native_runtime.retire_datasets(db, run_id, scope.dataset_ids)
-            await db.commit()
             await native_runtime.retire_roles(run_id)
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
