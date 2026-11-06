@@ -145,6 +145,12 @@ async def _settled_thread(call, *args):
         try:
             task.result()
         except BaseException as late:
+            if owner is not None and late is not interrupted:
+                failure = BaseExceptionGroup(
+                    "Export hashing and drained physical work failed",
+                    [interrupted, late],
+                )
+                raise failure from None
             if storage_access.failure_unsettled(late):
                 storage_access.mark_unsettled(interrupted)
         raise

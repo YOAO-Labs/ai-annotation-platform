@@ -1300,32 +1300,41 @@ async def _run_export(
                             )
                         except BaseException as closing:
                             cleanup_failure = closing
-                            if original is not None:
-                                original.add_note(f"Export cache cleanup failed: {closing!r}")
+                            storage_access.mark_unsettled(closing)
                         finally:
                             lock_client = None
                     if execution.token is not None:
                         try:
-                            if execution.unsettled or execution.entered or (
-                                original is not None
-                                and storage_access.failure_unsettled(original)
+                            if (
+                                execution.unsettled
+                                or execution.entered
+                                or cleanup_failure is not None
+                                or (
+                                    original is not None
+                                    and storage_access.failure_unsettled(original)
+                                )
                             ):
                                 raise ExportExecutionLost("export physical work is unsettled")
                             await db.rollback()
                             await execution.finish(job_uuid)
                         except BaseException as closing:
-                            if original is not None:
-                                original.add_note(f"Export execution settlement failed: {closing!r}")
-                                raise original
-                            if cleanup_failure is not None:
-                                cleanup_failure.add_note(
-                                    f"Export execution settlement failed: {closing!r}"
-                                )
-                                raise cleanup_failure
+                            storage_access.mark_unsettled(closing)
+                            failures = [
+                                failure
+                                for failure in (original, cleanup_failure, closing)
+                                if failure is not None
+                            ]
+                            if len(failures) > 1:
+                                raise BaseExceptionGroup(
+                                    "Export execution and settlement failed", failures
+                                ) from None
                             raise
                     if cleanup_failure is not None:
                         if original is not None:
-                            raise original
+                            raise BaseExceptionGroup(
+                                "Export operation and cache cleanup failed",
+                                [original, cleanup_failure],
+                            ) from None
                         raise cleanup_failure
                 finally:
                     export_execution_context.reset(context_token)
@@ -1339,9 +1348,10 @@ async def _run_export(
                 disposal_errors.append(closing)
         if disposal_errors:
             if original is not None:
-                for closing in disposal_errors:
-                    original.add_note(f"Export database cleanup failed: {closing!r}")
-                raise original
+                raise BaseExceptionGroup(
+                    "Export operation and database cleanup failed",
+                    [original, *disposal_errors],
+                ) from None
             if len(disposal_errors) == 1:
                 raise disposal_errors[0]
             raise BaseExceptionGroup("Export database cleanup failed", disposal_errors)

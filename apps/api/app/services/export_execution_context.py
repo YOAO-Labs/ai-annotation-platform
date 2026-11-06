@@ -62,12 +62,17 @@ async def enter_io():
 
 
 async def settle_io(primary=None):
+    from app.services import storage_access
+
     try:
         await current().settle_io()
     except BaseException as closing:
+        storage_access.mark_unsettled(closing)
         if primary is None:
             raise
-        primary.add_note(f"Export I/O settlement failed: {closing!r}")
+        raise BaseExceptionGroup(
+            "Export operation and I/O settlement failed", [primary, closing]
+        ) from None
 
 
 async def run_sync(call, *args, **kwargs):
@@ -93,8 +98,11 @@ async def run_sync(call, *args, **kwargs):
             try:
                 await storage_access.finish(future)
             except BaseException as later:
-                if storage_access.failure_unsettled(later):
-                    storage_access.mark_unsettled(exc)
+                if later is not exc:
+                    failure = BaseExceptionGroup(
+                        "Export operation and drained physical work failed", [exc, later]
+                    )
+                    raise failure from None
         raise
     finally:
         if (

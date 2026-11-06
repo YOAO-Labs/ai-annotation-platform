@@ -397,9 +397,4 @@ async def run(
             and permit._settled
             and (failure is None or not storage_access.failure_unsettled(failure))
         ):
-            try:
-                await owner.settle_io()
-            except BaseException as closing:
-                if failure is None:
-                    raise
-                failure.add_note(f"Export I/O settlement failed: {closing!r}")
+            await export_execution_context.settle_io(failure)

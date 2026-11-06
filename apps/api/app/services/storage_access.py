@@ -302,6 +302,11 @@ async def run(
                 try:
                     await finish(future)
                 except BaseException as late:
+                    if owner is not None and late is not interrupted:
+                        raise BaseExceptionGroup(
+                            "Storage operation and drained physical work failed",
+                            [interrupted, late],
+                        ) from None
                     if failure_unsettled(late):
                         mark_unsettled(interrupted)
                 raise
@@ -316,9 +321,4 @@ async def run(
             and future.done()
             and (failure is None or not failure_unsettled(failure))
         ):
-            try:
-                await owner.settle_io()
-            except BaseException as closing:
-                if failure is None:
-                    raise
-                failure.add_note(f"Export I/O settlement failed: {closing!r}")
+            await export_execution_context.settle_io(failure)
