@@ -1305,7 +1305,11 @@ async def export_batch(
 
     try:
         job, media_bundle = await create_export_job(
-            db, project, actor_id=actor.id, batch_id=batch_id, targets=targets,
+            db,
+            project,
+            actor_id=actor.id,
+            batch_id=batch_id,
+            targets=targets,
             opts=export_opts,
             payload={
                 "output_authority": output_proof,

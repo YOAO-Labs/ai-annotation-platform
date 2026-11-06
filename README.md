@@ -48,6 +48,8 @@ YOAO 把项目管理、Data Manager、多模态标注工作台、AI 预标注、
 - **自动训练策略、有界参数搜索与主动学习选样**：支持按审核后训练内容变化、检查间隔与冷却时间触发的自动训练策略，最多 20 个显式网格组合与原生计算时间预算的参数搜索，以及固定未标注候选池、启发式建议与等量随机对照的主动学习人工选样，且预览、评估与主动学习各自固定输出存储归属（[自动训练](./docs-site/user-guide/online-learning/auto-training.md) · [主动学习选样](./docs-site/user-guide/online-learning/active-learning.md)）。
 - **固定核验原件输入的 AI 预标注、交互推理与异步导出**：托管与原地引用图片的后台预标、ROI 管线、整图原生 Mask 分割预标、失败重试、同步交互式 SAM、选中框二次推理、批量 Mask 修复，以及托管视频整段预标均沿已登记原件完整核验并使用固定版本临时输入；图片、视频、点云（KITTI / Point Mask / 多相机 COCO / NuScenes）与原地引用图片的异步导出均固定输入身份、交付核验后的独立媒体副本并共用首次七天有效期限。KITTI 预检先列出已登记相机通道，显式选择并通过核验后才允许创建导出（[预测 API](./docs-site/api/guides/predictions.md) · [ML 后端 API](./docs-site/api/guides/ml-backend.md) · [导出 API](./docs-site/api/guides/export.md) · [预标注管线架构](./docs-site/dev/concepts/prediction-pipeline.md)）。
 
+图片异步导出在创建后台任务前固定实际来源数据集，与冻结输入同事务绑定；来源冲突明确拒绝，不从项目当前内容猜测旧作业归属。缺少绑定的旧未完成任务需重新导出，既有已发布产物的保存期限不变。
+
 普通图片预标以逐题事务替换旧候选并保存结果回执；推理失败、写入回滚或取消先取得写入资格时保留旧内容，多阶段部分失败保留可用候选及可重试失败记录。检查点恢复和取消边界见 [AI 预标操作](./docs-site/user-guide/projects/ai-preannotate.md)与[后台作业 API](./docs-site/api/guides/async-jobs.md)。
 
 Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定数据库能力及归档桶专用凭据。公开审计查询和归档管理接口保留原有权限与响应；配置和采用范围见 [Audit 运行时](./docs-site/api/guides/audit-runtime.md)。

@@ -158,7 +158,9 @@ async def make_image_export(db, world, *, targets, opts):
     _, project, _, content = world
     actor = content[2]
     request = SimpleNamespace(
-        state=SimpleNamespace(api_key_id=None, api_key_scopes=None, identity_principal=None),
+        state=SimpleNamespace(
+            api_key_id=None, api_key_scopes=None, identity_principal=None
+        ),
         headers={},
     )
     payload = {
@@ -168,18 +170,32 @@ async def make_image_export(db, world, *, targets, opts):
         **opts,
     }
     job, receipt = await image_jobs.create_scoped_job(
-        db, project, actor_id=actor.id, payload=payload, batch_id=None,
-        targets=targets, opts=opts,
+        db,
+        project,
+        actor_id=actor.id,
+        payload=payload,
+        batch_id=None,
+        targets=targets,
+        opts=opts,
     )
     proof = await capture_export_authority(
-        db, project, actor, request, frozen_snapshot=receipt.input_snapshot,
+        db,
+        project,
+        actor,
+        request,
+        frozen_snapshot=receipt.input_snapshot,
     )
     media = None
     if proof:
         job.payload = {**job.payload, "export_authority": proof}
         media = ReferenceExportMedia(
-            db, job.id, proof, project_id=project.id, batch_id=None,
-            task_ids=None, node_id="worker:content@test",
+            db,
+            job.id,
+            proof,
+            project_id=project.id,
+            batch_id=None,
+            task_ids=None,
+            node_id="worker:content@test",
         )
         await media.validate()
     await db.commit()

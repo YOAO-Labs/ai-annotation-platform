@@ -1033,7 +1033,11 @@ async def export_project(
 
     try:
         job, media_bundle = await create_export_job(
-            db, project, actor_id=actor.id, batch_id=None, targets=targets,
+            db,
+            project,
+            actor_id=actor.id,
+            batch_id=None,
+            targets=targets,
             opts=export_opts,
             payload={
                 "output_authority": output_proof,

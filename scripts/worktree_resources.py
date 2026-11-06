@@ -1925,21 +1925,23 @@ class LocalResources:
             self.resources["database"], observed, self.resources["owner"]
         ):
             raise WorktreeError("推理夹具数据库尚未准备")
-        engine = create_async_engine(
-            self.url, poolclass=NullPool, hide_parameters=True
-        )
+        engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
         try:
             async with engine.begin() as connection:
                 # database() verified both configured logins on the postgres database;
                 # advisory locks are database-scoped and cannot be compared here.
                 database = (
-                    await connection.execute(
-                        text(
-                            "SELECT datname, shobj_description(oid, 'pg_database') AS owner "
-                            "FROM pg_database WHERE datname = current_database()"
+                    (
+                        await connection.execute(
+                            text(
+                                "SELECT datname, shobj_description(oid, 'pg_database') AS owner "
+                                "FROM pg_database WHERE datname = current_database()"
+                            )
                         )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
                 if database["datname"] != self.resources["database"]:
                     raise WorktreeError("推理夹具数据库与工作树资源不一致")
                 require_owner(database["datname"], database, self.resources["owner"])
@@ -1964,7 +1966,9 @@ class LocalResources:
                 if sessions:
                     raise WorktreeError("e2e 数据库仍有其他连接；不会更改 PUBLIC 权限")
                 previous_temp = await connection.scalar(
-                    text("SELECT has_database_privilege(:role, current_database(), 'TEMP')"),
+                    text(
+                        "SELECT has_database_privilege(:role, current_database(), 'TEMP')"
+                    ),
                     {"role": runtime_role},
                 )
                 quoted_database = engine.dialect.identifier_preparer.quote_identifier(
@@ -1981,7 +1985,9 @@ class LocalResources:
                     f"REVOKE TEMPORARY ON DATABASE {quoted_database} FROM PUBLIC"
                 )
                 current_temp = await connection.scalar(
-                    text("SELECT has_database_privilege(:role, current_database(), 'TEMP')"),
+                    text(
+                        "SELECT has_database_privilege(:role, current_database(), 'TEMP')"
+                    ),
                     {"role": runtime_role},
                 )
                 public_temp = await connection.scalar(
@@ -2006,7 +2012,10 @@ class LocalResources:
         from sqlalchemy import select
         from sqlalchemy.ext.asyncio import async_sessionmaker
         from yoao_assets_source.connectors.crypto import decrypt_secret
-        from yoao_assets_source.connectors.host_guard import assert_host_allowed, normalize_allowlist
+        from yoao_assets_source.connectors.host_guard import (
+            assert_host_allowed,
+            normalize_allowlist,
+        )
         from app.db.models.dataset_asset import StorageLocation
         from app.db.models.fixture_run import FixtureOriginalTarget, FixtureRun
         from app.db.models.storage_connection import StorageConnection
@@ -2025,7 +2034,9 @@ class LocalResources:
         if resources != self.resources:
             raise WorktreeError("原件夹具数据库拓扑不一致")
         manifest = state_path(self.root, resources["mode"], "fixture-store-owner.json")
-        key_path = state_path(self.root, resources["mode"], "fixture-connector-key.json")
+        key_path = state_path(
+            self.root, resources["mode"], "fixture-connector-key.json"
+        )
         lock_path = state_path(self.root, resources["mode"], "fixture-store.lock")
         descriptor = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW)
         try:
@@ -2043,7 +2054,10 @@ class LocalResources:
             if owner.data["cleaned"] or "fixture_teardown" in owner.data:
                 raise WorktreeError("原件夹具已进入清理状态")
             store, account = await _settled_thread(verified_store, owner, identity)
-            if store["state"] != "published" or owner.data["fixture_intent"]["state"] != "published":
+            if (
+                store["state"] != "published"
+                or owner.data["fixture_intent"]["state"] != "published"
+            ):
                 raise WorktreeError("原件夹具尚未发布")
             configured_key = self.settings.connector_encryption_key or ""
             key = configured_key
@@ -2070,29 +2084,47 @@ class LocalResources:
             )
             location_id = connector_location_id(connection_id)
             target_id = _fixture_target_id(owner.data["nonce"])
-            provisioning_id = uuid.UUID(owner.data["fixture_intent"]["provisioning_run_id"])
-            storage_identity = managed_storage_identity(store["endpoint"], store["bucket"])
+            provisioning_id = uuid.UUID(
+                owner.data["fixture_intent"]["provisioning_run_id"]
+            )
+            storage_identity = managed_storage_identity(
+                store["endpoint"], store["bucket"]
+            )
             config = {
                 "endpoint": store["endpoint"],
                 "bucket": store["bucket"],
                 "base_prefix": "",
                 "use_ssl": False,
             }
-            engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
+            engine = create_async_engine(
+                owner_url, poolclass=NullPool, hide_parameters=True
+            )
             try:
                 sessions = async_sessionmaker(engine, expire_on_commit=False)
                 async with sessions() as db:
                     connection = await db.get(StorageConnection, connection_id)
                     location = await db.get(StorageLocation, location_id)
                     target = await db.get(FixtureOriginalTarget, target_id)
-                    roots = list(await db.scalars(select(FixtureRun).where(FixtureRun.parent_run_id.is_(None))))
-                    provisioning = next((item for item in roots if item.id == provisioning_id), None)
+                    roots = list(
+                        await db.scalars(
+                            select(FixtureRun).where(FixtureRun.parent_run_id.is_(None))
+                        )
+                    )
+                    provisioning = next(
+                        (item for item in roots if item.id == provisioning_id), None
+                    )
                     override = await db.scalar(
-                        text("SELECT value_json FROM public.system_settings WHERE key='connector_host_allowlist'")
+                        text(
+                            "SELECT value_json FROM public.system_settings WHERE key='connector_host_allowlist'"
+                        )
                     )
                     if override is not None and not isinstance(override, list):
                         raise WorktreeError("原件夹具连接器 allowlist 无效")
-                    effective = normalize_allowlist(override) if override is not None else allowlist
+                    effective = (
+                        normalize_allowlist(override)
+                        if override is not None
+                        else allowlist
+                    )
                     assert_host_allowed(store["endpoint"], effective)
                     try:
                         writer_matches = (
@@ -2100,7 +2132,9 @@ class LocalResources:
                             and decrypt_secret(connection.secret_enc, key) == account
                         )
                     except Exception:
-                        raise WorktreeError("原件夹具连接器密钥无法解密原账号") from None
+                        raise WorktreeError(
+                            "原件夹具连接器密钥无法解密原账号"
+                        ) from None
                     if not (
                         writer_matches
                         and connection.kind == "s3"
@@ -2130,7 +2164,8 @@ class LocalResources:
                             or (
                                 item.original_target_id == target_id
                                 and item.original_storage_identity == storage_identity
-                                and item.original_store_receipt_sha256 == store["receipt_sha256"]
+                                and item.original_store_receipt_sha256
+                                == store["receipt_sha256"]
                             )
                             for item in roots
                         )
@@ -2426,7 +2461,10 @@ class LocalResources:
                 self.root, self.resources["mode"], "fixture-authority", "owner.json"
             )
             generation_path = state_path(
-                self.root, self.resources["mode"], "fixture-authority", "generation.json"
+                self.root,
+                self.resources["mode"],
+                "fixture-authority",
+                "generation.json",
             )
             if owner_path.exists():
                 raise WorktreeError("夹具 authority 所有者记录仍存在；保留资源")
@@ -2444,7 +2482,9 @@ class LocalResources:
                     try:
                         generation = json.load(generation_stream)
                     except (ValueError, UnicodeError):
-                        raise WorktreeError("夹具 authority 代次记录损坏；保留资源") from None
+                        raise WorktreeError(
+                            "夹具 authority 代次记录损坏；保留资源"
+                        ) from None
                 if (
                     not isinstance(generation, dict)
                     or set(generation) != {"resources", "nonce", "state"}

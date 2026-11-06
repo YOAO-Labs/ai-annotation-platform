@@ -461,11 +461,25 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
     "aap_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
     "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
-    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0443_fixture_dataset_retired_jobs.sql",
+    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0444_image_export_dataset_scope.sql",
     "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
+    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0444_image_export_dataset_scope.sql",
     "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
     "yoao_fixture_v1.guard_jobs_anchor()": "0436_fixture_jobs_join.sql",
-    "yoao_fixture_v1.guard_dataset_job_anchor()": "0443_fixture_dataset_retired_jobs.sql",
+    "yoao_fixture_v1.guard_dataset_job_anchor()": "0444_image_export_dataset_scope.sql",
+    **{
+        signature: "0444_image_export_scope.sql"
+        for signature in (
+            "public.image_export_snapshot_datasets(jsonb)",
+            "public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[])",
+            "public.image_export_scope_matches(uuid,uuid)",
+            "public.guard_image_export_scope()",
+            "public.guard_image_export_scope_transition()",
+            "public.guard_image_export_job_birth()",
+            "public.guard_image_export_fixture_dataset_birth()",
+            "public.check_image_export_scope_committed()",
+        )
+    },
     **{
         signature: "0432_jobs_fixture_presentation.sql"
         for signature in (
@@ -1604,12 +1618,14 @@ SQL_ARTIFACTS = (
     "0441_fixture_presentation_dataset_guard.sql",
     "0442_fixture_export_zip_versions.sql",
     "0443_fixture_dataset_retired_jobs.sql",
+    "0444_image_export_scope.sql",
+    "0444_image_export_dataset_scope.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0437_fixture_audit_cleanup.schema.json",
     "0434_prediction_execution_routing.schema.json",
     "0434_prediction_output_ownership.schema.json",
-    "0443_fixture_jobs.schema.json",
+    "0444_fixture_jobs.schema.json",
     "0432_labeling_screenshot_operations.schema.json",
     "0419_dataset_ingest_authority.schema.json",
     "0371_assets_owner_main_integration.schema.json",
@@ -1816,6 +1832,7 @@ TEST_FILES = (
     "tests/test_labeling_annotation_transfer_native.py",
     "tests/test_labeling_core_read_native.py",
     "tests/test_labeling_export_core_locks_native.py",
+    "tests/test_image_export_scope_native.py",
     "tests/test_labeling_mask_quality_native.py",
     "tests/test_labeling_spatial_quality_native.py",
     "tests/test_labeling_task_maintenance_native.py",

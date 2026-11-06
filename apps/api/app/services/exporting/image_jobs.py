@@ -153,7 +153,15 @@ def validate_message(
 
 
 async def create_scoped_job(
-    db, project, *, actor_id, payload, batch_id, targets, opts, task_ids=None,
+    db,
+    project,
+    *,
+    actor_id,
+    payload,
+    batch_id,
+    targets,
+    opts,
+    task_ids=None,
     job_id=None,
 ):
     """Capture the source scope before the Job can be admitted or dispatched."""
@@ -196,6 +204,12 @@ async def create_scoped_job(
         state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
         if state == "55P03":
             reject("image_export_inputs_busy")
+        native = exc.orig.__cause__
+        if (
+            state == "23514"
+            and getattr(native, "message", None) == "fixture_run_closed"
+        ):
+            reject("fixture_run_closed")
         raise
     job = AsyncJob(
         id=job_id,

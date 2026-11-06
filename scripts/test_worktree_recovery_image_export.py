@@ -124,7 +124,12 @@ class RecoveryImageSeed(unittest.IsolatedAsyncioTestCase):
     async def interrupted(self, *, wrong_candidate=False):
         from app.services import async_job as jobs, export_media_bundles as bundles
         from app.services import export_outputs, export_storage
-        from app.services.exporting import image_delivery, image_inputs, image_jobs, packaging
+        from app.services.exporting import (
+            image_delivery,
+            image_inputs,
+            image_jobs,
+            packaging,
+        )
         from app.workers import lidar_export as publisher
 
         _, snapshot, _ = inputs()
@@ -167,7 +172,11 @@ class RecoveryImageSeed(unittest.IsolatedAsyncioTestCase):
             with (
                 patch.object(bundles, "claim", AsyncMock(return_value=receipt)),
                 patch.object(bundles, "check_claim", AsyncMock()),
-                patch.object(jobs, "get_job", AsyncMock(return_value=SimpleNamespace(id=receipt.job_id))),
+                patch.object(
+                    jobs,
+                    "get_job",
+                    AsyncMock(return_value=SimpleNamespace(id=receipt.job_id)),
+                ),
                 patch.object(image_jobs, "assert_scope_binding", AsyncMock()),
                 patch.object(jobs, "mark_running", AsyncMock()) as running,
                 patch.object(jobs, "mark_complete", AsyncMock()) as complete,
