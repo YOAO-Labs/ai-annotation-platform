@@ -394,11 +394,21 @@ def _temporary_directory():
     try:
         yield temporary.name
     finally:
-        try:
-            _clear_vips_cache()
-            temporary.cleanup()
-        except BaseException as exc:
-            raise storage_access.mark_unsettled(exc)
+        primary = sys.exception()
+        if primary is not None and storage_access.failure_unsettled(primary):
+            temporary._finalizer.detach()
+        else:
+            try:
+                _clear_vips_cache()
+                temporary.cleanup()
+            except BaseException as exc:
+                temporary._finalizer.detach()
+                storage_access.mark_unsettled(exc)
+                if primary is not None:
+                    raise BaseExceptionGroup(
+                        "Image pyramid and temporary cleanup failed", [primary, exc]
+                    ) from None
+                raise
 
 
 def _build_generation(

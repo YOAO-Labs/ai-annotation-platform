@@ -10,7 +10,7 @@ import asyncio
 from datetime import timedelta
 import hashlib
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 import uuid
 
 from botocore.config import Config
@@ -793,3 +793,41 @@ async def test_worker_preserves_nested_unsettled_failure(monkeypatch):
         )
     assert storage_access.failure_unsettled(rejected.value)
     fail_generation.assert_not_awaited()
+
+
+def test_pyramid_temporary_output_survives_nested_uncertainty(monkeypatch):
+    temporary = SimpleNamespace(
+        name="/private/pyramid-stage",
+        cleanup=Mock(),
+        _finalizer=SimpleNamespace(detach=Mock()),
+    )
+    clear_cache = Mock()
+    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: temporary)
+    monkeypatch.setattr(worker, "_clear_vips_cache", clear_cache)
+    uncertain = storage_access.mark_unsettled(OSError("native drain failed"))
+    failure = ExceptionGroup("generation", [uncertain])
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        with worker._temporary_directory():
+            raise failure
+    assert rejected.value is failure
+    clear_cache.assert_not_called()
+    temporary.cleanup.assert_not_called()
+    temporary._finalizer.detach.assert_called_once()
+
+
+def test_pyramid_temporary_cleanup_keeps_the_primary_failure(monkeypatch):
+    temporary = SimpleNamespace(
+        name="/private/pyramid-stage",
+        cleanup=Mock(side_effect=OSError("cleanup failed")),
+        _finalizer=SimpleNamespace(detach=Mock()),
+    )
+    monkeypatch.setattr(worker.tempfile, "TemporaryDirectory", lambda **_kwargs: temporary)
+    monkeypatch.setattr(worker, "_clear_vips_cache", Mock())
+
+    with pytest.raises(ExceptionGroup) as rejected:
+        with worker._temporary_directory():
+            raise ValueError("generation failed")
+    assert [type(exc) for exc in rejected.value.exceptions] == [ValueError, OSError]
+    assert storage_access.failure_unsettled(rejected.value)
+    temporary._finalizer.detach.assert_called_once()
