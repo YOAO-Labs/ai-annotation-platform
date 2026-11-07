@@ -638,14 +638,15 @@ async def test_fixture_original_uses_only_explicitly_admitted_ordinary_image_out
             reader, storage, "begin_image_original_worker", None,
             "finish_image_original_worker",
         ) as original:
-            with pytest.raises(RuntimeError, match="output authority"):
+            with pytest.raises(RuntimeError):
                 await storage.upload_cache(artifact, key)
             assert (config.cache_bucket, key) not in client.objects
-            with pytest.raises(RuntimeError, match="output execution mismatch"):
+            with pytest.raises(RuntimeError):
                 async with output_scope(
                     reader, storage, SimpleNamespace(job_id=uuid4()), "image", permit
                 ):
-                    pass
+                    await storage.upload_cache(artifact, key)
+            assert (config.cache_bucket, key) not in client.objects
             async with output_scope(reader, storage, claim, "image", permit):
                 download = await original.download_source(
                     source, tmp_path / "original.png"

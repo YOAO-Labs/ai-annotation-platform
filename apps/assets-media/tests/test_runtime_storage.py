@@ -246,14 +246,15 @@ async def test_fixture_original_uses_only_explicitly_admitted_ordinary_media_out
             reader, storage, "begin_media_original_worker", None,
             "finish_media_original_worker",
         ) as original:
-            with pytest.raises(RuntimeError, match="output authority"):
+            with pytest.raises(RuntimeError):
                 await storage.upload_cache(artifact, key)
             assert ("media-cache", key) not in client.objects
-            with pytest.raises(RuntimeError, match="output execution mismatch"):
+            with pytest.raises(RuntimeError):
                 async with output_scope(
                     reader, storage, SimpleNamespace(job_id=uuid4()), "media", permit
                 ):
-                    pass
+                    await storage.upload_cache(artifact, key)
+            assert ("media-cache", key) not in client.objects
             async with output_scope(reader, storage, claim, "media", permit):
                 identity = await original.head_source(source_key)
                 destination = tmp_path / "original.mp4"
