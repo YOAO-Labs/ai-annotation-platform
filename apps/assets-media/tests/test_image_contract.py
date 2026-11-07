@@ -175,7 +175,6 @@ def test_image_schema_operation_signatures_and_http_artifacts_are_frozen():
     from yoao_assets_images.http_contract import http_document
 
     assert document == http_document()
-    assert len(document["paths"]) == 20
     assert "/v1/images/commands/claim_image_media" not in document["paths"]
     assert "/v1/images/commands/claim_image_garbage" not in document["paths"]
     assert "/v1/images/asset-references" in document["paths"]

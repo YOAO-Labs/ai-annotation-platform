@@ -2,6 +2,319 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "aap-assets-media/v1",
   "$defs": {
+    "ActorOriginalReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["actor_id", "dataset_item_id", "source_snapshot", "object_key"],
+      "title": "ActorOriginalReadRequest",
+      "type": "object"
+    },
+    "OriginalRead": {
+      "additionalProperties": false,
+      "properties": {
+        "ownership": {
+          "enum": ["ordinary", "fixture"],
+          "title": "Ownership",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        },
+        "blocked_storage_identities": {
+          "default": [],
+          "items": {
+            "pattern": "^[0-9a-f]{64}$",
+            "type": "string"
+          },
+          "title": "Blocked Storage Identities",
+          "type": "array"
+        },
+        "source_storage_identity": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Storage Identity"
+        },
+        "creation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Creation Id"
+        },
+        "operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operation Id"
+        },
+        "location_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Location Id"
+        },
+        "endpoint_url": {
+          "anyOf": [
+            {
+              "maxLength": 2048,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Endpoint Url"
+        },
+        "storage_identity": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Storage Identity"
+        },
+        "bucket": {
+          "anyOf": [
+            {
+              "maxLength": 255,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bucket"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        },
+        "etag": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Etag"
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size Bytes"
+        },
+        "sha256": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sha256"
+        }
+      },
+      "required": ["ownership", "object_key"],
+      "title": "OriginalRead",
+      "type": "object"
+    },
+    "WorkerOriginalReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "source_snapshot", "object_key"],
+      "title": "WorkerOriginalReadRequest",
+      "type": "object"
+    },
+    "SystemOriginalReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "dataset_item_id": {
+          "format": "uuid",
+          "title": "Dataset Item Id",
+          "type": "string"
+        },
+        "source_snapshot": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Snapshot",
+          "type": "string"
+        },
+        "object_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Object Key",
+          "type": "string"
+        }
+      },
+      "required": ["dataset_item_id", "source_snapshot", "object_key"],
+      "title": "SystemOriginalReadRequest",
+      "type": "object"
+    },
+    "FinishOriginalReadRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_id": {
+          "format": "uuid",
+          "title": "Creation Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["creation_id", "operation_id"],
+      "title": "FinishOriginalReadRequest",
+      "type": "object"
+    },
+    "FinishedOriginalRead": {
+      "additionalProperties": false,
+      "properties": {
+        "creation_id": {
+          "format": "uuid",
+          "title": "Creation Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["creation_id", "operation_id"],
+      "title": "FinishedOriginalRead",
+      "type": "object"
+    },
     "ObjectIdentity": {
       "additionalProperties": false,
       "properties": {
@@ -3568,6 +3881,48 @@
     "batch_size": 500
   },
   "x-native": {
+    "begin_media_original_actor": {
+      "signature": "aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)",
+      "arguments": ["actor_id", "dataset_item_id", "task_id", "source_snapshot", "object_key"],
+      "request": "ActorOriginalReadRequest",
+      "result": "OriginalRead",
+      "role": "control"
+    },
+    "begin_media_original_worker": {
+      "signature": "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+      "arguments": ["job_id", "generation", "lease_token", "source_snapshot", "object_key"],
+      "request": "WorkerOriginalReadRequest",
+      "result": "OriginalRead",
+      "role": "worker"
+    },
+    "begin_media_original_system": {
+      "signature": "aap_assets_v1.begin_media_original_system(uuid,text,text)",
+      "arguments": ["dataset_item_id", "source_snapshot", "object_key"],
+      "request": "SystemOriginalReadRequest",
+      "result": "OriginalRead",
+      "role": "system"
+    },
+    "finish_media_original_read": {
+      "signature": "aap_assets_v1.finish_media_original_read(uuid,uuid)",
+      "arguments": ["creation_id", "operation_id"],
+      "request": "FinishOriginalReadRequest",
+      "result": "FinishedOriginalRead",
+      "role": "control"
+    },
+    "finish_media_original_worker": {
+      "signature": "aap_assets_v1.finish_media_original_worker(uuid,uuid)",
+      "arguments": ["creation_id", "operation_id"],
+      "request": "FinishOriginalReadRequest",
+      "result": "FinishedOriginalRead",
+      "role": "worker"
+    },
+    "finish_media_original_system": {
+      "signature": "aap_assets_v1.finish_media_original_system(uuid,uuid)",
+      "arguments": ["creation_id", "operation_id"],
+      "request": "FinishOriginalReadRequest",
+      "result": "FinishedOriginalRead",
+      "role": "system"
+    },
     "resolve_internal_media_source": {
       "signature": "aap_assets_v1.resolve_internal_media_source(uuid,text,jsonb)",
       "arguments": ["dataset_item_id", "source_snapshot", "object_identity"],
