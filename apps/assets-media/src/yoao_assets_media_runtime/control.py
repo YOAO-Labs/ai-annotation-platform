@@ -172,7 +172,11 @@ class MediaControl:
         return result.source
 
     async def _source_links(
-        self, request: c.ReadSourceRequest, source: c.MediaSource
+        self,
+        request: c.ReadSourceRequest,
+        source: c.MediaSource,
+        *,
+        prepare: bool = True,
     ) -> SourceReference:
         original = await self._ordinary_source_url(request, source)
         video = original
@@ -193,6 +197,8 @@ class MediaControl:
                     raise c.MediaFailure("invalid_response")
                 cache_key(source, key)
                 if await self.storage.head_cache(key) is None:
+                    if not prepare:
+                        raise c.MediaFailure("storage_unavailable")
                     source = await self._invalidate(request, source, key, kind)
                     missing = True
                 elif kind == "playback":
@@ -213,6 +219,20 @@ class MediaControl:
 
     async def source_reference(self, request: c.ReadSourceRequest) -> SourceReference:
         return await self._source_links(request, await self._observe(request))
+
+    async def ready_source_reference(
+        self, request: c.ReadSourceRequest
+    ) -> SourceReference:
+        """Read an already-published video without admitting repair work."""
+        source = await self._observe(request)
+        if source.file_type != "video":
+            raise c.MediaFailure("source_missing")
+        if (
+            source.materialized_generation != source.source_generation
+            or not source.video_metadata.get("poster_frame_path")
+        ):
+            raise c.MediaFailure("metadata_not_ready")
+        return await self._source_links(request, source, prepare=False)
 
     async def raw_source_reference(
         self, request: c.ReadSourceRequest

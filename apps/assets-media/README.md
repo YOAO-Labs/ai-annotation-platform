@@ -20,6 +20,14 @@ scope; fixture-native executions require the fixture writer and its private
 target. Missing or mismatched output authority fails closed, and fixture source
 reads retain their existing settlement and uncertainty fences.
 
+`ready_source_reference` is the strict reference path for callers that have
+already admitted and verified output work. Its video and image HTTP routes are
+`/v1/ready-source-reference` and `/v1/images/ready-source-reference`. A stale
+publication or missing cached object fails without invalidating or scheduling
+repair work. Ordinary `source_reference` retains its existing lazy-repair
+behavior. Fixture originals deliberately have no ordinary original URL;
+fixture callers verify original bytes through their existing scoped owner.
+
 Image backfill uses `only_missing` to check the selected output before admitting
 work. A thumbnail job probes unknown dimensions itself and publishes the
 thumbnail and dimensions together. For known pyramid-eligible dimensions,

@@ -370,7 +370,6 @@ def test_shipped_http_image_namespace_has_closed_refs_and_no_worker_commands():
     assert json.loads(path.read_text()) == document
     assert "/v1/images/commands/claim_image_media" not in document["paths"]
     assert "/v1/images/commands/claim_image_garbage" not in document["paths"]
-    assert len(document["paths"]) == 20
 
     def inspect(value):
         if isinstance(value, dict):

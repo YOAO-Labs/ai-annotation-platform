@@ -10,6 +10,382 @@
     }
   ],
   "paths": {
+    "/v1/commands/begin_media_original_actor": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActorOriginalReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/OriginalRead"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Media contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "metadata_not_ready",
+                            "invalid_frame_range",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/commands/begin_media_original_system": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SystemOriginalReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/OriginalRead"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Media contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "metadata_not_ready",
+                            "invalid_frame_range",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/commands/finish_media_original_read": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishOriginalReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/FinishedOriginalRead"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Media contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "metadata_not_ready",
+                            "invalid_frame_range",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/commands/finish_media_original_system": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FinishOriginalReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/FinishedOriginalRead"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Media contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "metadata_not_ready",
+                            "invalid_frame_range",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/commands/resolve_internal_media_source": {
       "post": {
         "requestBody": {
@@ -1796,6 +2172,100 @@
         }
       }
     },
+    "/v1/ready-source-reference": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadSourceRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "data"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/SourceReference"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Media contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["schema", "ok", "error"],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-media/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "metadata_not_ready",
+                            "invalid_frame_range",
+                            "asset_missing",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": ["code"],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/raw-source-reference": {
       "post": {
         "requestBody": {
@@ -2275,6 +2745,284 @@
       }
     },
     "schemas": {
+      "ActorOriginalReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "object_key": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Object Key",
+            "type": "string"
+          }
+        },
+        "required": ["actor_id", "dataset_item_id", "source_snapshot", "object_key"],
+        "title": "ActorOriginalReadRequest",
+        "type": "object"
+      },
+      "OriginalRead": {
+        "additionalProperties": false,
+        "properties": {
+          "ownership": {
+            "enum": ["ordinary", "fixture"],
+            "title": "Ownership",
+            "type": "string"
+          },
+          "object_key": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Object Key",
+            "type": "string"
+          },
+          "blocked_storage_identities": {
+            "default": [],
+            "items": {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            "title": "Blocked Storage Identities",
+            "type": "array"
+          },
+          "source_storage_identity": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Source Storage Identity"
+          },
+          "creation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Creation Id"
+          },
+          "operation_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Operation Id"
+          },
+          "location_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Location Id"
+          },
+          "endpoint_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Endpoint Url"
+          },
+          "storage_identity": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Storage Identity"
+          },
+          "bucket": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Bucket"
+          },
+          "version_id": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Version Id"
+          },
+          "etag": {
+            "anyOf": [
+              {
+                "maxLength": 1024,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Etag"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "maximum": 9223372036854775807,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Size Bytes"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Sha256"
+          }
+        },
+        "required": ["ownership", "object_key"],
+        "title": "OriginalRead",
+        "type": "object"
+      },
+      "SystemOriginalReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "source_snapshot": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Source Snapshot",
+            "type": "string"
+          },
+          "object_key": {
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Object Key",
+            "type": "string"
+          }
+        },
+        "required": ["dataset_item_id", "source_snapshot", "object_key"],
+        "title": "SystemOriginalReadRequest",
+        "type": "object"
+      },
+      "FinishOriginalReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "creation_id": {
+            "format": "uuid",
+            "title": "Creation Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": ["creation_id", "operation_id"],
+        "title": "FinishOriginalReadRequest",
+        "type": "object"
+      },
+      "FinishedOriginalRead": {
+        "additionalProperties": false,
+        "properties": {
+          "creation_id": {
+            "format": "uuid",
+            "title": "Creation Id",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          }
+        },
+        "required": ["creation_id", "operation_id"],
+        "title": "FinishedOriginalRead",
+        "type": "object"
+      },
       "ObjectIdentity": {
         "additionalProperties": false,
         "properties": {
@@ -4853,12 +5601,26 @@
             "$ref": "#/components/schemas/MediaSource"
           },
           "original_url": {
-            "title": "Original Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Original Url"
           },
           "video_url": {
-            "title": "Video Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Url"
           },
           "poster_url": {
             "anyOf": [
@@ -4944,8 +5706,15 @@
             "$ref": "#/components/schemas/MediaAssets"
           },
           "video_url": {
-            "title": "Video Url",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Video Url"
           },
           "expires_in": {
             "maximum": 86400,

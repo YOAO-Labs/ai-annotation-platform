@@ -79,6 +79,7 @@ def http_document() -> dict:
             add("/v1/images/commands/" + name, operation.request, operation.result)
     for path, request, response in (
         ("source-reference", c.ReadImageSourceRequest, ImageSourceReference),
+        ("ready-source-reference", c.ReadImageSourceRequest, ImageSourceReference),
         ("raw-source-reference", c.ReadImageSourceRequest, ImageSourceReference),
         ("source-references", ImageSourceReferencesRequest, ImageSourceReferences),
         (

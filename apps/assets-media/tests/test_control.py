@@ -388,3 +388,41 @@ async def test_source_batch_drains_peers_and_retains_uncertain_failure(monkeypat
         "storage_unavailable",
     ]
     assert caught.value.storage_operation_unsettled
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "published,present,error",
+    [
+        (True, True, None),
+        (False, True, "metadata_not_ready"),
+        (True, False, "storage_unavailable"),
+    ],
+)
+async def test_ready_video_reference_never_admits_missing_output_repair(
+    published, present, error
+):
+    key = f"media-assets/{uuid4()}/g1/a{uuid4()}/poster.webp"
+    current = source(
+        video_metadata={"poster_frame_path": key},
+        materialized_generation=1 if published else 0,
+    )
+
+    class Database:
+        async def call(self, name, request):
+            assert name in {"read_media_source", "observe_media_source"}
+            return current
+
+    storage = Storage([key] if present else [])
+    control = MediaControl(OrdinarySourceDatabase(Database()), storage)
+    request = c.ReadSourceRequest(
+        actor_id=uuid4(), dataset_item_id=current.dataset_item_id
+    )
+    if error is not None:
+        with pytest.raises(c.MediaFailure, match=error):
+            await control.ready_source_reference(request)
+        assert key not in storage.signed
+    else:
+        result = await control.ready_source_reference(request)
+        assert result.poster_url == "http://s3.local/cache/" + key
+        assert result.source.materialized_generation == result.source.source_generation

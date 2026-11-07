@@ -136,6 +136,20 @@ class ImageClient:
             raise c.ImageFailure("invalid_response") from None
         return result
 
+    async def ready_source_reference(
+        self, request: c.ReadImageSourceRequest
+    ) -> ImageSourceReference:
+        result = await self._request(
+            "/v1/images/ready-source-reference", request, ImageSourceReference
+        )
+        try:
+            require_source_reference_scope(request, result)
+            if result.thumbnail_url is None:
+                raise ValueError("image publication is not ready")
+        except (ValueError, TypeError, AttributeError):
+            raise c.ImageFailure("invalid_response") from None
+        return result
+
     async def raw_source_reference(
         self, request: c.ReadImageSourceRequest
     ) -> ImageSourceReference:

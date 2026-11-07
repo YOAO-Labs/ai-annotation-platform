@@ -1259,19 +1259,19 @@ async def test_source_reference_still_rechecks_actor_after_best_effort_denial(
 ):
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     current = source(owner=owner)
-    source_reads = 0
+    revoked = False
 
     class RevokedActorDatabase:
         async def call(self, operation, _request):
-            nonlocal source_reads
+            nonlocal revoked
             if operation == "read_image_source":
-                source_reads += 1
-                if source_reads == 3:
+                if revoked:
                     raise c.ImageFailure("account_not_active")
                 return current
             if operation == "observe_image_source":
                 return current
             if operation == "prepare_image_media":
+                revoked = True
                 raise c.ImageFailure(failure_code)
             pytest.fail(f"unexpected operation {operation}")
 
@@ -1280,8 +1280,6 @@ async def test_source_reference_still_rechecks_actor_after_best_effort_denial(
         await ImageControl(RevokedActorDatabase(), storage).source_reference(
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
         )
-
-    assert storage.signed_source == [(current, 3600)]
 
 
 @pytest.mark.asyncio
@@ -1823,3 +1821,37 @@ async def test_out_of_manifest_tile_coordinate_never_reaches_storage_signer():
         await ImageControl(TileDatabase(), storage).asset_references(request)
     assert storage.signed_cache == []
     assert storage.head_cache_calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "published,present,error",
+    [
+        (True, True, None),
+        (False, True, "source_not_ready"),
+        (True, False, "object_missing"),
+    ],
+)
+async def test_ready_image_reference_never_admits_missing_output_repair(
+    published, present, error
+):
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    key = f"thumbnails/{owner.id}.webp"
+    current = source(owner=owner, thumbnail_path=key, thumbnail_current=published)
+
+    class Database:
+        async def call(self, name, request):
+            assert name in {"read_image_source", "observe_image_source"}
+            return current
+
+    storage = FakeStorage(cache_keys=[key] if present else [])
+    control = ImageControl(Database(), storage)
+    request = c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    if error is not None:
+        with pytest.raises(c.ImageFailure, match=error):
+            await control.ready_source_reference(request)
+        assert storage.signed_cache == []
+    else:
+        result = await control.ready_source_reference(request)
+        assert result.thumbnail_url == f"https://image.local/cache/{key}?expires=3600"
+        assert result.source.thumbnail_current

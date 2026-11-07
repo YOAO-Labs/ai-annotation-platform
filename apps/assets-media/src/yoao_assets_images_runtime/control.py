@@ -607,8 +607,19 @@ class ImageControl:
     async def source_reference(
         self, request: c.ReadImageSourceRequest
     ) -> ImageSourceReference:
+        return await self._source_reference(request, prepare=True)
+
+    async def ready_source_reference(
+        self, request: c.ReadImageSourceRequest
+    ) -> ImageSourceReference:
+        """Read an already-published thumbnail without admitting repair work."""
+        return await self._source_reference(request, prepare=False)
+
+    async def _source_reference(
+        self, request: c.ReadImageSourceRequest, *, prepare: bool
+    ) -> ImageSourceReference:
         source = await self._observe_actor(request)
-        thumbnail_url = await self._thumbnail_url(source, request)
+        thumbnail_url = await self._thumbnail_url(source, request, prepare=prepare)
         current = await self._final_actor(source, request)
         if thumbnail_url is not None and (
             current.thumbnail_path != source.thumbnail_path
@@ -910,10 +921,16 @@ class ImageControl:
             raise c.ImageFailure("invalid_response") from None
 
     async def _thumbnail_url(
-        self, source: c.ImageSource, request: c.ImageSourceSelector
+        self,
+        source: c.ImageSource,
+        request: c.ImageSourceSelector,
+        *,
+        prepare: bool = True,
     ) -> str | None:
         key = source.thumbnail_path
         if key is None or not source.thumbnail_current:
+            if not prepare:
+                raise c.ImageFailure("source_not_ready")
             await self._prepare_small_thumbnail(source, request, key or "initial")
             return None
         if (
@@ -924,6 +941,8 @@ class ImageControl:
             if match is not None:
                 await self._verify_thumbnail_attempt(source, match)
             if await self._head_cache(key) is None:
+                if not prepare:
+                    raise c.ImageFailure("object_missing")
                 if not await self._best_effort_repair(
                     self._invalidate(
                         source,
@@ -945,6 +964,8 @@ class ImageControl:
                 or state.pyramid.source_generation != source.source_generation
                 or state.pyramid.source_snapshot != source.source_snapshot
             ):
+                if not prepare:
+                    raise c.ImageFailure("source_not_ready")
                 if source.width is None or source.height is None:
                     await self._best_effort_repair(
                         self._prepare_repair(source, request, "dimensions", key)
@@ -958,6 +979,8 @@ class ImageControl:
                 return None
             _manifest, prefix = await self._read_ready_manifest(state.pyramid)
             if key != prefix + "/overview.webp" or await self._head_cache(key) is None:
+                if not prepare:
+                    raise c.ImageFailure("object_missing")
                 if not await self._best_effort_repair(
                     self._invalidate_generation(
                         source, request, state.pyramid, "overview"

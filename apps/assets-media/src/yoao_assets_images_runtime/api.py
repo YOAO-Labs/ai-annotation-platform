@@ -130,6 +130,16 @@ def install_image_routes(app: FastAPI, control, token: str) -> FastAPI:
             require_source_reference_scope,
         )
 
+    @app.post("/v1/images/ready-source-reference")
+    async def ready_source_reference(request: Request):
+        return await invoke(
+            request,
+            c.ReadImageSourceRequest,
+            control.ready_source_reference,
+            ImageSourceReference,
+            require_source_reference_scope,
+        )
+
     @app.post("/v1/images/raw-source-reference")
     async def raw_source_reference(request: Request):
         return await invoke(

@@ -1177,7 +1177,7 @@ async def _verify_screenshot_output(
 
     if item.file_type == "image":
         async with image_gateway() as owner:
-            reference = await owner.source_reference(
+            reference = await owner.ready_source_reference(
                 ReadImageSourceRequest(
                     actor_id=dataset.owner_id, dataset_item_id=item.item_id
                 )
@@ -1188,7 +1188,7 @@ async def _verify_screenshot_output(
             raise ScreenshotSeedReconcileError("screenshot image source changed")
     else:
         async with media_gateway() as owner:
-            reference = await owner.source_reference(
+            reference = await owner.ready_source_reference(
                 ReadSourceRequest(
                     actor_id=dataset.owner_id, dataset_item_id=item.item_id
                 )
@@ -1331,7 +1331,12 @@ async def prepare_screenshot_seed_media(
     await db.commit()
     image_work_intents: list[FixtureNativeMediaWorkIntent] = []
     video_work: list[
-        tuple[_ScreenshotMediaDataset, _ScreenshotMediaItem, FixtureNativeMediaWorkIntent, int]
+        tuple[
+            _ScreenshotMediaDataset,
+            _ScreenshotMediaItem,
+            FixtureNativeMediaWorkIntent,
+            int,
+        ]
     ] = []
 
     for dataset in media_rows:
@@ -1642,7 +1647,13 @@ async def prepare_screenshot_seed_media(
                     else video_sources[item.item_id]
                 )
                 await _verify_screenshot_output(
-                    db, client, run_id, dataset, item, source, reader["proxy_origin"],
+                    db,
+                    client,
+                    run_id,
+                    dataset,
+                    item,
+                    source,
+                    reader["proxy_origin"],
                     video_intent=video_intents.get(item.item_id),
                 )
                 item_count += 1
