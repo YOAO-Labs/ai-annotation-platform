@@ -4436,6 +4436,7 @@ ALTER TABLE aap_assets_v1.fixture_media_births OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.fixture_native_media_jobs OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_job_evidence() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.capture_fixture_native_media_job() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_native_admission_current(text,uuid,uuid) OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.fixture_native_media_admissions OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_admission() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.fixture_native_source_lock_held(integer,uuid) OWNER TO :"assets_owner";
@@ -4743,7 +4744,7 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
     aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
     TO :"assets_owner";
-GRANT SELECT (family,run_id,admission_id,operation_id,dataset_id,state)
+GRANT SELECT (family,run_id,admission_id,operation_id,dataset_id,state,job_id,generation)
     ON yoao_fixture_v1.fixture_native_media_work_intents TO :"assets_owner";
 GRANT SELECT (task_id,dataset_item_id,role)
     ON aap_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
