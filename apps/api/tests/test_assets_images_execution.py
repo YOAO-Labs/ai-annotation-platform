@@ -1127,6 +1127,23 @@ async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(
     large_job_id = await thumbnail_job(large_id)
     assert large_job_id is not None
     large_claim = await _claim(db_session, job_id=large_job_id, kind="thumbnail")
+    rejected = _reply(
+        await db_session.scalar(
+            _FAIL,
+            {
+                "job_id": large_job_id,
+                "generation": large_claim["generation"],
+                "lease_token": large_claim["lease_token"],
+                "error_code": "already_ready",
+                "error_detail": "already_ready",
+            },
+        )
+    )
+    _error(rejected, "invalid_request")
+    large_job = await db_session.get(AssetImageJob, large_job_id)
+    assert large_job is not None
+    await db_session.refresh(large_job)
+    assert large_job.status == "running"
     failed = _data(
         _reply(
             await db_session.scalar(
@@ -1142,8 +1159,8 @@ async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(
         )
     )
     assert failed["outcome"] == "failed"
-    large_job = await db_session.get(AssetImageJob, large_job_id)
-    assert large_job is not None and large_job.status == "failed"
+    await db_session.refresh(large_job)
+    assert large_job.status == "failed"
     assert large_job.error_code == "not_eligible"
     assert (await _source(db_session, large_id))["thumbnail_path"] is None
 
