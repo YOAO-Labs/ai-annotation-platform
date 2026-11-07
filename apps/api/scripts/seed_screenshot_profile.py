@@ -1099,7 +1099,7 @@ async def _screenshot_output_receipt(db, run_id, dataset, item, key):
 
 
 async def _verify_screenshot_output(
-    db, client, run_id, dataset, item, observed, proxy_origin
+    db, client, run_id, dataset, item, observed, proxy_origin, video_intent=None
 ):
     from app.services.assets_images import image_gateway
     from app.services.assets_media import media_gateway
@@ -1133,8 +1133,7 @@ async def _verify_screenshot_output(
         or receipt["dataset_id"] != str(dataset.dataset_id)
         or receipt["item_id"] != str(item.item_id)
         or receipt["key"] != observed.thumbnail_path
-        or receipt["evidence_kind"]
-        != ("native" if item.file_type == "image" else "legacy")
+        or receipt["evidence_kind"] != "native"
         or type(receipt["size_bytes"]) is not int
         or receipt["size_bytes"] <= 0
         or not isinstance(receipt["etag"], str)
@@ -1155,6 +1154,26 @@ async def _verify_screenshot_output(
         raise ScreenshotSeedReconcileError(
             "screenshot output receipt is invalid"
         ) from None
+    if video_intent is not None:
+        owned_write = await db.scalar(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_cache_writes "
+                "WHERE id=:write AND run_id=:run AND dataset_id=:dataset "
+                "AND item_id=:item AND family='media' AND job_id=:job "
+                "AND job_generation=:generation AND state='verified')"
+            ),
+            {
+                "write": uuid.UUID(receipt["record_id"]),
+                "run": run_id,
+                "dataset": dataset.dataset_id,
+                "item": item.item_id,
+                "job": video_intent.job_id,
+                "generation": video_intent.generation,
+            },
+        )
+        await db.commit()
+        if not owned_write:
+            raise ScreenshotSeedReconcileError("screenshot video output owner changed")
 
     if item.file_type == "image":
         async with image_gateway() as owner:
@@ -1178,12 +1197,13 @@ async def _verify_screenshot_output(
         url = reference.poster_url
         if source.dataset_item_id != item.item_id:
             raise ScreenshotSeedReconcileError("screenshot video source changed")
+        if source.materialized_generation != source.source_generation:
+            raise ScreenshotSeedReconcileError("screenshot video publication changed")
     if (
         source.dataset_id != dataset.dataset_id
         or source.source_drifted
         or source.source_generation != observed.source_generation
         or source.thumbnail_path != receipt["key"]
-        or not reference.original_url
         or (
             isinstance(source.content_hash, str)
             and re.fullmatch(r"[0-9a-fA-F]{64}", source.content_hash) is not None
@@ -1191,6 +1211,16 @@ async def _verify_screenshot_output(
         )
     ):
         raise ScreenshotSeedReconcileError("screenshot original source changed")
+    from app.services.screenshot_seed_catalog import _storage_object_digest
+
+    original_item = await db.get(DatasetItem, item.item_id, populate_existing=True)
+    if (
+        original_item is None
+        or original_item.dataset_id != dataset.dataset_id
+        or await _storage_object_digest(db, original_item) != receipt["source_sha256"]
+    ):
+        raise ScreenshotSeedReconcileError("screenshot original bytes changed")
+    await db.commit()
     try:
         parsed = urlsplit(url)
         expected = urlsplit(proxy_origin)
@@ -1244,7 +1274,14 @@ async def prepare_screenshot_seed_media(
         ReadInternalImageWorkRequest,
         ImageBackfillSelection,
     )
+    from yoao_assets_media.contract import (
+        InternalSourceRequest,
+        MetadataSpec,
+        ScheduleWorkRequest,
+        WorkStatusRequest,
+    )
     from app.services.assets_images import image_gateway, image_policy
+    from app.services.assets_media import media_gateway
     from app.db.models.fixture_run import FixtureNativeMediaWorkIntent
     from scripts.image_media_backfill import accept_image_backfill
 
@@ -1293,7 +1330,9 @@ async def prepare_screenshot_seed_media(
     # Release the read transaction before owner admission, polling and object HEADs.
     await db.commit()
     image_work_intents: list[FixtureNativeMediaWorkIntent] = []
-    video_outputs: list[tuple[str, uuid.UUID]] = []
+    video_work: list[
+        tuple[_ScreenshotMediaDataset, _ScreenshotMediaItem, FixtureNativeMediaWorkIntent, int]
+    ] = []
 
     for dataset in media_rows:
         if dataset.data_type == "image":
@@ -1324,45 +1363,67 @@ async def prepare_screenshot_seed_media(
             await db.commit()
             image_work_intents.append(intent)
         elif dataset.data_type == "video":
-            from app.services.content_snapshot import ContentError
-            from app.services.fixture_media_execution import screenshot_producer_scope
-            from app.services import video_derivative_originals as originals
-            from app.services import video_derivatives as derivatives
-
             for item in dataset.items:
-                source = await originals.pin(db, "dataset_item", item.item_id)
-                authority = await originals.delegated(
-                    db,
-                    originals.system_authorization(
-                        "dataset_item", item.item_id, source
-                    ),
-                )
-                async with screenshot_producer_scope(
-                    db, run_id, admission_id, dataset.dataset_id, item.item_id
-                ) as producer:
-                    output, needs_dispatch = await derivatives.prepare(
-                        db, item.item_id, authority, "metadata"
+                async with media_gateway() as owner:
+                    reference = await owner.internal_source_reference(
+                        InternalSourceRequest(dataset_item_id=item.item_id)
                     )
-                    output_id = output.id
-                    if needs_dispatch:
-                        prepared = await derivatives.prepare_dispatch(
-                            db, [output_id], delivery_id=producer.delivery_id
-                        )
-                        await db.commit()
-                        await producer.settle(output_id, prepared[0][0].delivery_id)
-                    else:
-                        await db.commit()
-                        try:
-                            await producer.reuse(output_id)
-                        except ContentError as exc:
-                            if exc.code == "fixture_media_reuse_unqualified":
-                                exc.add_note(
-                                    "Unqualified older screenshot output requires a fresh isolated run."
-                                )
-                            raise
-                if needs_dispatch:
-                    await derivatives.publish_dispatch(prepared)
-                video_outputs.append((dataset.display_id, output_id))
+                source = reference.source
+                if source.dataset_id != dataset.dataset_id or source.source_drifted:
+                    raise ScreenshotSeedReconcileError(
+                        f"{dataset.display_id}: video source changed"
+                    )
+                intent = FixtureNativeMediaWorkIntent(
+                    operation_id=uuid.uuid4(),
+                    family="media",
+                    run_id=run_id,
+                    admission_id=admission_id,
+                    dataset_id=dataset.dataset_id,
+                    state="prepared",
+                )
+                db.add(intent)
+                await db.commit()
+                async with media_gateway() as owner:
+                    accepted = await owner.call(
+                        "schedule_video_media",
+                        ScheduleWorkRequest(
+                            operation_id=intent.operation_id,
+                            dataset_item_id=item.item_id,
+                            spec=MetadataSpec(
+                                expected_source_snapshot=source.source_snapshot
+                            ),
+                        ),
+                    )
+                owned = await db.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                        "WHERE family='media' AND job_id=:job AND run_id=:run "
+                        "AND dataset_id=:dataset AND item_id=:item "
+                        "AND job_kind='video_metadata' AND owner_kind='dataset_item' "
+                        "AND owner_id=:item)"
+                    ),
+                    {
+                        "job": accepted.work.job_id,
+                        "run": run_id,
+                        "dataset": dataset.dataset_id,
+                        "item": item.item_id,
+                    },
+                )
+                if (
+                    not owned
+                    or accepted.source is None
+                    or accepted.source.source_generation != source.source_generation
+                    or accepted.work.source_generation != source.source_generation
+                    or accepted.operation_id != intent.operation_id
+                ):
+                    raise ScreenshotSeedReconcileError(
+                        f"{dataset.display_id}: video work is not owned by this run"
+                    )
+                intent.job_id = accepted.work.job_id
+                intent.generation = accepted.work.generation
+                intent.state = "admitted"
+                await db.commit()
+                video_work.append((dataset, item, intent, source.source_generation))
 
     deadline = time.monotonic() + SCREENSHOT_MEDIA_WAIT_SECONDS
     image_sources: dict[uuid.UUID, Any] = {}
@@ -1372,6 +1433,7 @@ async def prepare_screenshot_seed_media(
         image_sources.clear()
         video_sources.clear()
         pending_image = pending_video = False
+        ready_video: set[uuid.UUID] = set()
         for intent in image_work_intents:
             async with image_gateway() as owner:
                 status = await owner.call(
@@ -1388,24 +1450,29 @@ async def prepare_screenshot_seed_media(
                 )
             if status.work.status != "ready":
                 pending_image = True
-        if video_outputs:
-            from app.db.models.video_derivative import VideoDerivativeOutput
-
-            for display_id, output_id in video_outputs:
-                output = await db.get(
-                    VideoDerivativeOutput, output_id, populate_existing=True
+        for dataset, item, intent, source_generation in video_work:
+            async with media_gateway() as owner:
+                status = await owner.call(
+                    "read_video_work", WorkStatusRequest(job_id=intent.job_id)
                 )
-                if (
-                    output is None
-                    or output.state in {"retiring", "deleted"}
-                    or output.error_code
-                ):
-                    code = output.error_code if output is not None else "missing"
-                    raise ScreenshotSeedReconcileError(
-                        f"{display_id}: video metadata owner did not finish: {code}"
-                    )
-                if output.state != "ready":
-                    pending_video = True
+            if (
+                status.work.generation != intent.generation
+                or status.work.source_generation != source_generation
+                or status.work.dataset_item_id != item.item_id
+                or status.work.kind != "video_metadata"
+            ):
+                raise ScreenshotSeedReconcileError(
+                    f"{dataset.display_id}: video metadata owner changed"
+                )
+            if status.work.status in {"failed", "canceled"}:
+                raise ScreenshotSeedReconcileError(
+                    f"{dataset.display_id}: video metadata {status.work.status}: "
+                    f"{status.error_code}: {status.error_detail}"
+                )
+            if status.work.status != "ready":
+                pending_video = True
+            else:
+                ready_video.add(item.item_id)
         for dataset in media_rows:
             image_items = [item for item in dataset.items if item.file_type == "image"]
             video_items = [item for item in dataset.items if item.file_type == "video"]
@@ -1451,7 +1518,6 @@ async def prepare_screenshot_seed_media(
 
             if video_items:
                 from yoao_assets_media.contract import SummaryRequest
-                from app.services.assets_media import media_gateway
 
                 for offset in range(0, len(video_items), 500):
                     batch = video_items[offset : offset + 500]
@@ -1462,6 +1528,13 @@ async def prepare_screenshot_seed_media(
                         )
                     for summary in summaries.items:
                         video_sources[summary.dataset_item_id] = summary
+                        if summary.dataset_item_id in ready_video:
+                            video = summary.metadata.get("video") or {}
+                            for field in ("probe_error", "poster_error"):
+                                if video.get(field):
+                                    raise ScreenshotSeedReconcileError(
+                                        f"{dataset.display_id}: video {field}: {video[field]}"
+                                    )
                 if any(
                     item.item_id not in video_sources
                     or not video_sources[item.item_id].thumbnail_path
@@ -1487,6 +1560,16 @@ async def prepare_screenshot_seed_media(
                     for item in video_items
                 ):
                     pending_video = True
+                for work_dataset, work_item, _, source_generation in video_work:
+                    if (
+                        work_dataset.dataset_id == dataset.dataset_id
+                        and work_item.item_id in video_sources
+                        and video_sources[work_item.item_id].source_generation
+                        != source_generation
+                    ):
+                        raise ScreenshotSeedReconcileError(
+                            f"{dataset.display_id}: video source generation changed"
+                        )
         pending_receipt = False
         if not pending_image and not pending_video:
             for dataset in media_rows:
@@ -1546,6 +1629,7 @@ async def prepare_screenshot_seed_media(
         valid_origin = False
     if not valid_origin:
         raise ScreenshotSeedReconcileError("screenshot output proxy is invalid")
+    video_intents = {item.item_id: intent for _, item, intent, _ in video_work}
     item_count = 0
     async with httpx.AsyncClient(
         timeout=30, follow_redirects=False, trust_env=False
@@ -1558,10 +1642,13 @@ async def prepare_screenshot_seed_media(
                     else video_sources[item.item_id]
                 )
                 await _verify_screenshot_output(
-                    db, client, run_id, dataset, item, source, reader["proxy_origin"]
+                    db, client, run_id, dataset, item, source, reader["proxy_origin"],
+                    video_intent=video_intents.get(item.item_id),
                 )
                 item_count += 1
     for intent in image_work_intents:
+        intent.state = "settled"
+    for _, _, intent, _ in video_work:
         intent.state = "settled"
     await db.commit()
     return {"datasets": len(media_rows), "items": item_count}
