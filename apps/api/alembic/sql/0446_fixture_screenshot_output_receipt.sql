@@ -48,8 +48,8 @@ BEGIN
             WHERE item.id=p_item AND item.dataset_id=p_dataset AND item.thumbnail_path=p_key
               AND item.media_source_drifted IS FALSE
             UNION ALL
-            SELECT version.id,'legacy'::text,creation.id,creation.sha256,version.object_key,
-                   version.sha256,version.size_bytes,version.etag,version.version_id
+            SELECT write.id,'native'::text,creation.id,creation.sha256,write.object_key,
+                   write.sha256,write.size_bytes,write.etag,write.version_id
             FROM public.dataset_items AS item
             JOIN yoao_fixture_v1.fixture_run_resources AS resource ON resource.run_id=p_run
               AND resource.kind='creation' AND resource.item_id=item.id AND resource.state='published'
@@ -61,26 +61,37 @@ BEGIN
               AND location.creation_id=creation.id AND location.role='managed_original'
               AND location.reference_state='present' AND location.object_key=creation.object_key
               AND location.location_id=creation.location_id AND location.bucket=creation.bucket
-            JOIN public.video_derivative_outputs AS output ON output.id=item.video_output_id
-              AND output.dataset_item_id=item.id AND output.kind='metadata' AND output.state='ready'
-              AND output.result #>> '{video,poster_frame_path}'=p_key
-              AND output.original_ref ->> 'content_id'=asset.id::text
-              AND output.original_ref ->> 'sha256'=creation.sha256
-              AND output.original_ref ->> 'size_bytes'=creation.size_bytes::text
-            JOIN aap_assets_v1.fixture_media_versions AS version ON version.run_id=p_run
-              AND version.dataset_id=p_dataset AND version.item_id=p_item AND version.owner_kind='video_output'
-              AND version.owner_id=output.id AND version.object_key=p_key AND version.state='verified'
-              AND output.inventory -> 'objects' -> p_key ->> 'sha256'=version.sha256
-              AND output.inventory -> 'objects' -> p_key ->> 'size_bytes'=version.size_bytes::text
-            JOIN aap_assets_v1.fixture_independent_video_attempts AS attempt ON attempt.output_id=output.id
-              AND attempt.lease_token=output.lease_token AND attempt.delivery_id=version.execution_id
-              AND version.execution_kind='independent'
-            JOIN aap_assets_v1.fixture_independent_media_births AS birth ON birth.delivery_id=attempt.delivery_id
-              AND birth.run_id=p_run AND birth.dataset_id=p_dataset AND birth.item_id=p_item
-            JOIN aap_assets_v1.fixture_independent_media_executions AS execution ON execution.delivery_id=birth.delivery_id
-              AND execution.token=version.execution_token AND execution.state='settled'
-            WHERE item.id=p_item AND item.dataset_id=p_dataset AND item.thumbnail_path=p_key
+            JOIN aap_assets_v1.fixture_native_cache_writes AS write ON write.run_id=p_run
+              AND write.dataset_id=p_dataset AND write.item_id=item.id AND write.creation_id=creation.id
+              AND write.etag IS NOT NULL AND write.etag<>'' AND write.version_id IS NOT NULL
+              AND write.version_id NOT IN ('','null')
+              AND write.family='media' AND write.state='verified' AND write.object_key=p_key
+            JOIN aap_assets_v1.fixture_native_media_jobs AS owned ON owned.family='media'
+              AND owned.job_id=write.job_id AND owned.run_id=p_run AND owned.dataset_id=p_dataset
+              AND owned.item_id=p_item AND owned.job_kind='video_metadata'
+              AND owned.owner_kind='dataset_item' AND owned.owner_id=p_item
+            JOIN public.asset_media_jobs AS job ON job.job_id=write.job_id
+              AND job.dataset_item_id=p_item AND job.kind='video_metadata'
+              AND job.generation=write.job_generation AND job.last_lease_token=write.lease_token
+              AND job.status='ready' AND job.last_outcome='published'
+              AND job.source_generation=item.media_source_generation
+            JOIN yoao_fixture_v1.fixture_native_media_work_intents AS intent
+              ON intent.family='media' AND intent.run_id=p_run AND intent.dataset_id=p_dataset
+              AND intent.job_id=job.job_id AND intent.generation=job.generation
+              AND intent.state IN ('admitted','settled')
+            JOIN aap_assets_v1.fixture_native_media_sources AS source
+              ON source.source_operation_id=write.source_operation_id
+              AND source.run_id=p_run AND source.dataset_id=p_dataset AND source.item_id=p_item
+              AND source.creation_id=creation.id AND source.state='settled' AND source.family='media'
+              AND source.job_id=job.job_id AND source.job_generation=job.generation
+              AND source.lease_token=job.last_lease_token
+              AND source.source_snapshot=aap_assets_v1._media_source_snapshot(item)
+            WHERE item.id=p_item AND item.dataset_id=p_dataset AND item.file_type='video'
+              AND item.thumbnail_path=p_key AND item.metadata #>> '{video,poster_frame_path}'=p_key
               AND item.media_source_drifted IS FALSE
+              AND item.media_materialized_generation=item.media_source_generation
+              AND p_key='media-assets/' || job.job_id::text || '/g' || job.generation::text
+                  || '/a' || job.last_lease_token::text || '/poster.webp'
         ) AS receipt;
     EXCEPTION WHEN no_data_found THEN RETURN NULL;
     WHEN too_many_rows THEN RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='fixture_screenshot_output_ambiguous';
