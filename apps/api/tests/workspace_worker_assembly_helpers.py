@@ -103,7 +103,6 @@ class WorkspaceCeleryWorker:
         self.redis_container = self._required("AAP_MODULE_DATA_REDIS_CONTAINER_NAME")
         self.image = self._required("AAP_WORKSPACE_MODULE_API_IMAGE")
         self.image_identity = self._required("AAP_WORKSPACE_MODULE_API_IDENTITY")
-        self._image_record = self._verify_image()
         self._database_name = str(test_engine.url.database or "")
         if not self._database_name.endswith("_test"):
             raise RuntimeError("Worker assembly requires the disposable test DB")
@@ -118,6 +117,7 @@ class WorkspaceCeleryWorker:
         if not self._same_redis_target(self._redis_owner_url, broker_url):
             raise RuntimeError("Celery broker does not target the verified Redis peer")
         self._redis_url = self._docker_url(self._required("REDIS_URL"), "worker-redis")
+        self._image_record = self._verify_image()
 
     @property
     def api_database_url(self) -> URL:
@@ -933,7 +933,10 @@ class WorkspaceCeleryWorker:
         except subprocess.TimeoutExpired:
             raise RuntimeError("Owned worker Docker operation timed out") from None
         if result.returncode != 0:
-            raise RuntimeError("Owned worker Docker operation failed")
+            detail = self.redact(result.stderr.strip())
+            raise RuntimeError(
+                f"Owned worker Docker operation failed ({result.returncode}): {detail}"
+            )
         return result.stdout.strip()
 
     @staticmethod

@@ -371,7 +371,12 @@ export async function cleanupScreenshotRun(runId) {
       if (!retired) {
         const response = await postFixture(
           "http://fixture.local/api/v1/__test/seed/screenshot-cleanup",
-          { data: { run_id: runId }, operationId: record.cleanup_operation_id },
+          {
+            data: { run_id: runId },
+            operationId: record.cleanup_operation_id,
+            // Reader waits are bounded by the owner; physical retirement must settle.
+            timeout: 0,
+          },
         );
         if (!response.ok()) {
           throw new Error(
