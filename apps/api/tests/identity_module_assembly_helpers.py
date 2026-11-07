@@ -24,13 +24,8 @@ from tests.test_identity_sessions_live import _verify_redis
 
 
 def create_retained_realm() -> Path:
-    """Create mount sources outside pytest and TemporaryDirectory finalizers."""
-    parent = ROOT / ".worktree" / "jobs-cold-realms"
-    parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-    if parent.is_symlink():
-        raise RuntimeError("Cold realm parent must not be a symlink")
-    parent.chmod(0o700)
-    return Path(tempfile.mkdtemp(prefix="jobs-cold-", dir=parent))
+    """Keep cold Linux mount sources outside the checkout and automatic cleanup."""
+    return Path(tempfile.mkdtemp(prefix="aap-jobs-cold-", dir="/tmp"))
 
 
 _IDENTITY_DATABASES = {

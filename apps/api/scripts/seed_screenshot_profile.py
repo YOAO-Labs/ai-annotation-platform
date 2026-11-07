@@ -1534,7 +1534,7 @@ async def prepare_screenshot_seed_media(
                     for summary in summaries.items:
                         video_sources[summary.dataset_item_id] = summary
                         if summary.dataset_item_id in ready_video:
-                            video = summary.metadata.get("video") or {}
+                            video = summary.metadata
                             for field in ("probe_error", "poster_error"):
                                 if video.get(field):
                                     raise ScreenshotSeedReconcileError(
@@ -1546,21 +1546,11 @@ async def prepare_screenshot_seed_media(
                     or video_sources[item.item_id].source_drifted
                     or video_sources[item.item_id].materialized_generation
                     != video_sources[item.item_id].source_generation
-                    or not (
-                        video_sources[item.item_id].metadata.get("video") or {}
-                    ).get("frame_count")
-                    or not (
-                        video_sources[item.item_id].metadata.get("video") or {}
-                    ).get("fps")
-                    or (video_sources[item.item_id].metadata.get("video") or {}).get(
-                        "probe_error"
-                    )
-                    or (video_sources[item.item_id].metadata.get("video") or {}).get(
-                        "poster_error"
-                    )
-                    or (video_sources[item.item_id].metadata.get("video") or {}).get(
-                        "poster_frame_path"
-                    )
+                    or not video_sources[item.item_id].metadata.get("frame_count")
+                    or not video_sources[item.item_id].metadata.get("fps")
+                    or video_sources[item.item_id].metadata.get("probe_error")
+                    or video_sources[item.item_id].metadata.get("poster_error")
+                    or video_sources[item.item_id].metadata.get("poster_frame_path")
                     != video_sources[item.item_id].thumbnail_path
                     for item in video_items
                 ):
