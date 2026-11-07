@@ -294,3 +294,85 @@ async def test_native_video_receipt_rejects_stale_and_neighbor_evidence(
         await execute(sql, **params)
         assert await db_session.scalar(receipt, ids) is None, sql
         await nested.rollback()
+
+
+async def test_dataset_media_retirement_scopes_missing_items_by_durable_creation(
+    db_session, super_admin
+):
+    """A removed sibling item is not missing evidence for the current dataset."""
+    ids = {
+        name: uuid4()
+        for name in (
+            "run",
+            "dataset",
+            "neighbor",
+            "item",
+            "creation",
+            "location",
+            "admission",
+            "connection",
+        )
+    }
+    ids.update(user=super_admin[0].id, sha="a" * 64)
+
+    async def execute(sql, **params):
+        return await db_session.execute(text(sql), {**ids, **params})
+
+    await execute(
+        "INSERT INTO yoao_fixture_v1.fixture_runs (id,family) VALUES (:run,'screenshot')"
+    )
+    await execute(
+        "INSERT INTO yoao_fixture_v1.fixture_run_admissions (id,run_id,kind) "
+        "VALUES (:admission,:run,'test')"
+    )
+    for name in ("dataset", "neighbor"):
+        await execute(
+            "INSERT INTO public.datasets (id,display_id,name,created_by) "
+            "VALUES (:id,:display,'retirement scope',:user)",
+            id=ids[name],
+            display="T" + uuid4().hex[:18],
+        )
+        await execute(
+            "INSERT INTO yoao_fixture_v1.fixture_run_resources "
+            "(run_id,kind,resource_id,logical_key,state) "
+            "VALUES (:run,'dataset',:id,:name,'published')",
+            id=ids[name],
+            name=name,
+        )
+    await execute(
+        "INSERT INTO public.storage_locations (id,name,kind,config) "
+        "VALUES (:location,:name,'s3','{}')",
+        name=uuid4().hex,
+    )
+    await execute(
+        "INSERT INTO public.managed_original_creations "
+        "(id,owner_kind,dataset_id,location_id,storage_identity,bucket,object_key,logical_path,"
+        "origin,max_bytes,timeout_seconds,content_type,authority,configuration,input_fingerprint,"
+        "maintenance_revision,status) "
+        "VALUES (:creation,'dataset',:neighbor,:location,:sha,'originals','original','original',"
+        "'zip',12,60,'image/png','{}','{}',:sha,1,'allocated')"
+    )
+    await execute(
+        "INSERT INTO yoao_fixture_v1.fixture_run_resources "
+        "(run_id,kind,resource_id,logical_key,state,creation_id,admission_id,item_id,item_fingerprint) "
+        "VALUES (:run,'creation',:creation,'neighbor-original','published',:creation,:admission,:item,:sha)"
+    )
+    await execute(
+        "INSERT INTO aap_assets_v1.fixture_native_cache_targets "
+        "(run_id,endpoint,bucket,storage_identity,receipt_sha256,birth_receipt,"
+        "connection_id,location_id,binding_generation) "
+        "VALUES (:run,'http://fixture.invalid','outputs',:sha,:sha,'sql-boundary-only',"
+        ":connection,:location,1)"
+    )
+    await execute(
+        "UPDATE yoao_fixture_v1.fixture_runs SET state='sealing',sealed_at=now() WHERE id=:run"
+    )
+    retired = text("SELECT aap_assets_v1.fixture_dataset_media_retired(:run,:dataset)")
+    assert (
+        await db_session.scalar(retired, {"run": ids["run"], "dataset": ids["dataset"]})
+        is True
+    )
+    assert (
+        await db_session.scalar(retired, {"run": ids["run"], "dataset": ids["neighbor"]})
+        is False
+    )

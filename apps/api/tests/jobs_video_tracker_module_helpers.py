@@ -664,6 +664,21 @@ async def _exercise_api_tracker_phase(
             failed_summary = await _async_job(test_engine, str(failed["id"]))
             assert failed_summary["status"] == AsyncJobStatus.FAILED.value
             assert failed_summary["error_message"] == "tracker_enqueue_failed"
+            async with test_engine.connect() as db:
+                attempt_states = list(
+                    (
+                        await db.scalars(
+                            text(
+                                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
+                                "WHERE job_id=:job ORDER BY generation"
+                            ),
+                            {"job": uuid.UUID(str(failed["id"]))},
+                        )
+                    ).all()
+                )
+            assert attempt_states == ["not_sent"], (
+                "Queue outage must reach the fenced publisher and prove pre-send refusal"
+            )
             assert _broker_state(sender, "gpu") == {
                 "queue_size": 0,
                 "unacknowledged": 0,
@@ -687,6 +702,7 @@ async def _exercise_api_tracker_phase(
                 "gpu_queue_empty": True,
                 "default_queue_empty": True,
                 "publication_retirement": outage_retirement,
+                "publication_attempt_states": attempt_states,
             }
         else:
             queue_failure = None

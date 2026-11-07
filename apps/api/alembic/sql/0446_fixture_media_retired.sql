@@ -47,8 +47,9 @@ BEGIN
             AND operation.purpose='media_original_' || pg_catalog.replace(creation.id::text,'-','')
             AND operation.node_id='aap-assets-media'
         WHERE source.run_id=p_run AND source.kind='creation'
-          AND (item.dataset_id=p_dataset OR item.id IS NULL)
-          AND (item.id IS NULL OR creation.id IS NULL OR operation.id IS NOT NULL)
+          AND (item.dataset_id=p_dataset OR creation.dataset_id=p_dataset OR creation.id IS NULL)
+          AND (item.id IS NULL OR creation.id IS NULL
+            OR creation.dataset_id IS DISTINCT FROM item.dataset_id OR operation.id IS NOT NULL)
     ) THEN RETURN false; END IF;
     IF EXISTS (
         SELECT 1 FROM aap_assets_v1.fixture_native_cache_reads AS reader

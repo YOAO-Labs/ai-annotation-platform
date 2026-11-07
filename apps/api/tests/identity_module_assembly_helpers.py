@@ -284,7 +284,7 @@ def _expected_secret_mount_names(
     }:
         result.add("notification_publication_token")
     if jobs_queue_enabled and service == "identity-api":
-        result.add("jobs_queue_token")
+        result.update({"jobs_queue_token", "jobs_publication_database_url"})
     return result
 
 
@@ -515,6 +515,16 @@ class IdentityModuleStack:
         }
         self._database_name = str(test_engine.url.database or "")
         self._validate_database_name(self._database_name)
+        self._jobs_publication_database_url = (
+            verifier_database_url(
+                self._required_environment("AAP_MODULE_DATA_JOBS_PUBLICATION_URL"),
+                test_engine.url,
+                expected_role="jobs_publication_client",
+                container_name=self._postgres_name,
+            )
+            if self._jobs_queue_enabled
+            else None
+        )
         self._notifications_socket_database_url = (
             verifier_database_url(
                 notification_delivery_database_url,
@@ -667,6 +677,8 @@ class IdentityModuleStack:
             urls.append(self._notifications_socket_database_url)
         if self._actor_status_database_url is not None:
             urls.append(self._actor_status_database_url)
+        if self._jobs_publication_database_url is not None:
+            urls.append(self._jobs_publication_database_url)
         for url in urls:
             values.extend(
                 [url.render_as_string(hide_password=False), url.password or ""]
@@ -1078,6 +1090,13 @@ class IdentityModuleStack:
             assert self._jobs_queue_broker_url is not None
             self._write_secret("jobs_queue_token", self._jobs_queue_token)
             self._write_secret("jobs_queue_broker_url", self._jobs_queue_broker_url)
+            assert self._jobs_publication_database_url is not None
+            self._write_secret(
+                "jobs_publication_database_url",
+                self._jobs_publication_database_url.set(
+                    database=self._database_name
+                ).render_as_string(hide_password=False),
+            )
 
         self._write_environment_file(self._api_env_file, self._api_environment())
         compose_values = {
@@ -1157,6 +1176,9 @@ class IdentityModuleStack:
                     "JOBS_QUEUE_TOKEN_SECRET_FILE": str(
                         self._secret_directory / "jobs_queue_token"
                     ),
+                    "JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE": str(
+                        self._secret_directory / "jobs_publication_database_url"
+                    ),
                 }
             )
         self._write_environment_file(self._compose_env_file, compose_values)
@@ -1183,6 +1205,8 @@ class IdentityModuleStack:
             "JOBS_QUEUE_URL": "",
             "JOBS_QUEUE_TOKEN": "",
             "JOBS_QUEUE_TOKEN_FILE": "",
+            "JOBS_PUBLICATION_DATABASE_URL": "",
+            "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
             "AUDIT_ASYNC": "true",
@@ -1220,6 +1244,7 @@ class IdentityModuleStack:
                 {
                     "JOBS_QUEUE_URL": "http://jobs-queue:8190",
                     "JOBS_QUEUE_TOKEN_FILE": "/run/secrets/jobs_queue_token",
+                    "JOBS_PUBLICATION_DATABASE_URL_FILE": "/run/secrets/jobs_publication_database_url",
                 }
             )
         for env_name, default in (
@@ -1350,13 +1375,17 @@ class IdentityModuleStack:
       jobs-queue:
         condition: service_healthy
 """
-            api_secret_names.append("jobs_queue_token")
+            api_secret_names.extend(
+                ("jobs_queue_token", "jobs_publication_database_url")
+            )
             secret_definitions.extend(
                 [
                     """  jobs_queue_broker_url:
     file: ${JOBS_QUEUE_BROKER_URL_SECRET_FILE:?}""",
                     """  jobs_queue_token:
     file: ${JOBS_QUEUE_TOKEN_SECRET_FILE:?}""",
+                    """  jobs_publication_database_url:
+    file: ${JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE:?}""",
                 ]
             )
         api_secrets = (
@@ -1919,10 +1948,18 @@ class IdentityModuleStack:
             expected_jobs_token_file = (
                 "/run/secrets/jobs_queue_token" if self._jobs_queue_enabled else ""
             )
+            expected_publication_database_file = (
+                "/run/secrets/jobs_publication_database_url"
+                if self._jobs_queue_enabled
+                else ""
+            )
             if (
                 env.get("JOBS_QUEUE_URL", "") != expected_jobs_url
                 or env.get("JOBS_QUEUE_TOKEN", "")
                 or env.get("JOBS_QUEUE_TOKEN_FILE", "") != expected_jobs_token_file
+                or env.get("JOBS_PUBLICATION_DATABASE_URL", "")
+                or env.get("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
+                != expected_publication_database_file
                 or (
                     self._jobs_queue_enabled
                     and any(value == self._jobs_queue_token for value in env.values())
@@ -1934,9 +1971,13 @@ class IdentityModuleStack:
             if self._jobs_queue_enabled and any(
                 mount.get("RW") is not False
                 for mount in mounts
-                if mount.get("Destination") == "/run/secrets/jobs_queue_token"
+                if mount.get("Destination")
+                in {
+                    "/run/secrets/jobs_queue_token",
+                    "/run/secrets/jobs_publication_database_url",
+                }
             ):
-                raise RuntimeError("API Jobs queue bearer mount must be read-only")
+                raise RuntimeError("API Jobs credential mounts must be read-only")
         elif service == _JOBS_QUEUE_SERVICE:
             expected_environment = {
                 "JOBS_QUEUE_BROKER_URL_FILE": "/run/secrets/jobs_queue_broker_url",
