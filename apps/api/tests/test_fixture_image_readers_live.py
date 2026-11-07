@@ -36,6 +36,7 @@ from tests.seed_owner_support import (
     _fixture_versions,
     _read_versions,
     fixture_original_reader,
+    private_seed_owner,
 )
 from tests.test_assets_images_live import _POLICY, _read_job, _wait_job, _wait_marker
 from tests.test_assets_media_live import (
@@ -105,6 +106,119 @@ BaseClient._make_api_call = _call
         encoding="utf-8",
     )
     return gate, state
+
+
+def _consumer_binding_probe(tmp_path: Path):
+    """Inject a real backfill birth and probe both admitted consumer sessions."""
+    module = tmp_path / "consumer-binding-probe"
+    module.mkdir()
+    state = tmp_path / "consumer-binding-state"
+    state.mkdir()
+    (module / "sitecustomize.py").write_text(
+        f'''import json, os, sys, uuid
+from pathlib import Path
+
+if "celery" in getattr(sys, "orig_argv", ()):
+    from celery.signals import worker_process_init
+
+    @worker_process_init.connect(weak=False)
+    def install_probe(**_kwargs):
+        from sqlalchemy import text
+        from app.services.fixture_media_execution import Execution
+
+        original = Execution.bind_generation
+
+        async def checked(self, asset, generation):
+            expected_path = Path({str(state / "expected")!r})
+            if not expected_path.exists():
+                return await original(self, asset, generation)
+            expected = json.loads(expected_path.read_text())
+            if self.kind in ("pyramid", "independent") and str(asset) == expected["asset"]:
+                assert generation == expected["generation"]
+                function = ("aap_jobs_v1.bind_fixture_media_child_generation"
+                            if self.kind == "pyramid"
+                            else "aap_assets_v1.bind_fixture_independent_pyramid")
+                statement = text("SELECT " + function + "(:id,:token,:asset,:generation)")
+                parameters = {{"id": self.identifier, "token": self.token,
+                              "asset": uuid.uuid4(), "generation": generation}}
+                wrong_asset = await self.connection.scalar(statement, parameters)
+                parameters.update(asset=asset, generation=generation + 1)
+                wrong_generation = await self.connection.scalar(statement, parameters)
+                if wrong_asset is not False or wrong_generation is not False:
+                    raise AssertionError("wrong fixture pyramid binding was accepted")
+                await original(self, asset, generation)
+                marker = Path({str(state)!r}) / (self.kind + "-" + str(self.identifier))
+                marker.write_text(json.dumps({{"asset": str(asset), "generation": generation,
+                                             "wrong_asset": wrong_asset,
+                                             "wrong_generation": wrong_generation}}))
+                return
+            await original(self, asset, generation)
+
+        Execution.bind_generation = checked
+
+        from app.workers import media
+        original_backfill = media._run_media_backfill_job
+
+        async def with_independent_delivery(job):
+            await original_backfill(job)
+            expected_path = Path({str(state / "expected")!r})
+            if not expected_path.exists():
+                return
+            expected = json.loads(expected_path.read_text())
+            from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+            from yoao_jobs.publication_postgres import publish_fixture_media_delivery
+            from app.config import settings
+            from app.services import fixture_media_execution, image_pyramid_originals, media_dispatch
+            from app.services.jobs_queue import publish_queue_envelope
+
+            execution = fixture_media_execution.current()
+            if execution is None or execution.kind != "backfill":
+                raise RuntimeError("fixture backfill admission is missing")
+            engine = create_async_engine(settings.database_url, hide_parameters=True)
+            try:
+                async with engine.connect() as business:
+                    async with AsyncSession(bind=business, expire_on_commit=False) as db:
+                        dataset = await db.scalar(
+                            text("SELECT payload ->> 'dataset_id' FROM public.async_jobs WHERE id=:job"),
+                            {{"job": job}},
+                        )
+                        if dataset != expected["dataset"]:
+                            return
+                        item = uuid.UUID(expected["item"])
+                        delivery = uuid.UUID(expected["delivery"])
+                        pinned = await image_pyramid_originals.pin(db, "dataset_item", item)
+                        delegation = image_pyramid_originals.system_authorization(
+                            "dataset_item", item, pinned
+                        )
+                        args = ["dataset_item", str(item), False, delegation]
+                        async with execution.birth_scope(
+                            business, uuid.UUID(dataset), item, None, delivery=delivery
+                        ):
+                            prepared = await media_dispatch.prepare(
+                                db, owner_kind="dataset_item", owner_id=item,
+                                producer_kind="pyramid", source=delegation["original"],
+                                task_name="app.workers.image_pyramid.generate_image_pyramid",
+                                args=args, delivery_id=delivery,
+                            )
+                            if prepared.ownership != "fixture":
+                                raise RuntimeError("independent fixture birth was not admitted")
+                            await db.commit()
+            finally:
+                await engine.dispose()
+
+            class EmbeddedQueue:
+                async def publish_envelope(self, envelope):
+                    return await publish_queue_envelope(envelope)
+
+            await publish_fixture_media_delivery(
+                settings.jobs_publication_database_url, delivery, EmbeddedQueue()
+            )
+
+        media._run_media_backfill_job = with_independent_delivery
+''',
+        encoding="utf-8",
+    )
+    return module, state
 
 
 async def _fixture_source(engine, world, run, versions, *, index=0):
@@ -548,11 +662,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     """Both real fixture consumers wait for the original native Images reader."""
     from celery import Celery
     from sqlalchemy.engine import make_url
-    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-
-    from app.services import fixture_media_execution, image_pyramid_originals, media_dispatch
-    from app.workers import image_pyramid as pyramid_worker
-    from app.workers.media import _run_media_backfill_job
+    from sqlalchemy.ext.asyncio import create_async_engine
     from tests.test_fixture_inference_retirement_live import _guard_role_url, _login
     from tests.test_workspace_worker_assembly_live import _delete_owned_queue
     from tests.workspace_worker_assembly_helpers import _verify_redis
@@ -566,7 +676,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     import fixture_media_control
 
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    owner = suite = owner_log = media = ordinary = ordinary_stream = sender = runtime_engine = None
+    owner_context = owner = suite = media = ordinary = ordinary_stream = sender = cleanup = None
     run = neighbor = None
     completed = False
     try:
@@ -576,25 +686,36 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         monkeypatch.setattr(settings, "assets_media_url", media_url)
         monkeypatch.setattr(settings, "assets_media_token", media.control_token)
         monkeypatch.setattr(settings, "jobs_queue_url", "")
+        monkeypatch.setenv("JOBS_QUEUE_URL", "")
         monkeypatch.setattr(settings, "image_pyramid_auto_generate", True)
         monkeypatch.setattr(settings, "image_pyramid_optional_pixels", _POLICY.optional_pixels)
+        monkeypatch.setenv("IMAGE_PYRAMID_AUTO_GENERATE", "true")
+        monkeypatch.setenv("IMAGE_PYRAMID_OPTIONAL_PIXELS", str(_POLICY.optional_pixels))
         monkeypatch.setenv("ASSETS_MEDIA_URL", media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
         runtime_url = _guard_role_url(
             "AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime", test_engine
         )
-        monkeypatch.setattr(settings, "database_url", runtime_url.render_as_string(hide_password=False))
-        runtime_engine = create_async_engine(runtime_url, hide_parameters=True)
-        owner_log = tempfile.TemporaryFile()
-        process = subprocess.Popen(
-            [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
-            cwd=ROOT / "apps/api", stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-            stderr=owner_log, close_fds=True, start_new_session=True, bufsize=0,
+        runtime_dsn = runtime_url.render_as_string(hide_password=False)
+        monkeypatch.setattr(settings, "database_url", runtime_dsn)
+        monkeypatch.setenv("DATABASE_URL", runtime_dsn)
+        publication_url = _guard_role_url(
+            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "jobs_publication_client", test_engine
+        ).set(drivername="postgresql").render_as_string(hide_password=False)
+        monkeypatch.setattr(settings, "jobs_publication_database_url", publication_url)
+        monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+        monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
+        monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
+        probe, probe_state = _consumer_binding_probe(tmp_path)
+        monkeypatch.setenv(
+            "PYTHONPATH", os.pathsep.join((str(probe), os.environ.get("PYTHONPATH", "")))
         )
-        owner = _PreservedSeedOwner(process, owner_log)
-        suite = OwnedSuite(owner, uuid.uuid4())
-        await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
+        suite_id = uuid.uuid4()
+        owner_context = private_seed_owner(native_suite_id=suite_id)
+        owner = await owner_context.__aenter__()
+        suite = OwnedSuite(owner, suite_id)
+        await owner.verify_suite(suite_id, "owned")
         run = suite.new_run("reuse" + uuid.uuid4().hex[:7])
         neighbor = suite.new_run("nbr" + uuid.uuid4().hex[:8])
         world = await _build_owned(owner, run, image_canvas="5k")
@@ -610,11 +731,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             )
         assert dataset is not None
         secret = await fixture_media_control.receipt_path(run.run_id)
-        control_url = await fixture_media_control.provision(test_engine.url, run.run_id, secret)
-        control_file = await fixture_media_control.worker_dsn_path(run.run_id, secret)
-        target = await fixture_media_control.native_target(run.run_id)
-        monkeypatch.setenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", str(control_file))
-        monkeypatch.setenv("AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE", str(target["writer_file"]))
+        control_url = await fixture_media_control.load_control(run.run_id, secret)
 
         # The producer is the ordinary Images LOGIN and its ordinary output
         # target, not a fixture execution or a fabricated source receipt.
@@ -650,6 +767,15 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             )).mappings().one()
         assert attempt["state"] == "open" and attempt["job_generation"] == job["generation"]
         assert attempt["lease_token"] == job["lease_token"]
+        delivery = uuid.uuid4()
+        expected = {
+            "asset": str(asset), "generation": generation, "dataset": str(dataset),
+            "item": str(item), "delivery": str(delivery),
+        }
+        expected_file = probe_state / "expected"
+        temporary = probe_state / "expected.tmp"
+        temporary.write_text(json.dumps(expected), encoding="utf-8")
+        os.replace(temporary, expected_file)
 
         headers = await _login(owner, world)
         headers["Idempotency-Key"] = str(uuid.uuid4())
@@ -660,77 +786,34 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         backfill = uuid.UUID(accepted.json()["job_id"])
         media_queue = f"aap_workspace_worker_{run.run_id.hex}_media"
         pyramid_queue = f"aap_workspace_worker_{run.run_id.hex}_pyramid"
-        async with fixture_media_execution.admitted(
-            "backfill", backfill, media_queue, delivery_id=str(backfill)
-        ) as started:
-            assert started
-            # This is the real Jobs-owned worker, including its business Job
-            # transitions and durable child dispatch, not a synthetic birth.
-            await _run_media_backfill_job(backfill)
-            execution = fixture_media_execution.current()
-            async with runtime_engine.connect() as business:
-                async with AsyncSession(bind=business, expire_on_commit=False) as db:
-                    pinned = await image_pyramid_originals.pin(db, "dataset_item", item)
-                    delegation = image_pyramid_originals.system_authorization("dataset_item", item, pinned)
-                    await db.rollback()
-                    delivery = uuid.uuid4()
-                    args = ["dataset_item", str(item), False, delegation]
-                    async with execution.birth_scope(business, dataset, item, None, delivery=delivery):
-                        prepared = await media_dispatch.prepare(
-                            db, owner_kind="dataset_item", owner_id=item, producer_kind="pyramid",
-                            source=delegation["original"],
-                            task_name="app.workers.image_pyramid.generate_image_pyramid",
-                            args=args, delivery_id=delivery,
-                        )
-                        assert prepared.ownership == "fixture"
-                        await db.commit()
-            await media_dispatch.publish(
-                prepared, lambda: pyramid_worker.generate_image_pyramid.delay(*args)
-            )
-        async with test_engine.connect() as db:
-            child = await db.scalar(
-                text("SELECT child_id FROM aap_jobs_v1.fixture_media_children "
-                     "WHERE job_id=:job AND item_id=:item"), {"job": backfill, "item": item}
-            )
-        assert child is not None
 
-        async with fixture_media_execution.admitted(
-            "pyramid", child, pyramid_queue, item_id=item, delegation=delegation
-        ) as started:
-            assert started
-            execution = fixture_media_execution.current()
-            denied = await execution.connection.scalar(
-                text("SELECT aap_jobs_v1.bind_fixture_media_child_generation(:child,:token,:asset,:generation)"),
-                {"child": child, "token": execution.token, "asset": uuid.uuid4(), "generation": generation},
-            )
-            assert denied is False
-            denied = await execution.connection.scalar(
-                text("SELECT aap_jobs_v1.bind_fixture_media_child_generation(:child,:token,:asset,:generation)"),
-                {"child": child, "token": execution.token, "asset": asset, "generation": generation + 1},
-            )
-            assert denied is False
-            await execution.connection.commit()
-            await pyramid_worker._run_image_pyramid("dataset_item", str(item), force=False, delegation=delegation)
-            await execution.bind_generation(asset, generation)
-        async with fixture_media_execution.admitted_independent(
-            str(delivery), "app.workers.image_pyramid.generate_image_pyramid",
-            pyramid_queue, args, {},
-        ) as started:
-            assert started
-            execution = fixture_media_execution.current()
-            denied = await execution.connection.scalar(
-                text("SELECT aap_assets_v1.bind_fixture_independent_pyramid(:delivery,:token,:asset,:generation)"),
-                {"delivery": delivery, "token": execution.token, "asset": uuid.uuid4(), "generation": generation},
-            )
-            assert denied is False
-            denied = await execution.connection.scalar(
-                text("SELECT aap_assets_v1.bind_fixture_independent_pyramid(:delivery,:token,:asset,:generation)"),
-                {"delivery": delivery, "token": execution.token, "asset": asset, "generation": generation + 1},
-            )
-            assert denied is False
-            await execution.connection.commit()
-            await pyramid_worker._run_image_pyramid("dataset_item", str(item), force=False, delegation=delegation)
-            await execution.bind_generation(asset, generation)
+        async def settled_consumers():
+            async with test_engine.connect() as db:
+                child_id = await db.scalar(
+                    text(
+                        "SELECT child.child_id FROM aap_jobs_v1.fixture_media_children AS child "
+                        "JOIN public.async_jobs AS job ON job.id=child.job_id "
+                        "JOIN aap_assets_v1.fixture_independent_media_executions AS independent "
+                        "ON independent.delivery_id=:delivery "
+                        "WHERE child.job_id=:job AND child.item_id=:item "
+                        "AND child.state='settled' AND independent.state='settled' "
+                        "AND job.status='completed'"
+                    ),
+                    {"job": backfill, "item": item, "delivery": delivery},
+                )
+            if child_id and (probe_state / f"pyramid-{child_id}").is_file() and (
+                probe_state / f"independent-{delivery}"
+            ).is_file():
+                return child_id
+            return None
+
+        child = await _eventually("both real pyramid consumers settled", settled_consumers, timeout=120)
+        for kind, identifier in (("pyramid", child), ("independent", delivery)):
+            observed = json.loads((probe_state / f"{kind}-{identifier}").read_text())
+            assert observed == {
+                "asset": str(asset), "generation": generation,
+                "wrong_asset": False, "wrong_generation": False,
+            }
 
         async with test_engine.connect() as db:
             bindings = (await db.execute(
@@ -796,7 +879,7 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                     text("SELECT state FROM aap_assets_v1.fixture_external_media_sources "
                          "WHERE source_operation_id=:id"), {"id": attempt["source_operation_id"]}
                 ) == "settled"
-            result = await asyncio.wait_for(cleanup, 120)
+            result = await asyncio.wait_for(asyncio.shield(cleanup), 120)
             assert result.status_code == 200, result.text
             async with test_engine.connect() as db:
                 proven = text(
@@ -809,23 +892,21 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         result = await _cleanup_owned(owner, neighbor)
         assert result.status_code == 200, result.text
         await suite.finish()
+        await owner.retire_native_suite()
         sender = Celery("fixture-pyramid-reuse-verifier", broker=settings.effective_celery_broker)
         await asyncio.to_thread(_delete_owned_queue, sender, media_queue)
         await asyncio.to_thread(_delete_owned_queue, sender, pyramid_queue)
         sender.close()
         await owner.shutdown_authority(suite.suite_id)
-        owner.process.stdin.close()
-        await asyncio.to_thread(owner.process.wait, timeout=30)
-        assert owner.process.returncode == 0
-        owner_log.close()
-        await runtime_engine.dispose()
+        await owner_context.__aexit__(None, None, None)
         await _stop_media_runtime(media)
         await routing.__aexit__(None, None, None)
         completed = True
     finally:
         if not completed:
             _RETAINED_UNCERTAIN.append(
-                (owner, suite, owner_log, media, ordinary, ordinary_stream, sender, runtime_engine, routing)
+                (owner_context, owner, suite, media, ordinary, ordinary_stream, sender,
+                 routing, cleanup)
             )
             print(
                 f"Retained unresolved pyramid reuse: run={run.run_id if run else None} "
