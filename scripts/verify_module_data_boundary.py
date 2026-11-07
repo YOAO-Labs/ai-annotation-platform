@@ -7487,26 +7487,51 @@ def main(
         async def verify_execution_and_fixture_roles() -> None:
             import asyncpg
             from fixture_media_control import _ASSETS, _JOBS
-            from fixture_native_read_control import _READER_FUNCTIONS, _RESOLVER_FUNCTIONS
+            from fixture_native_read_control import (
+                _READER_FUNCTIONS,
+                _RESOLVER_FUNCTIONS,
+            )
             from yoao_owner_data.postgres import verify_function_only_role
 
             profiles = (
-                (jobs_publication_url, JOBS_PUBLICATION_ROLE, "aap_jobs_v1", {
-                    ("begin_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
-                    ("finish_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
-                    ("refuse_dispatch_publication", "uuid, uuid, text, bigint, uuid"),
-                    ("retry_publication_intent", "uuid, text, text, jsonb, jsonb"),
-                    ("begin_retry_publication", "uuid, uuid, text, text, jsonb, jsonb, integer, uuid"),
-                    ("finish_retry_publication", "uuid, uuid, text, integer, uuid"),
-                    ("begin_fixture_media_publication", "uuid, uuid"),
-                    ("finish_fixture_media_publication", "uuid, uuid, text"),
-                }),
-                (export_execution_url, EXPORT_EXECUTION_ROLE, "aap_export_v1", {
-                    ("begin_execution", "uuid, uuid, text, uuid, integer"),
-                    ("enter_execution_io", "uuid, uuid"),
-                    ("quiesce_execution_io", "uuid, uuid"),
-                    ("finish_execution", "uuid, uuid"),
-                }),
+                (
+                    jobs_publication_url,
+                    JOBS_PUBLICATION_ROLE,
+                    "aap_jobs_v1",
+                    {
+                        (
+                            "begin_dispatch_publication",
+                            "uuid, uuid, text, bigint, uuid",
+                        ),
+                        (
+                            "finish_dispatch_publication",
+                            "uuid, uuid, text, bigint, uuid",
+                        ),
+                        (
+                            "refuse_dispatch_publication",
+                            "uuid, uuid, text, bigint, uuid",
+                        ),
+                        ("retry_publication_intent", "uuid, text, text, jsonb, jsonb"),
+                        (
+                            "begin_retry_publication",
+                            "uuid, uuid, text, text, jsonb, jsonb, integer, uuid",
+                        ),
+                        ("finish_retry_publication", "uuid, uuid, text, integer, uuid"),
+                        ("begin_fixture_media_publication", "uuid, uuid"),
+                        ("finish_fixture_media_publication", "uuid, uuid, text"),
+                    },
+                ),
+                (
+                    export_execution_url,
+                    EXPORT_EXECUTION_ROLE,
+                    "aap_export_v1",
+                    {
+                        ("begin_execution", "uuid, uuid, text, uuid, integer"),
+                        ("enter_execution_io", "uuid, uuid"),
+                        ("quiesce_execution_io", "uuid, uuid"),
+                        ("finish_execution", "uuid, uuid"),
+                    },
+                ),
             )
             for url, role, schema, signatures in profiles:
                 connection = await asyncpg.connect(
@@ -7520,12 +7545,19 @@ def main(
                     await connection.close()
 
             connection = await asyncpg.connect(
-                host="127.0.0.1", port=port, user="owner",
-                password=owner_password, database=database, timeout=5,
+                host="127.0.0.1",
+                port=port,
+                user="owner",
+                password=owner_password,
+                database=database,
+                timeout=5,
             )
             try:
                 private_signatures = (
-                    _JOBS + _ASSETS + _READER_FUNCTIONS + _RESOLVER_FUNCTIONS
+                    _JOBS
+                    + _ASSETS
+                    + _READER_FUNCTIONS
+                    + _RESOLVER_FUNCTIONS
                     + (
                         "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)",
                         "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
@@ -7540,21 +7572,39 @@ def main(
                     )""",
                     list(private_signatures),
                 ):
-                    raise RuntimeError("ordinary API can execute private fixture capabilities")
+                    raise RuntimeError(
+                        "ordinary API can execute private fixture capabilities"
+                    )
                 transaction = connection.transaction()
                 await transaction.start()
                 try:
                     for role, schemas, signatures in (
-                        ("fixture_media_acl_probe", ("aap_jobs_v1", "aap_assets_v1"), _JOBS + _ASSETS),
-                        ("fixture_reader_acl_probe", ("aap_assets_v1",), _READER_FUNCTIONS),
-                        ("fixture_resolver_acl_probe", ("aap_assets_v1",), _RESOLVER_FUNCTIONS),
+                        (
+                            "fixture_media_acl_probe",
+                            ("aap_jobs_v1", "aap_assets_v1"),
+                            _JOBS + _ASSETS,
+                        ),
+                        (
+                            "fixture_reader_acl_probe",
+                            ("aap_assets_v1",),
+                            _READER_FUNCTIONS,
+                        ),
+                        (
+                            "fixture_resolver_acl_probe",
+                            ("aap_assets_v1",),
+                            _RESOLVER_FUNCTIONS,
+                        ),
                     ):
                         await connection.execute(
                             f"CREATE ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB "
                             "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
                         )
-                        await connection.execute(f"GRANT USAGE ON SCHEMA {','.join(schemas)} TO {role}")
-                        await connection.execute(f"GRANT EXECUTE ON FUNCTION {','.join(signatures)} TO {role}")
+                        await connection.execute(
+                            f"GRANT USAGE ON SCHEMA {','.join(schemas)} TO {role}"
+                        )
+                        await connection.execute(
+                            f"GRANT EXECUTE ON FUNCTION {','.join(signatures)} TO {role}"
+                        )
                         expected = await connection.fetch(
                             """SELECT p.oid, n.nspname, pg_catalog.pg_get_userbyid(p.proowner) AS owner
                             FROM pg_catalog.unnest($1::text[]) AS signature
@@ -7564,13 +7614,16 @@ def main(
                             list(signatures),
                         )
                         if any(
-                            row["owner"] != {
+                            row["owner"]
+                            != {
                                 "aap_assets_v1": "assets_code",
                                 "aap_jobs_v1": "jobs_code",
                             }.get(row["nspname"])
                             for row in expected
                         ):
-                            raise RuntimeError(f"fixture capability owner differs: {role}")
+                            raise RuntimeError(
+                                f"fixture capability owner differs: {role}"
+                            )
                         expected_oids = {row["oid"] for row in expected}
                         actual = await connection.fetch(
                             """SELECT p.oid FROM pg_catalog.pg_proc AS p
@@ -7592,8 +7645,12 @@ def main(
                               AND pg_catalog.has_function_privilege($1,p.oid,'EXECUTE')""",
                             role,
                         )
-                        if None in expected_oids or expected_oids != {row["oid"] for row in actual}:
-                            raise RuntimeError(f"fixture capability profile differs: {role}")
+                        if None in expected_oids or expected_oids != {
+                            row["oid"] for row in actual
+                        }:
+                            raise RuntimeError(
+                                f"fixture capability profile differs: {role}"
+                            )
                         if await connection.fetchval(
                             """SELECT EXISTS (
                                 SELECT FROM pg_catalog.pg_class AS c
@@ -7604,9 +7661,12 @@ def main(
                                   AND c.relkind IN ('r','p','v','m','f')
                                   AND (pg_catalog.has_table_privilege($1,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
                                     OR pg_catalog.has_any_column_privilege($1,c.oid,'SELECT,INSERT,UPDATE,REFERENCES'))
-                            )""", role,
+                            )""",
+                            role,
                         ):
-                            raise RuntimeError(f"fixture role has relation privileges: {role}")
+                            raise RuntimeError(
+                                f"fixture role has relation privileges: {role}"
+                            )
                 finally:
                     await transaction.rollback()
             finally:

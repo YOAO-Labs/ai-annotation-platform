@@ -218,12 +218,14 @@ export async function seedScreenshotCapture(runId, apiOrigin, arguments_, signal
       "--admission-id",
       binding.admission_id,
     ],
-    { cwd: apiRoot, env: environment, stdio: "inherit" },
+    // Keep terminal Ctrl-C from reaching the seed both directly and via our owner.
+    { cwd: apiRoot, env: environment, stdio: "inherit", detached: true },
   );
   const failures = [];
   const forwardSignal = () => {
     try {
-      child.kill(signal.reason);
+      // asyncio.run cancels and drains on SIGINT; an unhandled SIGTERM skips that.
+      child.kill("SIGINT");
     } catch (error) {
       failures.push(error);
     }
@@ -234,7 +236,7 @@ export async function seedScreenshotCapture(runId, apiOrigin, arguments_, signal
     child.once("close", (code, exitSignal) => resolve({ code, signal: exitSignal }));
   });
   signal?.removeEventListener("abort", forwardSignal);
-  if (result.code !== 0 && (result.code !== null || result.signal || !failures.length)) {
+  if (child.pid !== undefined && result.code !== 0) {
     failures.push(new Error(`Screenshot seed failed: ${result.signal ?? result.code}`));
   }
   if (failures.length === 1) throw failures[0];

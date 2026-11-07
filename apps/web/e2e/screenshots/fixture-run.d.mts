@@ -4,7 +4,7 @@ export function seedScreenshotCapture(
   runId: string,
   apiOrigin: string,
   arguments_: string[],
-  /** When aborted, reason must be the SIGINT or SIGTERM to forward to the seed. */
+  /** Abort cooperatively interrupts the owned Python seed and waits for its close. */
   signal?: AbortSignal,
 ): Promise<void>;
 export function requireScreenshotCaptureClosed(runId: string): void;

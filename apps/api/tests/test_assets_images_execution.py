@@ -656,7 +656,9 @@ async def test_thumbnail_provenance_survives_refresh_failure_then_clears_on_new_
     )
 
 
-@pytest.mark.parametrize("backfill", [False, True], ids=["direct", "thumbnail-backfill"])
+@pytest.mark.parametrize(
+    "backfill", [False, True], ids=["direct", "thumbnail-backfill"]
+)
 async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomically(
     db_session, backfill
 ):
@@ -680,12 +682,16 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
                 "all_owners": False,
                 "purpose": "thumbnail",
                 "only_missing": True,
-                "accepted_before": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+                "accepted_before": (
+                    datetime.now(UTC) + timedelta(minutes=5)
+                ).isoformat(),
             },
             "policy": policy,
         }
         backfill_id, _ = await _enqueue(db_session, None, spec)
-        backfill_claim = await _claim(db_session, job_id=backfill_id, kind="image_backfill")
+        backfill_claim = await _claim(
+            db_session, job_id=backfill_id, kind="image_backfill"
+        )
         args = {
             "job_id": backfill_id,
             "generation": backfill_claim["generation"],
@@ -698,12 +704,14 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         args["observations"] = json.dumps(
             {
                 "batch_token": prepared["batch_token"],
-                "items": [{
-                    "owner": candidate["owner"],
-                    "source_snapshot": candidate["source_snapshot"],
-                    "object_identity": _identity(),
-                    "error_code": None,
-                }],
+                "items": [
+                    {
+                        "owner": candidate["owner"],
+                        "source_snapshot": candidate["source_snapshot"],
+                        "object_identity": _identity(),
+                        "error_code": None,
+                    }
+                ],
             }
         )
         progress = _data(_reply(await db_session.scalar(_ADVANCE, args)))
@@ -1072,11 +1080,15 @@ async def test_image_backfill_observation_commit_is_atomic_and_replayable(db_ses
     assert len(child_ids) == 1
 
 
-async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(db_session):
+async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(
+    db_session,
+):
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
     missing_id = await _seed_image(db_session, actor_id=actor_id, dataset_id=dataset_id)
-    existing_id = await _seed_image(db_session, actor_id=actor_id, dataset_id=dataset_id)
+    existing_id = await _seed_image(
+        db_session, actor_id=actor_id, dataset_id=dataset_id
+    )
     large_id = await _seed_image(
         db_session, actor_id=actor_id, dataset_id=dataset_id, width=5000, height=5000
     )
@@ -1127,7 +1139,9 @@ async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(
     )
     progress = _data(_reply(await db_session.scalar(_ADVANCE, args)))
     assert (progress["complete"], progress["scheduled"], progress["skipped"]) == (
-        True, 2, 1
+        True,
+        2,
+        1,
     )
 
     async def thumbnail_job(item_id):
