@@ -1021,6 +1021,133 @@ async def test_image_backfill_observation_commit_is_atomic_and_replayable(db_ses
     assert len(child_ids) == 1
 
 
+async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(db_session):
+    actor_id = await _seed_actor(db_session)
+    dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
+    missing_id = await _seed_image(db_session, actor_id=actor_id, dataset_id=dataset_id)
+    existing_id = await _seed_image(db_session, actor_id=actor_id, dataset_id=dataset_id)
+    large_id = await _seed_image(
+        db_session, actor_id=actor_id, dataset_id=dataset_id, width=5000, height=5000
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.dataset_items SET thumbnail_path='existing.webp', "
+            "media_materialized_generation=media_source_generation WHERE id=:item_id"
+        ),
+        {"item_id": existing_id},
+    )
+    spec = {
+        "kind": "image_backfill",
+        "selection": {
+            "owner_kind": "dataset_item",
+            "dataset_id": str(dataset_id),
+            "project_id": None,
+            "owner_ids": [],
+            "all_owners": False,
+            "purpose": "thumbnail",
+            "only_missing": True,
+            "accepted_before": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+        },
+        "policy": ImagePolicy().model_dump(mode="json"),
+    }
+    backfill_id, _ = await _enqueue(db_session, None, spec)
+    backfill = await _claim(db_session, job_id=backfill_id, kind="image_backfill")
+    args = {
+        "job_id": backfill_id,
+        "generation": backfill["generation"],
+        "lease_token": backfill["lease_token"],
+        "batch_size": 10,
+        "observations": None,
+    }
+    prepared = _data(_reply(await db_session.scalar(_ADVANCE, args)))
+    args["observations"] = json.dumps(
+        {
+            "batch_token": prepared["batch_token"],
+            "items": [
+                {
+                    "owner": candidate["owner"],
+                    "source_snapshot": candidate["source_snapshot"],
+                    "object_identity": _identity(),
+                    "error_code": None,
+                }
+                for candidate in prepared["candidates"]
+            ],
+        }
+    )
+    progress = _data(_reply(await db_session.scalar(_ADVANCE, args)))
+    assert (progress["complete"], progress["scheduled"], progress["skipped"]) == (
+        True, 2, 1
+    )
+
+    async def thumbnail_job(item_id):
+        return await db_session.scalar(
+            text(
+                "SELECT job_id FROM public.asset_image_jobs "
+                "WHERE owner_kind='dataset_item' AND owner_id=:item_id AND kind='thumbnail'"
+            ),
+            {"item_id": item_id},
+        )
+
+    assert await thumbnail_job(existing_id) is None
+    job_id = await thumbnail_job(missing_id)
+    assert job_id is not None
+    claim = await _claim(db_session, job_id=job_id, kind="thumbnail")
+    result = _worker_result(
+        "thumbnail",
+        claim["source"],
+        source_sha256="a" * 64,
+        width=320,
+        height=200,
+        blurhash="LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+        artifact={
+            "key": claim["output_prefix"] + "thumbnail.webp",
+            "byte_size": 12,
+            "sha256": "b" * 64,
+        },
+    )
+    published = _data(
+        _reply(
+            await db_session.scalar(
+                _FINISH,
+                {
+                    "job_id": job_id,
+                    "generation": claim["generation"],
+                    "lease_token": claim["lease_token"],
+                    "result": json.dumps(result),
+                },
+            )
+        )
+    )
+    assert published["outcome"] == "published"
+    source = await _source(db_session, missing_id)
+    assert source["thumbnail_path"] == result["artifact"]["key"]
+    assert (source["width"], source["height"]) == (320, 200)
+    assert source["thumbnail_source_generation"] == source["source_generation"]
+
+    large_job_id = await thumbnail_job(large_id)
+    assert large_job_id is not None
+    large_claim = await _claim(db_session, job_id=large_job_id, kind="thumbnail")
+    failed = _data(
+        _reply(
+            await db_session.scalar(
+                _FAIL,
+                {
+                    "job_id": large_job_id,
+                    "generation": large_claim["generation"],
+                    "lease_token": large_claim["lease_token"],
+                    "error_code": "not_eligible",
+                    "error_detail": "not_eligible",
+                },
+            )
+        )
+    )
+    assert failed["outcome"] == "failed"
+    large_job = await db_session.get(AssetImageJob, large_job_id)
+    assert large_job is not None and large_job.status == "failed"
+    assert large_job.error_code == "not_eligible"
+    assert (await _source(db_session, large_id))["thumbnail_path"] is None
+
+
 async def test_image_backfill_records_source_drift_and_skips_only_that_item(db_session):
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id)

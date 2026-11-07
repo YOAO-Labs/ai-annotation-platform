@@ -135,6 +135,8 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)": "0449_image_backfill_purpose.sql",
+    "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)": "0449_image_backfill_purpose.sql",
     "aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)": "0433_project_video_retirement.sql",
     "aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)": "0424_upload_publication_identity.sql",
     "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
@@ -1779,6 +1781,7 @@ SQL_ARTIFACTS = (
     "0447_export_execution.sql",
     "0447_export_fixture_rebind.sql",
     "0448_fixture_external_pyramid_reuse.sql",
+    "0449_image_backfill_purpose.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0445_assets_fixture_reader_completion.schema.json",
