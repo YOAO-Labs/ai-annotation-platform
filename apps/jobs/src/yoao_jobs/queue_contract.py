@@ -21,7 +21,7 @@ class JobsQueueUnavailable(RuntimeError):
 
 
 class JobsQueueNotSent(JobsQueueUnavailable):
-    """A direct connection was refused before any HTTP request could be sent."""
+    """A proved DNS failure or connection refusal prevented the HTTP request."""
 
 
 @dataclass(frozen=True, slots=True)

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from contextlib import aclosing, closing
 import errno
+import socket
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -67,12 +68,22 @@ async def _bounded_async(chunks, *, limit: int) -> bytes:
     return bytes(body)
 
 
-def _connection_refused(exc: BaseException) -> bool:
-    cause = exc.__cause__
+def _connection_not_sent(exc: BaseException) -> bool:
+    cause = exc
     while cause is not None:
         if isinstance(cause, ConnectionRefusedError) and cause.errno == errno.ECONNREFUSED:
             return True
-        cause = cause.__cause__
+        if isinstance(cause, socket.gaierror) and cause.errno in {
+            socket.EAI_NONAME,
+            socket.EAI_AGAIN,
+        }:
+            return True
+        # httpcore also preserves the original socket error as its sole argument.
+        cause = cause.__cause__ or (
+            cause.args[0]
+            if len(cause.args) == 1 and isinstance(cause.args[0], BaseException)
+            else None
+        )
     return False
 
 
@@ -97,7 +108,7 @@ def _post_sync(origin: str, token: str, body: bytes, execution_id: str) -> None:
             try:
                 response = client.send(request, stream=True)
             except httpx.ConnectError as exc:
-                if _connection_refused(exc):
+                if _connection_not_sent(exc):
                     raise JobsQueueNotSent() from None
                 raise
             with closing(response):
@@ -151,7 +162,7 @@ class JobsQueueClient:
                 try:
                     response = await client.send(request, stream=True)
                 except httpx.ConnectError as exc:
-                    if _connection_refused(exc):
+                    if _connection_not_sent(exc):
                         raise JobsQueueNotSent() from None
                     raise
                 async with aclosing(response):

@@ -268,9 +268,12 @@ intents are not backfilled with invented no-publication proof. Publication
 happens only after acceptance commits, under a separate function-only,
 session-held publication fence. Each generation records physical entry before
 the broker call and settles only on the publisher's positive acknowledgement.
-A direct connection refused before the HTTP request is recorded separately as
-`not_sent`, never as acceptance; later exact replay is still required for an
-accepted dispatch. HTTP errors, lost responses and cancellations remain unknown.
+A proved socket connection refusal or DNS `EAI_NONAME` / `EAI_AGAIN` failure
+before the HTTP request is recorded separately as `not_sent`, never as acceptance.
+Classification follows typed causes, including the original socket error retained
+as an HTTP transport exception argument; error text alone is not evidence.
+Later exact replay is still required for an accepted dispatch. Other connection
+failures, HTTP errors, lost responses and cancellations remain unknown.
 The relay claims one item immediately before publishing. A later valid generation
 may replay the exact frozen envelope and IDs while an earlier attempt remains
 unknown; replay or lease expiry does not settle that earlier physical obligation.
@@ -305,9 +308,12 @@ delivery identities, then obtain a Jobs publication tombstone. Every entered
 generation and Celery retry must have its own positive settlement; a later
 successful replay never settles or erases an earlier unknown attempt. An
 explicit terminal `not_sent` tombstone is also possible when every intent has
-a positively refused attempt and no accepted or entered attempt or retry; it
-permanently fences later publication without claiming acceptance. No attempts,
-timeouts and lost responses do not establish that outcome. Preserve the
+only positively refused attempts or has never entered publication, with no
+accepted or entered attempt or retry. Both paths require immutable births, the
+complete execution set and exclusive publication fences; missing historical
+birth evidence cannot establish no publication. The tombstone permanently fences
+later publication without claiming acceptance. Timeouts and lost responses do
+not establish that outcome. Preserve the
 associated queue, results, objects, credentials and evidence until the remaining
 physical obligations are resolved.
 
