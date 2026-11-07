@@ -657,7 +657,7 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
 
 
 async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
-    fenced_http, test_engine, monkeypatch, tmp_path
+    fenced_http, e2e_consumer, test_engine, monkeypatch, tmp_path
 ):
     """Both real fixture consumers wait for the original native Images reader."""
     from celery import Celery
@@ -671,6 +671,18 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     redis = _verify_redis()
     broker = make_url(settings.effective_celery_broker)
     assert (broker.host, broker.port) == (redis.host, redis.port)
+    # fenced_http uses this short-lived API LOGIN, not the Jobs or Media
+    # executor. Compose the embedded Catalog capability on that same session.
+    role = e2e_consumer.url.username
+    assert role and role.startswith("workspace_consumer_") and role.replace("_", "").isalnum()
+    async with test_engine.begin() as db:
+        await db.execute(
+            text(
+                "GRANT EXECUTE ON FUNCTION aap_assets_v1.get_catalog_dataset(uuid,uuid) "
+                f'TO "{role}"'
+            )
+        )
+    monkeypatch.setattr(settings, "assets_catalog_url", "")
     if str(ROOT / "scripts") not in sys.path:
         sys.path.insert(0, str(ROOT / "scripts"))
     import fixture_media_control
