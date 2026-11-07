@@ -319,22 +319,30 @@ async def _ready_large_image_pyramid(
         return False
 
 
-async def verified_video_seed_digest(db, item) -> str:
-    """Validate the canonical seed original and its saved-owner poster."""
-    from app.services import video_derivative_originals as originals
-    from app.services import video_derivatives
+async def verified_video_seed_digest(db, item, *, actor_id: uuid.UUID) -> str:
+    """Read the canonical original and require the current Native Media poster."""
+    from app.services.assets_media import media_gateway
     from app.services.content_snapshot import ContentError
+    from yoao_assets_media.contract import ReadSourceRequest
 
-    source = await originals.pin(db, "dataset_item", item.id)
-    authority = await originals.delegated(
-        db, originals.system_authorization("dataset_item", item.id, source)
-    )
-    async with originals.media(db, authority, source):
-        pass
-    checked = await video_derivatives.thumbnail(db, item_id=item.id)
-    if checked is None or checked[0] != item.thumbnail_path:
+    digest = await _storage_object_digest(db, item)
+    async with media_gateway() as owner:
+        reference = await owner.ready_source_reference(
+            ReadSourceRequest(actor_id=actor_id, dataset_item_id=item.id)
+        )
+    source = reference.source
+    if (
+        source.dataset_item_id != item.id
+        or source.dataset_id != item.dataset_id
+        or source.source_drifted
+        or source.materialized_generation != source.source_generation
+        or source.content_hash != digest
+        or not item.thumbnail_path
+        or source.thumbnail_path != item.thumbnail_path
+        or not reference.poster_url
+    ):
         raise ContentError("video_metadata_unpinned", 409)
-    return source.sha256
+    return digest
 
 
 async def _resolve_backend(
@@ -525,7 +533,7 @@ async def _resolve_dataset_and_tasks(
             continue
         try:
             object_digest = (
-                await verified_video_seed_digest(db, item)
+                await verified_video_seed_digest(db, item, actor_id=project.owner_id)
                 if item.file_type == "video"
                 else await _storage_object_digest(db, item)
             )

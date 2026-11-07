@@ -342,7 +342,8 @@ async def test_refused_publication_is_distinct_from_acceptance_and_allows_exact_
     )
 
 
-async def test_terminal_refusal_tombstone_fences_new_publication(db_session):
+@pytest.mark.parametrize("entered", [False, True])
+async def test_unsent_retirement_fences_new_publication(db_session, entered):
     job = _job()
     db_session.add(job)
     await db_session.flush()
@@ -371,10 +372,10 @@ async def test_terminal_refusal_tombstone_fences_new_publication(db_session):
         "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
     )
     exact = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
-    assert not await db_session.scalar(retire, exact)
-    assert await db_session.scalar(begin, first) == "entered"
-    assert not await db_session.scalar(retire, exact)
-    assert await db_session.scalar(refuse, first)
+    if entered:
+        assert await db_session.scalar(begin, first) == "entered"
+        assert not await db_session.scalar(retire, exact)
+        assert await db_session.scalar(refuse, first)
     assert not await db_session.scalar(
         retire, {**exact, "execution_ids": [str(uuid.uuid4())]}
     )
@@ -393,7 +394,37 @@ async def test_terminal_refusal_tombstone_fences_new_publication(db_session):
             ),
             {"intent_id": first["intent_id"]},
         )
-    ) == "not_sent"
+    ) == ("not_sent" if entered else None)
+
+
+async def test_unentered_retirement_waits_for_publication_owner(db_session, test_engine):
+    job = _job()
+    db_session.add(job)
+    await db_session.flush()
+    first = _data(await _prepare(db_session, job.id, _dispatch(str(uuid.uuid4()))))
+    retire = text(
+        "SELECT aap_jobs_v1.retire_job_publications("
+        "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+    )
+    exact = {"job_id": str(job.id), "execution_ids": [first["execution_id"]]}
+    async with test_engine.begin() as publisher:
+        assert await publisher.scalar(
+            text(
+                "SELECT pg_catalog.pg_try_advisory_xact_lock("
+                "pg_catalog.hashtextextended('aap-jobs:publication:' || "
+                "CAST(CAST(:intent_id AS uuid) AS text), 0))"
+            ),
+            {"intent_id": first["intent_id"]},
+        )
+        assert not await db_session.scalar(retire, exact)
+    assert await db_session.scalar(retire, exact)
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.job_publications_not_sent("
+            "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+        ),
+        exact,
+    )
 
 
 @pytest.mark.parametrize("settled", [False, True])

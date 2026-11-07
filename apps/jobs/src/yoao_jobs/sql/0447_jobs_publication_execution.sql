@@ -395,12 +395,10 @@ BEGIN
         ) THEN
             v_published := false;
         END IF;
-        IF NOT EXISTS (
+        -- Births and the exclusive publication lock also prove an unentered intent unsent.
+        IF EXISTS (
             SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
-            WHERE intent_id = v_intent.intent_id AND state = 'not_sent'
-        ) OR EXISTS (
-            SELECT 1 FROM aap_jobs_v1.dispatch_publication_attempts
-            WHERE intent_id = v_intent.intent_id AND state = 'settled'
+            WHERE intent_id = v_intent.intent_id AND state <> 'not_sent'
         ) OR EXISTS (
             SELECT 1 FROM aap_jobs_v1.dispatch_retry_publications
             WHERE intent_id = v_intent.intent_id

@@ -1,6 +1,5 @@
 """Video consumers accept saved owners and explicit producer authority only."""
 
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 import uuid
@@ -331,41 +330,6 @@ async def test_cli_dry_run_is_metadata_only_and_never_dispatches(monkeypatch):
     prepare.assert_not_awaited()
     run.assert_not_awaited()
     db.commit.assert_not_awaited()
-    denied.assert_not_called()
-
-
-async def test_video_catalog_validates_original_and_poster_without_current_bucket_fallback(
-    monkeypatch,
-):
-    from app.services.screenshot_seed_catalog import verified_video_seed_digest
-
-    value, authority, db = (
-        SimpleNamespace(id=uuid.uuid4(), thumbnail_path=PATH),
-        object(),
-        object(),
-    )
-    source = SimpleNamespace(sha256="a" * 64)
-    events = []
-    monkeypatch.setattr(originals, "pin", AsyncMock(return_value=source))
-    monkeypatch.setattr(
-        originals, "system_authorization", MagicMock(return_value={"mode": "system"})
-    )
-    monkeypatch.setattr(originals, "delegated", AsyncMock(return_value=authority))
-
-    @asynccontextmanager
-    async def checked_media(actual_db, actual_authority, actual_source):
-        assert (actual_db, actual_authority, actual_source) == (db, authority, source)
-        events.append("verified-open")
-        yield object()
-        events.append("drained-close")
-
-    monkeypatch.setattr(originals, "media", checked_media)
-    thumbnail = AsyncMock(return_value=(PATH, "saved-url"))
-    monkeypatch.setattr(derivatives, "thumbnail", thumbnail)
-    denied = deny_current_storage(monkeypatch)
-    assert await verified_video_seed_digest(db, value) == source.sha256
-    assert events == ["verified-open", "drained-close"]
-    thumbnail.assert_awaited_once_with(db, item_id=value.id)
     denied.assert_not_called()
 
 
