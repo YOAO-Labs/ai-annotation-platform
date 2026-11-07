@@ -4579,6 +4579,9 @@ GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_retirement_authorized(uuid,u
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.fixture_media_retirement_current(uuid,uuid)
     TO :"assets_owner";
 ALTER FUNCTION aap_jobs_v1.fixture_media_backfill_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid) OWNER TO :"jobs_owner";
+GRANT EXECUTE ON FUNCTION aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)
+    TO :"migration_role";
 ALTER FUNCTION aap_jobs_v1.retire_fixture_media_executor(uuid) OWNER TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_jobs_v1.retire_fixture_media_executor(uuid) TO :"migration_role";
 ALTER FUNCTION aap_jobs_v1.fixture_media_executor_identity(uuid) OWNER TO :"jobs_owner";

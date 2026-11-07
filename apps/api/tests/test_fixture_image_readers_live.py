@@ -27,6 +27,7 @@ from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from tests.identity_e2e_support import e2e_consumer, fenced_http, fixture_routing_owner
@@ -858,6 +859,17 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                 text("SELECT aap_assets_v1.fixture_dataset_media_producers_quiescent(:run,:dataset)"),
                 {"run": run.run_id, "dataset": dataset},
             ) is False
+            dispatch_ids = tuple(await db.scalars(
+                text("SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
+                     "WHERE job_id=:job ORDER BY intent_id"), {"job": backfill}
+            ))
+        delete_backfills = text(
+            "SELECT aap_jobs_v1.delete_fixture_media_backfills(:run,:dataset)"
+        )
+        async with e2e_consumer.connect() as db:
+            with pytest.raises(DBAPIError) as forbidden:
+                await db.scalar(delete_backfills, {"run": run.run_id, "dataset": dataset})
+            assert forbidden.value.orig.sqlstate == "42501"
         control = create_async_engine(control_url, hide_parameters=True)
         async with control.connect() as db:
             evidence = {"run": run.run_id, "dataset": dataset, "item": item, "job": native_job,
@@ -882,6 +894,16 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             assert not cleanup.done()
             assert ordinary.poll() is None
             assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+            for owner_run in (run.run_id, neighbor.run_id):
+                async with test_engine.connect() as db:
+                    with pytest.raises(DBAPIError) as blocked:
+                        await db.scalar(delete_backfills, {"run": owner_run, "dataset": dataset})
+                    assert blocked.value.orig.sqlstate == "23514"
+            async with test_engine.connect() as db:
+                assert await db.scalar(
+                    text("SELECT EXISTS(SELECT 1 FROM public.async_jobs WHERE id=:job)"),
+                    {"job": backfill},
+                )
             (state / "release").touch()
             assert await _wait_process_exit(
                 ordinary, timeout=120, message="ordinary Images producer did not drain"
@@ -894,6 +916,18 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
             result = await asyncio.wait_for(asyncio.shield(cleanup), 120)
             assert result.status_code == 200, result.text
             async with test_engine.connect() as db:
+                assert not await db.scalar(
+                    text("SELECT EXISTS(SELECT 1 FROM public.async_jobs WHERE id=:job)"),
+                    {"job": backfill},
+                )
+                assert await db.scalar(
+                    text("SELECT state FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"),
+                    {"job": backfill},
+                ) == "retired"
+                assert tuple(await db.scalars(
+                    text("SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
+                         "WHERE job_id=:job ORDER BY intent_id"), {"job": backfill}
+                )) == dispatch_ids
                 proven = text(
                     "SELECT aap_assets_v1.fixture_external_image_attempt_sources_proven("
                     ":run,:dataset,:item,:job,:generation,:lease)"

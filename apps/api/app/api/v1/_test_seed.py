@@ -322,9 +322,9 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
     import logging
 
     log = logging.getLogger("anno-api.seed_cleanup")
-    jobs_fixture_delete = (
-        operation
-        == "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))"
+    jobs_fixture_delete = operation in (
+        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:pids AS uuid[]))",
+        "SELECT aap_jobs_v1.delete_fixture_media_backfills(CAST(:run AS uuid),CAST(:dataset AS uuid))",
     )
     labeling_fixture_delete = operation == _LABELING_FIXTURE_DELETE_SQL
     audit_fixture_delete = operation == _AUDIT_FIXTURE_CLEANUP
@@ -383,6 +383,10 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
                     status_code=409,
                     detail={"code": "fixture_job_execution_unsettled"},
                 ) from exc
+            if jobs_fixture_delete and state == "23514":
+                for code in ("fixture_dataset_scope_changed", "fixture_media_backfill_unsettled"):
+                    if code in str(original):
+                        raise HTTPException(status_code=409, detail={"code": code}) from exc
             if state == "55P03":
                 raise HTTPException(
                     status_code=409, detail={"reason": "project_busy"}
@@ -1161,6 +1165,11 @@ async def _delete_owned_project_data(db, scope, run_id):
         ):
             raise HTTPException(409, detail={"code": "fixture_projects_not_removed"})
     for dataset_id in dataset_ids:
+        await _try_fixture_delete(
+            db,
+            "SELECT aap_jobs_v1.delete_fixture_media_backfills(CAST(:run AS uuid),CAST(:dataset AS uuid))",
+            {"run": run_id, "dataset": dataset_id},
+        )
         await capture_managed_original_retirements(
             db, dataset_id=dataset_id, fixture_run_id=run_id
         )

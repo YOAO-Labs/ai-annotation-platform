@@ -1443,6 +1443,8 @@ class LocalResources:
             fixture_grants = (
                 "REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[]) "
                 f"FROM {role}, PUBLIC",
+                "REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid) "
+                f"FROM {role}, PUBLIC",
                 "REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[]) "
                 f"FROM {role}, PUBLIC",
                 "REVOKE ALL ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb) "

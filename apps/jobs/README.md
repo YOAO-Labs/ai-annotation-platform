@@ -72,6 +72,15 @@ including the Node bigint and transaction checks. A separate ordinary API LOGIN
 must remain denied both direct Jobs deletion and private fixture cleanup; a
 test database suffix does not grant that caller authority.
 
+Dataset-scoped fixture media backfills use the private
+`aap_jobs_v1.delete_fixture_media_backfills(run_id,dataset_id)` capability before
+the Dataset is deleted. It locks the exact sealed run and Dataset, requires each
+recorded Job's Jobs and Assets retirement proofs, and preserves immutable
+publication and execution evidence. A missing Dataset, foreign run, active
+reader or unretired Job does not authorize deletion; ordinary callers cannot
+execute this fixture-owner capability. The caller's transaction owns the
+deletion and rollback.
+
 ## Filtering fixture outcomes
 
 `aap-jobs-filter-fixtures/v1` provides the fixed

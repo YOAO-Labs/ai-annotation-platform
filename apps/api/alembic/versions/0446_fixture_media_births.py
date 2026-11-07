@@ -66,6 +66,7 @@ def upgrade() -> None:
         "0446_fixture_video_anchors.sql",
         "0446_fixture_native_target_ack.sql",
         "0446_fixture_media_dataset_guards.sql",
+        "0446_fixture_media_backfill_cleanup.sql",
     ):
         for statement in (sql_dir / filename).read_text(encoding="utf-8").split(
             "-- aap-statement-break"

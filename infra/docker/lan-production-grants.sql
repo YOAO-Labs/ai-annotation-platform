@@ -431,6 +431,8 @@ REVOKE ALL ON FUNCTION aap_identity_v1.replace_fixture_preferences(uuid,jsonb),
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_project_jobs(uuid[])
     FROM :"application_role", PUBLIC;
+REVOKE ALL ON FUNCTION aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)
+    FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_labeling_v1.delete_fixture_project_rows(uuid[])
     FROM :"application_role", PUBLIC;
 REVOKE ALL ON FUNCTION aap_labeling_v1.e2e_fixture_command(jsonb)

@@ -250,6 +250,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.lock_video_retry_jobs(uuid)": "0407_jobs_video_retry.sql",
     "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0432_jobs_fixture_presentation.sql",
     "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)": "0446_fixture_media_backfill_cleanup.sql",
     "aap_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])": "0432_jobs_fixture_guard.sql",
     "aap_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])": "0432_labeling_fixture_retry_guard.sql",
     "aap_labeling_v1.guard_fixture_project_retry_anchors(uuid[])": "0432_labeling_fixture_retry_guard.sql",
@@ -7523,6 +7524,7 @@ def main(
                 private_signatures = (
                     _JOBS + _ASSETS + _READER_FUNCTIONS + _RESOLVER_FUNCTIONS
                     + (
+                        "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)",
                         "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
                         "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
                     )
@@ -10904,6 +10906,7 @@ SELECT pg_catalog.jsonb_build_object(
                     "SELECT aap_labeling_v1._fixture_screenshot_user(NULL::uuid,NULL::text,NULL::text)",
                     "SELECT aap_labeling_v1.create_scale_seed_tasks(NULL::text,NULL::uuid,NULL::uuid)",
                     "SELECT aap_jobs_v1.delete_fixture_project_jobs(ARRAY[]::uuid[])",
+                    "SELECT aap_jobs_v1.delete_fixture_media_backfills(NULL::uuid,NULL::uuid)",
                     "SELECT aap_jobs_v1.delete_fixture_presentation_jobs(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
                     "SELECT aap_labeling_v1.guard_fixture_presentation_failures(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
                     "SELECT aap_labeling_v1.guard_fixture_project_retry_anchors(ARRAY[]::uuid[])",
