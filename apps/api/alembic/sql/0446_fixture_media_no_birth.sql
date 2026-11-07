@@ -16,7 +16,7 @@ BEGIN
     ) FOR SHARE;
     IF NOT FOUND THEN RETURN false; END IF;
     RETURN NOT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_run_admissions WHERE run_id=p_run AND state<>'settled')
-       AND NOT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_image_work_intents WHERE run_id=p_run)
+       AND NOT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_native_media_work_intents WHERE run_id=p_run)
        AND NOT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_cache_targets WHERE run_id=p_run)
        AND NOT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_resolver_principals WHERE suite_id=p_run)
        AND NOT EXISTS (SELECT 1 FROM aap_assets_v1.fixture_native_read_principals WHERE run_id=p_run)

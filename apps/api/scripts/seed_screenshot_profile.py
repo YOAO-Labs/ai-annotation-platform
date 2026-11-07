@@ -1245,7 +1245,7 @@ async def prepare_screenshot_seed_media(
         ImageBackfillSelection,
     )
     from app.services.assets_images import image_gateway, image_policy
-    from app.db.models.fixture_run import FixtureImageWorkIntent
+    from app.db.models.fixture_run import FixtureNativeMediaWorkIntent
     from scripts.image_media_backfill import accept_image_backfill
 
     datasets = []
@@ -1292,13 +1292,14 @@ async def prepare_screenshot_seed_media(
 
     # Release the read transaction before owner admission, polling and object HEADs.
     await db.commit()
-    image_work_intents: list[FixtureImageWorkIntent] = []
+    image_work_intents: list[FixtureNativeMediaWorkIntent] = []
     video_outputs: list[tuple[str, uuid.UUID]] = []
 
     for dataset in media_rows:
         if dataset.data_type == "image":
-            intent = FixtureImageWorkIntent(
+            intent = FixtureNativeMediaWorkIntent(
                 operation_id=uuid.uuid4(),
+                family="image",
                 run_id=run_id,
                 admission_id=admission_id,
                 dataset_id=dataset.dataset_id,

@@ -124,8 +124,9 @@ ALTER TABLE yoao_fixture_v1.fixture_run_resources
 -- aap-statement-break
 CREATE INDEX ix_fixture_run_admissions_run ON yoao_fixture_v1.fixture_run_admissions (run_id, state);
 -- aap-statement-break
-CREATE TABLE yoao_fixture_v1.fixture_image_work_intents (
+CREATE TABLE yoao_fixture_v1.fixture_native_media_work_intents (
     operation_id uuid PRIMARY KEY,
+    family varchar(10) NOT NULL,
     run_id uuid NOT NULL,
     admission_id uuid NOT NULL,
     dataset_id uuid NOT NULL,
@@ -134,7 +135,8 @@ CREATE TABLE yoao_fixture_v1.fixture_image_work_intents (
     state varchar(20) NOT NULL DEFAULT 'prepared',
     FOREIGN KEY (run_id, admission_id)
         REFERENCES yoao_fixture_v1.fixture_run_admissions(run_id, id) ON DELETE RESTRICT,
-    CONSTRAINT ck_fixture_image_work_intent_state CHECK (
+    CONSTRAINT ck_fixture_native_media_work_intent_family CHECK (family IN ('image','media')),
+    CONSTRAINT ck_fixture_native_media_work_intent_state CHECK (
         (state = 'prepared' AND job_id IS NULL AND generation IS NULL)
         OR (state IN ('admitted', 'settled') AND job_id IS NOT NULL AND generation >= 1)
     )
@@ -234,6 +236,6 @@ ON yoao_fixture_v1.fixture_maintenance_windows (run_id) WHERE state <> 'resumed'
 -- aap-statement-break
 REVOKE ALL ON TABLE yoao_fixture_v1.fixture_original_targets, yoao_fixture_v1.fixture_runs, yoao_fixture_v1.fixture_run_resources,
     yoao_fixture_v1.fixture_run_admissions, yoao_fixture_v1.fixture_auxiliary_intents,
-    yoao_fixture_v1.fixture_invitation_intents, yoao_fixture_v1.fixture_image_work_intents,
+    yoao_fixture_v1.fixture_invitation_intents, yoao_fixture_v1.fixture_native_media_work_intents,
     yoao_fixture_v1.fixture_presentation_jobs,
     yoao_fixture_v1.fixture_maintenance_windows FROM PUBLIC;

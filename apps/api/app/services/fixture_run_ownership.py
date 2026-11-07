@@ -692,21 +692,24 @@ async def settle(db, run_id: uuid.UUID, admission_id: uuid.UUID) -> None:
     )
     if admission is None or admission.state != "active":
         _reject("fixture_admission_changed")
-    from app.db.models.fixture_run import FixtureAuxiliaryIntent, FixtureImageWorkIntent
+    from app.db.models.fixture_run import (
+        FixtureAuxiliaryIntent,
+        FixtureNativeMediaWorkIntent,
+    )
     from app.db.models.managed_original_creation import ManagedOriginalCreation
     from app.db.models.storage_maintenance import StorageOperation
 
-    image_work = await db.scalar(
-        select(FixtureImageWorkIntent.operation_id)
+    native_work = await db.scalar(
+        select(FixtureNativeMediaWorkIntent.operation_id)
         .where(
-            FixtureImageWorkIntent.run_id == run_id,
-            FixtureImageWorkIntent.admission_id == admission_id,
-            FixtureImageWorkIntent.state != "settled",
+            FixtureNativeMediaWorkIntent.run_id == run_id,
+            FixtureNativeMediaWorkIntent.admission_id == admission_id,
+            FixtureNativeMediaWorkIntent.state != "settled",
         )
         .limit(1)
     )
-    if image_work is not None:
-        _reject("fixture_image_work_unsettled")
+    if native_work is not None:
+        _reject("fixture_native_work_unsettled")
     creations = await db.execute(
         select(ManagedOriginalCreation, StorageOperation.id)
         .join(

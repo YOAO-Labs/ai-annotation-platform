@@ -4743,8 +4743,8 @@ GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.lock_task_for_core_read(uuid,text,boolean,uuid),
     aap_labeling_v1.lock_task_dataset_item_links_for_core_read(uuid,boolean,uuid,integer)
     TO :"assets_owner";
-GRANT SELECT (run_id,admission_id,operation_id,dataset_id,state)
-    ON yoao_fixture_v1.fixture_image_work_intents TO :"assets_owner";
+GRANT SELECT (family,run_id,admission_id,operation_id,dataset_id,state)
+    ON yoao_fixture_v1.fixture_native_media_work_intents TO :"assets_owner";
 GRANT SELECT (task_id,dataset_item_id,role)
     ON aap_labeling_v1.task_dataset_item_link_rows TO :"assets_owner";
 GRANT SELECT (run_id) ON aap_jobs_v1.fixture_media_backfills,

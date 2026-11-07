@@ -384,9 +384,14 @@ async def _try_fixture_delete(db, operation: str, params: dict | None = None) ->
                     detail={"code": "fixture_job_execution_unsettled"},
                 ) from exc
             if jobs_fixture_delete and state == "23514":
-                for code in ("fixture_dataset_scope_changed", "fixture_media_backfill_unsettled"):
+                for code in (
+                    "fixture_dataset_scope_changed",
+                    "fixture_media_backfill_unsettled",
+                ):
                     if code in str(original):
-                        raise HTTPException(status_code=409, detail={"code": code}) from exc
+                        raise HTTPException(
+                            status_code=409, detail={"code": code}
+                        ) from exc
             if state == "55P03":
                 raise HTTPException(
                     status_code=409, detail={"reason": "project_busy"}
@@ -714,9 +719,13 @@ async def _prepare_fixture_native_video_cleanup(db, scope, runtime, run_id):
     await _fixture_video_foreign_refs(db, item_ids, [output.id for output in outputs])
     await _fixture_video_source_operations(db, outputs)
     item_datasets = dict(
-        (await db.execute(
-            select(DatasetItem.id, DatasetItem.dataset_id).where(DatasetItem.id.in_(item_ids))
-        )).all()
+        (
+            await db.execute(
+                select(DatasetItem.id, DatasetItem.dataset_id).where(
+                    DatasetItem.id.in_(item_ids)
+                )
+            )
+        ).all()
     )
     if set(item_datasets) != set(item_ids):
         raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
@@ -726,9 +735,13 @@ async def _prepare_fixture_native_video_cleanup(db, scope, runtime, run_id):
         if output.metadata_output_id is not None:
             target = by_id.get(output.metadata_output_id)
             if target is None or target.dataset_item_id != output.dataset_item_id:
-                raise HTTPException(409, detail={"code": "e2e_seed_video_scope_changed"})
+                raise HTTPException(
+                    409, detail={"code": "e2e_seed_video_scope_changed"}
+                )
             incoming[target.id] += 1
-    ready = sorted((output_id for output_id, count in incoming.items() if not count), key=str)
+    ready = sorted(
+        (output_id for output_id, count in incoming.items() if not count), key=str
+    )
     ordered = []
     while ready:
         output_id = ready.pop(0)
@@ -1600,7 +1613,8 @@ async def _wait_fixture_source_readers(db, run_id, reader_wait_seconds):
     from app.services import storage_access
 
     deadline = (
-        None if reader_wait_seconds is None
+        None
+        if reader_wait_seconds is None
         else asyncio.get_running_loop().time() + reader_wait_seconds
     )
     try:
@@ -1612,7 +1626,10 @@ async def _wait_fixture_source_readers(db, run_id, reader_wait_seconds):
     except FixturePredictionRetirementBlocked as exc:
         raise HTTPException(
             409,
-            detail={"code": "fixture_prediction_retirement_blocked", "reason": exc.reason},
+            detail={
+                "code": "fixture_prediction_retirement_blocked",
+                "reason": exc.reason,
+            },
         ) from exc
 
 
@@ -1750,7 +1767,8 @@ async def _cleanup_owned_e2e_fixtures(
         completed_drains = drained_runs
         if native_runtime is None:
             if (
-                run.state != "retired" and family in {"owned", "screenshot"}
+                run.state != "retired"
+                and family in {"owned", "screenshot"}
                 and run_id not in drained_runs
             ):
                 await db.rollback()
@@ -1762,7 +1780,9 @@ async def _cleanup_owned_e2e_fixtures(
             )
             if proof is not True:
                 await db.rollback()
-                raise HTTPException(409, detail={"code": "fixture_native_no_birth_unproven"})
+                raise HTTPException(
+                    409, detail={"code": "fixture_native_no_birth_unproven"}
+                )
             await db.commit()
             run = await db.get(FixtureRun, run_id, populate_existing=True)
         active_window = await db.scalar(
@@ -1773,7 +1793,9 @@ async def _cleanup_owned_e2e_fixtures(
         )
         if run.state == "retired":
             if native_runtime is not None and run_id not in native_runtime.retired_runs:
-                raise HTTPException(409, detail={"code": "fixture_native_run_unsettled"})
+                raise HTTPException(
+                    409, detail={"code": "fixture_native_run_unsettled"}
+                )
             if active_window is not None:
                 raise HTTPException(
                     409, detail={"code": "fixture_maintenance_window_changed"}
@@ -1793,9 +1815,7 @@ async def _cleanup_owned_e2e_fixtures(
             resource = context.original.resource
             if not isinstance(resource, Resource):
                 return False
-            return (
-                resource.kind == "task" and resource.task_id in scope.task_ids
-            ) or (
+            return (resource.kind == "task" and resource.task_id in scope.task_ids) or (
                 resource.kind == "item" and resource.dataset_id in scope.dataset_ids
             )
 
@@ -1805,7 +1825,9 @@ async def _cleanup_owned_e2e_fixtures(
             if registry is not None:
                 await registry.revoke_contexts(fixture_context)
             if not native_runtime.video_scope_prepared(run_id):
-                await _prepare_fixture_native_video_cleanup(db, scope, native_runtime, run_id)
+                await _prepare_fixture_native_video_cleanup(
+                    db, scope, native_runtime, run_id
+                )
             await native_runtime.retire_datasets(db, run_id, scope.dataset_ids)
             await native_runtime.retire_roles(run_id)
         active_window = await db.scalar(
@@ -2241,7 +2263,7 @@ async def _prepare_fixture_image_pyramid(
     db, ids, dataset_id, item_id, actor_id, dimensions
 ):
     """Keep the fixture admission until the real image owner completes this pyramid."""
-    from app.db.models.fixture_run import FixtureImageWorkIntent
+    from app.db.models.fixture_run import FixtureNativeMediaWorkIntent
     from app.services.assets_images import image_gateway, image_policy
     from scripts.image_media_backfill import accept_image_backfill
     from yoao_assets_images.contract import (
@@ -2251,8 +2273,9 @@ async def _prepare_fixture_image_pyramid(
         ReadInternalImageWorkRequest,
     )
 
-    intent = FixtureImageWorkIntent(
+    intent = FixtureNativeMediaWorkIntent(
         operation_id=uuid4(),
+        family="image",
         run_id=ids.run_id,
         admission_id=ids.admission_id,
         dataset_id=dataset_id,
@@ -2553,9 +2576,12 @@ def _request_owned_scope(payload: SeedOwnedRequest) -> _OwnedFixtureScope:
     return _OwnedFixtureScope(namespace=token, run_id=payload.run_id)
 
 
-async def _run_owned_seed(db, payload: SeedOwnedRequest, kind: str, build, request: Request):
+async def _run_owned_seed(
+    db, payload: SeedOwnedRequest, kind: str, build, request: Request
+):
     from app.services import fixture_run_ownership as ownership
     from app.services.storage_access import failure_unsettled, finish
+
     native = getattr(request.app.state, "fixture_native_runtime", None)
     if native is not None and native.suite_id != payload.suite_id:
         raise HTTPException(409, detail={"code": "fixture_native_suite_changed"})
@@ -5436,7 +5462,10 @@ async def prepare_raster_images(
     payload: PrepareRasterImagesRequest, db: AsyncSession = Depends(get_db)
 ) -> SeedCleanup:
     """Settle the current thumbnail work for every Task in the opened list."""
-    from app.db.models.fixture_run import FixtureImageWorkIntent, FixtureRunResource
+    from app.db.models.fixture_run import (
+        FixtureNativeMediaWorkIntent,
+        FixtureRunResource,
+    )
     from app.services.assets_images import image_gateway, image_policy
     from yoao_assets_images.contract import (
         PrepareImageMediaRequest,
@@ -5472,8 +5501,9 @@ async def prepare_raster_images(
 
         pending = []
         for task_id, actor_id, item_id, dataset_id in targets:
-            intent = FixtureImageWorkIntent(
+            intent = FixtureNativeMediaWorkIntent(
                 operation_id=uuid4(),
+                family="image",
                 run_id=payload.run_id,
                 admission_id=admission_id,
                 dataset_id=dataset_id,
@@ -5519,8 +5549,8 @@ async def prepare_raster_images(
             ):
                 raise RuntimeError("Fixture image preparation source changed")
             previous = await db.scalar(
-                select(FixtureImageWorkIntent).where(
-                    FixtureImageWorkIntent.job_id == work.job_id
+                select(FixtureNativeMediaWorkIntent).where(
+                    FixtureNativeMediaWorkIntent.job_id == work.job_id
                 )
             )
             if previous is not None:

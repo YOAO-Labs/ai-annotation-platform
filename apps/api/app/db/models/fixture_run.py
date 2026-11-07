@@ -202,8 +202,8 @@ class FixtureRunAdmission(Base):
     settled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
-class FixtureImageWorkIntent(Base):
-    __tablename__ = "fixture_image_work_intents"
+class FixtureNativeMediaWorkIntent(Base):
+    __tablename__ = "fixture_native_media_work_intents"
     __table_args__ = (
         ForeignKeyConstraint(
             ["run_id", "admission_id"],
@@ -216,12 +216,17 @@ class FixtureImageWorkIntent(Base):
         CheckConstraint(
             "(state = 'prepared' AND job_id IS NULL AND generation IS NULL) OR "
             "(state IN ('admitted', 'settled') AND job_id IS NOT NULL AND generation >= 1)",
-            name="ck_fixture_image_work_intent_state",
+            name="ck_fixture_native_media_work_intent_state",
+        ),
+        CheckConstraint(
+            "family IN ('image', 'media')",
+            name="ck_fixture_native_media_work_intent_family",
         ),
         {"schema": "yoao_fixture_v1"},
     )
 
     operation_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    family: Mapped[str] = mapped_column(String(10), nullable=False)
     run_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     admission_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     dataset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)

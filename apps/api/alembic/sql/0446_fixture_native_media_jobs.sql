@@ -202,8 +202,8 @@ BEGIN
     END IF;
     IF v_external.job_id IS NOT NULL THEN RETURN NEW; END IF;
     IF v_birth.job_id IS NULL THEN
-        v_owned := v_family='image' AND v_dataset IS NOT NULL
-            AND aap_assets_v1.fixture_native_image_admission_current(v_run,v_dataset);
+        v_owned := v_dataset IS NOT NULL
+            AND aap_assets_v1.fixture_native_admission_current(v_family,v_run,v_dataset);
         IF NOT v_owned THEN
             IF v_dataset IS NULL OR NOT (
                 (v_family='media' AND (

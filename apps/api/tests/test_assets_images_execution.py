@@ -1092,13 +1092,38 @@ async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(
     large_id = await _seed_image(
         db_session, actor_id=actor_id, dataset_id=dataset_id, width=5000, height=5000
     )
-    await db_session.execute(
-        text(
-            "UPDATE public.dataset_items SET thumbnail_path='existing.webp', "
-            "media_materialized_generation=media_source_generation WHERE id=:item_id"
-        ),
-        {"item_id": existing_id},
+    existing_source = await _source(db_session, existing_id)
+    existing_job_id, _ = await _enqueue(
+        db_session, existing_source, _spec("thumbnail", existing_source)
     )
+    existing_claim = await _claim(db_session, job_id=existing_job_id, kind="thumbnail")
+    existing_result = _worker_result(
+        "thumbnail",
+        existing_claim["source"],
+        source_sha256="a" * 64,
+        width=320,
+        height=200,
+        blurhash="LEHV6nWB2yk8pyo0adR*.7kCMdnj",
+        artifact={
+            "key": existing_claim["output_prefix"] + "thumbnail.webp",
+            "byte_size": 12,
+            "sha256": "b" * 64,
+        },
+    )
+    existing_publication = _data(
+        _reply(
+            await db_session.scalar(
+                _FINISH,
+                {
+                    "job_id": existing_job_id,
+                    "generation": existing_claim["generation"],
+                    "lease_token": existing_claim["lease_token"],
+                    "result": json.dumps(existing_result),
+                },
+            )
+        )
+    )
+    assert existing_publication["outcome"] == "published"
     spec = {
         "kind": "image_backfill",
         "selection": {
@@ -1153,7 +1178,10 @@ async def test_thumbnail_backfill_publishes_missing_and_terminalizes_ineligible(
             {"item_id": item_id},
         )
 
-    assert await thumbnail_job(existing_id) is None
+    assert await thumbnail_job(existing_id) == existing_job_id
+    assert (await _source(db_session, existing_id))["thumbnail_path"] == (
+        existing_result["artifact"]["key"]
+    )
     job_id = await thumbnail_job(missing_id)
     assert job_id is not None
     claim = await _claim(db_session, job_id=job_id, kind="thumbnail")

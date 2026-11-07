@@ -168,7 +168,7 @@ BEGIN
     v_claimed := aap_assets_v1.fixture_legacy_birth_admission_current(v_run,v_dataset,v_item,NULL)
         OR v_screenshot_admission IS NOT NULL;
     IF v_kind IN ('pyramid_asset','pyramid_generation') THEN
-        v_claimed := v_claimed OR aap_assets_v1.fixture_native_image_admission_current(v_run,v_dataset);
+        v_claimed := v_claimed OR aap_assets_v1.fixture_native_admission_current('image',v_run,v_dataset);
         IF NOT v_claimed THEN RETURN NEW; END IF;
     ELSE
         SELECT target.run_id INTO v_target_run FROM aap_assets_v1.fixture_native_cache_targets AS target

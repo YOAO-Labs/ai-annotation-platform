@@ -10961,7 +10961,7 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_jobs_scope_grants()
                 private_fixture_statements = (
                     "SELECT * FROM yoao_fixture_v1.fixture_runs LIMIT 1",
-                    "SELECT * FROM yoao_fixture_v1.fixture_image_work_intents LIMIT 1",
+                    "SELECT * FROM yoao_fixture_v1.fixture_native_media_work_intents LIMIT 1",
                     "SELECT * FROM aap_assets_v1.fixture_screenshot_item_facts LIMIT 1",
                     "SELECT aap_labeling_v1.screenshot_operations_command('{}'::jsonb)",
                     "SELECT aap_identity_invitations_v1.bind_fixture_invitation_birth(NULL::uuid,NULL::uuid)",
