@@ -27,6 +27,7 @@ from yoao_assets_media_runtime.additional_original import (
     AdditionalOriginalConfig,
     physical_identity,
 )
+from yoao_assets_media_runtime.fixture_native_outputs import native_execution, output_scope
 
 
 class S3ImageStorage(NativeImageStorage):
@@ -387,6 +388,13 @@ def _storage(client=None, signer=None, http_client=None):
     )
 
 
+async def _ordinary_upload(storage, path, key):
+    claim = SimpleNamespace(job_id=uuid4())
+    async with native_execution(None, "image", claim.job_id):
+        async with output_scope(None, storage, claim, "image", None):
+            return await storage.upload_cache(path, key)
+
+
 def _source(data, *, legacy=False, content_hash=None, etag="source-etag"):
     owner_id = uuid4()
     owner = (
@@ -572,6 +580,82 @@ async def test_fixture_original_reads_exact_version_without_issuing_a_url(tmp_pa
     assert await admitted.sign_source(source, 60) is None
     assert signer.calls == []
     assert all(call[4] == "v1" for call in client.calls if call[0] == "get")
+
+
+@pytest.mark.asyncio
+async def test_fixture_original_uses_only_explicitly_admitted_ordinary_image_output(
+    tmp_path, monkeypatch
+):
+    from yoao_assets_images_runtime.original_read import admitted_original
+
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
+
+    class VersionedS3(_S3):
+        meta = SimpleNamespace(endpoint_url="http://s3.internal")
+
+        def head_object(self, *, Bucket, Key, VersionId=None):
+            if VersionId not in (None, "v1"):
+                raise _S3Error("NoSuchVersion", 404)
+            return super().head_object(Bucket=Bucket, Key=Key)
+
+    client = VersionedS3()
+    source_bytes = b"fixture original"
+    source = _source(source_bytes)
+    client.set_object("datasets", source.file_path, source_bytes)
+    storage, config = _storage(client, _Signer())
+    permit = OriginalRead(
+        ownership="fixture",
+        object_key=source.file_path,
+        creation_id=uuid4(),
+        operation_id=uuid4(),
+        location_id=uuid4(),
+        endpoint_url=config.endpoint,
+        storage_identity=physical_identity(config.endpoint, config.datasets_bucket),
+        bucket=config.datasets_bucket,
+        version_id="v1",
+        etag="source-etag",
+        size_bytes=len(source_bytes),
+        sha256=sha256(source_bytes).hexdigest(),
+    )
+
+    class Reader:
+        def __init__(self):
+            self.finished = []
+
+        async def call(self, operation, request):
+            if operation == "begin_image_original_worker":
+                return permit
+            assert operation == "finish_image_original_worker"
+            self.finished.append((request.creation_id, request.operation_id))
+
+    reader = Reader()
+    claim = SimpleNamespace(job_id=uuid4())
+    key = f"image-assets/{claim.job_id}/g1/a{uuid4()}/thumbnail.webp"
+    artifact = tmp_path / "thumbnail.webp"
+    artifact.write_bytes(b"ordinary output")
+    async with native_execution(reader, "image", claim.job_id):
+        async with admitted_original(
+            reader, storage, "begin_image_original_worker", None,
+            "finish_image_original_worker",
+        ) as original:
+            with pytest.raises(RuntimeError, match="output authority"):
+                await storage.upload_cache(artifact, key)
+            assert (config.cache_bucket, key) not in client.objects
+            with pytest.raises(RuntimeError, match="output execution mismatch"):
+                async with output_scope(
+                    reader, storage, SimpleNamespace(job_id=uuid4()), "image", permit
+                ):
+                    pass
+            async with output_scope(reader, storage, claim, "image", permit):
+                download = await original.download_source(
+                    source, tmp_path / "original.png"
+                )
+                result = await storage.upload_cache(artifact, key)
+            assert download.sha256 == sha256(source_bytes).hexdigest()
+            assert result.sha256 == sha256(b"ordinary output").hexdigest()
+    assert client.objects[(config.cache_bucket, key)][0] == b"ordinary output"
+    assert any(call[0] == "get" and call[4] == "v1" for call in client.calls)
+    assert reader.finished == [(permit.creation_id, permit.operation_id)]
 
 
 @pytest.mark.asyncio
@@ -844,6 +928,7 @@ async def test_cache_put_cancellation_closes_local_stream_and_returns_promptly(
     monkeypatch, tmp_path
 ):
     import yoao_assets_images_runtime.storage as storage_module
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
 
     client = _S3()
     transport = _BlockingPutTransport()
@@ -862,7 +947,7 @@ async def test_cache_put_cancellation_closes_local_stream_and_returns_promptly(
         body_closed.set()
 
     monkeypatch.setattr(storage_module._FileBody, "aclose", watched_close)
-    upload = asyncio.create_task(storage.upload_cache(path, key))
+    upload = asyncio.create_task(_ordinary_upload(storage, path, key))
 
     await asyncio.wait_for(transport.started.wait(), timeout=1)
     upload.cancel()
@@ -896,7 +981,8 @@ async def test_range_identity_mismatch_closes_body_and_rejects_stale_bytes():
 
 
 @pytest.mark.asyncio
-async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path):
+async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path, monkeypatch):
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     client = _S3()
     signer = _Signer()
     storage, config = _storage(client, signer)
@@ -905,7 +991,7 @@ async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path)
     job, attempt = uuid4(), uuid4()
     key = f"image-assets/{job}/g1/a{attempt}/thumbnail.webp"
 
-    artifact = await storage.upload_cache(path, key)
+    artifact = await _ordinary_upload(storage, path, key)
     url = await storage.sign_cache(key, expires_in=90)
 
     assert artifact.key == key
@@ -915,7 +1001,7 @@ async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path)
     manifest = tmp_path / "manifest.json"
     manifest.write_text('{"schema":"aap-image-pyramid/v1"}', encoding="utf-8")
     manifest_key = f"image-pyramids/{uuid4()}/g1/a{attempt}/manifest.json"
-    manifest_artifact = await storage.upload_cache(manifest, manifest_key)
+    manifest_artifact = await _ordinary_upload(storage, manifest, manifest_key)
     assert manifest_artifact.key == manifest_key
     uploads = [call for call in client.calls if call[0] == "upload"]
     assert uploads[0][1:3] == (config.cache_bucket, key)

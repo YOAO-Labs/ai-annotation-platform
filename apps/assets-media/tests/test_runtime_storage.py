@@ -22,6 +22,7 @@ from yoao_assets_media_runtime.additional_original import (
     AdditionalOriginalConfig,
     physical_identity,
 )
+from yoao_assets_media_runtime.fixture_native_outputs import native_execution, output_scope
 from yoao_assets_media_runtime.storage import S3MediaStorage
 
 
@@ -131,6 +132,13 @@ def _storage(client: _FakeS3 | None = None):
     ), client
 
 
+async def _ordinary_upload(storage, path, key):
+    claim = SimpleNamespace(job_id=uuid4())
+    async with native_execution(None, "media", claim.job_id):
+        async with output_scope(None, storage, claim, "media", None):
+            return await storage.upload_cache(path, key)
+
+
 def _permit(key: str, body: bytes, *, identity: ObjectIdentity | None = None):
     facts = identity or ObjectIdentity(
         etag=_FakeS3._identity(body)["ETag"].strip('"'),
@@ -202,6 +210,65 @@ def test_head_and_conditional_download_use_only_datasets_bucket(tmp_path: Path):
     get = next(call[1] for call in client.calls if call[0] == "get_object")
     assert get["IfMatch"] == f'"{identity.etag}"'
     assert get["VersionId"] == identity.version_id
+
+
+@pytest.mark.asyncio
+async def test_fixture_original_uses_only_explicitly_admitted_ordinary_media_output(
+    tmp_path, monkeypatch
+):
+    from yoao_assets_media_runtime.original_read import admitted_original
+
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
+    client = _FakeS3()
+    source_key = "fixture/clip.mp4"
+    source_bytes = b"fixture original"
+    client.objects[("datasets", source_key)] = source_bytes
+    storage, _ = _storage(client)
+    permit = _permit(source_key, source_bytes)
+
+    class Reader:
+        def __init__(self):
+            self.finished = []
+
+        async def call(self, operation, request):
+            if operation == "begin_media_original_worker":
+                return permit
+            assert operation == "finish_media_original_worker"
+            self.finished.append((request.creation_id, request.operation_id))
+
+    reader = Reader()
+    claim = SimpleNamespace(job_id=uuid4())
+    key = f"media-assets/{claim.job_id}/g1/a{uuid4()}/poster.webp"
+    artifact = tmp_path / "poster.webp"
+    artifact.write_bytes(b"ordinary output")
+    async with native_execution(reader, "media", claim.job_id):
+        async with admitted_original(
+            reader, storage, "begin_media_original_worker", None,
+            "finish_media_original_worker",
+        ) as original:
+            with pytest.raises(RuntimeError, match="output authority"):
+                await storage.upload_cache(artifact, key)
+            assert ("media-cache", key) not in client.objects
+            with pytest.raises(RuntimeError, match="output execution mismatch"):
+                async with output_scope(
+                    reader, storage, SimpleNamespace(job_id=uuid4()), "media", permit
+                ):
+                    pass
+            async with output_scope(reader, storage, claim, "media", permit):
+                identity = await original.head_source(source_key)
+                destination = tmp_path / "original.mp4"
+                await original.download_source(
+                    _source(source_key, identity, len(source_bytes)), destination
+                )
+                result = await storage.upload_cache(artifact, key)
+            assert destination.read_bytes() == source_bytes
+            assert result.sha256 == sha256(b"ordinary output").hexdigest()
+    assert client.objects[("media-cache", key)] == b"ordinary output"
+    assert any(
+        call[0] == "get_object" and call[1]["VersionId"] == "v1"
+        for call in client.calls
+    )
+    assert reader.finished == [(permit.creation_id, permit.operation_id)]
 
 
 def test_ordinary_source_keeps_identity_and_url_while_fixture_url_is_not_signed(
@@ -343,14 +410,15 @@ def test_source_read_preserves_first_failure_when_stream_close_is_unknown(
     assert not (tmp_path / "src").exists()
 
 
-def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(tmp_path: Path):
+def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     client = _FakeS3()
     storage, _ = _storage(client)
     key = f"media-assets/{uuid4()}/g1/a{uuid4()}/poster.webp"
     path = tmp_path / "poster.webp"
     path.write_bytes(b"image")
 
-    artifact = asyncio.run(storage.upload_cache(path, key))
+    artifact = asyncio.run(_ordinary_upload(storage, path, key))
     identity = asyncio.run(storage.head_cache(key))
     url = asyncio.run(storage.sign_cache(key, 60))
     deleted = asyncio.run(storage.delete_cache_keys([key]))
@@ -369,21 +437,23 @@ def test_upload_head_sign_and_delete_stay_in_fixed_cache_bucket(tmp_path: Path):
         asyncio.run(storage.upload_cache(path, "videos/legacy.mp4"))
 
 
-def test_jpeg_output_upload_uses_jpeg_media_type(tmp_path: Path):
+def test_jpeg_output_upload_uses_jpeg_media_type(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     client = _FakeS3()
     storage, _ = _storage(client)
     key = f"media-assets/{uuid4()}/g1/a{uuid4()}/frame.jpeg"
     path = tmp_path / "frame.jpeg"
     path.write_bytes(b"jpeg")
 
-    asyncio.run(storage.upload_cache(path, key))
+    asyncio.run(_ordinary_upload(storage, path, key))
 
     call = next(call for call in client.calls if call[0] == "upload_file")
     assert call[1]["ContentType"] == "image/jpeg"
 
 
 @pytest.mark.asyncio
-async def test_cancelled_upload_waits_for_boto_thread_before_returning(tmp_path: Path):
+async def test_cancelled_upload_waits_for_boto_thread_before_returning(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     class _SlowUpload(_FakeS3):
         def __init__(self):
             super().__init__()
@@ -402,7 +472,7 @@ async def test_cancelled_upload_waits_for_boto_thread_before_returning(tmp_path:
     path = tmp_path / "poster.webp"
     path.write_bytes(b"image")
 
-    task = asyncio.create_task(storage.upload_cache(path, key))
+    task = asyncio.create_task(_ordinary_upload(storage, path, key))
     assert await asyncio.to_thread(client.started.wait, 1)
     task.cancel()
     await asyncio.sleep(0.01)

@@ -344,10 +344,11 @@ class S3MediaStorage:
 
     async def upload_cache(self, path: Path, key: str) -> Artifact:
         _validate_cache_key(key)
-        from .original_read import fixture_original_active
+        from .fixture_native_outputs import current
 
-        if fixture_original_active():
-            return await self._upload_fixture_cache(Path(path), key)
+        writer = current()
+        if writer is not None:
+            return await self._upload_fixture_cache(Path(path), key, writer)
         try:
             return await _run_blocking(self._upload_cache, path, key)
         except MediaFailure:
@@ -451,13 +452,9 @@ class S3MediaStorage:
             raise RuntimeError("fixture native cache PUT receipt is invalid")
         return etag, version
 
-    async def _upload_fixture_cache(self, path, key):
-        from .fixture_native_outputs import current, verify_object
+    async def _upload_fixture_cache(self, path, key, writer):
+        from .fixture_native_outputs import verify_object
         from .original_read import fixture_upload_started
-
-        writer = current()
-        if writer is None:
-            raise RuntimeError("fixture native cache control is unavailable")
         content_type = {
             ".webp": "image/webp",
             ".jpeg": "image/jpeg",

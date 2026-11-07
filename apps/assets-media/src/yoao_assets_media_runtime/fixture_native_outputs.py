@@ -19,6 +19,7 @@ import uuid
 
 _active = ContextVar("native_fixture_cache_writer", default=None)
 _execution = ContextVar("native_fixture_execution", default=None)
+_ORDINARY = object()
 _ROLE = re.compile(r"aap_fixture_media_[0-9a-f]{32}")
 
 
@@ -27,7 +28,13 @@ class FixtureNativeRunSealed(Exception):
 
 
 def current():
-    return _active.get()
+    """Return the fixture writer, or None only for an admitted ordinary output."""
+    output = _active.get()
+    if output is _ORDINARY:
+        return None
+    if output is None:
+        raise RuntimeError("native output authority is unavailable")
+    return output
 
 
 def _dsn():
@@ -259,9 +266,15 @@ async def native_job_candidates(database, family):
 @asynccontextmanager
 async def native_execution(database, family, job_id):
     """Hold a private execution until its real worker and heartbeat have returned."""
-    if not os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE") or job_id is None:
-        yield True
+    if not os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"):
+        token = _execution.set((_ORDINARY, None, family, job_id))
+        try:
+            yield True
+        finally:
+            _execution.reset(token)
         return
+    if job_id is None:
+        raise RuntimeError("fixture native execution job is missing")
     async with database.fixture_business_connection() as business:
         connection = await _verified_connection(business)
     execution_id = uuid.uuid4()
@@ -350,7 +363,7 @@ async def native_execution(database, family, job_id):
 async def _business_admission(business, family, request, *, scan):
     """Fence a committed claim or scan to its private execution and business PID."""
     execution = _execution.get()
-    if execution is None:
+    if execution is None or execution[0] is _ORDINARY:
         yield
         return
     connection, execution_id, expected_family, job_id = execution
@@ -675,7 +688,17 @@ class NativeFixtureWriter:
 async def output_scope(database, storage, claim, family, permit):
     execution = _execution.get()
     if execution is None:
-        yield
+        raise RuntimeError("native output execution is unavailable")
+    if execution[2] != family or (
+        execution[3] is not None and execution[3] != claim.job_id
+    ):
+        raise RuntimeError("native output execution mismatch")
+    if execution[0] is _ORDINARY:
+        token = _active.set(_ORDINARY)
+        try:
+            yield
+        finally:
+            _active.reset(token)
         return
     if permit is None or execution[2:] != (family, claim.job_id):
         raise RuntimeError("fixture native output execution mismatch")

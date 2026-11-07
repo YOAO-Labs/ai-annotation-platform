@@ -13,6 +13,13 @@ four input functions, its own SQL LOGIN and its own S3 credentials. The image wo
 Pillow for small thumbnails and the bounded libvips child process for pyramid
 generation. Neither worker imports the API ORM, Celery or Redis.
 
+Original-read permits and cache-output ownership are separate: an ordinary
+image or video job can read a fixture-owned original while writing only to its
+ordinary cache. Each output write requires its worker's matching execution
+scope; fixture-native executions require the fixture writer and its private
+target. Missing or mismatched output authority fails closed, and fixture source
+reads retain their existing settlement and uncertainty fences.
+
 The image worker also materializes accepted input bytes into the dedicated,
 versioned `ASSETS_MEDIA_INPUTS_BUCKET`. Its normal poll processes both lanes;
 `--once` processes at most one claim, preferring an input claim. `--job-id` selects

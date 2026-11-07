@@ -373,11 +373,8 @@ class S3ImageStorage:
             "Metadata": {"sha256": digest},
         }
         from yoao_assets_media_runtime.fixture_native_outputs import current
-        from .original_read import fixture_original_active
 
         writer = current()
-        if fixture_original_active() and writer is None:
-            raise RuntimeError("fixture native cache control is unavailable")
         if writer is not None:
             return await self._upload_fixture_cache(
                 path, key, digest, info.st_size, content_type, writer
