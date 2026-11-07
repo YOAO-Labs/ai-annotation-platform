@@ -144,7 +144,7 @@ async def test_native_video_receipt_rejects_stale_and_neighbor_evidence(
     await execute(
         "INSERT INTO public.dataset_items (id,dataset_id,file_name,file_path,file_type,"
         "file_size,content_hash,thumbnail_path,metadata,media_materialized_generation) "
-        "VALUES (:item,:dataset,'movie.mp4','original','video',12,:sha,:key,"
+        "VALUES (:item,:dataset,'movie.mp4','original','video',12,:sha,CAST(:key AS text),"
         "jsonb_build_object('video',jsonb_build_object('poster_frame_path',CAST(:key AS text))),1)"
     )
     await execute(
