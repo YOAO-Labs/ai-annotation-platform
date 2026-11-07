@@ -20,13 +20,15 @@ scope; fixture-native executions require the fixture writer and its private
 target. Missing or mismatched output authority fails closed, and fixture source
 reads retain their existing settlement and uncertainty fences.
 
-Image backfill schedules the requested purpose for each selected source.
-`only_missing` checks that purpose's current output; a thumbnail job probes
-unknown dimensions itself and publishes the thumbnail and dimensions together.
+Image backfill uses `only_missing` to check the selected output before admitting
+work. A thumbnail job probes unknown dimensions itself and publishes the
+thumbnail and dimensions together. For known pyramid-eligible dimensions,
+thumbnail backfill preserves automatic pyramid generation when enabled; its
+`only_missing` check uses the current pyramid generation. Without that policy,
+an ineligible thumbnail job terminates with `not_eligible`. A pyramid overview
+is a separate generation output and does not itself publish a thumbnail path.
 Backfill `ready` means the scan and child admission finished, not that all
-children succeeded. Consumers must inspect each child or its current output.
-Images outside thumbnail policy finish their thumbnail job with `not_eligible`;
-backfill does not silently substitute a pyramid or a dimensions-only result.
+children succeeded; consumers must inspect the child or its current output.
 
 The image worker also materializes accepted input bytes into the dedicated,
 versioned `ASSETS_MEDIA_INPUTS_BUCKET`. Its normal poll processes both lanes;

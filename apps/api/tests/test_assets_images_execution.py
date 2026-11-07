@@ -656,8 +656,9 @@ async def test_thumbnail_provenance_survives_refresh_failure_then_clears_on_new_
     )
 
 
+@pytest.mark.parametrize("backfill", [False, True], ids=["direct", "thumbnail-backfill"])
 async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomically(
-    db_session,
+    db_session, backfill
 ):
     actor_id = await _seed_actor(db_session)
     dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
@@ -665,10 +666,60 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         db_session, actor_id=actor_id, dataset_id=dataset_id, width=1, height=1
     )
     source = await _source(db_session, item_id)
-    policy = ImagePolicy().model_dump(mode="json")
-    job_id, _ = await _enqueue(
-        db_session, source, _spec("pyramid", source, policy=policy)
-    )
+    policy = ImagePolicy(
+        optional_pixels=1, required_pixels=1, auto_generate_pyramids=True
+    ).model_dump(mode="json")
+    if backfill:
+        spec = {
+            "kind": "image_backfill",
+            "selection": {
+                "owner_kind": "dataset_item",
+                "dataset_id": str(dataset_id),
+                "project_id": None,
+                "owner_ids": [],
+                "all_owners": False,
+                "purpose": "thumbnail",
+                "only_missing": True,
+                "accepted_before": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
+            },
+            "policy": policy,
+        }
+        backfill_id, _ = await _enqueue(db_session, None, spec)
+        backfill_claim = await _claim(db_session, job_id=backfill_id, kind="image_backfill")
+        args = {
+            "job_id": backfill_id,
+            "generation": backfill_claim["generation"],
+            "lease_token": backfill_claim["lease_token"],
+            "batch_size": 10,
+            "observations": None,
+        }
+        prepared = _data(_reply(await db_session.scalar(_ADVANCE, args)))
+        candidate = prepared["candidates"][0]
+        args["observations"] = json.dumps(
+            {
+                "batch_token": prepared["batch_token"],
+                "items": [{
+                    "owner": candidate["owner"],
+                    "source_snapshot": candidate["source_snapshot"],
+                    "object_identity": _identity(),
+                    "error_code": None,
+                }],
+            }
+        )
+        progress = _data(_reply(await db_session.scalar(_ADVANCE, args)))
+        assert (progress["complete"], progress["scheduled"]) == (True, 1)
+        job_id = await db_session.scalar(
+            text(
+                "SELECT job_id FROM public.asset_image_jobs "
+                "WHERE owner_kind='dataset_item' AND owner_id=:item_id AND kind='pyramid'"
+            ),
+            {"item_id": item_id},
+        )
+        assert job_id is not None
+    else:
+        job_id, _ = await _enqueue(
+            db_session, source, _spec("pyramid", source, policy=policy)
+        )
     claim = await _claim(db_session, job_id=job_id, kind="pyramid")
     prefix = claim["output_prefix"]
     asset_id = uuid.UUID(claim["pyramid_asset_id"])

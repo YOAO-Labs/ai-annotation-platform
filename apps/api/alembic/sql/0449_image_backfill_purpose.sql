@@ -547,6 +547,14 @@ BEGIN
             END IF;
             v_child_kind := v_purpose;
             v_need_work := true;
+            IF v_purpose = 'thumbnail'
+               AND v_owner_data -> 'width' <> 'null'::jsonb
+               AND v_owner_data -> 'height' <> 'null'::jsonb
+               AND (v_owner_data ->> 'width')::numeric * (v_owner_data ->> 'height')::numeric
+                    >= (v_spec #>> '{policy,optional_pixels}')::numeric
+               AND v_spec #>> '{policy,auto_generate_pyramids}' = 'true' THEN
+                v_child_kind := 'pyramid';
+            END IF;
             IF v_only_missing AND v_need_work THEN
                 IF v_child_kind = 'dimensions' THEN
                     v_need_work := v_owner_data -> 'width' = 'null'::jsonb
