@@ -386,8 +386,6 @@ def _verify_local_tiles(
     return verified
 
 
-
-
 def _build_generation(
     *,
     storage: StorageService,
@@ -475,7 +473,10 @@ async def _run_image_pyramid(
     asset_id = generation_number = lease_token = None
     storage = source_hold = None
     try:
-        async with engine.connect() as business, AsyncSession(bind=business, expire_on_commit=False) as db:
+        async with (
+            engine.connect() as business,
+            AsyncSession(bind=business, expire_on_commit=False) as db,
+        ):
             authority = await originals.delegated(db, delegation)
             if (
                 authority.owner_kind != owner_kind
@@ -496,21 +497,33 @@ async def _run_image_pyramid(
 
             execution = fixture_media_execution.current()
             if execution is None:
-                generation = await prepare_generation(db, owner, force=force, delegation=delegation)
+                generation = await prepare_generation(
+                    db, owner, force=force, delegation=delegation
+                )
                 await db.commit()
             else:
                 from app.db.models.dataset import DatasetItem
 
                 item = owner.source.item_id
-                dataset = await db.scalar(select(DatasetItem.dataset_id).where(DatasetItem.id == item)) if item else None
+                dataset = (
+                    await db.scalar(
+                        select(DatasetItem.dataset_id).where(DatasetItem.id == item)
+                    )
+                    if item
+                    else None
+                )
                 task = owner.id if item is None and owner.kind == "task" else None
-                async with execution.birth_scope(business, dataset, item, task):
-                    generation = await prepare_generation(db, owner, force=force, delegation=delegation)
+                async with execution.birth_scope(db, dataset, item, task):
+                    generation = await prepare_generation(
+                        db, owner, force=force, delegation=delegation
+                    )
                     await db.commit()
             if execution is not None and generation is not None:
                 if execution.kind not in {"pyramid", "independent"}:
                     raise ImagePyramidError("fixture_media_scope_mismatch")
-                await execution.bind_generation(generation.asset_id, generation.generation)
+                await execution.bind_generation(
+                    generation.asset_id, generation.generation
+                )
             if generation is None or generation.status == "ready":
                 return
             asset_id, generation_number = generation.asset_id, generation.generation
@@ -562,7 +575,11 @@ async def _run_image_pyramid(
                 from app.services.media_native_stage import NativeStage
 
                 native_stage = NativeStage(
-                    db, permit, "pyramid_output", output.id, before_cleanup=_clear_vips_cache
+                    db,
+                    permit,
+                    "pyramid_output",
+                    output.id,
+                    before_cleanup=_clear_vips_cache,
                 )
 
                 async def guard():
@@ -640,7 +657,9 @@ async def _run_image_pyramid(
                         cleanup_failure = exc
                     try:
                         await recorder.finish(
-                            settled=closed and accounting_settled and cleanup_failure is None
+                            settled=closed
+                            and accounting_settled
+                            and cleanup_failure is None
                         )
                     except BaseException as exc:
                         cleanup_failure = (
@@ -730,9 +749,13 @@ async def _run_image_pyramid(
             await storage_access.finish(asyncio.create_task(engine.dispose()))
         except BaseException as disposal_error:
             storage_access.mark_unsettled(disposal_error)
-            cleanup_failure = disposal_error if cleanup_failure is None else BaseExceptionGroup(
-                "Image pyramid admission close and database shutdown failed",
-                [cleanup_failure, disposal_error],
+            cleanup_failure = (
+                disposal_error
+                if cleanup_failure is None
+                else BaseExceptionGroup(
+                    "Image pyramid admission close and database shutdown failed",
+                    [cleanup_failure, disposal_error],
+                )
             )
             storage_access.mark_unsettled(cleanup_failure)
         if cleanup_failure is not None:
@@ -753,7 +776,9 @@ async def enqueue_image_pyramid(
 ) -> str:
     from app.services import fixture_media_execution, media_dispatch
 
-    if not isinstance(delegation, dict) or not isinstance(delegation.get("original"), dict):
+    if not isinstance(delegation, dict) or not isinstance(
+        delegation.get("original"), dict
+    ):
         raise ImagePyramidError("pyramid_authority_unrecorded")
     identifier = uuid.UUID(str(owner_id))
     args = [owner_kind, str(identifier), force, delegation]
@@ -762,21 +787,33 @@ async def enqueue_image_pyramid(
         from app.db.models.dataset import DatasetItem
 
         delivery = uuid.uuid4()
-        async with storage_access.engine(db).connect() as business, AsyncSession(
-            bind=business, expire_on_commit=False
-        ) as producer:
+        async with (
+            storage_access.engine(db).connect() as business,
+            AsyncSession(bind=business, expire_on_commit=False) as producer,
+        ):
             source = await originals.pin(producer, owner_kind, identifier)
             execution.require_source(originals.receipt(source))
             item = source.item_id
-            dataset = await producer.scalar(
-                select(DatasetItem.dataset_id).where(DatasetItem.id == item)
-            ) if item else None
+            dataset = (
+                await producer.scalar(
+                    select(DatasetItem.dataset_id).where(DatasetItem.id == item)
+                )
+                if item
+                else None
+            )
             task = identifier if item is None and owner_kind == "task" else None
-            async with execution.birth_scope(business, dataset, item, task, delivery=delivery):
+            async with execution.birth_scope(
+                producer, dataset, item, task, delivery=delivery
+            ):
                 prepared = await media_dispatch.prepare(
-                    producer, owner_kind=owner_kind, owner_id=identifier, producer_kind="pyramid",
-                    source=delegation["original"], task_name="app.workers.image_pyramid.generate_image_pyramid",
-                    args=args, delivery_id=delivery,
+                    producer,
+                    owner_kind=owner_kind,
+                    owner_id=identifier,
+                    producer_kind="pyramid",
+                    source=delegation["original"],
+                    task_name="app.workers.image_pyramid.generate_image_pyramid",
+                    args=args,
+                    delivery_id=delivery,
                 )
                 if prepared.ownership != "fixture":
                     raise ImagePyramidError("fixture_media_scope_mismatch")
@@ -784,12 +821,18 @@ async def enqueue_image_pyramid(
         await execution.bind_independent_child(prepared.delivery_id)
     else:
         prepared = await media_dispatch.prepare(
-            db, owner_kind=owner_kind, owner_id=identifier, producer_kind="pyramid",
-            source=delegation["original"], task_name="app.workers.image_pyramid.generate_image_pyramid",
+            db,
+            owner_kind=owner_kind,
+            owner_id=identifier,
+            producer_kind="pyramid",
+            source=delegation["original"],
+            task_name="app.workers.image_pyramid.generate_image_pyramid",
             args=args,
         )
         await db.commit()
-    return await media_dispatch.publish(prepared, lambda: generate_image_pyramid.delay(*args))
+    return await media_dispatch.publish(
+        prepared, lambda: generate_image_pyramid.delay(*args)
+    )
 
 
 async def _dispatch_image_pyramid(
@@ -798,17 +841,29 @@ async def _dispatch_image_pyramid(
     from app.services import fixture_media_execution
 
     if not await fixture_media_execution.is_fixture("pyramid", delivery_id):
-        if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_pyramid"):
+        if (
+            isinstance(queue, str)
+            and queue.startswith("aap_workspace_worker_")
+            and queue.endswith("_pyramid")
+        ):
             async with fixture_media_execution.admitted_independent(
-                delivery_id, "app.workers.image_pyramid.generate_image_pyramid", queue,
-                [owner_kind, owner_id, force, delegation], {}, soft_time_limit=soft_time_limit,
+                delivery_id,
+                "app.workers.image_pyramid.generate_image_pyramid",
+                queue,
+                [owner_kind, owner_id, force, delegation],
+                {},
+                soft_time_limit=soft_time_limit,
             ) as started:
                 if started:
-                    await _run_image_pyramid(owner_kind, owner_id, force=force, delegation=delegation)
+                    await _run_image_pyramid(
+                        owner_kind, owner_id, force=force, delegation=delegation
+                    )
             return
         if await fixture_media_execution.is_fixture("independent", delivery_id):
             raise ImagePyramidError("fixture_media_scope_untracked")
-        await _run_image_pyramid(owner_kind, owner_id, force=force, delegation=delegation)
+        await _run_image_pyramid(
+            owner_kind, owner_id, force=force, delegation=delegation
+        )
         return
     if owner_kind != "dataset_item" or force is not False:
         raise ImagePyramidError("fixture_media_scope_mismatch")

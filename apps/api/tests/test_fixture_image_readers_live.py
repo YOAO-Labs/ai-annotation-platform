@@ -22,15 +22,17 @@ import uuid
 
 from app.config import settings
 from app.db.models.user import User
-from app.services import original_sources
+from app.services import fixture_media_execution, original_sources
 from botocore.exceptions import ClientError
 from PIL import Image
 import pytest
 from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
-from sqlalchemy.ext.asyncio import async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from tests.identity_e2e_support import e2e_consumer, fenced_http, fixture_routing_owner
+from tests.identity_e2e_support import e2e_consumer as e2e_consumer
+from tests.identity_e2e_support import fenced_http as fenced_http
+from tests.identity_e2e_support import fixture_routing_owner
 from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
 from tests.seed_owner_support import (
     OwnedSuite,
@@ -116,7 +118,7 @@ def _consumer_binding_probe(tmp_path: Path):
     state = tmp_path / "consumer-binding-state"
     state.mkdir()
     (module / "sitecustomize.py").write_text(
-        f'''import json, os, sys, uuid
+        f"""import json, os, sys, uuid
 from pathlib import Path
 
 if "celery" in getattr(sys, "orig_argv", ()):
@@ -167,10 +169,9 @@ if "celery" in getattr(sys, "orig_argv", ()):
                 return
             expected = json.loads(expected_path.read_text())
             from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-            from yoao_jobs.publication_postgres import publish_fixture_media_delivery
             from app.config import settings
             from app.services import fixture_media_execution, image_pyramid_originals, media_dispatch
-            from app.services.jobs_queue import publish_queue_envelope
+            from app.services.jobs_fixture_media import publish_fixture_media_delivery
 
             execution = fixture_media_execution.current()
             if execution is None or execution.kind != "backfill":
@@ -193,7 +194,7 @@ if "celery" in getattr(sys, "orig_argv", ()):
                         )
                         args = ["dataset_item", str(item), False, delegation]
                         async with execution.birth_scope(
-                            business, uuid.UUID(dataset), item, None, delivery=delivery
+                            db, uuid.UUID(dataset), item, None, delivery=delivery
                         ):
                             prepared = await media_dispatch.prepare(
                                 db, owner_kind="dataset_item", owner_id=item,
@@ -207,16 +208,10 @@ if "celery" in getattr(sys, "orig_argv", ()):
             finally:
                 await engine.dispose()
 
-            class EmbeddedQueue:
-                async def publish_envelope(self, envelope):
-                    return await publish_queue_envelope(envelope)
-
-            await publish_fixture_media_delivery(
-                settings.jobs_publication_database_url, delivery, EmbeddedQueue()
-            )
+            await publish_fixture_media_delivery(delivery)
 
         media._run_media_backfill_job = with_independent_delivery
-''',
+""",
         encoding="utf-8",
     )
     return module, state
@@ -438,23 +433,38 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             assert operations[0]["node_id"] == "aap-assets-media"
             async with test_engine.connect() as db:
                 source = (
-                    await db.execute(
-                        text(
-                            "SELECT source_operation_id,creation_id,run_id,item_id,job_generation,"
-                            "lease_token,source_snapshot,state FROM aap_assets_v1.fixture_external_media_sources "
-                            "WHERE family='image' AND job_id=:job"
-                        ),
-                        {"job": job_a},
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT source_operation_id,creation_id,run_id,item_id,job_generation,"
+                                "lease_token,source_snapshot,state FROM aap_assets_v1.fixture_external_media_sources "
+                                "WHERE family='image' AND job_id=:job"
+                            ),
+                            {"job": job_a},
+                        )
                     )
-                ).mappings().one()
+                    .mappings()
+                    .one()
+                )
                 assert source["source_operation_id"] == operations[0]["id"]
-                assert source["creation_id"] == row_a["id"] and source["run_id"] == run_a.run_id
-                assert source["item_id"] == source_a.item_id and source["job_generation"] == job["generation"]
-                assert source["lease_token"] == job["lease_token"] and source["source_snapshot"] == job["source_snapshot"]
+                assert (
+                    source["creation_id"] == row_a["id"]
+                    and source["run_id"] == run_a.run_id
+                )
+                assert (
+                    source["item_id"] == source_a.item_id
+                    and source["job_generation"] == job["generation"]
+                )
+                assert (
+                    source["lease_token"] == job["lease_token"]
+                    and source["source_snapshot"] == job["source_snapshot"]
+                )
                 assert source["state"] == "open"
                 assert not await db.scalar(
-                    text("SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
-                         "WHERE family='image' AND job_id=:job)"),
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                        "WHERE family='image' AND job_id=:job)"
+                    ),
                     {"job": job_a},
                 )
             cleanup = asyncio.create_task(_cleanup_owned(owner, run_a))
@@ -516,11 +526,16 @@ async def test_private_image_reader_blocks_exact_retirement_during_physical_io(
             ), _process_log(log_a)
             assert await _operations(test_engine, row_a["id"]) == []
             async with test_engine.connect() as db:
-                assert await db.scalar(
-                    text("SELECT state FROM aap_assets_v1.fixture_external_media_sources "
-                         "WHERE source_operation_id=:operation"),
-                    {"operation": operations[0]["id"]},
-                ) == "settled"
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT state FROM aap_assets_v1.fixture_external_media_sources "
+                            "WHERE source_operation_id=:operation"
+                        ),
+                        {"operation": operations[0]["id"]},
+                    )
+                    == "settled"
+                )
             retired = await asyncio.wait_for(cleanup, 120)
             assert retired.status_code == 200, retired.text
             for bucket, key, version in bytes_a:
@@ -675,7 +690,11 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     # fenced_http uses this short-lived API LOGIN, not the Jobs or Media
     # executor. Compose the embedded Catalog capability on that same session.
     role = e2e_consumer.url.username
-    assert role and role.startswith("workspace_consumer_") and role.replace("_", "").isalnum()
+    assert (
+        role
+        and role.startswith("workspace_consumer_")
+        and role.replace("_", "").isalnum()
+    )
     async with test_engine.begin() as db:
         await db.execute(
             text(
@@ -689,7 +708,9 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     import fixture_media_control
 
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    owner_context = owner = suite = media = ordinary = ordinary_stream = sender = cleanup = None
+    owner_context = owner = suite = media = ordinary = ordinary_stream = sender = (
+        cleanup
+    ) = None
     run = neighbor = None
     completed = False
     try:
@@ -701,9 +722,13 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         monkeypatch.setattr(settings, "jobs_queue_url", "")
         monkeypatch.setenv("JOBS_QUEUE_URL", "")
         monkeypatch.setattr(settings, "image_pyramid_auto_generate", True)
-        monkeypatch.setattr(settings, "image_pyramid_optional_pixels", _POLICY.optional_pixels)
+        monkeypatch.setattr(
+            settings, "image_pyramid_optional_pixels", _POLICY.optional_pixels
+        )
         monkeypatch.setenv("IMAGE_PYRAMID_AUTO_GENERATE", "true")
-        monkeypatch.setenv("IMAGE_PYRAMID_OPTIONAL_PIXELS", str(_POLICY.optional_pixels))
+        monkeypatch.setenv(
+            "IMAGE_PYRAMID_OPTIONAL_PIXELS", str(_POLICY.optional_pixels)
+        )
         monkeypatch.setenv("ASSETS_MEDIA_URL", media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
@@ -713,16 +738,23 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         runtime_dsn = runtime_url.render_as_string(hide_password=False)
         monkeypatch.setattr(settings, "database_url", runtime_dsn)
         monkeypatch.setenv("DATABASE_URL", runtime_dsn)
-        publication_url = _guard_role_url(
-            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "jobs_publication_client", test_engine
-        ).set(drivername="postgresql").render_as_string(hide_password=False)
+        publication_url = (
+            _guard_role_url(
+                "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+                "jobs_publication_client",
+                test_engine,
+            )
+            .set(drivername="postgresql")
+            .render_as_string(hide_password=False)
+        )
         monkeypatch.setattr(settings, "jobs_publication_database_url", publication_url)
         monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
         monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
         monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
         probe, probe_state = _consumer_binding_probe(tmp_path)
         monkeypatch.setenv(
-            "PYTHONPATH", os.pathsep.join((str(probe), os.environ.get("PYTHONPATH", "")))
+            "PYTHONPATH",
+            os.pathsep.join((str(probe), os.environ.get("PYTHONPATH", ""))),
         )
         suite_id = uuid.uuid4()
         owner_context = private_seed_owner(native_suite_id=suite_id)
@@ -735,12 +767,15 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         await _build_owned(owner, neighbor)
         versions = await _fixture_versions(test_engine, run)
         neighbor_versions = await _fixture_versions(test_engine, neighbor)
-        actor, _, source, original = await _fixture_source(test_engine, world, run, versions)
+        actor, _, source, original = await _fixture_source(
+            test_engine, world, run, versions
+        )
         item = source.item_id
         assert item is not None and source.replica_facts.creation_id == original["id"]
         async with test_engine.connect() as db:
             dataset = await db.scalar(
-                text("SELECT dataset_id FROM public.dataset_items WHERE id=:item"), {"item": item}
+                text("SELECT dataset_id FROM public.dataset_items WHERE id=:item"),
+                {"item": item},
             )
         assert dataset is not None
         secret = await fixture_media_control.receipt_path(run.run_id)
@@ -749,11 +784,17 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         # The producer is the ordinary Images LOGIN and its ordinary output
         # target, not a fixture execution or a fabricated source receipt.
         response = await _post(
-            media.control_client, media.control_token, "/v1/images/commands/prepare_image_media",
+            media.control_client,
+            media.control_token,
+            "/v1/images/commands/prepare_image_media",
             {
-                "actor_id": str(actor), "task_id": None, "dataset_item_id": str(item),
-                "operation_id": str(uuid.uuid4()), "purpose": "pyramid",
-                "expected_source_snapshot": None, "policy": _POLICY.model_dump(mode="json"),
+                "actor_id": str(actor),
+                "task_id": None,
+                "dataset_item_id": str(item),
+                "operation_id": str(uuid.uuid4()),
+                "purpose": "pyramid",
+                "expected_source_snapshot": None,
+                "policy": _POLICY.model_dump(mode="json"),
                 "force": False,
             },
         )
@@ -771,19 +812,32 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
         assert job["status"] == "running" and job["lease_token"]
         asset, generation = job["pyramid_asset_id"], job["pyramid_generation"]
         async with test_engine.connect() as db:
-            attempt = (await db.execute(
-                text(
-                    "SELECT source_operation_id,job_generation,lease_token,state "
-                    "FROM aap_assets_v1.fixture_external_media_sources "
-                    "WHERE family='image' AND job_id=:job"
-                ), {"job": native_job}
-            )).mappings().one()
-        assert attempt["state"] == "open" and attempt["job_generation"] == job["generation"]
+            attempt = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT source_operation_id,job_generation,lease_token,state "
+                            "FROM aap_assets_v1.fixture_external_media_sources "
+                            "WHERE family='image' AND job_id=:job"
+                        ),
+                        {"job": native_job},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+        assert (
+            attempt["state"] == "open"
+            and attempt["job_generation"] == job["generation"]
+        )
         assert attempt["lease_token"] == job["lease_token"]
         delivery = uuid.uuid4()
         expected = {
-            "asset": str(asset), "generation": generation, "dataset": str(dataset),
-            "item": str(item), "delivery": str(delivery),
+            "asset": str(asset),
+            "generation": generation,
+            "dataset": str(dataset),
+            "item": str(item),
+            "delivery": str(delivery),
         }
         expected_file = probe_state / "expected"
         temporary = probe_state / "expected.tmp"
@@ -814,132 +868,225 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
                     ),
                     {"job": backfill, "item": item, "delivery": delivery},
                 )
-            if child_id and (probe_state / f"pyramid-{child_id}").is_file() and (
-                probe_state / f"independent-{delivery}"
-            ).is_file():
+            if (
+                child_id
+                and (probe_state / f"pyramid-{child_id}").is_file()
+                and (probe_state / f"independent-{delivery}").is_file()
+            ):
                 return child_id
             return None
 
-        child = await _eventually("both real pyramid consumers settled", settled_consumers, timeout=120)
+        child = await _eventually(
+            "both real pyramid consumers settled", settled_consumers, timeout=120
+        )
         for kind, identifier in (("pyramid", child), ("independent", delivery)):
             observed = json.loads((probe_state / f"{kind}-{identifier}").read_text())
             assert observed == {
-                "asset": str(asset), "generation": generation,
-                "wrong_asset": False, "wrong_generation": False,
+                "asset": str(asset),
+                "generation": generation,
+                "wrong_asset": False,
+                "wrong_generation": False,
             }
 
         async with test_engine.connect() as db:
-            bindings = (await db.execute(
-                text(
-                    "SELECT consumer_kind,consumer_id,asset_id,generation,job_id,job_generation,"
-                    "lease_token,source_operation_id FROM aap_assets_v1.fixture_external_pyramid_reuses "
-                    "WHERE run_id=:run AND item_id=:item"
-                ), {"run": run.run_id, "item": item}
-            )).mappings().all()
+            bindings = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT consumer_kind,consumer_id,asset_id,generation,job_id,job_generation,"
+                            "lease_token,source_operation_id FROM aap_assets_v1.fixture_external_pyramid_reuses "
+                            "WHERE run_id=:run AND item_id=:item"
+                        ),
+                        {"run": run.run_id, "item": item},
+                    )
+                )
+                .mappings()
+                .all()
+            )
             assert {(row["consumer_kind"], row["consumer_id"]) for row in bindings} == {
-                ("child", child), ("independent", delivery)
+                ("child", child),
+                ("independent", delivery),
             }
             for row in bindings:
-                assert (row["asset_id"], row["generation"], row["job_id"], row["job_generation"],
-                        row["lease_token"], row["source_operation_id"]) == (
-                    asset, generation, native_job, job["generation"], job["lease_token"],
+                assert (
+                    row["asset_id"],
+                    row["generation"],
+                    row["job_id"],
+                    row["job_generation"],
+                    row["lease_token"],
+                    row["source_operation_id"],
+                ) == (
+                    asset,
+                    generation,
+                    native_job,
+                    job["generation"],
+                    job["lease_token"],
                     attempt["source_operation_id"],
                 )
             assert not await db.scalar(
-                text("SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_media_births "
-                     "WHERE owner_kind='pyramid_generation' AND owner_id=:asset AND generation=:generation)"),
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_media_births "
+                    "WHERE owner_kind='pyramid_generation' AND owner_id=:asset AND generation=:generation)"
+                ),
                 {"asset": asset, "generation": generation},
             )
             assert not await db.scalar(
-                text("SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
-                     "WHERE family='image' AND job_id=:job)"),
+                text(
+                    "SELECT EXISTS(SELECT 1 FROM aap_assets_v1.fixture_native_media_jobs "
+                    "WHERE family='image' AND job_id=:job)"
+                ),
                 {"job": native_job},
             )
-            assert await db.scalar(
-                text("SELECT aap_assets_v1.fixture_dataset_media_producers_quiescent(:run,:dataset)"),
-                {"run": run.run_id, "dataset": dataset},
-            ) is False
-            dispatch_ids = tuple(await db.scalars(
-                text("SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
-                     "WHERE job_id=:job ORDER BY intent_id"), {"job": backfill}
-            ))
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT aap_assets_v1.fixture_dataset_media_producers_quiescent(:run,:dataset)"
+                    ),
+                    {"run": run.run_id, "dataset": dataset},
+                )
+                is False
+            )
+            dispatch_ids = tuple(
+                await db.scalars(
+                    text(
+                        "SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
+                        "WHERE job_id=:job ORDER BY intent_id"
+                    ),
+                    {"job": backfill},
+                )
+            )
         delete_backfills = text(
             "SELECT aap_jobs_v1.delete_fixture_media_backfills(:run,:dataset)"
         )
         async with e2e_consumer.connect() as db:
             with pytest.raises(DBAPIError) as forbidden:
-                await db.scalar(delete_backfills, {"run": run.run_id, "dataset": dataset})
+                await db.scalar(
+                    delete_backfills, {"run": run.run_id, "dataset": dataset}
+                )
             assert forbidden.value.orig.sqlstate == "42501"
         control = create_async_engine(control_url, hide_parameters=True)
         async with control.connect() as db:
-            evidence = {"run": run.run_id, "dataset": dataset, "item": item, "job": native_job,
-                        "generation": job["generation"], "lease": job["lease_token"]}
-            check = text("SELECT aap_assets_v1.fixture_external_image_attempt_sources_settled("
-                         ":run,:dataset,:item,:job,:generation,:lease)")
+            evidence = {
+                "run": run.run_id,
+                "dataset": dataset,
+                "item": item,
+                "job": native_job,
+                "generation": job["generation"],
+                "lease": job["lease_token"],
+            }
+            check = text(
+                "SELECT aap_assets_v1.fixture_external_image_attempt_sources_settled("
+                ":run,:dataset,:item,:job,:generation,:lease)"
+            )
             assert await db.scalar(check, evidence) is False
             assert await db.scalar(check, {**evidence, "lease": uuid.uuid4()}) is False
         await control.dispose()
         with closing(fixture_original_reader()) as reader:
-            neighbor_bytes = await asyncio.to_thread(_read_versions, reader, neighbor_versions)
+            neighbor_bytes = await asyncio.to_thread(
+                _read_versions, reader, neighbor_versions
+            )
             cleanup = asyncio.create_task(_cleanup_owned(owner, run))
 
             async def sealed():
                 async with test_engine.connect() as db:
                     return await db.scalar(
-                        text("SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"),
+                        text(
+                            "SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"
+                        ),
                         {"run": run.run_id},
                     )
 
             await _eventually("exact fixture run sealed", sealed, timeout=30)
             assert not cleanup.done()
             assert ordinary.poll() is None
-            assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+            assert (
+                await asyncio.to_thread(_read_versions, reader, neighbor_versions)
+                == neighbor_bytes
+            )
             for owner_run in (run.run_id, neighbor.run_id):
                 async with test_engine.connect() as db:
                     with pytest.raises(DBAPIError) as blocked:
-                        await db.scalar(delete_backfills, {"run": owner_run, "dataset": dataset})
+                        await db.scalar(
+                            delete_backfills, {"run": owner_run, "dataset": dataset}
+                        )
                     assert blocked.value.orig.sqlstate == "23514"
             async with test_engine.connect() as db:
                 assert await db.scalar(
-                    text("SELECT EXISTS(SELECT 1 FROM public.async_jobs WHERE id=:job)"),
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.async_jobs WHERE id=:job)"
+                    ),
                     {"job": backfill},
                 )
             (state / "release").touch()
-            assert await _wait_process_exit(
-                ordinary, timeout=120, message="ordinary Images producer did not drain"
-            ) == 0, _process_log(ordinary_log)
+            assert (
+                await _wait_process_exit(
+                    ordinary,
+                    timeout=120,
+                    message="ordinary Images producer did not drain",
+                )
+                == 0
+            ), _process_log(ordinary_log)
             async with test_engine.connect() as db:
-                assert await db.scalar(
-                    text("SELECT state FROM aap_assets_v1.fixture_external_media_sources "
-                         "WHERE source_operation_id=:id"), {"id": attempt["source_operation_id"]}
-                ) == "settled"
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT state FROM aap_assets_v1.fixture_external_media_sources "
+                            "WHERE source_operation_id=:id"
+                        ),
+                        {"id": attempt["source_operation_id"]},
+                    )
+                    == "settled"
+                )
             result = await asyncio.wait_for(asyncio.shield(cleanup), 120)
             assert result.status_code == 200, result.text
             async with test_engine.connect() as db:
                 assert not await db.scalar(
-                    text("SELECT EXISTS(SELECT 1 FROM public.async_jobs WHERE id=:job)"),
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.async_jobs WHERE id=:job)"
+                    ),
                     {"job": backfill},
                 )
-                assert await db.scalar(
-                    text("SELECT state FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"),
-                    {"job": backfill},
-                ) == "retired"
-                assert tuple(await db.scalars(
-                    text("SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
-                         "WHERE job_id=:job ORDER BY intent_id"), {"job": backfill}
-                )) == dispatch_ids
+                assert (
+                    await db.scalar(
+                        text(
+                            "SELECT state FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                        ),
+                        {"job": backfill},
+                    )
+                    == "retired"
+                )
+                assert (
+                    tuple(
+                        await db.scalars(
+                            text(
+                                "SELECT intent_id FROM aap_jobs_v1.fixture_media_dispatches "
+                                "WHERE job_id=:job ORDER BY intent_id"
+                            ),
+                            {"job": backfill},
+                        )
+                    )
+                    == dispatch_ids
+                )
                 proven = text(
                     "SELECT aap_assets_v1.fixture_external_image_attempt_sources_proven("
                     ":run,:dataset,:item,:job,:generation,:lease)"
                 )
                 assert await db.scalar(proven, evidence) is True
-                assert await db.scalar(proven, {**evidence, "lease": uuid.uuid4()}) is False
-            assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+                assert (
+                    await db.scalar(proven, {**evidence, "lease": uuid.uuid4()})
+                    is False
+                )
+            assert (
+                await asyncio.to_thread(_read_versions, reader, neighbor_versions)
+                == neighbor_bytes
+            )
         result = await _cleanup_owned(owner, neighbor)
         assert result.status_code == 200, result.text
         await suite.finish()
         await owner.retire_native_suite()
-        sender = Celery("fixture-pyramid-reuse-verifier", broker=settings.effective_celery_broker)
+        sender = Celery(
+            "fixture-pyramid-reuse-verifier", broker=settings.effective_celery_broker
+        )
         await asyncio.to_thread(_delete_owned_queue, sender, media_queue)
         await asyncio.to_thread(_delete_owned_queue, sender, pyramid_queue)
         sender.close()
@@ -951,11 +1098,58 @@ async def test_backfill_and_independent_pyramid_reuse_actual_ordinary_attempt(
     finally:
         if not completed:
             _RETAINED_UNCERTAIN.append(
-                (owner_context, owner, suite, media, ordinary, ordinary_stream, sender,
-                 routing, cleanup)
+                (
+                    owner_context,
+                    owner,
+                    suite,
+                    media,
+                    ordinary,
+                    ordinary_stream,
+                    sender,
+                    routing,
+                    cleanup,
+                )
             )
             print(
                 f"Retained unresolved pyramid reuse: run={run.run_id if run else None} "
                 f"neighbor={neighbor.run_id if neighbor else None}; no forced cleanup",
                 flush=True,
             )
+
+
+async def test_producer_sql_failure_rolls_back_before_birth_pin_release(test_engine):
+    table = f"fixture_producer_{uuid.uuid4().hex}"
+    label = f"fixture-producer-rollback:{uuid.uuid4()}"
+    unlock = text(
+        "SELECT pg_advisory_unlock_shared(pg_catalog.hashtextextended(:label,0))"
+    )
+    async with test_engine.connect() as business:
+        await business.execute(text(f"CREATE TEMP TABLE {table} (value integer)"))
+        await business.commit()
+        locked = False
+        try:
+            async with AsyncSession(bind=business, expire_on_commit=False) as producer:
+                with pytest.raises(DBAPIError) as failure:
+                    async with fixture_media_execution._producer_uow(
+                        producer
+                    ) as connection:
+                        await producer.execute(text(f"INSERT INTO {table} VALUES (7)"))
+                        await connection.execute(
+                            text(
+                                "SELECT pg_advisory_lock_shared("
+                                "pg_catalog.hashtextextended(:label,0))"
+                            ),
+                            {"label": label},
+                        )
+                        locked = True
+                        await producer.execute(text("SELECT 1/0"))
+                assert failure.value.orig.sqlstate == "22012"
+                assert await business.scalar(unlock, {"label": label}) is True
+                locked = False
+                assert await business.scalar(text(f"SELECT count(*) FROM {table}")) == 0
+        finally:
+            await business.rollback()
+            if locked:
+                await business.scalar(unlock, {"label": label})
+            await business.execute(text(f"DROP TABLE pg_temp.{table}"))
+            await business.commit()

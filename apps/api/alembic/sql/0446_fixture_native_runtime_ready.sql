@@ -6,7 +6,7 @@ SET search_path = pg_catalog, pg_temp AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'run_id',p_run,'endpoint',target.endpoint,'bucket',target.bucket,
         'storage_identity',target.storage_identity,'receipt_sha256',target.receipt_sha256,
-        'database_oid',database.oid,'database_owner_marker',pg_catalog.shobj_description(database.oid,'pg_database'))
+        'database_oid',database.oid::bigint,'database_owner_marker',pg_catalog.shobj_description(database.oid,'pg_database'))
     FROM aap_assets_v1.fixture_native_cache_targets AS target
     JOIN yoao_fixture_v1.fixture_runs AS run ON run.id=target.run_id
     JOIN yoao_fixture_v1.fixture_runs AS root ON root.id=COALESCE(run.parent_run_id,run.id)
@@ -23,7 +23,7 @@ SET search_path = pg_catalog, pg_temp AS $function$
     SELECT pg_catalog.jsonb_build_object(
         'run_id',p_run,'endpoint',target.endpoint,'bucket',target.bucket,
         'storage_identity',target.storage_identity,'receipt_sha256',target.receipt_sha256,
-        'database_oid',database.oid,'database_owner_marker',pg_catalog.shobj_description(database.oid,'pg_database'))
+        'database_oid',database.oid::bigint,'database_owner_marker',pg_catalog.shobj_description(database.oid,'pg_database'))
     FROM aap_assets_v1.fixture_native_read_principals AS principal
     JOIN pg_catalog.pg_roles AS role ON role.oid=principal.principal_oid
     JOIN aap_assets_v1.fixture_native_cache_targets AS target ON target.run_id=principal.run_id

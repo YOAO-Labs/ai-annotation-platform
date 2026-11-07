@@ -1493,6 +1493,8 @@ class LocalResources:
                     *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
                     *JOBS_ACTION_IDEMPOTENCY_RUNTIME_CAPABILITIES,
                     *JOBS_DISPATCH_RUNTIME_CAPABILITIES,
+                    "aap_jobs_v1.fixture_media_backfill_route(uuid)",
+                    "aap_jobs_v1.fixture_media_work_exists(text,text)",
                 )
             )
             notification_delivery_read_check = " AND ".join(
@@ -1880,9 +1882,7 @@ class LocalResources:
                     "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid), "
                     "aap_jobs_v1.finish_prediction_mask_producer(uuid), "
                     "aap_jobs_v1.prediction_mask_object_retained(uuid), "
-                    "public.fixture_export_execution_admitted(uuid), "
-                    "public.begin_fixture_export_execution(uuid,uuid,uuid), "
-                    "public.finish_fixture_export_execution(uuid,uuid), "
+                    "aap_jobs_v1.prepare_media_delivery(jsonb), "
                     "public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[]), "
                     "public.image_export_scope_matches(uuid,uuid), "
                     "public.fixture_native_export_lifetime(uuid,uuid), "
@@ -2679,6 +2679,7 @@ class LocalResources:
         supervisor = record(directory / "native-supervisor.json")
         suite_id = supervisor.get("suite_id")
         run_ids = supervisor.get("native_run_ids")
+        api_owned = supervisor.get("api_owned")
         if (
             supervisor.get("schema") != "aap-fixture-native-supervisor/v1"
             or supervisor.get("resources") != self.resources
@@ -2693,18 +2694,56 @@ class LocalResources:
             or len(set(run_ids)) != len(run_ids)
             or supervisor.get("resolver_retired") is not True
             or supervisor.get("business_retired") is not True
+            or type(api_owned) is not bool
         ):
             raise WorktreeError("原生套件监督器未确认完整退役；保留资源")
+        if not api_owned and (
+            self.resources["mode"] != "test"
+            or "api" in supervisor
+            or "api_disposition" in supervisor
+        ):
+            raise WorktreeError("无 API 的原生监督拓扑与实际参与者不符；保留资源")
+        if "root_origin" in supervisor:
+            if (
+                supervisor["root_origin"]
+                != {"family": "screenshot", "parent_run_id": None}
+                or directory.name != "suite-" + uuid.UUID(suite_id).hex
+                or run_ids != [suite_id]
+                or not canonical_uuid(supervisor.get("birth_admission_id"))
+                or not isinstance(supervisor.get("authority_nonce"), str)
+                or not re.fullmatch(r"[a-f0-9]{64}", supervisor["authority_nonce"])
+            ):
+                raise WorktreeError("截图原生根运行出生证据不符；保留资源")
+            generation = record(directory / "generation.json")
+            if generation != {
+                "resources": self.resources,
+                "nonce": supervisor["authority_nonce"],
+                "state": "closed",
+            }:
+                raise WorktreeError(
+                    "截图原生根运行的 authority 代次未关闭或已变化；保留资源"
+                )
+        elif (
+            suite_id in run_ids
+            or "birth_admission_id" in supervisor
+            or "authority_nonce" in supervisor
+        ):
+            raise WorktreeError("原生根运行缺少明确的截图出生证据；保留资源")
         for name, acknowledgment in (
             ("api", "lifespan_shutdown"),
             ("control", "settled_ack"),
         ):
+            if name == "api" and not api_owned:
+                continue
             result = supervisor.get(name + "_disposition")
             birth = supervisor.get(name)
             if (
                 not disposition(result)
                 or result.get(acknowledgment) is not True
+                or result.get("descendants_drained") is not True
                 or not isinstance(birth, dict)
+                or type(birth.get("pid")) is not int
+                or type(birth.get("start")) is not int
                 or (result["pid"], result["start"])
                 != (birth.get("pid"), birth.get("start"))
             ):
@@ -2750,6 +2789,7 @@ class LocalResources:
                 or not isinstance(proof, dict)
                 or proof.get("schema") != "aap-fixture-native-target-retirement/v1"
                 or proof.get("run_id") != run_id
+                or proof.get("target_receipt_sha256") != run.get("receipt_sha256")
                 or not canonical_uuid(proof.get("retirement_id"))
                 or not canonical_uuid(proof.get("location_id"))
                 or type(proof.get("binding_generation")) is not int
@@ -2762,11 +2802,17 @@ class LocalResources:
             ):
                 raise WorktreeError("原生子运行未确认完整退役；保留资源")
             for name, result in outcomes.items():
+                birth = run.get(name)
                 if (
                     not disposition(result)
                     or result.get("acknowledgment")
                     != ("warm_exit" if name.startswith("celery-") else "settled")
                     or result.get("descendants_drained") is not True
+                    or not isinstance(birth, dict)
+                    or type(birth.get("pid")) is not int
+                    or type(birth.get("start")) is not int
+                    or (result["pid"], result["start"])
+                    != (birth.get("pid"), birth.get("start"))
                 ):
                     raise WorktreeError("原生子运行后代仍未确认排空；保留资源")
         return True

@@ -204,9 +204,10 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
         "sha256": hashlib.sha256(body).hexdigest(),
         "size_bytes": len(body),
     }
-    async with storage_access.engine(db).connect() as business, AsyncSession(
-        bind=business, expire_on_commit=False
-    ) as current:
+    async with (
+        storage_access.engine(db).connect() as business,
+        AsyncSession(bind=business, expire_on_commit=False) as current,
+    ):
         from app.services import fixture_media_execution
 
         execution = fixture_media_execution.current()
@@ -215,13 +216,20 @@ async def create(db, *, owner_kind, owner_id, input_ref, body, path_digest=None)
             item_value = input_ref["source"]["item_id"]
             item_id = uuid.UUID(item_value) if item_value else None
             dataset_id = (
-                await current.scalar(select(DatasetItem.dataset_id).where(DatasetItem.id == item_id))
-                if item_id else None
+                await current.scalar(
+                    select(DatasetItem.dataset_id).where(DatasetItem.id == item_id)
+                )
+                if item_id
+                else None
             )
-            task_id = owner_id if item_id is None and owner_kind == "task_thumbnail" else None
-            scope = execution.birth_scope(business, dataset_id, item_id, task_id)
+            task_id = (
+                owner_id if item_id is None and owner_kind == "task_thumbnail" else None
+            )
+            scope = execution.birth_scope(current, dataset_id, item_id, task_id)
         async with scope:
-            reference = await media_cache_storage.allocate(current, prefix_for(identifier))
+            reference = await media_cache_storage.allocate(
+                current, prefix_for(identifier)
+            )
             output = ThumbnailOutput(
                 id=identifier,
                 owner_kind=owner_kind,

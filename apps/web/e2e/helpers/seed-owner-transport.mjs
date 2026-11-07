@@ -90,8 +90,7 @@ function startOwner() {
     return promise;
   }
   return {
-    async post(payload, timeout) {
-      const operationId = randomUUID();
+    async post(payload, timeout, operationId = randomUUID()) {
       const response = await exchange(
         { action: "execute", operation_id: operationId, payload },
         timeout,
@@ -106,17 +105,23 @@ function startOwner() {
         (response.owner_error === undefined &&
           (!Number.isInteger(response.status) || typeof response.body !== "string")) ||
         (response.journal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.journal_error)) ||
-        (response.disposal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.disposal_error)) ||
+        (response.disposal_error !== undefined &&
+          !/^[A-Za-z_]\w*$/.test(response.disposal_error)) ||
         (response.operation_response !== undefined &&
-          (!response.operation_response || typeof response.operation_response !== "object" ||
-            !Number.isInteger(response.operation_response.status) || typeof response.operation_response.body !== "string")) ||
-        (response.relay_journal_error !== undefined && !/^[A-Za-z_]\w*$/.test(response.relay_journal_error))
+          (!response.operation_response ||
+            typeof response.operation_response !== "object" ||
+            !Number.isInteger(response.operation_response.status) ||
+            typeof response.operation_response.body !== "string")) ||
+        (response.relay_journal_error !== undefined &&
+          !/^[A-Za-z_]\w*$/.test(response.relay_journal_error))
       ) {
         const error = new Error("Fixture owner returned an invalid operation result");
         error.operationId = operationId;
         throw error;
       }
-      if (!["OperationOutcomeUnresolved", "OperationIdentityConflict"].includes(response.owner_error)) {
+      if (
+        !["OperationOutcomeUnresolved", "OperationIdentityConflict"].includes(response.owner_error)
+      ) {
         try {
           const receipt = await exchange({ action: "ack", operation_id: operationId }, timeout);
           if (receipt.state !== "acknowledged") {
@@ -129,14 +134,25 @@ function startOwner() {
         }
       }
       const causes = [];
-      if (response.operation_response) causes.push(new Error(`Fixture operation returned HTTP ${response.operation_response.status}`));
-      if (response.owner_error && response.owner_error !== response.disposal_error) causes.push(new Error(`Fixture operation failed: ${response.owner_error}`));
-      if (response.disposal_error) causes.push(new Error(`Fixture database disposal failed: ${response.disposal_error}`));
-      if (!causes.length && (response.journal_error || response.relay_journal_error)) causes.push(new Error(`Fixture operation returned HTTP ${response.status}`));
-      if (response.journal_error) causes.push(new Error(`Fixture evidence journal failed: ${response.journal_error}`));
-      if (response.relay_journal_error) causes.push(new Error(`Raster evidence journal failed: ${response.relay_journal_error}`));
+      if (response.operation_response)
+        causes.push(
+          new Error(`Fixture operation returned HTTP ${response.operation_response.status}`),
+        );
+      if (response.owner_error && response.owner_error !== response.disposal_error)
+        causes.push(new Error(`Fixture operation failed: ${response.owner_error}`));
+      if (response.disposal_error)
+        causes.push(new Error(`Fixture database disposal failed: ${response.disposal_error}`));
+      if (!causes.length && (response.journal_error || response.relay_journal_error))
+        causes.push(new Error(`Fixture operation returned HTTP ${response.status}`));
+      if (response.journal_error)
+        causes.push(new Error(`Fixture evidence journal failed: ${response.journal_error}`));
+      if (response.relay_journal_error)
+        causes.push(new Error(`Raster evidence journal failed: ${response.relay_journal_error}`));
       if (causes.length) {
-        const error = causes.length === 1 ? causes[0] : new AggregateError(causes, "Fixture operation and evidence failed");
+        const error =
+          causes.length === 1
+            ? causes[0]
+            : new AggregateError(causes, "Fixture operation and evidence failed");
         error.operationId = operationId;
         Object.defineProperty(error, "fixtureResponse", { value: response });
         throw error;
@@ -198,6 +214,23 @@ export async function prepareFixtureSuite(suiteId, family) {
   return JSON.parse(response.body);
 }
 
+export async function prepareScreenshotNative(runId, apiPort, operationId) {
+  transport ??= startOwner();
+  const response = await transport.post(
+    { operation: "owner_screenshot_native_prepare", run_id: runId, api_port: apiPort },
+    120_000,
+    operationId,
+  );
+  if (response.status !== 200) {
+    throw new Error(`Screenshot native preparation failed: ${response.status}`);
+  }
+  const binding = JSON.parse(response.body);
+  if (binding.api_origin !== `http://127.0.0.1:${apiPort}`) {
+    throw new Error("Screenshot API origin changed during preparation");
+  }
+  return { operationId: response.operation_id, apiOrigin: binding.api_origin };
+}
+
 export async function verifyFixtureSuite(suiteId, family) {
   transport ??= startOwner();
   const response = await transport.post(
@@ -246,6 +279,7 @@ async function requestFixture(url, method, options) {
       headers: options?.headers,
     },
     options?.timeout ?? 30_000,
+    options?.operationId,
   );
   const body =
     response.status >= 200 && response.status < 300

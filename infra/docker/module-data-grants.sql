@@ -512,10 +512,10 @@ GRANT SELECT (description, created_by, created_at, updated_at),
     UPDATE (metadata, is_temporal)
     ON public.datasets TO :"assets_owner";
 GRANT SELECT (display_id, created_at, updated_at),
-    UPDATE (name, source_format, source_metadata, updated_at)
+    UPDATE (name, source_format, source_metadata, nuscenes_map_original_id, updated_at)
     ON public.scenes TO :"assets_owner";
 GRANT USAGE, SELECT ON SEQUENCE public.display_seq_scenes TO :"assets_owner";
-GRANT UPDATE (metadata) ON public.dataset_items TO :"assets_owner";
+GRANT UPDATE (metadata, nuscenes_raw_original_id) ON public.dataset_items TO :"assets_owner";
 GRANT UPDATE (
     media_source_generation, media_timetable_revision,
     media_materialized_generation, media_object_identity, media_source_drifted,
@@ -4116,7 +4116,9 @@ GRANT SELECT ON public.storage_bindings TO :"assets_owner";
 GRANT SELECT (revision), INSERT (revision), UPDATE (revision)
     ON public.storage_connections TO :"assets_owner";
 GRANT SELECT, INSERT ON public.storage_maintenance_gates TO :"assets_owner";
-GRANT UPDATE (location_id) ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT UPDATE (location_id, state, revision, changed_at)
+    ON public.storage_maintenance_gates TO :"assets_owner";
+GRANT SELECT (location_id) ON public.storage_location_probes TO :"assets_owner";
 GRANT SELECT ON public.image_pyramid_assets, public.image_pyramid_generations,
     public.image_pyramid_outputs TO :"assets_owner";
 GRANT UPDATE (id) ON public.image_pyramid_assets TO :"assets_owner";
@@ -4133,6 +4135,12 @@ GRANT UPDATE (id) ON public.thumbnail_outputs, public.video_derivative_outputs
 GRANT SELECT (location_id) ON public.original_cache_entries,
     public.managed_original_retirements, public.dataset_auxiliary_originals,
     public.task_originals TO :"assets_owner";
+GRANT SELECT (storage_identity, bucket, object_key, etag, version_id)
+    ON public.task_originals TO :"assets_owner";
+GRANT SELECT (id, state, source_location_id, target_location_id)
+    ON public.storage_migration_read_publications TO :"assets_owner";
+GRANT SELECT (publication_id, bucket, object_key, sha256, size_bytes, source_etag, source_version_id)
+    ON public.storage_migration_read_routes TO :"assets_owner";
 GRANT SELECT (storage_ref) ON public.thumbnail_outputs,
     public.video_derivative_outputs, public.prediction_input_leases,
     public.mask_format_uploads, public.comment_attachment_uploads,

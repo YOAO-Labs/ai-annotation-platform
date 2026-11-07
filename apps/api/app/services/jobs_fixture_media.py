@@ -8,17 +8,23 @@ from yoao_jobs.publication_postgres import (
     publication_database_url,
     publish_fixture_media_delivery as publish_owned_delivery,
 )
-from yoao_jobs.queue_client import JobsQueueClient
-from yoao_jobs.queue_contract import JobsQueueUnavailable
 
 from app.config import settings
-from app.services.jobs_queue import _jobs_queue_token
+from app.services.jobs_queue import publish_queue_envelope
+
+
+class _SelectedQueuePublisher:
+    __slots__ = ()
+
+    async def publish_envelope(self, envelope: dict) -> str:
+        return await publish_queue_envelope(envelope)
+
+
+_QUEUE_PUBLISHER = _SelectedQueuePublisher()
 
 
 async def publish_fixture_media_delivery(delivery_id: uuid.UUID) -> str:
     """Publish the committed saved envelope through the distinct Jobs owner."""
-    if not settings.jobs_queue_url:
-        raise JobsQueueUnavailable()
     database_url = publication_database_url(
         settings.jobs_publication_database_url,
         settings.jobs_publication_database_url_file,
@@ -26,5 +32,5 @@ async def publish_fixture_media_delivery(delivery_id: uuid.UUID) -> str:
     return await publish_owned_delivery(
         database_url,
         delivery_id,
-        JobsQueueClient(settings.jobs_queue_url, _jobs_queue_token()),
+        _QUEUE_PUBLISHER,
     )

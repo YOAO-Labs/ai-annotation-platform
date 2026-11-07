@@ -1,15 +1,9 @@
-import { spawnSync } from "node:child_process";
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { FullConfig } from "@playwright/test";
 import type { ScreenshotSeedCatalog } from "../fixtures/seed";
-import {
-  closeFixtureTransport,
-  getScreenshotCatalog,
-  prepareFixtureSuite,
-} from "../helpers/seed-owner-transport.mjs";
-import { cleanupScreenshotRun } from "./fixture-run.mjs";
+import { closeFixtureTransport, getScreenshotCatalog } from "../helpers/seed-owner-transport.mjs";
+import { seedScreenshotCapture, screenshotCaptureWorkers } from "./fixture-run.mjs";
 import { storeScreenshotCatalog } from "./catalog-runtime";
 import { recordingPlan, screenshotCatalogPath } from "./recording-plan.mjs";
 import { SCREENSHOT_MATRIX_PROJECTS } from "./matrix";
@@ -69,26 +63,28 @@ export default async function screenshotGlobalSetup(config: FullConfig): Promise
     throw new Error("Screenshot worker identity is not the worktree identity.");
   }
   const expected = `worktree-${identity.id}-${process.env.AAP_WORKTREE_MODE}`;
+  const runHex = runId.replaceAll("-", "");
+  const requiredWorkers = [
+    `${expected}@local`,
+    `aap-fixture-${runHex}-media@127.0.0.1`,
+    `aap-fixture-${runHex}-pyramid@127.0.0.1`,
+  ];
+  const allowedWorkers = new Set([
+    ...requiredWorkers,
+    `${expected}-maintenance@local`,
+    ...screenshotCaptureWorkers(runId),
+  ]);
   const healthResponse = await fetch(`${apiBase}/health`, { signal: AbortSignal.timeout(15_000) });
   if (!healthResponse.ok) throw new Error(`Capture API health failed: ${healthResponse.status}`);
   const health = await healthResponse.json();
   const workers: { name?: string }[] = health?.checks?.celery?.workers ?? [];
   if (
-    !workers.some((worker) => worker.name === `${expected}@local`) ||
-    workers.some(
-      (worker) =>
-        ![`${expected}@local`, `${expected}-maintenance@local`].includes(worker.name ?? ""),
-    )
+    requiredWorkers.some((name) => !workers.some((worker) => worker.name === name)) ||
+    workers.some((worker) => !allowedWorkers.has(worker.name ?? ""))
   ) {
     throw new Error("Screenshot capture requires the verified isolated worktree workers.");
   }
-  const apiRoot = fileURLToPath(new URL("../../../api/", import.meta.url));
   const args = [
-    "scripts/seed.py",
-    "--profile",
-    "screenshots",
-    "--run-id",
-    runId,
     "--ml-backend-mode",
     process.env.SCREENSHOT_ML_BACKEND_MODE ?? "live",
     ...(process.env.SCREENSHOT_ASSET_OFFLINE === "1" ? ["--offline"] : []),
@@ -98,20 +94,13 @@ export default async function screenshotGlobalSetup(config: FullConfig): Promise
     ...(catalogScope === undefined ? [] : ["--backend-requirements", catalogScope]),
   ];
   try {
-    await prepareFixtureSuite(runId, "screenshot");
-    const seed = spawnSync(path.join(apiRoot, ".venv/bin/python"), args, {
-      cwd: apiRoot,
-      env: { ...process.env, PYTHONPATH: "." },
-      stdio: "inherit",
-    });
-    if (seed.error) throw seed.error;
-    if (seed.status !== 0) throw new Error(`Screenshot seed failed: ${seed.signal ?? seed.status}`);
+    await seedScreenshotCapture(runId, apiBase, args);
     const response = await getScreenshotCatalog(`${apiBase}${catalogPath}`);
     if (!response.ok()) {
       const readiness =
         staticProfile === "non-ml"
-          ? "请先运行 screenshots seed，并确保静态项目、任务和真实媒体夹具可用。"
-          : "请先运行 screenshots seed，并确保 live backend 或 protocol stub 已启动。";
+          ? "私有截图生产者未准备好静态项目、任务或真实媒体；请检查本次运行的原始错误。"
+          : "私有截图生产者未就绪；请核对本次运行的 live backend 或 protocol stub 能力。";
       throw new Error(
         `seed/catalog failed: ${response.status()} ${await response.text()}\n${readiness}`,
       );
@@ -128,9 +117,12 @@ export default async function screenshotGlobalSetup(config: FullConfig): Promise
     await closeFixtureTransport();
   } catch (failure) {
     try {
-      await cleanupScreenshotRun(runId, { allowMissing: true });
-    } catch (cleanupFailure) {
-      throw new AggregateError([failure, cleanupFailure], "Screenshot setup and cleanup failed");
+      await closeFixtureTransport();
+    } catch (closeFailure) {
+      throw new AggregateError(
+        [failure, closeFailure],
+        "Screenshot setup and transport close failed",
+      );
     }
     throw failure;
   }

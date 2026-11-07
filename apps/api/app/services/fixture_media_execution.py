@@ -29,6 +29,7 @@ _active = ContextVar("fixture_media_execution", default=None)
 def current():
     return _active.get()
 
+
 def request_soft_limit(request):
     limits = getattr(request, "timelimit", None)
     if limits is None:
@@ -36,6 +37,24 @@ def request_soft_limit(request):
     if not isinstance(limits, (tuple, list)) or len(limits) != 2:
         raise ContentError("fixture_media_scope_untracked", 409)
     return limits[1]
+
+
+@asynccontextmanager
+async def _producer_uow(session):
+    """Roll back the producer session before its surrounding birth pin closes."""
+    try:
+        yield await session.connection()
+    except BaseException as failure:
+        try:
+            await storage_access.finish(asyncio.create_task(session.rollback()))
+        except BaseException as rollback_failure:
+            combined = builtins.BaseExceptionGroup(
+                "Fixture media producer and transaction rollback failed",
+                [failure, rollback_failure],
+            )
+            storage_access.mark_unsettled(combined)
+            raise combined from None
+        raise
 
 
 def _control_url(value=None):
@@ -109,14 +128,22 @@ class Execution:
 
     async def target(self):
         result = await self.connection.scalar(
-            text("SELECT aap_assets_v1.fixture_legacy_execution_target(:kind,:id,:token)"),
+            text(
+                "SELECT aap_assets_v1.fixture_legacy_execution_target(:kind,:id,:token)"
+            ),
             {"kind": self.kind, "id": self.identifier, "token": self.token},
         )
         if (
             not isinstance(result, dict)
-            or set(result) != {
-                "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
-                "location_id", "binding_generation",
+            or set(result)
+            != {
+                "run_id",
+                "endpoint",
+                "bucket",
+                "storage_identity",
+                "receipt_sha256",
+                "location_id",
+                "binding_generation",
             }
             or type(result["binding_generation"]) is not int
             or result["binding_generation"] < 1
@@ -130,42 +157,53 @@ class Execution:
             raise ContentError("fixture_media_source_changed", 409)
 
     @asynccontextmanager
-    async def birth_scope(self, business, dataset, item, task, *, delivery=None):
+    async def birth_scope(self, session, dataset, item, task, *, delivery=None):
         admission = uuid.uuid4()
         label = f"aap-fixture-native-source:{admission}"
-        pid = await business.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
         admitted = False
         locked = False
         try:
-            locked = True
-            await business.execute(
-                text("SELECT pg_catalog.pg_advisory_lock_shared(pg_catalog.hashtextextended(:label,0))"),
-                {"label": label},
-            )
-            accepted = await self.connection.scalar(
-                text(
-                    "SELECT aap_assets_v1.begin_fixture_legacy_birth_admission("
-                    ":kind,:execution,:token,:dataset,:item,:task,:delivery,:pid,:admission)"
-                ),
-                {
-                    "kind": self.kind, "execution": self.identifier, "token": self.token,
-                    "dataset": dataset, "item": item, "task": task, "delivery": delivery,
-                    "pid": pid, "admission": admission,
-                },
-            )
-            if accepted is not True:
-                raise ContentError("fixture_media_birth_unavailable", 503)
-            admitted = True
-            await self.connection.commit()
-            yield
-            finished = await self.connection.scalar(
-                text("SELECT aap_assets_v1.finish_fixture_legacy_birth_admission(:admission)"),
-                {"admission": admission},
-            )
-            if finished is not True:
-                raise ContentError("fixture_media_birth_unsettled", 409)
-            await self.connection.commit()
-            admitted = False
+            async with _producer_uow(session) as business:
+                pid = await business.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
+                locked = True
+                await business.execute(
+                    text(
+                        "SELECT pg_catalog.pg_advisory_lock_shared(pg_catalog.hashtextextended(:label,0))"
+                    ),
+                    {"label": label},
+                )
+                accepted = await self.connection.scalar(
+                    text(
+                        "SELECT aap_assets_v1.begin_fixture_legacy_birth_admission("
+                        ":kind,:execution,:token,:dataset,:item,:task,:delivery,:pid,:admission)"
+                    ),
+                    {
+                        "kind": self.kind,
+                        "execution": self.identifier,
+                        "token": self.token,
+                        "dataset": dataset,
+                        "item": item,
+                        "task": task,
+                        "delivery": delivery,
+                        "pid": pid,
+                        "admission": admission,
+                    },
+                )
+                if accepted is not True:
+                    raise ContentError("fixture_media_birth_unavailable", 503)
+                admitted = True
+                await self.connection.commit()
+                yield
+                finished = await self.connection.scalar(
+                    text(
+                        "SELECT aap_assets_v1.finish_fixture_legacy_birth_admission(:admission)"
+                    ),
+                    {"admission": admission},
+                )
+                if finished is not True:
+                    raise ContentError("fixture_media_birth_unsettled", 409)
+                await self.connection.commit()
+                admitted = False
         except BaseException as exc:
             if admitted or locked:
                 storage_access.mark_unsettled(exc)
@@ -176,7 +214,9 @@ class Execution:
                 released = True
                 if locked:
                     released = await business.scalar(
-                        text("SELECT pg_catalog.pg_advisory_unlock_shared(pg_catalog.hashtextextended(:label,0))"),
+                        text(
+                            "SELECT pg_catalog.pg_advisory_unlock_shared(pg_catalog.hashtextextended(:label,0))"
+                        ),
                         {"label": label},
                     )
                 if released is not True:
@@ -185,17 +225,19 @@ class Execution:
                 storage_access.mark_unsettled(close_error)
                 if primary is not None:
                     combined = builtins.BaseExceptionGroup(
-                        "Fixture media birth and business lock release failed", [primary, close_error]
+                        "Fixture media birth and business lock release failed",
+                        [primary, close_error],
                     )
                     storage_access.mark_unsettled(combined)
                     raise combined from None
                 raise
 
-
     async def bind_independent_child(self, child):
         try:
             result = await self.connection.scalar(
-                text("SELECT aap_assets_v1.bind_fixture_independent_child(:parent,:token,:child)"),
+                text(
+                    "SELECT aap_assets_v1.bind_fixture_independent_child(:parent,:token,:child)"
+                ),
                 {"parent": self.identifier, "token": self.token, "child": child},
             )
             if result is not True:
@@ -289,7 +331,12 @@ class Execution:
             )
             result = await self.connection.scalar(
                 text(f"SELECT {name}(:job,:token,:output,:lease)"),
-                {"job": self.identifier, "token": self.token, "output": output, "lease": lease},
+                {
+                    "job": self.identifier,
+                    "token": self.token,
+                    "output": output,
+                    "lease": lease,
+                },
             )
             if result is not True:
                 raise ContentError("fixture_media_attempt_unavailable", 503)
@@ -364,7 +411,10 @@ class Execution:
 async def enqueue_pyramid(db, item_id, delegation):
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from app.services.jobs_dispatch import prepare_job_dispatch, publish_prepared_dispatch
+    from app.services.jobs_dispatch import (
+        prepare_job_dispatch,
+        publish_prepared_dispatch,
+    )
     from app.services.jobs_queue import dispatch_job
 
     execution = current()
@@ -374,7 +424,9 @@ async def enqueue_pyramid(db, item_id, delegation):
     task_name = "app.workers.image_pyramid.generate_image_pyramid"
     args = ["dataset_item", str(item_id), False, delegation]
     options = {"queue": queue}
-    async with AsyncSession(bind=storage_access.engine(db), expire_on_commit=False) as owner:
+    async with AsyncSession(
+        bind=storage_access.engine(db), expire_on_commit=False
+    ) as owner:
         lease = await prepare_job_dispatch(
             owner,
             job_id=execution.identifier,
@@ -410,8 +462,13 @@ class ScreenshotProducer:
             {"admission": self.admission},
         )
         if not isinstance(result, dict) or set(result) != {
-            "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
-            "location_id", "binding_generation",
+            "run_id",
+            "endpoint",
+            "bucket",
+            "storage_identity",
+            "receipt_sha256",
+            "location_id",
+            "binding_generation",
         }:
             raise ContentError("fixture_media_target_unavailable", 503)
         await self.connection.commit()
@@ -422,8 +479,14 @@ class ScreenshotProducer:
             raise ContentError("fixture_media_scope_mismatch", 409)
         try:
             result = await self.connection.scalar(
-                text("SELECT aap_assets_v1.finish_fixture_screenshot_producer(:admission,:delivery,:output)"),
-                {"admission": self.admission, "delivery": self.delivery_id, "output": output_id},
+                text(
+                    "SELECT aap_assets_v1.finish_fixture_screenshot_producer(:admission,:delivery,:output)"
+                ),
+                {
+                    "admission": self.admission,
+                    "delivery": self.delivery_id,
+                    "output": output_id,
+                },
             )
             if result is not True:
                 raise ContentError("fixture_media_birth_unsettled", 409)
@@ -437,7 +500,9 @@ class ScreenshotProducer:
             raise ContentError("fixture_media_scope_mismatch", 409)
         try:
             result = await self.connection.scalar(
-                text("SELECT aap_assets_v1.reuse_fixture_screenshot_producer(:admission,:output)"),
+                text(
+                    "SELECT aap_assets_v1.reuse_fixture_screenshot_producer(:admission,:output)"
+                ),
                 {"admission": self.admission, "output": output_id},
             )
             if result not in {"reused", "unqualified"}:
@@ -452,52 +517,70 @@ class ScreenshotProducer:
 
 
 @asynccontextmanager
-async def screenshot_producer_scope(business, run_id, root_admission_id, dataset_id, item_id, control_url=None):
+async def screenshot_producer_scope(
+    session, run_id, root_admission_id, dataset_id, item_id, control_url=None
+):
     """Bind the existing screenshot admission to one actual producer UOW."""
     if _active.get() is not None:
         raise ContentError("fixture_media_scope_mismatch", 409)
     if hasattr(control_url, "render_as_string"):
         control_url = control_url.render_as_string(hide_password=False)
-    engine = create_async_engine(_control_url(control_url), poolclass=NullPool, hide_parameters=True)
+    engine = create_async_engine(
+        _control_url(control_url), poolclass=NullPool, hide_parameters=True
+    )
     admission, delivery = uuid.uuid4(), uuid.uuid4()
     label = f"aap-fixture-native-source:{admission}"
     locked = admitted = False
     active_token = None
     failure = producer = None
     try:
-        pid = await business.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
-        locked = True
-        await business.execute(
-            text("SELECT pg_catalog.pg_advisory_lock_shared(pg_catalog.hashtextextended(:label,0))"),
-            {"label": label},
-        )
-        async with engine.connect() as control:
-            admitted = True
-            accepted = await control.scalar(
-                text("SELECT aap_assets_v1.begin_fixture_screenshot_producer("
-                     ":run,:root_admission,:dataset,:item,:delivery,:pid,:admission)"),
-                {"run": run_id, "root_admission": root_admission_id, "dataset": dataset_id,
-                 "item": item_id, "delivery": delivery, "pid": pid, "admission": admission},
+        async with _producer_uow(session) as business:
+            pid = await business.scalar(text("SELECT pg_catalog.pg_backend_pid()"))
+            locked = True
+            await business.execute(
+                text(
+                    "SELECT pg_catalog.pg_advisory_lock_shared(pg_catalog.hashtextextended(:label,0))"
+                ),
+                {"label": label},
             )
-            if accepted is not True:
-                admitted = False
-                raise ContentError("fixture_media_birth_unavailable", 503)
-            await control.commit()
-            producer = ScreenshotProducer(control, admission, delivery)
-            active_token = _active.set(producer)
-            try:
-                yield producer
-                if not producer.settled:
-                    raise ContentError("fixture_media_birth_unsettled", 409)
-                admitted = False
-            finally:
-                _active.reset(active_token)
-                active_token = None
+            async with engine.connect() as control:
+                admitted = True
+                accepted = await control.scalar(
+                    text(
+                        "SELECT aap_assets_v1.begin_fixture_screenshot_producer("
+                        ":run,:root_admission,:dataset,:item,:delivery,:pid,:admission)"
+                    ),
+                    {
+                        "run": run_id,
+                        "root_admission": root_admission_id,
+                        "dataset": dataset_id,
+                        "item": item_id,
+                        "delivery": delivery,
+                        "pid": pid,
+                        "admission": admission,
+                    },
+                )
+                if accepted is not True:
+                    admitted = False
+                    raise ContentError("fixture_media_birth_unavailable", 503)
+                await control.commit()
+                producer = ScreenshotProducer(control, admission, delivery)
+                active_token = _active.set(producer)
+                try:
+                    yield producer
+                    if not producer.settled:
+                        raise ContentError("fixture_media_birth_unsettled", 409)
+                    admitted = False
+                finally:
+                    _active.reset(active_token)
+                    active_token = None
     except BaseException as exc:
         failure = exc
         if (admitted or locked) and not (
-            producer is not None and producer.rejected
-            and isinstance(exc, ContentError) and exc.code == "fixture_media_reuse_unqualified"
+            producer is not None
+            and producer.rejected
+            and isinstance(exc, ContentError)
+            and exc.code == "fixture_media_reuse_unqualified"
         ):
             storage_access.mark_unsettled(exc)
         raise
@@ -508,7 +591,9 @@ async def screenshot_producer_scope(business, run_id, root_admission_id, dataset
         if locked:
             try:
                 released = await business.scalar(
-                    text("SELECT pg_catalog.pg_advisory_unlock_shared(pg_catalog.hashtextextended(:label,0))"),
+                    text(
+                        "SELECT pg_catalog.pg_advisory_unlock_shared(pg_catalog.hashtextextended(:label,0))"
+                    ),
                     {"label": label},
                 )
                 if released is not True:
@@ -522,24 +607,34 @@ async def screenshot_producer_scope(business, run_id, root_admission_id, dataset
         if errors:
             if failure is not None:
                 errors.insert(0, failure)
-            combined = builtins.BaseExceptionGroup("Fixture screenshot producer close failed", errors)
+            combined = builtins.BaseExceptionGroup(
+                "Fixture screenshot producer close failed", errors
+            )
             storage_access.mark_unsettled(combined)
             raise combined from None
 
 
 @asynccontextmanager
-async def admitted_independent(delivery_id, task_name, queue, args, kwargs, *, soft_time_limit=None):
+async def admitted_independent(
+    delivery_id, task_name, queue, args, kwargs, *, soft_time_limit=None
+):
     """Admit the exact durable Jobs delivery on its function-only session."""
     try:
         identifier = uuid.UUID(delivery_id)
     except (ValueError, TypeError, AttributeError):
         raise ContentError("fixture_media_scope_untracked", 409) from None
     envelope = {
-        "schema": "aap-jobs-queue/v2", "operation": "dispatch",
-        "task_name": task_name, "execution_id": str(identifier),
-        "args": args, "kwargs": kwargs, "options": {"queue": queue},
+        "schema": "aap-jobs-queue/v2",
+        "operation": "dispatch",
+        "task_name": task_name,
+        "execution_id": str(identifier),
+        "args": args,
+        "kwargs": kwargs,
+        "options": {"queue": queue},
     }
-    engine = create_async_engine(_control_url(), poolclass=NullPool, hide_parameters=True)
+    engine = create_async_engine(
+        _control_url(), poolclass=NullPool, hide_parameters=True
+    )
     failure = None
     try:
         async with engine.connect() as connection:
@@ -555,7 +650,10 @@ async def admitted_independent(delivery_id, task_name, queue, args, kwargs, *, s
                 not isinstance(options, dict)
                 or set(options) not in ({"queue"}, {"queue", "soft_time_limit"})
                 or options.get("queue") != queue
-                or ("soft_time_limit" in options and options["soft_time_limit"] != soft_time_limit)
+                or (
+                    "soft_time_limit" in options
+                    and options["soft_time_limit"] != soft_time_limit
+                )
             ):
                 yield False
                 return
@@ -566,8 +664,14 @@ async def admitted_independent(delivery_id, task_name, queue, args, kwargs, *, s
             token = uuid.uuid4()
             try:
                 result = await connection.scalar(
-                    text("SELECT aap_assets_v1.begin_fixture_independent_execution(:id,:token,CAST(:envelope AS jsonb))"),
-                    {"id": identifier, "token": token, "envelope": json.dumps(envelope, allow_nan=False)},
+                    text(
+                        "SELECT aap_assets_v1.begin_fixture_independent_execution(:id,:token,CAST(:envelope AS jsonb))"
+                    ),
+                    {
+                        "id": identifier,
+                        "token": token,
+                        "envelope": json.dumps(envelope, allow_nan=False),
+                    },
                 )
                 await connection.commit()
             except BaseException as exc:
@@ -598,7 +702,9 @@ async def admitted_independent(delivery_id, task_name, queue, args, kwargs, *, s
                 if not storage_access.failure_unsettled(failure):
                     try:
                         completed = await connection.scalar(
-                            text("SELECT aap_assets_v1.finish_fixture_independent_execution(:id,:token)"),
+                            text(
+                                "SELECT aap_assets_v1.finish_fixture_independent_execution(:id,:token)"
+                            ),
                             {"id": identifier, "token": token},
                         )
                         if completed is not True:
@@ -611,7 +717,8 @@ async def admitted_independent(delivery_id, task_name, queue, args, kwargs, *, s
                             raise failure from finish_error
                         if failure is not None:
                             raise builtins.BaseExceptionGroup(
-                                "Fixture independent execution and settlement failed", [failure, finish_error]
+                                "Fixture independent execution and settlement failed",
+                                [failure, finish_error],
                             ) from None
                         raise
     finally:
@@ -625,7 +732,8 @@ async def admitted_independent(delivery_id, task_name, queue, args, kwargs, *, s
                 raise primary from close_error
             if primary is not None:
                 raise builtins.BaseExceptionGroup(
-                    "Fixture independent execution and shutdown failed", [primary, close_error]
+                    "Fixture independent execution and shutdown failed",
+                    [primary, close_error],
                 ) from None
             raise
 
@@ -635,7 +743,9 @@ async def admitted(
     kind, identifier, queue, *, delivery_id=None, item_id=None, delegation=None
 ):
     """Hold the exact native session lock until real work and close complete."""
-    engine = create_async_engine(_control_url(), poolclass=NullPool, hide_parameters=True)
+    engine = create_async_engine(
+        _control_url(), poolclass=NullPool, hide_parameters=True
+    )
     failure = None
     try:
         async with engine.connect() as connection:
@@ -728,6 +838,7 @@ async def admitted(
                 raise primary from close_error
             if primary is not None:
                 raise builtins.BaseExceptionGroup(
-                    "Fixture media execution and shutdown failed", [primary, close_error]
+                    "Fixture media execution and shutdown failed",
+                    [primary, close_error],
                 ) from None
             raise

@@ -13,6 +13,12 @@ export function recordingPlan(
   grep: string;
 };
 
+export function marketingCaptureDriver(
+  platform: string,
+  requestedDriver?: string,
+  flows?: string[],
+): "screencapturekit" | "x11grab" | "gpu-screen-recorder";
+
 export function screenshotCatalogPath(runId: string, scope?: string): string;
 
 export function assertRecordingMode(profile: "docs" | "marketing", validateOnly?: boolean): void;

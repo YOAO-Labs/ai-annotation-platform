@@ -667,7 +667,6 @@ async def allocate_fixture_operator_item(
     admission_id,
     dataset_id,
     item_id,
-    publication_id,
     logical_path,
     file_type,
     payload_sha256,
@@ -680,7 +679,7 @@ async def allocate_fixture_operator_item(
     if (
         not all(
             isinstance(value, uuid.UUID)
-            for value in (run_id, admission_id, dataset_id, item_id, publication_id)
+            for value in (run_id, admission_id, dataset_id, item_id)
         )
         or file_type not in {"point_cloud", "image", "other"}
         or not isinstance(payload_sha256, str)
@@ -698,12 +697,7 @@ async def allocate_fixture_operator_item(
         origin="connector",
         max_bytes=max_bytes,
         requested_by=requested_by,
-        authority={
-            "kind": "operator_item",
-            "operation_id": None,
-            "item_id": str(item_id),
-            "publication_id": str(publication_id),
-        },
+        authority=None,
         staging=False,
         content_type=content_type,
         fixture=(run_id, admission_id, item_id, None),
@@ -1093,7 +1087,6 @@ async def _allocate(
         if fixture is not None:
             if fixture_operator_entry is not None:
                 from app.db.models.dataset import DatasetItem
-                from app.services.assets_operator import AssetsOperatorGateway
 
                 file_type, payload_sha256, entry_for_key = fixture_operator_entry
                 entry = entry_for_key(object_key)
@@ -1105,12 +1098,17 @@ async def _allocate(
                     or entry.content_hash is not None
                 ):
                     reject("fixture_original_item_changed")
-                await AssetsOperatorGateway(current).append_all_items(
-                    dataset_id, [entry]
+                item = DatasetItem(
+                    id=entry.id,
+                    dataset_id=dataset_id,
+                    file_name=entry.file_name,
+                    file_path=entry.file_path,
+                    file_type=entry.file_type,
+                    file_size=entry.file_size,
+                    width=entry.width,
+                    height=entry.height,
+                    metadata_=entry.metadata,
                 )
-                item = await current.get(DatasetItem, item_id)
-                if item is None or item.dataset_id != dataset_id:
-                    reject("fixture_original_item_missing")
                 item_fingerprint = ownership._pending_item_fingerprint(
                     item, payload_sha256
                 )
@@ -1129,6 +1127,12 @@ async def _allocate(
                 )
             )
             await current.flush()
+            if fixture_operator_entry is not None:
+                from app.services.assets_operator import AssetsOperatorGateway
+
+                await AssetsOperatorGateway(current).append_all_items(
+                    dataset_id, [entry]
+                )
         elif fixture_auxiliary is not None:
             from app.db.models.fixture_run import FixtureAuxiliaryIntent
 
@@ -1155,7 +1159,7 @@ async def _allocate(
                 )
             )
             await current.flush()
-        if fixture_operator_entry is not None or fixture_auxiliary is not None:
+        if fixture_auxiliary is not None:
             material = await current.scalar(
                 text(
                     "SELECT aap_assets_v1._managed_original_facts(creation) "

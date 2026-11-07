@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,7 @@ class BackfillImageResponse(BaseModel):
 )
 async def seed_backfill_image(
     payload: BackfillImageRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ) -> BackfillImageResponse:
     async def build(scope, admission_id):
@@ -91,4 +92,4 @@ async def seed_backfill_image(
         await db.commit()
         return BackfillImageResponse(item_id=item_id)
 
-    return await _run_owned_seed(db, payload, "backfill_image_seed", build)
+    return await _run_owned_seed(db, payload, "backfill_image_seed", build, request)

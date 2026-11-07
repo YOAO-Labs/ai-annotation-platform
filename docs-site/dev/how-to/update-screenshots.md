@@ -131,23 +131,16 @@ S3 连接器演示从现有 `MINIO_ENDPOINT`、`MINIO_DATASETS_BUCKET` 读取隔
 
 截图自动化使用工作树专属 `e2e` 数据库、存储和服务端口，不复用日常开发数据库或服务。
 
-### 1. 准备、迁移并填充专用库
+### 1. 准备专用环境与素材
 
 先按[多工作树环境](./worktree-environments)准备并验证隔离 `e2e` mode，包括独立的原片
-存储和受限读取凭据。下面通过 worktree 入口注入专属连接；不要把 owner DSN 覆盖给产品 API。
-仅更新非 ML 静态截图时可显式设置 `--backend-requirements none`，但仍需全部声明的真实媒体：
+存储和受限读取凭据。使用 worktree 入口注入专属连接；不要把 owner DSN 覆盖给产品 API。
+素材准备使用 `seed_assets.py --profile screenshots`；已有完整缓存时可追加 `--offline`。
+截图矩阵由启动器创建新的 run UUID、实际准入和对应的私有生产者，不预先手工运行截图 seed。
 
-```bash
-export SCREENSHOT_FIXTURE_RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-pnpm dev:worktree -- exec --mode e2e --with-worker -- sh -c \
-  'cd apps/api && PYTHONPATH=. .venv/bin/python scripts/seed.py \
-   --profile screenshots --run-id "$SCREENSHOT_FIXTURE_RUN_ID" \
-   --ml-backend-mode live --backend-requirements none'
-```
-
-完整 ML 场景去掉 `--backend-requirements none` 并准备所需真实服务。
-相同 run ID 可对账已经登记的完整资源；有未确认物理操作时保留 admission、原错误和收据，
-不得扫桶或删除真实作业来伪造清理通过。
+相同 run ID 只对账该运行已有的准确归属与收据；旧普通缓存缺少版本证据时不会被认领，
+应使用新的隔离运行。未确认物理操作会保留 admission、原错误和收据，不能扫桶或删除
+真实作业来伪造清理通过。
 
 由已验证私有截图 run 创建的新导出保留 15 分钟；普通导出仍保留 168 小时。
 LiDAR `native_json` 的 ZIP 即使没有媒体副本也使用独立创建与删除回执；夹具导出不共享缓存，
@@ -163,47 +156,36 @@ LiDAR `native_json` 的 ZIP 即使没有媒体副本也使用独立创建与删�
 同一个专属绝对路径。截图 seed 会在写入前拒绝开发默认分析文件。完整矩阵与非 ML 矩阵均检查
 四个真实面板的健康状态；测试结束后仅移除本次私有 DuckDB 文件及其日志，不删除共享分析数据。
 
-### 2. 启动专用 API、Worker 和 Web
+### 2. API、Worker 与 Web 的生命周期
 
-在三个窗口分别运行。API 与 Worker 必须连接同一个截图数据库和独立 Redis DB；
-不要让截图作业与日常开发 worker 竞争同一条队列。
+`exec --mode e2e --with-worker` 准备该工作树的隔离数据库、Redis 和普通 worker；
+Playwright 随后通过 `run-screenshot-native.mjs` 启动本次截图根的受监管 API、
+Media／Images 进程与独立 Web，不复用手工启动的 API。端口由 worktree 入口预留，
+不要用固定端口或共享 Redis DB 覆盖它们。
+
+全局 setup 核验本工作树及本 run 的准确 worker 名称，并通过私有 owner 启动真实 seed；
+浏览器不接收 owner DSN、控制文件选择器或存储管理凭据。全局 teardown 先让 owner
+排空实际 API，再进行本 run 的读者、执行和数据清理；只有取得实际进程及 authority
+关闭回执后才能销毁环境。清理失败会保留证据与资源，不因 Playwright 已退出就视为完成。
+
+需要单独检查 seed 与 API 时，从仓库根运行下列入口；它会输出实际 API 地址和 run ID，
+并保持服务直到 `Ctrl+C` 发起 owner 清理。此入口不是截图矩阵的预启动步骤：
 
 ```bash
-# 窗口 A：数据库必须与建库、迁移、seed 完全一致；Redis DB 15 只供截图自动化使用
-cd apps/api
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test \
-  REDIS_URL=redis://localhost:6379/15 \
-  E2E_SEED_ENABLED=true ENVIRONMENT=development \
-  uv run uvicorn app.main:app --host 127.0.0.1 --port 8010
-
-# 窗口 B：异步 AI 流程必须由连接同一截图数据库的专用 worker 执行
-cd apps/api
-DATABASE_URL=postgresql+asyncpg://user:pass@localhost:5432/annotation_screenshots_test \
-  REDIS_URL=redis://localhost:6379/15 \
-  E2E_SEED_ENABLED=true ENVIRONMENT=development \
-  uv run celery -A app.workers.celery_app worker -l info \
-    -Q ml,ml.cpu,gpu,default,media --concurrency=2 --hostname='screenshots@%h'
-
-# 窗口 C：Web 只代理到上面的专用 API
-cd apps/web
-API_PROXY_TARGET=http://127.0.0.1:8010 PORT=3001 pnpm dev --host 127.0.0.1
+pnpm dev:worktree -- exec --mode e2e --with-worker -- \
+  node apps/web/scripts/run-screenshot-native.mjs --seed -- \
+  --ml-backend-mode live --backend-requirements none
 ```
 
-`E2E_SEED_ENABLED` 仅对这个专用 API 进程临时开启。路由还会在数据库会话中
-验证 `_test` 后缀，不要将 API 命令的 `DATABASE_URL` 改为开发库。
-专用 Worker 故意不消费 `export` 队列；后台导出录制夹具会先从隔离的 Redis DB 15
-确认并移除 API 投递的导出消息，再对截图数据库直接执行 worker 主体；清理步骤也会
-排空该隔离队列，避免之后接入导出 Worker 时执行已删除作业的陈旧消息。
-营销录制启动器还会检查 `/health`：只有截图 API 能看见 `screenshots@…` worker，
-且看不见任何日常 worker 时才会开始录制。这个门禁可以在录制前发现数据库或 Redis
-隔离错误，避免项目预标注被错误 worker 取走后一直停留在“运行中”。
+完整 ML 场景去掉 `--backend-requirements none` 并准备所需真实服务。中断后若未取得准确
+排空证据，仍须保留原运行；不能改成裸 `uvicorn` 或直接调用带手工 admission 的 seed。
 
 ### 3. 运行截图矩阵
 
 ```bash
+# 从仓库根进入已验证的隔离执行会话；退出 shell 后由 worktree 入口收尾。
+pnpm dev:worktree -- exec --mode e2e --with-worker -- bash
 cd apps/web
-export PLAYWRIGHT_BASE_URL=http://127.0.0.1:3001
-export PLAYWRIGHT_API_BASE=http://127.0.0.1:8010
 
 pnpm screenshots                  # desktop-light 全量（最常用）
 pnpm screenshots:dark             # desktop-dark 变体
@@ -647,9 +629,10 @@ git commit -m "chore(screenshots): 更新视觉回归基线 — <变更原因>"
 ## 常见问题
 
 **Q: seed/catalog 报项目、任务或 backend 缺失**
-确认已启动 live backend 或截图协议 stub，然后使用同一个 `SCREENSHOT_FIXTURE_RUN_ID`
-重跑 `scripts/seed.py --profile screenshots --run-id "$SCREENSHOT_FIXTURE_RUN_ID"
---ml-backend-mode <live|stub>`。catalog 会指出具体逻辑键和缺失能力，不会退化为任意项目。
+确认本次隔离环境的 live backend 或截图协议 stub 满足 catalog 列出的能力。
+启动器会先运行私有 seed；不要绕过它手工拼接 run/admission。失败运行若仍有未结算工作，
+先保留并核对其 owner 回执；只有准确清理后才能开始新的运行。catalog 会指出具体逻辑键
+和缺失能力，不会退化为任意项目。
 
 **Q: locator 截图失败（元素找不到）**
 检查 `data-testid` 是否正确，或在 `prepare` 里等待具体业务 ready selector。

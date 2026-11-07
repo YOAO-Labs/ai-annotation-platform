@@ -1089,11 +1089,18 @@ async def _screenshot_output_receipt(db, run_id, dataset, item, key):
             "SELECT aap_assets_v1.fixture_screenshot_output_receipt("
             ":run, :dataset, :item, :key)"
         ),
-        {"run": run_id, "dataset": dataset.dataset_id, "item": item.item_id, "key": key},
+        {
+            "run": run_id,
+            "dataset": dataset.dataset_id,
+            "item": item.item_id,
+            "key": key,
+        },
     )
 
 
-async def _verify_screenshot_output(db, client, run_id, dataset, item, observed, proxy_origin):
+async def _verify_screenshot_output(
+    db, client, run_id, dataset, item, observed, proxy_origin
+):
     from app.services.assets_images import image_gateway
     from app.services.assets_media import media_gateway
     from yoao_assets_images.contract import ReadImageSourceRequest
@@ -1104,21 +1111,36 @@ async def _verify_screenshot_output(db, client, run_id, dataset, item, observed,
     )
     await db.commit()
     fields = {
-        "schema", "run_id", "dataset_id", "item_id", "key", "source_creation_id",
-        "source_sha256", "record_id", "evidence_kind", "sha256", "size_bytes",
-        "etag", "version_id",
+        "schema",
+        "run_id",
+        "dataset_id",
+        "item_id",
+        "key",
+        "source_creation_id",
+        "source_sha256",
+        "record_id",
+        "evidence_kind",
+        "sha256",
+        "size_bytes",
+        "etag",
+        "version_id",
     }
     if (
-        not isinstance(receipt, dict) or set(receipt) != fields
+        not isinstance(receipt, dict)
+        or set(receipt) != fields
         or receipt["schema"] != "aap-fixture-screenshot-output/v1"
         or receipt["run_id"] != str(run_id)
         or receipt["dataset_id"] != str(dataset.dataset_id)
         or receipt["item_id"] != str(item.item_id)
         or receipt["key"] != observed.thumbnail_path
-        or receipt["evidence_kind"] != ("native" if item.file_type == "image" else "legacy")
-        or type(receipt["size_bytes"]) is not int or receipt["size_bytes"] <= 0
-        or not isinstance(receipt["etag"], str) or not receipt["etag"]
-        or not isinstance(receipt["version_id"], str) or receipt["version_id"] in {"", "null"}
+        or receipt["evidence_kind"]
+        != ("native" if item.file_type == "image" else "legacy")
+        or type(receipt["size_bytes"]) is not int
+        or receipt["size_bytes"] <= 0
+        or not isinstance(receipt["etag"], str)
+        or not receipt["etag"]
+        or not isinstance(receipt["version_id"], str)
+        or receipt["version_id"] in {"", "null"}
         or not isinstance(receipt["sha256"], str)
         or re.fullmatch(r"[0-9a-f]{64}", receipt["sha256"]) is None
         or not isinstance(receipt["source_sha256"], str)
@@ -1130,12 +1152,16 @@ async def _verify_screenshot_output(db, client, run_id, dataset, item, observed,
             if str(uuid.UUID(receipt[field])) != receipt[field]:
                 raise ValueError
     except (TypeError, ValueError, AttributeError):
-        raise ScreenshotSeedReconcileError("screenshot output receipt is invalid") from None
+        raise ScreenshotSeedReconcileError(
+            "screenshot output receipt is invalid"
+        ) from None
 
     if item.file_type == "image":
         async with image_gateway() as owner:
             reference = await owner.source_reference(
-                ReadImageSourceRequest(actor_id=dataset.owner_id, dataset_item_id=item.item_id)
+                ReadImageSourceRequest(
+                    actor_id=dataset.owner_id, dataset_item_id=item.item_id
+                )
             )
         source = reference.source
         url = reference.thumbnail_url
@@ -1144,16 +1170,20 @@ async def _verify_screenshot_output(db, client, run_id, dataset, item, observed,
     else:
         async with media_gateway() as owner:
             reference = await owner.source_reference(
-                ReadSourceRequest(actor_id=dataset.owner_id, dataset_item_id=item.item_id)
+                ReadSourceRequest(
+                    actor_id=dataset.owner_id, dataset_item_id=item.item_id
+                )
             )
         source = reference.source
         url = reference.poster_url
         if source.dataset_item_id != item.item_id:
             raise ScreenshotSeedReconcileError("screenshot video source changed")
     if (
-        source.dataset_id != dataset.dataset_id or source.source_drifted
+        source.dataset_id != dataset.dataset_id
+        or source.source_drifted
         or source.source_generation != observed.source_generation
-        or source.thumbnail_path != receipt["key"] or not reference.original_url
+        or source.thumbnail_path != receipt["key"]
+        or not reference.original_url
         or (
             isinstance(source.content_hash, str)
             and re.fullmatch(r"[0-9a-fA-F]{64}", source.content_hash) is not None
@@ -1167,8 +1197,10 @@ async def _verify_screenshot_output(db, client, run_id, dataset, item, observed,
         valid_url = (
             parsed.scheme == expected.scheme == "http"
             and parsed.netloc == expected.netloc
-            and parsed.username is None and parsed.password is None
-            and parsed.path == f"/v1/fixture-native-output/{run_id}/{receipt['record_id']}"
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path
+            == f"/v1/fixture-native-output/{run_id}/{receipt['record_id']}"
             and not parsed.fragment
         )
     except (TypeError, ValueError, AttributeError):
@@ -1179,7 +1211,8 @@ async def _verify_screenshot_output(db, client, run_id, dataset, item, observed,
     size = 0
     async with client.stream("GET", url) as response:
         if (
-            response.status_code != 200 or response.headers.get("content-range") is not None
+            response.status_code != 200
+            or response.headers.get("content-range") is not None
             or response.headers.get("etag") != receipt["etag"]
             or response.headers.get("x-amz-version-id") != receipt["version_id"]
         ):
@@ -1304,7 +1337,7 @@ async def prepare_screenshot_seed_media(
                     ),
                 )
                 async with screenshot_producer_scope(
-                    db.bind, run_id, admission_id, dataset.dataset_id, item.item_id
+                    db, run_id, admission_id, dataset.dataset_id, item.item_id
                 ) as producer:
                     output, needs_dispatch = await derivatives.prepare(
                         db, item.item_id, authority, "metadata"
@@ -1361,7 +1394,11 @@ async def prepare_screenshot_seed_media(
                 output = await db.get(
                     VideoDerivativeOutput, output_id, populate_existing=True
                 )
-                if output is None or output.state in {"retiring", "deleted"} or output.error_code:
+                if (
+                    output is None
+                    or output.state in {"retiring", "deleted"}
+                    or output.error_code
+                ):
                     code = output.error_code if output is not None else "missing"
                     raise ScreenshotSeedReconcileError(
                         f"{display_id}: video metadata owner did not finish: {code}"
@@ -1458,9 +1495,12 @@ async def prepare_screenshot_seed_media(
                         if item.file_type == "image"
                         else video_sources[item.item_id]
                     )
-                    if await _screenshot_output_receipt(
-                        db, run_id, dataset, item, source.thumbnail_path
-                    ) is None:
+                    if (
+                        await _screenshot_output_receipt(
+                            db, run_id, dataset, item, source.thumbnail_path
+                        )
+                        is None
+                    ):
                         pending_receipt = True
 
         await db.commit()
@@ -1483,7 +1523,8 @@ async def prepare_screenshot_seed_media(
         await asyncio.sleep(2)
 
     reader = await db.scalar(
-        text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"), {"run": run_id}
+        text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"),
+        {"run": run_id},
     )
     await db.commit()
     if not isinstance(reader, dict) or reader.get("state") != "active":
@@ -1491,16 +1532,23 @@ async def prepare_screenshot_seed_media(
     try:
         origin = urlsplit(reader["proxy_origin"])
         valid_origin = (
-            origin.scheme == "http" and bool(origin.hostname) and origin.port is not None
-            and origin.username is None and origin.password is None
-            and not origin.path and not origin.query and not origin.fragment
+            origin.scheme == "http"
+            and bool(origin.hostname)
+            and origin.port is not None
+            and origin.username is None
+            and origin.password is None
+            and not origin.path
+            and not origin.query
+            and not origin.fragment
         )
     except (KeyError, TypeError, ValueError):
         valid_origin = False
     if not valid_origin:
         raise ScreenshotSeedReconcileError("screenshot output proxy is invalid")
     item_count = 0
-    async with httpx.AsyncClient(timeout=30, follow_redirects=False, trust_env=False) as client:
+    async with httpx.AsyncClient(
+        timeout=30, follow_redirects=False, trust_env=False
+    ) as client:
         for dataset in media_rows:
             for item in dataset.items:
                 source = (

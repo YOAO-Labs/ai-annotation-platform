@@ -54,6 +54,7 @@ BEGIN
             ('aap_jobs_v1.prepare_dispatch(jsonb)', 'jsonb', false, 'v'),
             ('aap_jobs_v1.prepare_media_delivery(jsonb)', 'jsonb', false, 'v'),
             ('aap_jobs_v1.fixture_media_backfill_route(uuid)', 'text', false, 'v'),
+            ('aap_jobs_v1.fixture_media_work_exists(text,text)', 'boolean', false, 's'),
             ('aap_jobs_v1.claim_dispatches(jsonb)', 'jsonb', false, 'v'),
             ('aap_jobs_v1.finish_dispatch(jsonb)', 'jsonb', false, 'v'),
             ('aap_jobs_v1.dispatch_status(uuid)', 'jsonb', false, 's')
@@ -94,6 +95,7 @@ REVOKE ALL ON FUNCTION
     aap_jobs_v1.prepare_dispatch(jsonb),
     aap_jobs_v1.prepare_media_delivery(jsonb),
     aap_jobs_v1.fixture_media_backfill_route(uuid),
+    aap_jobs_v1.fixture_media_work_exists(text,text),
     aap_jobs_v1.claim_dispatches(jsonb),
     aap_jobs_v1.finish_dispatch(jsonb),
     aap_jobs_v1.dispatch_status(uuid)
@@ -118,6 +120,7 @@ GRANT EXECUTE ON FUNCTION
     aap_jobs_v1.prepare_dispatch(jsonb),
     aap_jobs_v1.prepare_media_delivery(jsonb),
     aap_jobs_v1.fixture_media_backfill_route(uuid),
+    aap_jobs_v1.fixture_media_work_exists(text,text),
     aap_jobs_v1.finish_dispatch(jsonb),
     aap_jobs_v1.dispatch_status(uuid)
     TO :"api_role";
@@ -137,6 +140,7 @@ DECLARE
         'aap_jobs_v1.prepare_dispatch(jsonb)'::regprocedure::oid,
         'aap_jobs_v1.prepare_media_delivery(jsonb)'::regprocedure::oid,
         'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure::oid,
+        'aap_jobs_v1.fixture_media_work_exists(text,text)'::regprocedure::oid,
         'aap_jobs_v1.finish_dispatch(jsonb)'::regprocedure::oid,
         'aap_jobs_v1.dispatch_status(uuid)'::regprocedure::oid
     ];
@@ -166,7 +170,10 @@ BEGIN
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
         WHERE namespace.nspname='aap_jobs_v1'
           AND function.proname LIKE '%fixture_media%'
-          AND function.oid <> 'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure
+          AND function.oid NOT IN (
+              'aap_jobs_v1.fixture_media_backfill_route(uuid)'::regprocedure,
+              'aap_jobs_v1.fixture_media_work_exists(text,text)'::regprocedure
+          )
           AND pg_catalog.has_function_privilege(v_api,function.oid,'EXECUTE')
     ) THEN
         RAISE EXCEPTION 'API has private fixture media EXECUTE';

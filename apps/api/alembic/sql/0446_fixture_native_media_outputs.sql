@@ -101,7 +101,7 @@ BEGIN
            SELECT 1 FROM pg_catalog.jsonb_each(v_provider) AS item(key,value)
            WHERE pg_catalog.jsonb_typeof(item.value)<>'string' OR item.value #>> '{}'=''
        )
-       OR (p_birth::jsonb -> 'accounts' - ARRAY['writer','reader','cleanup']) <> '{}'::jsonb
+       OR ((p_birth::jsonb -> 'accounts') - ARRAY['writer','reader','cleanup']) <> '{}'::jsonb
        OR NOT (p_birth::jsonb -> 'accounts' ?& ARRAY['writer','reader','cleanup']) THEN
         RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='fixture_native_birth_receipt_invalid';
     END IF;
@@ -113,7 +113,7 @@ BEGIN
            OR COALESCE(v_account ->> 'identity_sha256','') !~ '^[0-9a-f]{64}$'
            OR COALESCE(v_account ->> 'policy_sha256','') !~ '^[0-9a-f]{64}$'
            OR v_account ->> 'policy_name' IS DISTINCT FROM
-              'fixture-media-' || CASE v_role WHEN 'writer' THEN 'w' WHEN 'reader' THEN 'r' ELSE 'c' END
+              'fixture-media-' || (CASE v_role WHEN 'writer' THEN 'w' WHEN 'reader' THEN 'r' ELSE 'c' END)
               || '-' || pg_catalog.replace(p_run::text,'-','') THEN
             RAISE EXCEPTION USING ERRCODE='23514', MESSAGE='fixture_native_birth_receipt_invalid';
         END IF;

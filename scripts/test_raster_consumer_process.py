@@ -373,6 +373,94 @@ sys.stdin.buffer.read(1)
                 child.terminate()
                 child.wait(timeout=2)
 
+    def test_interrupted_native_drain_retains_detached_descendant(self):
+        import fixture_native_playwright as supervisor
+        import raster_consumer_process as consumer
+        from app.services import fixture_native_runtime as runtime
+        from linux_pidfd import open_pidfd
+
+        libc = ctypes.CDLL(None, use_errno=True)
+        old = ctypes.c_int()
+        self.assertEqual(libc.prctl(37, ctypes.byref(old), 0, 0, 0), 0)
+        self.assertEqual(libc.prctl(36, 1, 0, 0, 0), 0)
+        self.addCleanup(libc.prctl, 36, old.value, 0, 0, 0)
+        descendant_code = """
+import os, signal, sys
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+print(os.getpid(), flush=True)
+os.read(int(sys.argv[1]), 1)
+"""
+        leader_code = """
+import signal, subprocess, sys
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+subprocess.Popen(
+    [sys.executable, "-c", sys.argv[1], sys.argv[2]],
+    pass_fds=(int(sys.argv[2]),),
+    start_new_session=True,
+)
+while True:
+    signal.pause()
+"""
+        for module, options in (
+            (runtime, {"descendants": True}),
+            (supervisor, {}),
+        ):
+            with self.subTest(owner=module.__name__):
+                release_read, release_write = os.pipe()
+                leader = subprocess.Popen(
+                    [
+                        sys.executable,
+                        "-c",
+                        leader_code,
+                        descendant_code,
+                        str(release_read),
+                    ],
+                    pass_fds=(release_read,),
+                    stdout=subprocess.PIPE,
+                    start_new_session=True,
+                )
+                descriptor = None
+                descendant_pid = None
+                try:
+                    descriptor = open_pidfd(leader.pid)
+                    self.assertTrue(select.select([leader.stdout], [], [], 5)[0])
+                    descendant_pid = int(leader.stdout.readline())
+                    with patch.object(
+                        consumer, "_drain_consumer", side_effect=InterruptedError
+                    ):
+                        with self.assertRaises(InterruptedError):
+                            module._drain(leader, descriptor, **options)
+                    self.assertEqual(os.waitpid(descendant_pid, os.WNOHANG), (0, 0))
+                    with self.assertRaisesRegex(
+                        ContractError, "raster_consumer_group_unsettled"
+                    ):
+                        module._drain(leader, descriptor, **options)
+                    self.assertEqual(os.waitpid(descendant_pid, os.WNOHANG), (0, 0))
+                    os.write(release_write, b"x")
+                    outcome = os.waitid(
+                        os.P_PID, descendant_pid, os.WEXITED | os.WNOWAIT
+                    )
+                    self.assertEqual(
+                        (outcome.si_code, outcome.si_status), (os.CLD_EXITED, 0)
+                    )
+                    module._drain(leader, descriptor, **options)
+                    self.assertEqual(leader.returncode, 0)
+                    with self.assertRaises(ChildProcessError):
+                        os.waitpid(descendant_pid, os.WNOHANG)
+                finally:
+                    os.close(release_write)
+                    os.close(release_read)
+                    self.stop(leader)
+                    if descendant_pid is not None:
+                        self.stop_adopted(descendant_pid)
+                    leader.stdout.close()
+                    for tracked_fd in (
+                        getattr(leader, "fixture_native_descendants", None) or {}
+                    ).values():
+                        os.close(tracked_fd)
+                    if descriptor is not None:
+                        os.close(descriptor)
+
     @staticmethod
     def stop(process):
         if process.poll() is None:

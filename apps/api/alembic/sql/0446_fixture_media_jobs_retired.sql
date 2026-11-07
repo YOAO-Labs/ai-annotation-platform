@@ -114,7 +114,7 @@ BEGIN
     END IF;
     SELECT * INTO v_principal FROM aap_jobs_v1.fixture_media_executor_principals WHERE run_id=p_run;
     IF NOT FOUND THEN RETURN NULL; END IF;
-    RETURN pg_catalog.jsonb_build_object('oid',v_principal.principal_oid,
+    RETURN pg_catalog.jsonb_build_object('oid',v_principal.principal_oid::bigint,
         'name',v_principal.principal_name,'state',v_principal.state);
 END;
 $function$;

@@ -26,6 +26,7 @@ from app.db.models.dataset import Dataset
 from app.db.models.fixture_run import FixtureRun, FixtureRunResource
 from tests.identity_e2e_support import fixture_routing_owner
 from tests.seed_owner_support import SeedOwner, private_seed_owner
+from tests.test_assets_media_live import _guard_role_url
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -105,8 +106,11 @@ def screenshot_seed_cache(tmp_path_factory):
         for asset_id in REQUIRED_SOURCE_IDS
     }
     ensure_screenshot_assets(source_files=source_files, cache_dir=cache)
-    shutil.copyfile(archive, cache / "v1.0-mini.tgz")
+    copied_archive = cache / "v1.0-mini.tgz"
+    shutil.copyfile(archive, copied_archive)
     ensure_nuscenes_mini(cache_dir=cache, offline=True)
+    # Later consumers use the validated, independently extracted inputs.
+    copied_archive.unlink()
     return cache
 
 
@@ -153,21 +157,38 @@ async def _seed_owned_run(
         raise RuntimeError("Screenshot native preparation failed")
     binding = json.loads(result["body"])
     if not isinstance(binding, dict) or set(binding) != {
-        "admission_id", "origin", "token", "control_dsn_file"
+        "admission_id",
+        "origin",
+        "token",
+        "control_dsn_file",
+        "original_read",
     }:
         raise RuntimeError("Screenshot native binding is invalid")
+    original = binding["original_read"]
+    if (
+        not isinstance(original, dict)
+        or set(original) != {"endpoint", "bucket", "access_key", "secret_key"}
+        or not all(isinstance(value, str) and value for value in original.values())
+    ):
+        raise RuntimeError("Screenshot original reader binding is invalid")
     try:
         admission = uuid.UUID(binding["admission_id"])
         origin = urlsplit(binding["origin"])
         valid_origin = (
-            origin.scheme == "http" and origin.hostname == "127.0.0.1"
-            and origin.port is not None and origin.username is None and origin.password is None
-            and not origin.path and not origin.query and not origin.fragment
+            origin.scheme == "http"
+            and origin.hostname == "127.0.0.1"
+            and origin.port is not None
+            and origin.username is None
+            and origin.password is None
+            and not origin.path
+            and not origin.query
+            and not origin.fragment
         )
     except (TypeError, ValueError, AttributeError):
         raise RuntimeError("Screenshot native binding is invalid") from None
     if (
-        str(admission) != binding["admission_id"] or not valid_origin
+        str(admission) != binding["admission_id"]
+        or not valid_origin
         or not isinstance(binding["token"], str)
         or not isinstance(binding["control_dsn_file"], str)
         or not Path(binding["control_dsn_file"]).is_absolute()
@@ -177,26 +198,54 @@ async def _seed_owned_run(
     environment = {
         key: value
         for key, value in os.environ.items()
-        if not key.upper().startswith((
-            "AWS_", "MC_HOST_", "AAP_PRIVATE_FIXTURE_", "AAP_ASSETS_ADDITIONAL_ORIGINAL_",
-            "ASSETS_MEDIA_S3_", "ASSETS_IMAGES_S3_", "AAP_SOURCE_FENCE_",
-        ))
-        and key.upper() not in {
-            "MINIO_ROOT_USER", "MINIO_ROOT_PASSWORD", "AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER",
+        if not key.upper().startswith(
+            (
+                "AWS_",
+                "MC_HOST_",
+                "AAP_PRIVATE_FIXTURE_",
+                "AAP_ASSETS_ADDITIONAL_ORIGINAL_",
+                "ASSETS_MEDIA_S3_",
+                "ASSETS_IMAGES_S3_",
+                "AAP_SOURCE_FENCE_",
+            )
+        )
+        and key.upper()
+        not in {
+            "MINIO_ROOT_USER",
+            "MINIO_ROOT_PASSWORD",
+            "AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER",
         }
     }
     environment.update(
-        MINIO_ACCESS_KEY="", MINIO_SECRET_KEY="", MIGRATION_DATABASE_URL="", TEST_DATABASE_URL="",
-        AWS_SHARED_CREDENTIALS_FILE="/dev/null", AWS_CONFIG_FILE="/dev/null",
+        MINIO_ACCESS_KEY="",
+        MINIO_SECRET_KEY="",
+        MIGRATION_DATABASE_URL="",
+        TEST_DATABASE_URL="",
+        AWS_SHARED_CREDENTIALS_FILE="/dev/null",
+        AWS_CONFIG_FILE="/dev/null",
         AWS_EC2_METADATA_DISABLED="true",
-        ASSETS_MEDIA_URL=binding["origin"], ASSETS_MEDIA_TOKEN=binding["token"],
+        ASSETS_MEDIA_URL=binding["origin"],
+        ASSETS_MEDIA_TOKEN=binding["token"],
         AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE=binding["control_dsn_file"],
+        AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT=original["endpoint"],
+        AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET=original["bucket"],
+        AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY=original["access_key"],
+        AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY=original["secret_key"],
     )
     process = await asyncio.create_subprocess_exec(
-        sys.executable, str(ROOT / "apps/api/scripts/seed.py"),
-        "--profile", "screenshots", "--run-id", str(run_id),
-        "--admission-id", str(admission), "--cache-dir", str(cache), "--offline",
-        cwd=ROOT / "apps/api", env=environment,
+        sys.executable,
+        str(ROOT / "apps/api/scripts/seed.py"),
+        "--profile",
+        "screenshots",
+        "--run-id",
+        str(run_id),
+        "--admission-id",
+        str(admission),
+        "--cache-dir",
+        str(cache),
+        "--offline",
+        cwd=ROOT / "apps/api",
+        env=environment,
     )
     status = await _settled(asyncio.create_task(process.wait()))
     if status != 0:
@@ -218,6 +267,23 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
     with monkeypatch.context() as routing_patch:
         routing_patch.setattr(settings, "duckdb_path", str(analytics))
         routing_patch.setenv("DUCKDB_PATH", str(analytics))
+        publication_url = (
+            _guard_role_url(
+                "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+                "jobs_publication_client",
+                test_engine,
+            )
+            .set(drivername="postgresql")
+            .render_as_string(hide_password=False)
+        )
+        routing_patch.setattr(
+            settings, "jobs_publication_database_url", publication_url
+        )
+        routing_patch.setattr(settings, "jobs_publication_database_url_file", "")
+        routing_patch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
+        routing_patch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
+        routing_patch.setattr(settings, "jobs_queue_url", "")
+        routing_patch.setenv("JOBS_QUEUE_URL", "")
         async with (
             fixture_routing_owner(test_engine, routing_patch),
             private_seed_owner() as owner,

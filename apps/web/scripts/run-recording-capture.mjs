@@ -3,7 +3,6 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
-import { cleanupScreenshotRun } from "../e2e/screenshots/fixture-run.mjs";
 import { withHeadlessDisplay } from "./headless-marketing-display.mjs";
 import {
   RECORDING_FLOWS,
@@ -107,7 +106,6 @@ const env = {
   ...process.env,
   SCREENSHOT_FIXTURE_RUN_ID: randomUUID(),
   SCREENSHOT_ASSET_OFFLINE: "1",
-  SCREENSHOT_DEFER_HEALTH: "1",
   SCREENSHOT_BACKEND_REQUIREMENTS: plan.backendRequirements,
   SCREENSHOT_RECORDING_FLOWS: plan.flows.join(","),
   SCREENSHOT_RECORDING_PROFILE: plan.profile,
@@ -170,12 +168,6 @@ try {
   }
 } catch (error) {
   failure = error;
-}
-try {
-  await cleanupScreenshotRun(env.SCREENSHOT_FIXTURE_RUN_ID, { allowMissing: true });
-} catch (error) {
-  if (failure) failure = new AggregateError([failure, error], "Capture and fixture cleanup failed");
-  else failure = error;
 } finally {
   process.removeListener("SIGINT", interrupt);
   process.removeListener("SIGTERM", terminate);

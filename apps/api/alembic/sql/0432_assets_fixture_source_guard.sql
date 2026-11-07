@@ -31,9 +31,11 @@ BEGIN
             WHERE resource.kind = 'dataset' AND resource.resource_id = v_match[2]::uuid
         ) AND NOT EXISTS (
             SELECT 1 FROM public.managed_original_creations AS creation
+            JOIN yoao_fixture_v1.fixture_run_resources AS resource
+              ON resource.kind = 'creation' AND resource.creation_id = creation.id
             WHERE creation.dataset_id::text = NEW.intent ->> 'dataset_id'
               AND creation.object_key = v_key
-              AND creation.authority ->> 'item_id' = v_entry ->> 'id'
+              AND resource.item_id::text = v_entry ->> 'id'
         ) THEN
             RAISE SQLSTATE 'P0002' USING DETAIL = 'source_changed';
         END IF;

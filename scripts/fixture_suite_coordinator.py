@@ -1194,7 +1194,9 @@ def finalize_store_destruction(owner, resources):
         os.close(descriptor)
 
 
-async def prepare_fixture_suite(suite_id: str, family: str, *, verify_only: bool = False):
+async def prepare_fixture_suite(
+    suite_id: str, family: str, *, verify_only: bool = False
+):
     """Register or verify an open suite against the enrolled dedicated store."""
     from app.core.crypto import decrypt_secret
     from app.db.models.dataset_asset import StorageLocation
@@ -1403,16 +1405,22 @@ async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
             == (current.st_dev, current.st_ino, current.st_nlink),
             "fixture_lock_changed",
         )
-        engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
+        engine = create_async_engine(
+            owner_url, poolclass=NullPool, hide_parameters=True
+        )
         try:
             async with engine.connect() as connection:
                 admitted = await connection.scalar(
                     text(
                         "SELECT EXISTS (SELECT 1 FROM yoao_fixture_v1.fixture_runs r "
-                        "JOIN yoao_fixture_v1.fixture_runs s ON s.id = r.parent_run_id "
+                        "LEFT JOIN yoao_fixture_v1.fixture_runs s ON s.id = r.parent_run_id "
                         "JOIN yoao_fixture_v1.fixture_run_admissions a ON a.run_id = r.id "
                         "WHERE r.id = :run AND a.id = :admission "
-                        "AND a.state = 'active' AND r.state = 'open' AND s.state = 'open')"
+                        "AND a.state = 'active' AND r.state = 'open' AND ("
+                        "(r.family = 'owned' AND s.family = 'owned' "
+                        "AND s.parent_run_id IS NULL AND s.state = 'open') OR "
+                        "(r.family = 'screenshot' AND r.parent_run_id IS NULL "
+                        "AND a.kind = 'screenshot_seed')))"
                     ),
                     {"run": run_id, "admission": admission_id},
                 )
@@ -1431,9 +1439,13 @@ async def prepare_native_run_target(run_id: uuid.UUID, admission_id: uuid.UUID):
         targets = owner.data.get("fixture_native_outputs", {})
         _refuse_unless(isinstance(targets, dict), "fixture_native_targets_invalid")
         if run_id.hex in targets:
-            target = await _settled_thread(verified_native_output, owner, identity, run_id)
+            target = await _settled_thread(
+                verified_native_output, owner, identity, run_id
+            )
         else:
-            target = await _settled_thread(provision_native_output, owner, identity, run_id)
+            target = await _settled_thread(
+                provision_native_output, owner, identity, run_id
+            )
         registration_started = True
         registered = await _settled(
             asyncio.create_task(register_native_target(run_id, owner, identity))
@@ -1467,8 +1479,10 @@ async def retire_native_run_target(run_id: uuid.UUID, control_url):
     try:
         info, current = os.fstat(descriptor), lock_path.lstat()
         _refuse_unless(
-            stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
-            and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+            stat.S_ISREG(info.st_mode)
+            and info.st_uid == os.geteuid()
+            and stat.S_IMODE(info.st_mode) == 0o600
+            and info.st_nlink == 1
             and (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino),
             "fixture_lock_invalid",
         )
@@ -1493,7 +1507,8 @@ async def retire_native_run_target(run_id: uuid.UUID, control_url):
             receipt = retirement["physical_receipt"]
             _refuse_unless(
                 isinstance(receipt, dict)
-                and receipt.get("schema") == "aap-fixture-native-target-physical-retirement/v1"
+                and receipt.get("schema")
+                == "aap-fixture-native-target-physical-retirement/v1"
                 and receipt.get("native_receipt") == proof
                 and receipt.get("bucket_absent") is True,
                 "fixture_native_physical_receipt_changed",
@@ -1504,7 +1519,9 @@ async def retire_native_run_target(run_id: uuid.UUID, control_url):
                 digest == retirement.get("physical_receipt_sha256"),
                 "fixture_native_physical_receipt_changed",
             )
-            engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
+            engine = create_async_engine(
+                owner_url, poolclass=NullPool, hide_parameters=True
+            )
             try:
                 async with engine.begin() as connection:
                     acknowledged = await connection.scalar(
@@ -1515,7 +1532,8 @@ async def retire_native_run_target(run_id: uuid.UUID, control_url):
                         {"receipt": serialized, "sha256": digest},
                     )
                     _refuse_unless(
-                        acknowledged is True, "fixture_native_database_retirement_unconfirmed"
+                        acknowledged is True,
+                        "fixture_native_database_retirement_unconfirmed",
                     )
             finally:
                 await engine.dispose()

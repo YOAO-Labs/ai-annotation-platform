@@ -164,7 +164,7 @@ BEGIN
         'id',p_id,'run_id',p_run,'dataset_id',v_write.dataset_id,'write_id',p_write,
         'endpoint',v_target.endpoint,'bucket',v_target.bucket,'storage_identity',v_target.storage_identity,
         'receipt_sha256',v_target.receipt_sha256,'key',v_write.object_key,
-        'database_oid',(SELECT database.oid FROM pg_catalog.pg_database AS database
+        'database_oid',(SELECT database.oid::bigint FROM pg_catalog.pg_database AS database
                         WHERE database.datname=pg_catalog.current_database()),
         'database_owner_marker',(SELECT pg_catalog.shobj_description(database.oid,'pg_database')
                                  FROM pg_catalog.pg_database AS database
@@ -242,7 +242,7 @@ BEGIN
     END IF;
     SELECT * INTO v_principal FROM aap_assets_v1.fixture_native_read_principals WHERE run_id=p_run;
     IF NOT FOUND THEN RETURN NULL; END IF;
-    RETURN pg_catalog.jsonb_build_object('oid',v_principal.principal_oid,
+    RETURN pg_catalog.jsonb_build_object('oid',v_principal.principal_oid::bigint,
         'name',v_principal.principal_name,'proxy_origin',v_principal.proxy_origin,
         'state',v_principal.state);
 END;

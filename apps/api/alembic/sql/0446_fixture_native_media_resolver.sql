@@ -188,7 +188,7 @@ BEGIN
     END IF;
     SELECT * INTO v_principal FROM aap_assets_v1.fixture_native_resolver_principals WHERE suite_id=p_suite;
     IF NOT FOUND THEN RETURN NULL; END IF;
-    RETURN pg_catalog.jsonb_build_object('oid',v_principal.principal_oid,
+    RETURN pg_catalog.jsonb_build_object('oid',v_principal.principal_oid::bigint,
         'name',v_principal.principal_name,'state',v_principal.state);
 END;
 $function$;

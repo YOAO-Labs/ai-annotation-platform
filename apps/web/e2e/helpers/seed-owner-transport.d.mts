@@ -20,6 +20,11 @@ export function prepareFixtureSuite(
   suiteId: string,
   family: "owned" | "screenshot" | "scale",
 ): Promise<{ suite_id: string; family: "owned" | "screenshot" | "scale" }>;
+export function prepareScreenshotNative(
+  runId: string,
+  apiPort: number,
+  operationId: string,
+): Promise<{ operationId: string; apiOrigin: string }>;
 export function runMaskSliceLifecycle(data: {
   action: "gc" | "drop_revision" | "expire_revision";
   task_id: string;
@@ -28,7 +33,7 @@ export function runMaskSliceLifecycle(data: {
 }): Promise<{ orphan_deleted?: boolean }>;
 export function postFixture(
   url: string,
-  options?: Parameters<APIRequestContext["post"]>[1],
+  options?: Parameters<APIRequestContext["post"]>[1] & { operationId?: string },
 ): Promise<SeedResponse>;
 
 export function getScreenshotCatalog(

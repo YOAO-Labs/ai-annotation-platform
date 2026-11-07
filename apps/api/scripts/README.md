@@ -147,18 +147,33 @@ RGB-D 扫描和 RapidOCR 示例图；派生素材会先完成许可门禁、摘�
 截图 profile 必须在已准备独立原片存储的 `test` 或 `e2e` worktree 运行，并为每次运行提供
 唯一 UUID。`DATABASE_URL` 是受限产品账号，`PLAYWRIGHT_E2E_DATABASE_URL` 只供隔离夹具
 进程验证并连接同一个测试库的 owner；不得把 owner 账号交给 API、浏览器或其他测试。
-真实服务就绪时使用 live 模式；使用 stub 时先启动专用截图协议 stub：
+真实截图 seed 由私有启动器分配准入、启动受监管 API，并把当前根的控制绑定交给新生产者
+进程；不要直接调用 `seed.py --profile screenshots` 或自行拼接 admission。
+从仓库根单独准备并检查真实截图 API：
 
 ```bash
-export SCREENSHOT_FIXTURE_RUN_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
-PYTHONPATH=. uv run python scripts/seed.py \
-  --profile screenshots --run-id "$SCREENSHOT_FIXTURE_RUN_ID" --ml-backend-mode live
-
-# 或在隔离 stub 就绪时使用 --ml-backend-mode stub。
+pnpm dev:worktree -- exec --mode e2e --with-worker -- \
+  node apps/web/scripts/run-screenshot-native.mjs --seed -- --ml-backend-mode live
 ```
+
+入口显示实际 API 地址与 run ID，并保持运行；`Ctrl+C` 通过原 owner 排空和清理。
+仅验证非 ML 素材时追加 `--backend-requirements none`。专用协议 stub 已就绪时可使用
+`--ml-backend-mode stub`，不能把远程 live 地址当作 stub。运行截图矩阵时不预先启动此命令；
+Playwright 自行准备准入、seed 与 API 生命周期，见[截图工作流](../../../docs-site/dev/how-to/update-screenshots.md)。
 
 相同 run ID 的重跑只核对和对账该运行已登记的项目、数据集和原片，不接管共享夹具；
 中断后存在未确认写入时保留 admission 和存储收据，先查明实际工作是否结束，不得扫桶清理。
+旧普通输出没有本 run 的准确版本收据时明确拒绝认领；Beta 数据使用新的隔离 run，不补造兼容凭据。
+nuScenes 的私有原件同样先在一个事务内登记真实条目、creation 和恢复指纹，再执行原件写入与校验；
+校验完成后才挂接来源。operator 回执按本 run 的 creation／item 归属核验，不使用普通导入的
+提前发布路径，也不因条目已存在就将尚未校验的原件标为可用。
+标定 JSON 的读取使用当前原生 owner 核验过的原件只读身份；启动器显式交接这组读取配置，
+不继承调用方的 S3 凭据，也不向 seed 进程提供桶管理身份。
+媒体 producer 作用域使用实际业务 Session；异常先完成该事务的回滚，再释放原连接上的准入锁。
+回滚、解锁或关闭失败会保留原错误及清理错误，未结算的准入与发布责任不会因连接退出而自动消失。
+媒体发布使用独立的、仅有函数权限的 Jobs 发布账号（`JOBS_PUBLICATION_DATABASE_URL` 或
+`JOBS_PUBLICATION_DATABASE_URL_FILE`），不能借用夹具 owner 或业务账号。投递沿用平台当前队列入口：
+配置 `JOBS_QUEUE_URL` 时使用该远程服务，否则使用实际 Celery；远程发布失败不回退到另一条通道。
 stub URL 必须由当前运行独占，或已登记为该运行所有；live 模式只读取现有健康事实。
 真实异步预测、重试、导出或视频追踪作业若没有对应的执行与物理退役凭据，将阻止根清理。
 未完成并发隔离验收的夹具族仍应串行执行。

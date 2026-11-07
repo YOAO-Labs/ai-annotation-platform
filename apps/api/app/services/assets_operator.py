@@ -1037,12 +1037,14 @@ class AssetsOperatorGateway:
     ):
         """Commit an actual operator item and its Creation before source I/O."""
         import hashlib
+        from io import BytesIO
         from types import SimpleNamespace
 
+        from app.db.models.dataset import DatasetItem
         from app.services import fixture_run_ownership as ownership
         from app.services.managed_original_creation import (
-            abandon_unstarted_fixture,
             allocate_fixture_operator_item,
+            create_stream,
         )
 
         await self._ensure_owner_catalog()
@@ -1056,7 +1058,6 @@ class AssetsOperatorGateway:
             admission_id=admission_id,
             dataset_id=dataset_id,
             item_id=item_id,
-            publication_id=uuid4(),
             logical_path=logical_path,
             file_type=file_type,
             payload_sha256=hashlib.sha256(data).hexdigest(),
@@ -1065,36 +1066,15 @@ class AssetsOperatorGateway:
             content_type=content_type,
             entry_for_key=entry_for_key,
         )
-        creation_id = UUID(material["creation_id"])
-        try:
-            operation = await self._open_operation(creation_id)
-        except BaseException as failure:
-            try:
-                await abandon_unstarted_fixture(
-                    self.db,
-                    run_id=run_id,
-                    admission_id=admission_id,
-                    creation_id=creation_id,
-                )
-            except BaseException as abandonment:
-                raise BaseExceptionGroup(
-                    "Fixture item admission and no-write abandonment failed",
-                    [failure, abandonment],
-                ) from None
-            raise
-        if operation.mode != "write":
-            raise ValueError("new fixture operator creation is not writable")
-        created = await self._write_material(material, operation, data, content_type)
-        await self.publish_item_original(
-            dataset_id=dataset_id,
-            item_id=item_id,
-            creation_id=creation_id,
-            expected_file_path=material["object_key"],
-            expected_file_size=len(data),
-            expected_content_hash=None,
+        created = await create_stream(
+            self.db, material, BytesIO(data), content_type=content_type
         )
+        item = await self.db.get(DatasetItem, item_id)
+        item.content_hash = created.sha256
+        await ownership.attach_original(self.db, item, material, created)
+        await self.db.commit()
         return SimpleNamespace(
-            object_key=material["object_key"], creation_id=creation_id
+            object_key=material["object_key"], creation_id=created.creation_id
         ), created
 
     async def publish_item_original(

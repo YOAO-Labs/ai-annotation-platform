@@ -16,7 +16,7 @@
  */
 import { defineConfig, devices } from "@playwright/test";
 import { randomUUID } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { MARKETING_PROJECT_NAME } from "./e2e/screenshots/_helpers/marketing-recorder";
 import { recordingPlan, marketingCaptureDriver } from "./e2e/screenshots/recording-plan.mjs";
@@ -43,6 +43,7 @@ const apiBase = `http://127.0.0.1:${apiPort}`;
 const BASE_URL = `http://127.0.0.1:${webPort}`;
 const configDir = dirname(fileURLToPath(import.meta.url));
 process.env.PLAYWRIGHT_API_BASE = apiBase;
+process.env.PLAYWRIGHT_ISOLATED_API_PORT = apiPort;
 process.env.PLAYWRIGHT_BASE_URL = BASE_URL;
 // One source archive identity must survive Playwright worker restarts.
 process.env.SCREENSHOT_RECORDING_RUN ??= `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
@@ -88,12 +89,13 @@ const config = defineConfig({
   snapshotPathTemplate: "{testDir}/regression/__screenshots__/{arg}{ext}",
   webServer: [
     {
-      command: `MIGRATION_DATABASE_URL= TEST_DATABASE_URL= PLAYWRIGHT_E2E_DATABASE_URL= SCREENSHOT_DATABASE_URL= uv run uvicorn app.main:app --host 127.0.0.1 --port ${apiPort}`,
-      cwd: resolve(configDir, "../api"),
+      command: "node scripts/run-screenshot-native.mjs",
+      cwd: configDir,
       env: { ENVIRONMENT: "development", E2E_SEED_ENABLED: "true" },
       url: `${apiBase}/health/db`,
       reuseExistingServer: false,
       timeout: 120_000,
+      gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     },
     {
       command: `env -i PATH="$PATH" HOME="$HOME" LANG="\${LANG:-C.UTF-8}" API_PROXY_TARGET=${apiBase} VITE_WS_HOST=127.0.0.1:${apiPort} PORT=${webPort} pnpm dev --host 127.0.0.1`,
@@ -108,7 +110,7 @@ const config = defineConfig({
     baseURL: BASE_URL,
     locale: "zh-CN",
     timezoneId: "Asia/Shanghai",
-    reducedMotion: "reduce",
+    contextOptions: { reducedMotion: "reduce" },
     trace: "retain-on-failure",
     video: { mode: "retain-on-failure", size: { width: 1280, height: 720 } },
     screenshot: "only-on-failure",

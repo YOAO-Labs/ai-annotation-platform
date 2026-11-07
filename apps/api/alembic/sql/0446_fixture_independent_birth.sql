@@ -33,7 +33,7 @@ BEGIN
        p_envelope ->> 'operation' IS DISTINCT FROM 'dispatch' OR
        p_envelope ->> 'execution_id' IS DISTINCT FROM p_delivery::text OR
        pg_catalog.jsonb_typeof(p_envelope -> 'options') IS DISTINCT FROM 'object' OR
-       (p_envelope -> 'options' - ARRAY['queue','soft_time_limit']) <> '{}'::jsonb OR
+       ((p_envelope -> 'options') - ARRAY['queue','soft_time_limit']) <> '{}'::jsonb OR
        p_envelope #>> '{options,queue}' IS DISTINCT FROM p_queue OR
        NOT aap_assets_v1.fixture_independent_source_matches(
            p_run,p_dataset,p_item,p_owner_kind,p_owner_id,p_producer_kind,p_source,p_envelope

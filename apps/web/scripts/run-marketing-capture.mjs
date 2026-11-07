@@ -110,41 +110,10 @@ async function preflight() {
         throw new Error("[marketing] GPU Screen Recorder 当前不支持 X11 窗口采集");
     }
   }
-  // Worktree Playwright starts its isolated API after this host-only preflight;
-  // its mandatory global setup checks the exact workers before seeding.
-  if (process.env.SCREENSHOT_DEFER_HEALTH === "1") {
-    if (
-      !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
-      !process.env.SCREENSHOT_FIXTURE_RUN_ID
-    ) {
-      throw new Error("[marketing] 延迟健康检查仅允许受监管的截图工作树运行。");
-    }
-    return;
-  }
-
-  const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
-  let health;
-  try {
-    const response = await fetch(new URL(isMac ? "/health/db" : "/health", apiBase));
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    health = await response.json();
-  } catch (error) {
-    throw new Error(`[marketing] 无法检查截图 API 健康状态：${error.message}`);
-  }
-  // Like portable manual capture, the explicitly non-ML Mac scope needs the
-  // isolated API/database but does not require an otherwise unused ML worker.
-  if (isMac) return;
-  const workers = health?.checks?.celery?.workers ?? [];
-  if (!workers.some((worker) => worker.name?.startsWith("screenshots@"))) {
-    throw new Error(
-      "[marketing] 截图 API 未发现 screenshots@ 专用 Celery worker；异步 AI 流程会落入错误数据库",
-    );
-  }
-  const sharedWorkers = workers.filter((worker) => !worker.name?.startsWith("screenshots@"));
-  if (sharedWorkers.length > 0) {
-    throw new Error(
-      `[marketing] 截图 API 与日常 worker 共用 Redis：${sharedWorkers.map((worker) => worker.name).join(", ")}`,
-    );
+  // The capture configuration starts its own API; global setup validates the
+  // exact worktree and per-run Native workers after startup.
+  if (!["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+    throw new Error("[marketing] 请通过已验证的截图工作树入口启动录制。");
   }
 }
 

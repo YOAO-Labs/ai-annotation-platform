@@ -159,7 +159,7 @@ BEGIN
        OR pg_catalog.jsonb_typeof(p_envelope->'args') IS DISTINCT FROM 'array'
        OR pg_catalog.jsonb_typeof(p_envelope->'kwargs') IS DISTINCT FROM 'object'
        OR pg_catalog.jsonb_typeof(p_envelope->'options') IS DISTINCT FROM 'object'
-       OR (p_envelope->'options' - ARRAY['queue','soft_time_limit']) <> '{}'::jsonb
+       OR ((p_envelope->'options') - ARRAY['queue','soft_time_limit']) <> '{}'::jsonb
        OR p_envelope->'options'->>'queue' IS DISTINCT FROM p_queue
        OR (p_envelope->'options' ? 'soft_time_limit' AND
            CASE WHEN pg_catalog.jsonb_typeof(p_envelope->'options'->'soft_time_limit') = 'number'
@@ -291,7 +291,7 @@ BEGIN
             v_owner_kind IS DISTINCT FROM 'dataset_item'
             OR v_envelope->'args' IS DISTINCT FROM pg_catalog.jsonb_build_array(v_owner::text)
             OR NOT (v_envelope->'kwargs' ? 'delegation')
-            OR (v_envelope->'kwargs' - 'delegation') <> '{}'::jsonb))
+            OR ((v_envelope->'kwargs') - 'delegation') <> '{}'::jsonb))
        OR (v_producer = 'video_derivatives' AND (
             pg_catalog.jsonb_array_length(v_envelope->'args') <> 1
             OR pg_catalog.jsonb_typeof(v_envelope->'args'->0) IS DISTINCT FROM 'array'
@@ -320,7 +320,7 @@ BEGIN
             RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'media_preparation_invalid';
         END IF;
     END IF;
-    v_binding := aap_assets_v1.media_producer_binding(v_owner_kind, v_owner, v_producer, v_source);
+    v_binding := aap_assets_v1.media_producer_binding(v_owner_kind, v_owner, v_producer, v_delivery, v_source);
     IF pg_catalog.jsonb_typeof(v_binding) IS DISTINCT FROM 'object'
        OR NOT (v_binding ?& ARRAY['schema','ownership','run_id','dataset_id','item_id'])
        OR (v_binding - ARRAY['schema','ownership','run_id','dataset_id','item_id']) <> '{}'::jsonb

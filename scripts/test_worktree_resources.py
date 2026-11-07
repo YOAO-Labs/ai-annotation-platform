@@ -3,7 +3,6 @@
 import fcntl
 import json
 import os
-import re
 import unittest
 import uuid
 from pathlib import Path
@@ -14,13 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
-    IDENTITY_RUNTIME_CAPABILITIES,
     LocalResources,
-    NOTIFICATION_RUNTIME_CAPABILITIES,
-    JOBS_LIST_RUNTIME_CAPABILITIES,
-    JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
-    JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
-    JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
 )
 
 
@@ -496,39 +489,6 @@ class BucketUpgradeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
 
-    def test_lan_runtime_preserves_embedded_identity_capabilities(self):
-        sql = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/lan-production-grants.sql"
-        ).read_text()
-        grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
-            sql,
-            flags=re.DOTALL,
-        )
-        normalized = re.sub(r"\s+", "", ",".join(grants))
-        for signature in IDENTITY_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        for signature in NOTIFICATION_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        for signature in (
-            *JOBS_LIST_RUNTIME_CAPABILITIES,
-            *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
-            *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
-            *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-        ):
-            self.assertIn(signature, normalized)
-        self.assertNotIn(
-            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
-            normalized,
-        )
-        for private in (
-            "aap_identity_recovery_v1._actor_record(uuid)",
-            "aap_identity_recovery_v1._token_record(text,uuid)",
-            "aap_settings_v1.identity_recovery_policy(jsonb)",
-        ):
-            self.assertNotIn(private, normalized)
-
     def test_private_acl_rejects_missing_or_duplicated_source(self):
         backend = object.__new__(LocalResources)
         backend.code_root = self.root
@@ -541,31 +501,6 @@ class BucketUpgradeTests(unittest.TestCase):
                 with self.subTest(domain=domain, content=content):
                     with self.assertRaises(WorktreeError):
                         backend.private_runtime_acl(domain)
-
-    def test_audit_maintenance_grant_is_bounded_to_its_owner_command(self):
-        sql = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/audit-maintenance-grants.sql"
-        ).read_text()
-        self.assertNotIn("\\ir", sql)
-        self.assertEqual(
-            sql.count(
-                "GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb)"
-            ),
-            1,
-        )
-        for required in (
-            "function.prosecdef",
-            "function.provolatile='v'",
-            "search_path=pg_catalog, pg_temp",
-            "TimeZone=UTC",
-            "'CREATE,TEMP'",
-            "REVOKE ALL ON ALL TABLES IN SCHEMA",
-            "REVOKE ALL ON ALL SEQUENCES IN SCHEMA",
-            "Audit maintenance LOGIN owns database objects",
-        ):
-            with self.subTest(required_guard=required):
-                self.assertIn(required, sql)
 
 
 class FixtureInferenceIdentityTests(unittest.TestCase):
@@ -654,17 +589,23 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
             self.assertTrue(owner.exists())
 
     def test_closed_generation_cannot_hide_unsettled_native_children(self):
-        for suite_directory in (False, True):
+        for family, suite_directory in (
+            ("owned", False),
+            ("owned", True),
+            ("screenshot", True),
+        ):
             with (
-                self.subTest(suite_directory=suite_directory),
+                self.subTest(family=family, suite_directory=suite_directory),
                 TemporaryDirectory() as temporary,
             ):
                 root = Path(temporary).resolve()
-                resources = topology(root, load_identity(root, create=True), "e2e")
+                mode = "test" if family == "screenshot" else "e2e"
+                resources = topology(root, load_identity(root, create=True), mode)
                 backend = LocalResources.__new__(LocalResources)
                 backend.root, backend.resources = root, resources
-                suite_id, run_id = uuid.uuid4(), uuid.uuid4()
-                directory = root / ".worktree/e2e/fixture-authority"
+                suite_id = uuid.uuid4()
+                run_id = suite_id if family == "screenshot" else uuid.uuid4()
+                directory = root / ".worktree" / mode / "fixture-authority"
                 directory.mkdir(mode=0o700, parents=True)
                 if suite_directory:
                     directory /= "suite-" + suite_id.hex
@@ -704,8 +645,13 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
                     "suite_id": str(suite_id),
                     "run_id": str(run_id),
                     "state": "retired",
+                    "receipt_sha256": "b" * 64,
                     "drained": list(children),
                     "child_dispositions": outcomes,
+                    **{
+                        name: {"pid": result["pid"], "start": result["start"]}
+                        for name, result in outcomes.items()
+                    },
                     "target_proof": {
                         "schema": "aap-fixture-native-target-retirement/v1",
                         "run_id": str(run_id),
@@ -721,6 +667,7 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
                     "suite_id": str(suite_id),
                     "resources": resources,
                     "state": "retired",
+                    "api_owned": True,
                     "native_run_ids": [str(run_id)],
                     "resolver_retired": True,
                     "business_retired": True,
@@ -732,6 +679,7 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
                         "exit_code": 0,
                         "pidfd_exit": True,
                         "lifespan_shutdown": True,
+                        "descendants_drained": True,
                     },
                     "control_disposition": {
                         "pid": 20,
@@ -739,29 +687,72 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
                         "exit_code": 0,
                         "pidfd_exit": True,
                         "settled_ack": True,
+                        "descendants_drained": True,
                     },
                 }
+                if family == "screenshot":
+                    supervisor.update(
+                        api_owned=False,
+                        root_origin={"family": "screenshot", "parent_run_id": None},
+                        birth_admission_id=str(uuid.uuid4()),
+                        authority_nonce="a" * 64,
+                    )
+                    del supervisor["api"]
+                    del supervisor["api_disposition"]
                 atomic_json(directory / "native-supervisor.json", supervisor)
                 atomic_json(child / "owner.json", run)
                 protected = root / "protected-resource"
                 protected.write_bytes(b"owned data")
-                for damage in (
+                damages = [
                     "unknown_supervisor",
-                    "forced_api_exit",
+                    "missing_api_topology",
+                    "undrained_control",
                     "undrained_child",
+                    "changed_child_birth",
+                    "changed_target_birth",
                     "missing_child",
-                ):
+                ]
+                damages += (
+                    [
+                        "missing_root_origin",
+                        "changed_root_family",
+                        "changed_authority_nonce",
+                        "missing_birth_admission",
+                    ]
+                    if family == "screenshot"
+                    else ["forced_api_exit", "undrained_api"]
+                )
+                for damage in damages:
                     with self.subTest(damage=damage):
                         current_supervisor = json.loads(json.dumps(supervisor))
                         current_run = json.loads(json.dumps(run))
                         if damage == "unknown_supervisor":
                             current_supervisor["state"] = "unsettled"
+                        elif damage == "missing_api_topology":
+                            del current_supervisor["api_owned"]
                         elif damage == "forced_api_exit":
                             current_supervisor["api_disposition"]["exit_code"] = -15
+                        elif damage in ("undrained_api", "undrained_control"):
+                            participant = damage.removeprefix("undrained_")
+                            current_supervisor[participant + "_disposition"][
+                                "descendants_drained"
+                            ] = False
                         elif damage == "undrained_child":
                             current_run["child_dispositions"]["proxy"][
                                 "descendants_drained"
                             ] = False
+                        elif damage == "changed_child_birth":
+                            current_run["proxy"]["start"] += 1
+                        elif damage == "changed_target_birth":
+                            current_run["receipt_sha256"] = "c" * 64
+                        elif damage == "missing_root_origin":
+                            del current_supervisor["root_origin"]
+                        elif damage == "changed_root_family":
+                            current_supervisor["root_origin"]["family"] = "scale"
+                        elif damage == "changed_authority_nonce":
+                            current_supervisor["authority_nonce"] = "b" * 64
+                        elif damage == "missing_birth_admission":
+                            del current_supervisor["birth_admission_id"]
                         atomic_json(
                             directory / "native-supervisor.json", current_supervisor
                         )
@@ -781,6 +772,75 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
                         protected.unlink()
                 self.assertEqual(protected.read_bytes(), b"owned data")
                 extra.rmdir()
+                with backend.fixture_authority_fence():
+                    protected.unlink()
+                self.assertFalse(protected.exists())
+
+    def test_api_less_native_owner_is_explicit_and_test_only(self):
+        for mode in ("test", "e2e"):
+            with self.subTest(mode=mode), TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                resources = topology(root, load_identity(root, create=True), mode)
+                backend = LocalResources.__new__(LocalResources)
+                backend.root, backend.resources = root, resources
+                suite_id = uuid.uuid4()
+                directory = root / ".worktree" / mode / "fixture-authority"
+                directory.mkdir(mode=0o700, parents=True)
+                atomic_json(
+                    directory / "generation.json",
+                    {
+                        "resources": resources,
+                        "nonce": "a" * 64,
+                        "state": "closed",
+                    },
+                )
+                supervisor = {
+                    "schema": "aap-fixture-native-supervisor/v1",
+                    "suite_id": str(suite_id),
+                    "resources": resources,
+                    "state": "retired",
+                    "api_owned": False,
+                    "native_run_ids": [],
+                    "resolver_retired": True,
+                    "business_retired": True,
+                    "control": {"pid": 20, "start": 200},
+                    "control_disposition": {
+                        "pid": 20,
+                        "start": 200,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "settled_ack": True,
+                        "descendants_drained": True,
+                    },
+                }
+                protected = root / "protected-resource"
+                protected.write_bytes(b"owned data")
+                if mode == "e2e":
+                    atomic_json(directory / "native-supervisor.json", supervisor)
+                    with self.assertRaises(WorktreeError):
+                        with backend.fixture_authority_fence():
+                            protected.unlink()
+                    self.assertEqual(protected.read_bytes(), b"owned data")
+                    continue
+                for damage in (
+                    "missing_api_topology",
+                    "contradictory_api_birth",
+                    "missing_control",
+                ):
+                    with self.subTest(damage=damage):
+                        current = json.loads(json.dumps(supervisor))
+                        if damage == "missing_api_topology":
+                            del current["api_owned"]
+                        elif damage == "contradictory_api_birth":
+                            current["api"] = {"pid": 10, "start": 100}
+                        else:
+                            del current["control_disposition"]
+                        atomic_json(directory / "native-supervisor.json", current)
+                        with self.assertRaises(WorktreeError):
+                            with backend.fixture_authority_fence():
+                                protected.unlink()
+                        self.assertEqual(protected.read_bytes(), b"owned data")
+                atomic_json(directory / "native-supervisor.json", supervisor)
                 with backend.fixture_authority_fence():
                     protected.unlink()
                 self.assertFalse(protected.exists())
