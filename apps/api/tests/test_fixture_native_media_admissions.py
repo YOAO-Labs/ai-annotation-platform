@@ -145,7 +145,7 @@ async def test_native_video_receipt_rejects_stale_and_neighbor_evidence(
         "INSERT INTO public.dataset_items (id,dataset_id,file_name,file_path,file_type,"
         "file_size,content_hash,thumbnail_path,metadata,media_materialized_generation) "
         "VALUES (:item,:dataset,'movie.mp4','original','video',12,:sha,:key,"
-        "jsonb_build_object('video',jsonb_build_object('poster_frame_path',:key)),1)"
+        "jsonb_build_object('video',jsonb_build_object('poster_frame_path',CAST(:key AS text))),1)"
     )
     await execute(
         "INSERT INTO yoao_fixture_v1.fixture_run_admissions (id,run_id,kind) "
