@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   closeSync,
@@ -113,7 +113,7 @@ export async function prepareScreenshotCapture(runId, apiPort) {
   await prepareScreenshotNative(runId, apiPort, record.operation_id);
 }
 
-export async function seedScreenshotCapture(runId, apiOrigin, arguments_) {
+export async function seedScreenshotCapture(runId, apiOrigin, arguments_, signal) {
   const record = privateRecord(
     path.join(
       path.dirname(captureDirectory(runId)),
@@ -129,9 +129,12 @@ export async function seedScreenshotCapture(runId, apiOrigin, arguments_) {
     throw new Error("Screenshot capture preparation identity changed");
   }
   const deadline = performance.now() + 120_000;
+  if (signal?.aborted) return;
   let response = await recoverFixtureOperation(record.operation_id);
   while (response.state === "pending" && performance.now() < deadline) {
+    if (signal?.aborted) return;
     await delay(100);
+    if (signal?.aborted) return;
     response = await recoverFixtureOperation(record.operation_id);
   }
   if (
@@ -171,6 +174,7 @@ export async function seedScreenshotCapture(runId, apiOrigin, arguments_) {
     throw new Error("Screenshot capture seed binding changed");
   }
   await acknowledgeFixtureOperation(record.operation_id);
+  if (signal?.aborted) return;
   const environment = Object.fromEntries(
     Object.entries(process.env).filter(
       ([key]) =>
@@ -202,7 +206,7 @@ export async function seedScreenshotCapture(runId, apiOrigin, arguments_) {
     PYTHONPATH: ".",
   });
   const apiRoot = fileURLToPath(new URL("../../../api/", import.meta.url));
-  const result = spawnSync(
+  const child = spawn(
     path.join(apiRoot, ".venv/bin/python"),
     [
       "scripts/seed.py",
@@ -216,9 +220,26 @@ export async function seedScreenshotCapture(runId, apiOrigin, arguments_) {
     ],
     { cwd: apiRoot, env: environment, stdio: "inherit" },
   );
-  if (result.error) throw result.error;
-  if (result.status !== 0) {
-    throw new Error(`Screenshot seed failed: ${result.signal ?? result.status}`);
+  const failures = [];
+  const forwardSignal = () => {
+    try {
+      child.kill(signal.reason);
+    } catch (error) {
+      failures.push(error);
+    }
+  };
+  signal?.addEventListener("abort", forwardSignal, { once: true });
+  const result = await new Promise((resolve) => {
+    child.on("error", (error) => failures.push(error));
+    child.once("close", (code, exitSignal) => resolve({ code, signal: exitSignal }));
+  });
+  signal?.removeEventListener("abort", forwardSignal);
+  if (result.code !== 0 && (result.code !== null || result.signal || !failures.length)) {
+    failures.push(new Error(`Screenshot seed failed: ${result.signal ?? result.code}`));
+  }
+  if (failures.length === 1) throw failures[0];
+  if (failures.length > 1) {
+    throw new AggregateError(failures, "Screenshot seed process failed");
   }
 }
 

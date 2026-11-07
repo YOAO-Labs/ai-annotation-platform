@@ -44,25 +44,42 @@ const stopping = new Promise((resolve) => {
   stop = resolve;
 });
 let interrupted = false;
-const interrupt = () => {
+const seedCancellation = new AbortController();
+const healthCancellation = new AbortController();
+const interrupt = (signal) => {
+  if (interrupted) return;
   interrupted = true;
+  seedCancellation.abort(signal);
+  healthCancellation.abort();
   stop();
 };
-process.on("SIGINT", interrupt);
-process.on("SIGTERM", interrupt);
+const interruptInt = () => interrupt("SIGINT");
+const interruptTerm = () => interrupt("SIGTERM");
+process.on("SIGINT", interruptInt);
+process.on("SIGTERM", interruptTerm);
 // Signal listeners alone do not keep Node alive after the owner client closes.
 const keepAlive = setInterval(() => {}, 2_147_483_647);
 const failures = [];
 try {
   await prepareScreenshotCapture(runId, Number(port));
   if (standalone && !interrupted) {
-    await seedScreenshotCapture(runId, apiOrigin, seedArgs);
-    const response = await fetch(`${apiOrigin}/health/db`, { signal: AbortSignal.timeout(15_000) });
-    if (!response.ok) throw new Error(`Screenshot API health failed: ${response.status}`);
+    await seedScreenshotCapture(runId, apiOrigin, seedArgs, seedCancellation.signal);
+    if (!interrupted) {
+      try {
+        const response = await fetch(`${apiOrigin}/health/db`, {
+          signal: AbortSignal.any([healthCancellation.signal, AbortSignal.timeout(15_000)]),
+        });
+        if (!response.ok) throw new Error(`Screenshot API health failed: ${response.status}`);
+      } catch (failure) {
+        if (!interrupted || failure.name !== "AbortError") throw failure;
+      }
+    }
   }
   await closeFixtureTransport();
-  console.log(`Owned screenshot API: ${apiOrigin}; run: ${runId}`);
-  await stopping;
+  if (!interrupted) {
+    console.log(`Owned screenshot API: ${apiOrigin}; run: ${runId}`);
+    await stopping;
+  }
 } catch (failure) {
   failures.push(failure);
 }
@@ -75,8 +92,8 @@ try {
   failures.push(failure);
 } finally {
   clearInterval(keepAlive);
-  process.removeListener("SIGINT", interrupt);
-  process.removeListener("SIGTERM", interrupt);
+  process.removeListener("SIGINT", interruptInt);
+  process.removeListener("SIGTERM", interruptTerm);
   try {
     await closeFixtureTransport();
   } catch (failure) {
