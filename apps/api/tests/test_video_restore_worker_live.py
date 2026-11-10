@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import AsyncExitStack
 from hashlib import sha256
 import asyncio
 import json
@@ -28,6 +29,7 @@ from yoao_inference.routing_backend_control import BackendRoutingControl
 from yoao_inference.routing_runtime import RoutingRuntime
 from yoao_inference_contract.routing import make_routing_command
 from app.services.ml_backend import MLBackendService
+from tests.inference_health_observation_helpers import observation_dsn, select_binding
 from tests.test_assets_media_live import _free_loopback_port, _stop_process
 from tests.test_identity_recovery import _postgres_tool
 from tests.test_inference_backend_dependency_reads_restore import (
@@ -415,6 +417,20 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
             created,
         )
         await _grant_worker_consumers(source_engine, monkeypatch)
+        _run_psql_file(
+            source_engine,
+            source_database,
+            ROOT / "infra/docker/inference-health-observation-grants.sql",
+            {
+                "expected_database": source_database,
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_health_observation_role": "inference_health_observation_client",
+            },
+        )
+        observation_url = make_url(observation_dsn(test_engine.url)).set(
+            drivername="postgresql+asyncpg", database=source_database
+        )
 
         # Validate the verifier's bucket and PostgreSQL ownership against its
         # original database, then permit the existing Media helper to bind
@@ -519,15 +535,26 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                 weights_sha256=artifact_digest,
             ) as backend:
                 listener = None
-                async with source_media.sessions.begin() as health_db:
-                    health_service = MLBackendService(health_db)
-                    assert await health_service.check_health(registry_id)
-                    selected = (
-                        await health_service.get_tracker_backend_for_capabilities(
-                            project_id, ["sam2_video"]
-                        )
+                with monkeypatch.context() as health_patch:
+                    health_patch.setenv(
+                        "TEST_DATABASE_URL",
+                        source_engine.url.render_as_string(hide_password=False),
                     )
-                    assert selected is not None and selected.id == registry_id
+                    health_patch.setenv(
+                        "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL",
+                        observation_url.render_as_string(hide_password=False),
+                    )
+                    async with AsyncExitStack() as health_stack:
+                        await select_binding(health_stack, health_patch, source_engine)
+                        async with source_media.sessions.begin() as health_db:
+                            health_service = MLBackendService(health_db)
+                            assert await health_service.check_health(registry_id)
+                            selected = (
+                                await health_service.get_tracker_backend_for_capabilities(
+                                    project_id, ["sam2_video"]
+                                )
+                            )
+                            assert selected is not None and selected.id == registry_id
 
                 source_input_client, input_request, ready = await _prepared(
                     source_media, tmp_path, actor_id, task_id, job_id

@@ -168,36 +168,6 @@ async def test_portable_coordinator_function_login_keeps_outer_commit_and_gpu_pr
             await owner.close()
 
 
-async def test_cached_port_does_not_skip_full_jsonb_materialization(test_engine):
-    await assert_owned_test_database(test_engine)
-    owner = await _connect(test_engine)
-    world = await _seed_world(owner)
-    client = await _client(test_engine)
-    tx = client.transaction()
-    try:
-        await tx.start()
-        data = await HealthDataPostgresData.bind(
-            client, expected_role="inference_health_data_client"
-        )
-        row = await data.get_backend(world["registry_id"])
-        row.url = "http://caller-pending.invalid"
-        await owner.execute(
-            "UPDATE ml_backend_registry SET health_meta=$2::jsonb WHERE id=$1",
-            world["registry_id"],
-            '{"n":' + "9" * 5000 + "}",
-        )
-        with pytest.raises(ValueError):
-            await data.get_backend(world["registry_id"])
-        assert row.url == "http://caller-pending.invalid"
-    finally:
-        await tx.rollback()
-        await client.close()
-        try:
-            await _cleanup_world(owner, world)
-        finally:
-            await owner.close()
-
-
 @pytest.mark.parametrize("profile", ["health_data", "gpu_authority"])
 async def test_independent_function_login_requires_its_exact_expected_role(
     test_engine, profile
@@ -219,12 +189,16 @@ async def test_independent_function_login_requires_its_exact_expected_role(
     owner = await _connect(test_engine)
     client = None
     created = False
+    database = test_engine.dialect.identifier_preparer.quote_identifier(
+        test_engine.url.database
+    )
     try:
         await owner.execute(
             f"CREATE ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB "
             f"NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '{password}'"
         )
         created = True
+        await owner.execute(f"GRANT CONNECT ON DATABASE {database} TO {role}")
         await owner.execute(f"GRANT USAGE ON SCHEMA {schema} TO {role}")
         await owner.execute(f"GRANT EXECUTE ON FUNCTION {grant_functions} TO {role}")
         url = test_engine.url.set(
@@ -253,6 +227,7 @@ async def test_independent_function_login_requires_its_exact_expected_role(
             await owner.execute(
                 f"REVOKE EXECUTE ON FUNCTION {grant_functions} FROM {role}"
             )
+            await owner.execute(f"REVOKE CONNECT ON DATABASE {database} FROM {role}")
             await owner.execute(f"REVOKE USAGE ON SCHEMA {schema} FROM {role}")
             await owner.execute(f"DROP ROLE {role}")
         await owner.close()

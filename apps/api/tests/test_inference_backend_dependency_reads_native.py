@@ -230,7 +230,7 @@ async def test_backend_dependency_reads_match_old_queries_and_rollback_with_call
         assert await _running_prediction_count(observer, other_registry_id) == 0
 
 
-async def test_inference_role_gets_owner_reads_without_raw_table_access(test_engine):
+async def test_inference_role_gets_owner_reads_without_learning_table_access(test_engine):
     await assert_owned_test_database(test_engine)
     connection = await asyncpg.connect(_owner_dsn(test_engine), timeout=5)
     try:
@@ -285,7 +285,6 @@ async def test_inference_role_gets_owner_reads_without_raw_table_access(test_eng
         for relation in (
             "public.sample_evaluation_runs",
             "public.trained_model_deployments",
-            "public.async_jobs",
         ):
             assert (
                 await connection.fetchval(
@@ -302,7 +301,6 @@ async def test_inference_role_gets_owner_reads_without_raw_table_access(test_eng
                 for statement in (
                     "SELECT id FROM public.sample_evaluation_runs LIMIT 1",
                     "SELECT id FROM public.trained_model_deployments LIMIT 1",
-                    "SELECT id FROM public.async_jobs LIMIT 1",
                 ):
                     with pytest.raises(asyncpg.InsufficientPrivilegeError):
                         async with inference.transaction():

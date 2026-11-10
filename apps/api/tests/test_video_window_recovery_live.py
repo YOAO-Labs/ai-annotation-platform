@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from hashlib import sha256
 import asyncio
 import json
@@ -33,6 +33,7 @@ from app.config import settings
 from app.services.ml_backend import MLBackendService
 from app.services.video_tracking.execution import TrackerExecutionDeferred
 from app.services.video_tracking.runner import run_tracker_job
+from tests.inference_health_observation_helpers import select_binding
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_assets_media_live import (
     _free_loopback_port,
@@ -668,15 +669,18 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 weights_sha256=artifact_digest,
             ) as backend:
                 listener = None
-                async with media.sessions.begin() as health_db:
-                    health_service = MLBackendService(health_db)
-                    assert await health_service.check_health(registry_id)
-                    resolved = (
-                        await health_service.get_tracker_backend_for_capabilities(
-                            project_id, ["sam2_video"]
-                        )
-                    )
-                    assert resolved is not None and resolved.id == registry_id
+                with monkeypatch.context() as health_patch:
+                    async with AsyncExitStack() as health_stack:
+                        await select_binding(health_stack, health_patch, test_engine)
+                        async with media.sessions.begin() as health_db:
+                            health_service = MLBackendService(health_db)
+                            assert await health_service.check_health(registry_id)
+                            resolved = (
+                                await health_service.get_tracker_backend_for_capabilities(
+                                    project_id, ["sam2_video"]
+                                )
+                            )
+                            assert resolved is not None and resolved.id == registry_id
 
                 input_client, input_request, ready = await _prepared(
                     media, tmp_path, actor_id, task_id, job_id
