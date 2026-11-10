@@ -591,7 +591,8 @@ class FixtureInferenceServices:
         while time.monotonic() < deadline and self.is_alive():
             try:
                 with opener.open(
-                    f"http://127.0.0.1:{values['port']}/health", timeout=1
+                    f"http://127.0.0.1:{values['port']}/health",
+                    timeout=max(0.001, deadline - time.monotonic()),
                 ) as response:
                     if (
                         response.status == 200
