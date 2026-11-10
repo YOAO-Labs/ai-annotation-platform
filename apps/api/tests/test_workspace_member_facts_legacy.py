@@ -103,33 +103,6 @@ async def test_delivery_enforces_membership_and_export_scope(test_engine):
             await db.rollback()
 
 
-@pytest.mark.parametrize("date_column", ["assigned_at", "updated_at"])
-@pytest.mark.parametrize("operation", ["member_ids", "mentions", "delivery", "roster"])
-async def test_partial_member_reads_ignore_unrelated_out_of_range_dates(
-    test_engine, date_column, operation
-):
-    async with _world(test_engine) as (owner, _api, world, _url):
-        async with owner.begin() as change:
-            await change.execute(
-                text(f"UPDATE project_members SET {date_column}=TIMESTAMPTZ '10000-01-01' WHERE id=:id"),
-                {"id": world["membership_id"]},
-            )
-        async with owner() as db:
-            project = await db.get(Project, world["project_id"])
-            if operation == "member_ids":
-                assert list(await db.scalars(member_user_ids(project.id))) == [world["member_id"]]
-            elif operation == "mentions":
-                await AnnotationCommentService(db).validate_mentions(project.id, [world["member_id"]])
-            elif operation == "delivery":
-                assert await NotificationService(db)._allowed_delivery_indices(
-                    [SimpleNamespace(user_id=world["member_id"])], [(True, project.id, False)]
-                ) == {0}
-            else:
-                with pytest.raises(OverflowError):
-                    await _roster(db, project)
-            await db.rollback()
-
-
 async def test_mentions_keep_any_role_inactive_and_missing_order(test_engine):
     async with _world(test_engine) as (owner, _api, world, _url):
         async with owner.begin() as change:

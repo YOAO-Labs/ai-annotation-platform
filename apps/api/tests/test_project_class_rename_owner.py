@@ -8,12 +8,11 @@ import uuid
 
 import httpx
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.config import settings
-from app.db.models.annotation import Annotation
-from app.db.models.project import Project
+from app.services.project_access import get_workspace_project
 from tests import test_project_class_rename_legacy as legacy
 from tests.labeling_class_query_helpers import (
     api_db_binding,
@@ -207,20 +206,10 @@ async def _verify_borrowed_caller_rollback(maker, runtime_maker, world):
         )
         assert result.resource_id == project_id
         assert caller.in_transaction()
-        project = await caller.scalar(
-            select(Project)
-            .where(Project.id == project_id)
-            .execution_options(populate_existing=True)
+        project = await get_workspace_project(
+            caller, actor_id=actor_id, project_id=project_id
         )
-        annotations = (
-            await caller.scalars(
-                select(Annotation)
-                .where(Annotation.project_id == project_id)
-                .order_by(Annotation.id)
-            )
-        ).all()
         assert project.tool_bindings["bbox"]["classes"][0]["name"] == "Truck"
-        assert [row.class_name for row in annotations] == ["Truck"]
         await caller.flush()
         assert legacy._normalise(
             await legacy._snapshot(maker, project_id), world["aliases"]

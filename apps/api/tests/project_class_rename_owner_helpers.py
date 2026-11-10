@@ -9,11 +9,17 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import secrets
+import subprocess
+import sys
 import tempfile
+import time
 import uuid
+import warnings
 from uuid import UUID, uuid4
 
+import httpx
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -22,7 +28,12 @@ from app.db.models.project import Project
 from app.core.security import create_access_token
 from app.db.models.annotation import Annotation
 from tests import test_project_class_rename_legacy as legacy_capture
-from tests.test_identity_admission_live import _port, _start
+from tests.test_asset_storage_cleanup_runtime import (
+    _docker,
+    _inspect_docker,
+    _stop_remove_container,
+    _verify_postgres,
+)
 from tests.factory import create_project, create_task, create_user
 from tests.workspace_configuration_helpers import ROOT, configuration_dsn
 from tests.workspace_project_query_helpers import (
@@ -252,66 +263,258 @@ async def _installed_configuration_provider(
     test_engine, token: str, *, temporary_prefix: str
 ):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
-    interpreter = Path(os.environ["AAP_WORKSPACE_QUERY_PYTHON"])
-    assert interpreter.is_file()
-    config_dsn = configuration_dsn(test_engine)
-    query_dsn = project_query_dsn(test_engine)
-    briefs_dsn = project_query_briefs_dsn(test_engine)
-    parsed_config = make_url(config_dsn)
-    for value, username in (
-        (parsed_config, "workspace_configuration_client"),
-        (make_url(query_dsn), "workspace_project_query_client"),
-        (make_url(briefs_dsn), "identity_briefs_client"),
-    ):
-        assert value.username == username
-        assert (value.host, value.port, value.database) == (
-            test_engine.url.host,
-            test_engine.url.port,
-            test_engine.url.database,
-        )
+    image = _inspect_docker(os.environ["AAP_WORKSPACE_MODULE_IMAGE"])
+    image_config = image["Config"]
+    labels = image_config["Labels"]
+    assert labels["org.aap.acceptance"] == "workspace-module-owner"
+    assert (
+        labels["org.aap.acceptance-id"] == os.environ["AAP_WORKSPACE_MODULE_IDENTITY"]
+    )
+    assert re.fullmatch(r"[0-9a-f]{7,64}", labels["org.aap.source-revision"])
+    assert image_config["User"] == "10004:10004"
+    assert image_config["Cmd"] == ["python", "-m", "yoao_workspace"]
+    assert image_config.get("Entrypoint") in (None, [])
+    image_id = image["Id"]
+    assert re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+
+    dsns = (
+        (
+            "WORKSPACE_CONFIGURATION_DATABASE_URL_FILE",
+            "configuration",
+            configuration_dsn(test_engine),
+            "workspace_configuration_client",
+        ),
+        (
+            "WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE",
+            "project-query",
+            project_query_dsn(test_engine),
+            "workspace_project_query_client",
+        ),
+        (
+            "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
+            "identity-briefs",
+            project_query_briefs_dsn(test_engine),
+            "identity_briefs_client",
+        ),
+    )
+    postgres_id = os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"]
+    postgres_name = os.environ["AAP_MODULE_DATA_PG_CONTAINER_NAME"]
+    _verify_postgres(test_engine.url)
+    identity = secrets.token_hex(12)
+    network_name = f"aap-class-rename-{identity}"
+    container_name = f"aap-class-rename-owner-{identity}"
+    network_id = None
+    connected = False
+    container_id = None
 
     with tempfile.TemporaryDirectory(
         prefix=f"{temporary_prefix}-", dir=ROOT / ".worktree"
     ) as temporary:
         directory = Path(temporary)
-        secrets_to_write = (
-            ("WORKSPACE_CONFIGURATION_DATABASE_URL_FILE", "configuration", config_dsn),
-            ("WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE", "project-query", query_dsn),
-            (
-                "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
-                "identity-briefs",
-                briefs_dsn,
-            ),
-            ("WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE", "control-token", token),
+        secrets_to_write = []
+        for variable, filename, dsn, username in dsns:
+            parsed = make_url(dsn)
+            assert parsed.username == username
+            assert (parsed.host, parsed.port, parsed.database) == (
+                test_engine.url.host,
+                test_engine.url.port,
+                test_engine.url.database,
+            )
+            container_dsn = parsed.set(host=postgres_name, port=5432)
+            secrets_to_write.append(
+                (
+                    variable,
+                    filename,
+                    container_dsn.render_as_string(hide_password=False),
+                )
+            )
+        secrets_to_write.append(
+            ("WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE", "control-token", token)
         )
-        environment = {
-            "PATH": os.environ.get("PATH", ""),
-            "WORKSPACE_HOST": "127.0.0.1",
-            "WORKSPACE_PORT": str(_port()),
-            "WORKSPACE_TIMEOUT_SECONDS": "15",
-            "WORKSPACE_CONFIGURATION_SETUP_TIMEOUT_SECONDS": "10",
-            "WORKSPACE_PROJECT_QUERY_IDENTITY_TIMEOUT_SECONDS": "5",
-        }
+        arguments = []
         for variable, filename, value in secrets_to_write:
             path = directory / filename
             path.write_text(value, encoding="utf-8")
-            path.chmod(0o600)
-            environment[variable] = str(path)
+            path.chmod(0o444)
+            destination = f"/run/secrets/{filename}"
+            arguments.extend(
+                (
+                    "--mount",
+                    f"type=bind,src={path},dst={destination},readonly",
+                    "--env",
+                    f"{variable}={destination}",
+                )
+            )
 
-        port = int(environment["WORKSPACE_PORT"])
-        owner = await asyncio.to_thread(
-            _start,
-            [str(interpreter), "-I", "-m", "yoao_workspace"],
-            environment,
-            directory,
-            directory / "workspace-class-rename-owner.log",
-            port,
-            "/ready",
-        )
         try:
-            yield owner.origin
+            network_id = _docker(
+                "network",
+                "create",
+                "--label",
+                "org.aap.acceptance=module-data-boundary",
+                "--label",
+                f"org.aap.acceptance-id={identity}",
+                network_name,
+            )
+            _docker(
+                "network", "connect", "--gw-priority", "-1", network_id, postgres_id
+            )
+            connected = True
+            container_id = _docker(
+                "create",
+                "--name",
+                container_name,
+                "--pull=never",
+                "--network",
+                network_id,
+                "--label",
+                "org.aap.acceptance=module-data-boundary",
+                "--label",
+                f"org.aap.acceptance-id={identity}",
+                "--user=10004:10004",
+                "--read-only",
+                "--cap-drop=ALL",
+                "--security-opt=no-new-privileges:true",
+                "--pids-limit=64",
+                "--memory=256m",
+                "--cpus=1",
+                "--no-healthcheck",
+                "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=32m",
+                "--publish",
+                "127.0.0.1::8174",
+                *arguments,
+                "--env",
+                "WORKSPACE_HOST=0.0.0.0",
+                "--env",
+                "WORKSPACE_PORT=8174",
+                "--env",
+                "WORKSPACE_TIMEOUT_SECONDS=15",
+                "--env",
+                "WORKSPACE_CONFIGURATION_SETUP_TIMEOUT_SECONDS=10",
+                "--env",
+                "WORKSPACE_PROJECT_QUERY_IDENTITY_TIMEOUT_SECONDS=5",
+                image_id,
+                timeout=90,
+            )
+            try:
+                _docker("start", container_id)
+                metadata = _inspect_docker(container_id)
+                config = metadata["Config"]
+                host = metadata["HostConfig"]
+                assert metadata["Id"] == container_id and metadata["Image"] == image_id
+                assert config["Labels"]["org.aap.acceptance"] == "module-data-boundary"
+                assert config["Labels"]["org.aap.acceptance-id"] == identity
+                assert config["User"] == "10004:10004"
+                assert host["ReadonlyRootfs"] is True and host["CapDrop"] == ["ALL"]
+                assert host.get("CapAdd") in (None, [])
+                assert "no-new-privileges:true" in host["SecurityOpt"]
+                assert host["PidsLimit"] == 64
+                assert host["NanoCpus"] == 1_000_000_000
+                assert host["Memory"] == 256 * 1024 * 1024
+                tmpfs = host["Tmpfs"]["/tmp"]
+                assert all(option in tmpfs for option in ("noexec", "nosuid", "nodev"))
+                assert "size=32m" in tmpfs or "size=33554432" in tmpfs
+                mounts = metadata["Mounts"]
+                binds = [mount for mount in mounts if mount["Type"] == "bind"]
+                expected_mounts = {
+                    f"/run/secrets/{filename}": (directory / filename).resolve()
+                    for _, filename, _ in secrets_to_write
+                }
+                assert {
+                    mount["Destination"]: Path(mount["Source"]).resolve()
+                    for mount in binds
+                } == expected_mounts
+                assert all(not mount["RW"] for mount in binds)
+                assert {mount["Destination"] for mount in mounts} <= (
+                    set(expected_mounts) | {"/tmp"}
+                )
+                environment = dict(
+                    entry.split("=", 1) for entry in config["Env"] if "=" in entry
+                )
+                for variable, filename, _ in secrets_to_write:
+                    assert environment[variable] == f"/run/secrets/{filename}"
+                    assert variable.removesuffix("_FILE") not in environment
+                ports = metadata["NetworkSettings"]["Ports"]["8174/tcp"]
+                assert len(ports) == 1 and ports[0]["HostIp"] == "127.0.0.1"
+                origin = f"http://127.0.0.1:{int(ports[0]['HostPort'])}"
+                deadline = time.monotonic() + 40
+                async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
+                    while True:
+                        try:
+                            if (await client.get(origin + "/ready")).status_code == 200:
+                                break
+                        except httpx.HTTPError:
+                            pass
+                        state = _inspect_docker(container_id)["State"]
+                        assert state["Running"], (
+                            "Workspace owner exited before readiness"
+                        )
+                        assert time.monotonic() < deadline, "Workspace owner not ready"
+                        await asyncio.sleep(0.1)
+            except BaseException as error:
+                try:
+                    result = subprocess.run(
+                        ["docker", "logs", "--tail", "120", container_id],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        check=False,
+                    )
+                    diagnostic = result.stdout + result.stderr
+                    for _, _, value in secrets_to_write:
+                        diagnostic = diagnostic.replace(value, "<redacted>")
+                    for _, _, dsn, _ in dsns:
+                        password = make_url(dsn).password
+                        if password:
+                            diagnostic = diagnostic.replace(password, "<redacted>")
+                    with tempfile.NamedTemporaryFile(
+                        mode="w",
+                        encoding="utf-8",
+                        prefix="class-rename-startup-",
+                        suffix=".log",
+                        dir=ROOT / ".worktree",
+                        delete=False,
+                    ) as log:
+                        log.write(diagnostic)
+                    error.add_note(f"Private Workspace startup diagnostics: {log.name}")
+                except Exception as diagnostic_error:
+                    error.add_note(
+                        f"Startup diagnostics unavailable: {diagnostic_error!r}"
+                    )
+                raise
+            yield origin
         finally:
-            owner.stop()
+            active_error = sys.exc_info()[1]
+            cleanup_errors = []
+            if container_id is not None:
+                try:
+                    _stop_remove_container(container_id, identity)
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+            if network_id is not None:
+                try:
+                    network = json.loads(_docker("network", "inspect", network_id))[0]
+                    assert (
+                        network["Id"] == network_id and network["Name"] == network_name
+                    )
+                    assert (
+                        network["Labels"]["org.aap.acceptance"]
+                        == "module-data-boundary"
+                    )
+                    assert network["Labels"]["org.aap.acceptance-id"] == identity
+                    if connected:
+                        _verify_postgres(test_engine.url)
+                        _docker("network", "disconnect", network_id, postgres_id)
+                    _docker("network", "rm", network_id)
+                except BaseException as exc:
+                    cleanup_errors.append(exc)
+            if active_error is not None:
+                for exc in cleanup_errors:
+                    warnings.warn(
+                        f"Workspace owner cleanup failed: {exc!r}", RuntimeWarning
+                    )
+            elif cleanup_errors:
+                raise cleanup_errors[0]
 
 
 @asynccontextmanager
