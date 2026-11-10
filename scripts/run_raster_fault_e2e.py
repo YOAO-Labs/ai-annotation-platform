@@ -15,6 +15,7 @@ from contextlib import closing
 import ctypes
 import hmac
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -920,6 +921,25 @@ def verify_store_physical(owner):
         and store["endpoint"] == f"127.0.0.1:{host_port(owner, container, 9000)}",
         "raster_store_physical_identity_changed",
     )
+    return observed_network
+
+
+def fixture_provider_host(owner):
+    """Advertise the exact verified private bridge, not a machine hostname."""
+    network = verify_store_physical(owner)
+    configs = network.get("IPAM", {}).get("Config")
+    require(
+        isinstance(configs, list) and len(configs) == 1 and isinstance(configs[0], dict),
+        "raster_provider_bridge_invalid",
+    )
+    gateway = ipaddress.ip_address(configs[0]["Gateway"])
+    subnet = ipaddress.ip_network(configs[0]["Subnet"])
+    require(
+        gateway.version == 4 and gateway in subnet
+        and not gateway.is_loopback and not gateway.is_unspecified,
+        "raster_provider_bridge_invalid",
+    )
+    return str(gateway)
 
 
 def exercise_faults(owner, environment, references, suite):
@@ -1287,6 +1307,7 @@ def inside_with_inference(path, arguments, inference):
             "MINIO_SECRET_KEY": credentials["secret_key"],
         }
     )
+    restricted["PLAYWRIGHT_ML_FIXTURE_HOST"] = fixture_provider_host(owner)
     suite = str(uuid.uuid4())
     restricted.update({
         "AAP_PRIVATE_FIXTURE_RASTER_OWNER": str(Path(path)),
