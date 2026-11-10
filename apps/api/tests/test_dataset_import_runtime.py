@@ -133,11 +133,24 @@ def _start_importer(stack, suffix, *, values=None, mounts=()):
         "--env-file",
         str(path),
     ]
+    diagnostic = os.environ.get("AAP_IMPORT_CAPTURE_DIAGNOSTICS") == "1"
+    if diagnostic:
+        command.extend(
+            [
+                "--mount",
+                f"type=bind,source={Path(__file__).with_name('dataset_import_runtime_diagnostic.py')},"
+                "target=/run/import-diagnostic.py,readonly",
+            ]
+        )
     for source, target in mounts:
         command.extend(
             ["--mount", f"type=bind,source={source},target={target},readonly"]
         )
-    container = _docker(*command, stack.image)
+    if diagnostic:
+        command.extend([stack.image, "python", "/run/import-diagnostic.py"])
+    else:
+        command.append(stack.image)
+    container = _docker(*command)
     stack.containers.append(container)
     return container
 
@@ -372,6 +385,17 @@ async def _import_stack(
         app_module.dependency_overrides.update(previous)
         if stack:
             for container in reversed(stack.containers):
+                if os.environ.get("AAP_IMPORT_CAPTURE_DIAGNOSTICS") == "1":
+                    result = subprocess.run(
+                        ["docker", "logs", container],
+                        capture_output=True,
+                        text=True,
+                        timeout=15,
+                        check=False,
+                    )
+                    for line in (result.stdout + "\n" + result.stderr).splitlines():
+                        if line.startswith("IMPORT_DIAGNOSTIC "):
+                            print(line, flush=True)
                 _stop_remove_container(container, identity)
         await auth_engine.dispose()
         async with world.maker.begin() as db:
