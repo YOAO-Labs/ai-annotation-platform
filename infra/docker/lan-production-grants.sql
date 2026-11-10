@@ -769,6 +769,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.delete_project(uuid, uuid, uuid, jsonb),
     aap_workspace_v1.preview_dataset_unlink(uuid, uuid, uuid),
     aap_workspace_v1.unlink_dataset(uuid, uuid, uuid, uuid, text, jsonb),
+    aap_assets_v1.read_dataset_source_authority(uuid, boolean),
     aap_assets_v1.lock_dataset_reference(uuid),
     aap_assets_v1.lock_current_association(uuid, uuid),
     aap_assets_v1.associate_project(uuid, uuid, uuid),
@@ -1624,6 +1625,14 @@ REVOKE EXECUTE ON FUNCTION
     aap_assets_v1.update_storage_connection(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb)
     FROM :"application_role", PUBLIC;
 GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.list_storage_connections(uuid,timestamptz,uuid,integer),
+    aap_assets_v1.read_storage_connection(uuid,uuid),
+    aap_assets_v1.read_storage_connection_policy(uuid,jsonb),
+    aap_assets_v1.capture_storage_connection(uuid,uuid,text),
+    aap_assets_v1.read_storage_connection_receipt(uuid,uuid,text,uuid,jsonb),
+    aap_assets_v1.create_storage_connection(uuid,uuid,jsonb,jsonb,text,text,jsonb,jsonb),
+    aap_assets_v1.delete_storage_connection(uuid,uuid,uuid,jsonb),
+    aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb),
     aap_assets_v1.update_storage_connection_authorized(uuid,uuid,uuid,jsonb,jsonb,text,text,text,jsonb,jsonb,uuid,text[],jsonb),
     aap_assets_v1.begin_connection_probe(uuid,uuid,uuid,text[]),
     aap_assets_v1.finish_connection_probe(uuid,uuid,uuid,uuid,text[],jsonb,boolean)

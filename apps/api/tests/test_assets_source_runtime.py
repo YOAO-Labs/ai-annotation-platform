@@ -20,6 +20,7 @@ from PIL import Image
 import pytest
 from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.test_asset_storage_cleanup_runtime import (
@@ -201,7 +202,33 @@ async def _source_stack(test_engine, app_module, monkeypatch):
                 _start_source, image, identity, environment
             )
             containers.append(container)
-            await _wait_healthy(container)
+            try:
+                await _wait_healthy(container)
+            except BaseException as readiness_error:
+                try:
+                    output = await asyncio.to_thread(
+                        subprocess.run,
+                        ["docker", "logs", container],
+                        capture_output=True,
+                        text=True,
+                        timeout=20,
+                        check=False,
+                    )
+                    log_path = (
+                        Path(os.environ["TMPDIR"]) / f"source-start-{identity}.log"
+                    )
+                    descriptor = os.open(
+                        log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600
+                    )
+                    with os.fdopen(descriptor, "w") as log:
+                        log.write(output.stdout + output.stderr)
+                    readiness_error.add_note(f"Source startup log: {log_path}")
+                except BaseException as capture_error:
+                    raise BaseExceptionGroup(
+                        "Source readiness and diagnostic capture failed",
+                        [readiness_error, capture_error],
+                    ) from None
+                raise
             origin = _source_origin(container, image, identity)
             await _wait_public_ready(origin)
             monkeypatch.setattr(settings, "assets_source_url", origin)
@@ -282,6 +309,83 @@ async def _source_stack(test_engine, app_module, monkeypatch):
         _remove_worker_image(image, identity)
 
 
+async def _assert_source_authority_boundary(test_engine, world):
+    from fastapi import HTTPException
+
+    from app.services.dataset_source_access import (
+        capture_dataset_write,
+        validate_dataset_write,
+    )
+
+    role_url = make_url(_required_env("AAP_MODULE_DATA_APPEND_URL"))
+    assert (
+        role_url.username == "append_client"
+        and role_url.host == "127.0.0.1"
+        and role_url.port == test_engine.url.port
+        and role_url.database == test_engine.url.database
+    )
+    _verify_postgres(role_url)
+    engine = create_async_engine(role_url, hide_parameters=True)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as caller:
+            actor = SimpleNamespace(id=world.actor_id)
+            ticket = await capture_dataset_write(caller, world.dataset_id, actor, None)
+            assert ticket == {"dataset_lifecycle_revision": 1}
+            await validate_dataset_write(caller, world.dataset_id, ticket, lock=True)
+            async with world.maker() as observer:
+                with pytest.raises(DBAPIError) as busy:
+                    async with observer.begin_nested():
+                        await observer.execute(
+                            text(
+                                "SELECT id FROM public.datasets WHERE id=:id "
+                                "FOR NO KEY UPDATE NOWAIT"
+                            ),
+                            {"id": world.dataset_id},
+                        )
+                assert getattr(busy.value.orig, "sqlstate", None) == "55P03"
+                await caller.rollback()
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT id FROM public.datasets WHERE id=:id "
+                            "FOR NO KEY UPDATE NOWAIT"
+                        ),
+                        {"id": world.dataset_id},
+                    )
+                    == world.dataset_id
+                )
+                await observer.rollback()
+            for statement in (
+                "SELECT id FROM public.datasets LIMIT 1",
+                "SELECT aap_assets_v1._dataset_ingest_publication_authority("
+                "NULL::uuid, NULL::uuid, NULL::jsonb, NULL::text)",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    async with caller.begin_nested():
+                        await caller.execute(text(statement))
+                assert getattr(denied.value.orig, "sqlstate", None) == "42501"
+            await caller.rollback()
+            async with world.maker.begin() as owner:
+                await owner.execute(
+                    text(
+                        "UPDATE public.datasets SET lifecycle_revision="
+                        "lifecycle_revision+2 WHERE id=:id"
+                    ),
+                    {"id": world.dataset_id},
+                )
+            with pytest.raises(HTTPException) as stale:
+                await validate_dataset_write(
+                    caller, world.dataset_id, ticket, lock=True
+                )
+            assert stale.value.status_code == 409
+            assert stale.value.detail["code"] == "dataset_lifecycle_changed"
+            assert await capture_dataset_write(
+                caller, world.dataset_id, actor, None
+            ) == {"dataset_lifecycle_revision": 3}
+    finally:
+        await engine.dispose()
+
+
 def _picture(color="white"):
     output = BytesIO()
     image = Image.new("RGB", (11, 19), color=color)
@@ -329,6 +433,30 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
 
     async with _source_stack(test_engine, app_module, monkeypatch) as stack:
         world, storage = stack.world, stack.storage
+        await _assert_source_authority_boundary(test_engine, world)
+        async with world.maker.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE public.datasets SET archived_at=now(), "
+                    "lifecycle_revision=lifecycle_revision+1 WHERE id=:id"
+                ),
+                {"id": world.dataset_id},
+            )
+        archived = await stack.api.post(
+            f"/api/v1/datasets/{world.dataset_id}/items/upload-init",
+            headers=stack.headers["employee"],
+            json={"file_name": "archived.jpg", "content_type": "image/jpeg"},
+        )
+        assert archived.status_code == 409
+        assert archived.json()["detail"]["code"] == "dataset_archived"
+        async with world.maker.begin() as owner:
+            await owner.execute(
+                text(
+                    "UPDATE public.datasets SET archived_at=NULL, "
+                    "lifecycle_revision=lifecycle_revision+1 WHERE id=:id"
+                ),
+                {"id": world.dataset_id},
+            )
         async with httpx.AsyncClient(trust_env=False) as direct:
             denied = await direct.post(stack.origin + "/v1/source/upload-init", json={})
             assert denied.status_code == 401
@@ -523,6 +651,34 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
                 },
             )
             assert deleted.status_code == 204, deleted.text
+        missing = await stack.api.delete(
+            f"/api/v1/datasets/{extra}", headers=stack.headers["manager"]
+        )
+        assert missing.status_code == 404
+        wrong_key = await stack.api.delete(
+            f"/api/v1/datasets/{extra}",
+            headers={
+                **stack.headers["manager"],
+                "Idempotency-Key": str(uuid4()),
+            },
+        )
+        assert wrong_key.status_code == 404
+        wrong_dataset = await stack.api.delete(
+            f"/api/v1/datasets/{uuid4()}",
+            headers={
+                **stack.headers["manager"],
+                "Idempotency-Key": str(dataset_delete_key),
+            },
+        )
+        assert wrong_dataset.status_code == 409
+        wrong_actor = await stack.api.delete(
+            f"/api/v1/datasets/{extra}",
+            headers={
+                **stack.headers["employee"],
+                "Idempotency-Key": str(dataset_delete_key),
+            },
+        )
+        assert wrong_actor.status_code == 403
         scoped = boto3.client(
             "s3",
             endpoint_url=f"http://{settings.minio_endpoint}",

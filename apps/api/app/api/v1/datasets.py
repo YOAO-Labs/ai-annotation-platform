@@ -118,8 +118,18 @@ async def directory_dataset_write_access(
         dataset_id = uuid.UUID(str(request.path_params["dataset_id"]))
     except ValueError:
         raise HTTPException(422, "Invalid dataset ID") from None
+    # A committed whole-Dataset deletion may have removed the row. Only an
+    # explicitly keyed replay can proceed to the owner's exact receipt check.
+    allow_missing = (
+        request.scope.get("endpoint") is delete_dataset
+        and request.headers.get("Idempotency-Key") is not None
+    )
     request.state.directory_dataset_authority = await capture_dataset_write(
-        db, dataset_id, actor, getattr(request.state, "api_key_id", None)
+        db,
+        dataset_id,
+        actor,
+        getattr(request.state, "api_key_id", None),
+        allow_missing=allow_missing,
     )
 
 

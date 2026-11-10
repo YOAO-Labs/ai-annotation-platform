@@ -628,7 +628,7 @@ GRANT UPDATE (executed_idempotency_key, executed_operation_id) ON public.annotat
 GRANT UPDATE (response_json) ON public.annotation_operations TO :"labeling_owner";
 GRANT INSERT (calibration_digest, calibration_revision, created_at, sensor_dataset_item_id, sensor_role, sensor_visibility) ON public.annotations TO :"labeling_owner";
 GRANT UPDATE (calibration_digest, calibration_revision, sensor_visibility) ON public.annotations TO :"labeling_owner";
-GRANT INSERT (adapter_version, format_id, id, manifest_version, mapping_digest, mapping_json, options_digest, options_json, plan_digest, plan_json, project_id, receipt_expires_at, requested_by_id, result_json, staged_object_key, staged_sha256, status, token_hash) ON public.mask_format_imports TO :"labeling_owner";
+GRANT INSERT (adapter_version, format_id, id, manifest_version, mapping_digest, mapping_json, options_digest, options_json, plan_digest, plan_json, project_id, receipt_expires_at, requested_by_id, result_json, staged_object_key, staged_sha256, staging_ref, status, token_hash) ON public.mask_format_imports TO :"labeling_owner";
 GRANT UPDATE (async_job_id, completed_at, result_json, status, updated_at) ON public.mask_format_imports TO :"labeling_owner";
 GRANT INSERT (annotation_id, annotation_version, code, dedupe_key, frame_end, frame_start, id, last_seen_run_id, metric, project_id, region_bbox, region_digest, region_mask_ref, related_annotation_ids, run_id, severity, severity_rank, source, source_versions, status, suggestion, task_id, threshold, updated_at) ON public.mask_qc_issues TO :"labeling_owner";
 GRANT UPDATE (last_seen_run_id, metric, region_bbox, region_digest, region_mask_ref, resolved_at, resolved_by_id, severity, severity_rank, source, status, suggestion, threshold, updated_at) ON public.mask_qc_issues TO :"labeling_owner";
@@ -675,7 +675,7 @@ GRANT SELECT (
     id, token_hash, task_id, actor_id, request_digest, snapshot_digest, request_json, plan_json, executed_operation_id, executed_idempotency_key, created_at, expires_at
 ) ON public.annotation_conversion_plans TO :"labeling_owner";
 GRANT SELECT (
-    id, project_id, requested_by_id, async_job_id, format_id, adapter_version, manifest_version, staged_object_key, staged_sha256, mapping_json, options_json, mapping_digest, options_digest, plan_json, plan_digest, token_hash, receipt_expires_at, status, result_json, created_at, updated_at, completed_at
+    id, project_id, requested_by_id, async_job_id, format_id, adapter_version, manifest_version, staged_object_key, staged_sha256, staging_ref, mapping_json, options_json, mapping_digest, options_digest, plan_json, plan_digest, token_hash, receipt_expires_at, status, result_json, created_at, updated_at, completed_at
 ) ON public.mask_format_imports TO :"labeling_owner";
 GRANT SELECT (
     id, project_id, async_job_id, requested_by_id, status, progress_pct, scope_json, config_revision, config_digest, config_snapshot, source_snapshot, source_snapshot_digest, task_snapshot_digests, singleflight_key, summary, error_message, started_at, completed_at, created_at, updated_at
@@ -1740,6 +1740,8 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     TO :"asset_cleanup_role";
 REVOKE ALL ON FUNCTION aap_assets_v1.pending_storage_deletions(uuid, integer)
     FROM :"asset_cleanup_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.read_dataset_source_authority(uuid, boolean)
+    TO :"workflow_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.delete_dataset(
     uuid, uuid, uuid, text, jsonb
 ), aap_assets_v1.delete_dataset_item(
@@ -2630,6 +2632,8 @@ ALTER VIEW aap_assets_v1.fixture_screenshot_item_facts OWNER TO :"assets_owner";
 GRANT SELECT ON aap_assets_v1.fixture_screenshot_item_facts TO :"labeling_owner";
 ALTER VIEW aap_assets_v1.scale_seed_dataset_item_facts OWNER TO :"assets_owner";
 ALTER VIEW aap_assets_v1.project_dataset_item_sources OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.read_dataset_source_authority(uuid, boolean)
+    OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_dataset_reference(uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_current_association(uuid, uuid) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.lock_append_sources(uuid, uuid[]) OWNER TO :"assets_owner";

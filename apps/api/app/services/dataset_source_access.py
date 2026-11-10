@@ -1,7 +1,10 @@
 """One authority boundary for directory sources and their retained attempts."""
 
+from datetime import datetime
+from uuid import UUID
+
 from fastapi import HTTPException
-from sqlalchemy import String, and_, cast, false, or_, select, true
+from sqlalchemy import String, and_, cast, false, or_, select, text, true
 
 from app.db.enums import UserRole
 from app.db.models.async_job import AsyncJob
@@ -18,20 +21,61 @@ from app.services.storage_location import visible_clause
 MANAGERS = {UserRole.SUPER_ADMIN, UserRole.PROJECT_ADMIN}
 
 
-async def has_directory_source(db, dataset_id):
-    return bool(
-        await db.scalar(
-            select(DatasetSource.id)
-            .where(DatasetSource.dataset_id == dataset_id)
-            .limit(1)
+async def _dataset_authority(db, dataset_id, *, lock=False):
+    # Text SQL bypasses ORM autoflush; preserve the original ORM query's
+    # visibility and the caller's no_autoflush scope.
+    if db.autoflush:
+        await db.flush()
+    row = (
+        await db.execute(
+            text(
+                "SELECT * FROM aap_assets_v1.read_dataset_source_authority("
+                "CAST(:dataset_id AS uuid), CAST(:lock AS boolean))"
+            ),
+            {"dataset_id": dataset_id, "lock": lock},
         )
+    ).one_or_none()
+    if row is not None and (
+        row.dataset_id != dataset_id
+        or not isinstance(row.created_by, UUID)
+        or (row.archived_at is not None and not isinstance(row.archived_at, datetime))
+        or type(row.lifecycle_revision) is not int
+        or row.lifecycle_revision < 1
+        or type(row.directory_protected) is not bool
+    ):
+        raise RuntimeError("Invalid Dataset source authority facts")
+    return row
+
+
+async def _writable_dataset_authority(
+    db, dataset_id, *, expected_revision=None, lock=False, allow_missing=False
+):
+    dataset = await _dataset_authority(db, dataset_id, lock=lock)
+    if dataset is None:
+        if allow_missing:
+            return None
+        raise HTTPException(404, "Dataset not found")
+    if dataset.archived_at is not None:
+        raise HTTPException(409, detail={"code": "dataset_archived"})
+    if (
+        expected_revision is not None
+        and dataset.lifecycle_revision != expected_revision
+    ):
+        raise HTTPException(409, detail={"code": "dataset_lifecycle_changed"})
+    return dataset
+
+
+async def has_directory_source(db, dataset_id):
+    dataset = await _dataset_authority(db, dataset_id)
+    return dataset is not None and dataset.directory_protected
+
+
+async def capture_dataset_write(db, dataset_id, actor, key_id, *, allow_missing=False):
+    dataset = await _writable_dataset_authority(
+        db, dataset_id, allow_missing=allow_missing
     )
-
-
-async def capture_dataset_write(db, dataset_id, actor, key_id):
-    from app.services.dataset_lifecycle import require_writable
-
-    dataset = await require_writable(db, dataset_id)
+    if dataset is None:
+        return None
     lifecycle = {"dataset_lifecycle_revision": dataset.lifecycle_revision}
     if not await has_directory_source(db, dataset_id):
         return lifecycle
@@ -49,22 +93,13 @@ async def capture_dataset_write(db, dataset_id, actor, key_id):
 async def validate_dataset_write(
     db, dataset_id, authority, *, project_id=None, lock=False
 ):
-    from app.services.dataset_lifecycle import require_writable
-
-    if lock:
-        # Existing managed writers serialize on Dataset. Source writers use the
-        # separate NOWAIT lifecycle helper after their Location/Source locks.
-        await db.scalar(
-            select(Dataset.id)
-            .where(Dataset.id == dataset_id)
-            .with_for_update(key_share=True)
-        )
-    # Legacy queued work is valid only in the original active lifecycle.
-    await require_writable(
+    # The prior managed-writer lock is a blocking FOR NO KEY UPDATE. The
+    # capability holds the same lock on the caller's transaction.
+    await _writable_dataset_authority(
         db,
         dataset_id,
         expected_revision=(authority or {}).get("dataset_lifecycle_revision", 1),
-        lock=False,
+        lock=lock,
     )
     if not await has_directory_source(db, dataset_id):
         return
@@ -116,7 +151,7 @@ def source_scope_clause(actor):
 
 async def assert_dataset_manage(db, dataset_id, actor):
     actor = await require_manager(db, actor.id)
-    dataset = await db.get(Dataset, dataset_id, populate_existing=True)
+    dataset = await _dataset_authority(db, dataset_id)
     if dataset is None or (
         actor.role != UserRole.SUPER_ADMIN and dataset.created_by != actor.id
     ):
