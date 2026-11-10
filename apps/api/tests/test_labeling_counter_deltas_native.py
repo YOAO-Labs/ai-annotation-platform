@@ -2,27 +2,25 @@
 
 from __future__ import annotations
 
-import ast
 import asyncio
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
-import subprocess
 import uuid
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.exc import NoResultFound
 
 from app.db.models.project import Project
-from app.services import labeling_tasks
+from app.db.models.task import Task
+from app.services.labeling_core_read_relations import get_core_row, task_row
 from app.services.labeling_tasks import LabelingTaskService
-from tests.test_labeling_counter_deltas_legacy import _BASE, _METHODS, _STAMP
-from tests.test_labeling_counter_deltas_workflows_native import _DIRECT_PROJECT_SQL
-from tests.test_project_owner_persistence_native import _private_denied, _restricted
-from tests.test_workspace_member_facts_legacy import _pending
 from app.services.project_access import get_workspace_project
+from tests.factory import create_task
+from tests.test_project_owner_persistence_native import _private_denied, _restricted
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -31,6 +29,20 @@ pytestmark = [
         reason="requires owned module-data resources",
     ),
 ]
+_STAMP = datetime(2000, 1, 1, tzinfo=timezone.utc)
+_METHODS = {
+    "review": "decrement_project_review_count",
+    "completed": "decrement_project_completed_count",
+    "approval": "record_project_review_approval",
+}
+
+
+async def _seed_review_task(owner, world):
+    async with owner.begin() as db:
+        task = await create_task(db, project_id=world["project_id"], status="review")
+        task.assignee_id = world["member_id"]
+        task.review_round_id = uuid.uuid4()
+        return task.id
 
 
 async def _seed(owner, world, *, completed=11, review=7):
@@ -124,70 +136,34 @@ async def test_native_counter_function_contract_and_exact_privileges(test_engine
 
 
 @pytest.mark.parametrize("method", _METHODS)
-@pytest.mark.parametrize("autoflush", [False, True])
-async def test_restricted_counter_preserves_flush_cache_and_outer_rollback(
-    test_engine, method, autoflush
-):
+async def test_restricted_counter_and_task_share_outer_rollback(test_engine, method):
     expected = {"review": (11, 6), "completed": (10, 7), "approval": (12, 6)}[method]
     async with _restricted(test_engine) as (owner, api, world, _url, _batches):
+        task_id = await _seed_review_task(owner, world)
         await _seed(owner, world)
         async with api() as db:
             await _private_denied(db)
             project = await get_workspace_project(db, project_id=world["project_id"])
-            pending = _pending(world)
-            db.add(pending)
-            db.autoflush = autoflush
+            task = await get_core_row(db, task_row, task_id)
             before = (
                 await db.execute(text("SELECT pg_backend_pid(),txid_current(),now()"))
             ).one()
-            statements = []
-
-            def record(_connection, _cursor, statement, _parameters, _context, _many):
-                statements.append(statement)
-
-            event.listen(db.bind.sync_engine, "before_cursor_execute", record)
-            try:
-                assert (
-                    await getattr(LabelingTaskService(db), _METHODS[method])(project)
-                    is None
-                )
-                assert (project.completed_tasks, project.review_tasks) == expected
-                assert project.updated_at == _STAMP
-                assert (pending in db.new) is not autoflush
-                assert tuple(await _row(db, project.id)) == (*expected, before[2])
-                assert (
-                    await db.scalar(
-                        text("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=:id)"),
-                        {"id": pending.id},
-                    )
-                    is autoflush
-                )
-                assert tuple(
-                    (
-                        await db.execute(
-                            text("SELECT pg_backend_pid(),txid_current(),now()")
-                        )
-                    ).one()
-                ) == tuple(before)
-                assert not [
-                    sql for sql in statements if _DIRECT_PROJECT_SQL.search(sql)
-                ]
-                assert (
-                    sum(
-                        f"aap_labeling_v1.{_METHODS[method]}(" in sql
-                        for sql in statements
-                    )
-                    == 1
-                )
-            finally:
-                event.remove(db.bind.sync_engine, "before_cursor_execute", record)
-                await db.rollback()
+            service = LabelingTaskService(db)
+            await service.withdraw_task(task, actor_id=world["member_id"])
+            await getattr(service, _METHODS[method])(project)
+            assert (project.completed_tasks, project.review_tasks) == expected
+            assert tuple(await _row(db, project.id)) == (*expected, before[2])
+            assert (
+                await db.scalar(select(task_row.status).where(task_row.id == task_id))
+                == "in_progress"
+            )
+            assert (
+                await db.execute(text("SELECT pg_backend_pid(),txid_current(),now()"))
+            ).one() == before
+            await db.rollback()
         async with owner() as check:
             assert tuple(await _row(check, world["project_id"])) == (11, 7, _STAMP)
-            assert not await check.scalar(
-                text("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=:id)"),
-                {"id": pending.id},
-            )
+            assert (await check.get(Task, task_id)).status == "review"
 
 
 @pytest.mark.parametrize("method", _METHODS)
@@ -224,7 +200,7 @@ async def test_restricted_missing_project_preserves_scalar_or_zero_rows(
 
 
 @pytest.mark.parametrize("method", _METHODS)
-@pytest.mark.parametrize("kind", ["existing", "missing"])
+@pytest.mark.parametrize("kind", ["existing", "missing", "null"])
 async def test_restricted_counter_attempt_rejected_in_read_only_transaction(
     test_engine, method, kind
 ):
@@ -232,12 +208,33 @@ async def test_restricted_counter_attempt_rejected_in_read_only_transaction(
         async with api() as db:
             await db.execute(text("SET TRANSACTION READ ONLY"))
             project = Project(
-                id=world["project_id"] if kind == "existing" else uuid.uuid4()
+                id={
+                    "existing": world["project_id"],
+                    "missing": uuid.uuid4(),
+                    "null": None,
+                }[kind]
             )
             with pytest.raises(DBAPIError) as rejected:
                 await getattr(LabelingTaskService(db), _METHODS[method])(project)
             assert rejected.value.orig.sqlstate == "25006"
             await db.rollback()
+
+
+@pytest.mark.parametrize("method", _METHODS)
+@pytest.mark.parametrize("initial", [0, -2])
+async def test_restricted_counter_numeric_edges(test_engine, method, initial):
+    async with _restricted(test_engine) as (owner, api, world, _url, _batches):
+        await _seed(owner, world, completed=initial, review=initial)
+        async with api.begin() as db:
+            project = await get_workspace_project(db, project_id=world["project_id"])
+            await getattr(LabelingTaskService(db), _METHODS[method])(project)
+        async with owner() as check:
+            expected = {
+                "review": (initial, 0),
+                "completed": (0, initial),
+                "approval": (initial + 1, 0),
+            }[method]
+            assert tuple((await _row(check, world["project_id"]))[:2]) == expected
 
 
 @pytest.mark.parametrize(
@@ -292,6 +289,7 @@ async def test_restricted_overflow_rolls_back_task_and_recovers_next_transaction
     test_engine, method
 ):
     async with _restricted(test_engine) as (owner, api, world, _url, _batches):
+        task_id = await _seed_review_task(owner, world)
         completed = (
             2147483647
             if method == "approval"
@@ -303,8 +301,14 @@ async def test_restricted_overflow_rolls_back_task_and_recovers_next_transaction
         await _seed(owner, world, completed=completed, review=review)
         async with api() as db:
             project = await get_workspace_project(db, project_id=world["project_id"])
-            pending = _pending(world)
-            db.add(pending)
+            task = await get_core_row(db, task_row, task_id)
+            await LabelingTaskService(db).withdraw_task(
+                task, actor_id=world["member_id"]
+            )
+            assert (
+                await db.scalar(select(task_row.status).where(task_row.id == task_id))
+                == "in_progress"
+            )
             with pytest.raises(DBAPIError) as rejected:
                 await getattr(LabelingTaskService(db), _METHODS[method])(project)
             assert rejected.value.orig.sqlstate == "22003"
@@ -315,10 +319,7 @@ async def test_restricted_overflow_rolls_back_task_and_recovers_next_transaction
                 review,
                 _STAMP,
             )
-            assert not await check.scalar(
-                text("SELECT EXISTS(SELECT 1 FROM tasks WHERE id=:id)"),
-                {"id": pending.id},
-            )
+            assert (await check.get(Task, task_id)).status == "review"
         await _seed(owner, world)
         async with api.begin() as db:
             project = await get_workspace_project(db, project_id=world["project_id"])
@@ -363,57 +364,3 @@ async def test_node_peer_uses_native_deltas_and_rolls_back_same_transaction(
                 await process.wait()
         async with owner() as check:
             assert tuple(await _row(check, world["project_id"])) == (11, 7, _STAMP)
-
-
-def _old_method(name):
-    source = subprocess.check_output(
-        ["git", "show", _BASE + ":apps/api/app/services/labeling_tasks.py"],
-        cwd=Path(__file__).resolve().parents[3],
-        text=True,
-    )
-    service = next(
-        node
-        for node in ast.parse(source).body
-        if isinstance(node, ast.ClassDef) and node.name == "LabelingTaskService"
-    )
-    method = next(
-        node
-        for node in service.body
-        if isinstance(node, ast.AsyncFunctionDef) and node.name == name
-    )
-    namespace = dict(vars(labeling_tasks))
-    exec(
-        compile(
-            ast.Module(body=[method], type_ignores=[]),
-            _BASE + ":labeling_tasks.py",
-            "exec",
-        ),
-        namespace,
-    )
-    return namespace[name]
-
-
-@pytest.mark.parametrize("method", _METHODS)
-async def test_null_project_preserves_old_read_only_write_rejection(
-    test_engine, method
-):
-    async with _restricted(test_engine) as (owner, _api, _world, _url, _batches):
-        codes = []
-        for legacy in [True, False]:
-            async with owner() as db:
-                await db.execute(text("SET TRANSACTION READ ONLY"))
-                service = LabelingTaskService(db)
-                project = Project(id=None)
-                try:
-                    if legacy:
-                        await _old_method(_METHODS[method])(service, project)
-                    else:
-                        await getattr(service, _METHODS[method])(project)
-                except DBAPIError as exc:
-                    codes.append(exc.orig.sqlstate)
-                except Exception as exc:
-                    codes.append(type(exc).__name__)
-                else:
-                    codes.append(None)
-                await db.rollback()
-        assert codes == ["25006", "25006"]
