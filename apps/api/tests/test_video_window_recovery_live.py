@@ -42,6 +42,10 @@ from tests.test_assets_media_live import (
 from tests.test_inference_routing_video import (
     _verify_restricted_routing_dsn,
 )
+from tests.test_inference_routing_owner_integration import (
+    _start_model_execution_owner,
+    _stop_process as _stop_execution_owner,
+)
 from tests.test_tracker_input_live import (
     _prepared,
     _seed_tracker,
@@ -332,6 +336,8 @@ def _worker_environment(
     media_token: str,
     routing_url: str,
     routing_token: str,
+    execution_url: str,
+    execution_token: str,
 ) -> dict[str, str]:
     source_paths = [
         ROOT / "apps" / "api",
@@ -359,6 +365,9 @@ def _worker_environment(
         "INFERENCE_ROUTING_URL": routing_url,
         "INFERENCE_ROUTING_TOKEN": routing_token,
         "INFERENCE_ROUTING_TOKEN_FILE": "",
+        "INFERENCE_MODEL_EXECUTION_URL": execution_url,
+        "INFERENCE_MODEL_EXECUTION_TOKEN": execution_token,
+        "INFERENCE_MODEL_EXECUTION_TOKEN_FILE": "",
         "ML_BACKEND_ROUTER_MODE": "enforce",
         "ML_BACKEND_ROUTER_LEASE_TTL_SECONDS": "30",
         "ML_BACKEND_ROUTER_HEARTBEAT_INTERVAL_SECONDS": "1",
@@ -544,6 +553,25 @@ async def _wait_backend_idle(backend) -> None:
             await asyncio.sleep(0.025)
 
 
+async def _wait_model_owner_settled(sessions_factory, job_id) -> None:
+    async with asyncio.timeout(20):
+        while True:
+            async with sessions_factory() as db:
+                active = await db.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM "
+                        "aap_inference_routing_v1.attempts AS a "
+                        "JOIN aap_inference_routing_v1.scopes AS s ON s.id=a.scope_id "
+                        "WHERE s.owner=:owner AND a.dispatch_state='started' "
+                        "AND a.state NOT IN ('response', 'reconciled'))"
+                    ),
+                    {"owner": f"tracker:{job_id}"},
+                )
+            if not active:
+                return
+            await asyncio.sleep(0.025)
+
+
 async def _attempt_tracker_run(
     sessions_factory, job_id, *, lose_completion_reply=False
 ) -> None:
@@ -613,6 +641,7 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
         backend_token = f"owned-window-backend-{uuid4().hex}"
         owner_runtime = None
         owner_server = None
+        execution_owner = None
         peer = None
         execution_engine = create_async_engine(legacy_dsn, hide_parameters=True)
         execution_sessions = async_sessionmaker(
@@ -738,6 +767,16 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 assert reconcile.result.phase == "completed"
                 assert reconcile.result.registry_id == registry_id
                 assert backend.controller.phase == "bound"
+                execution_owner, execution_url, execution_token = (
+                    await _start_model_execution_owner(tmp_path, routing_dsn)
+                )
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_url", execution_url
+                )
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_token", execution_token
+                )
+                monkeypatch.setattr(settings, "inference_model_execution_token_file", "")
 
                 peer = _start_runner_peer(
                     job_id,
@@ -747,6 +786,8 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                         media_token=media.token,
                         routing_url=owner_url,
                         routing_token=owner_token,
+                        execution_url=execution_url,
+                        execution_token=execution_token,
                     ),
                 )
 
@@ -1149,6 +1190,9 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 listener.close()
             if peer is not None:
                 _stop_process(peer)
+            if execution_owner is not None:
+                await _wait_model_owner_settled(media.sessions, job_id)
+                await _stop_execution_owner(execution_owner)
             if owner_server is not None:
                 await owner_server.close()
             if owner_runtime is not None:

@@ -36,6 +36,10 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _database_acl,
     _drop_owned_clone,
 )
+from tests.test_inference_routing_owner_integration import (
+    _start_model_execution_owner,
+    _stop_process as _stop_execution_owner,
+)
 from tests.test_tracker_input_live import _prepared, _seed_tracker
 from tests.test_video_restore_native import (
     _command,
@@ -57,6 +61,7 @@ from tests.test_video_window_recovery_live import (
     _wait_backend_idle,
     _wait_entered,
     _wait_first_checkpoint,
+    _wait_model_owner_settled,
     _worker_environment,
 )
 from tests.test_video_input_live import _video_bytes
@@ -73,6 +78,30 @@ _ROUTING_ROLE = "inference_routing_client"
 _RESTORE_ROLE = "video_restore_operator_client"
 _WRITER_ROLE = "labeling_video_writer_client"
 _LEGACY_ROLE = "legacy_runtime"
+
+_EXECUTION_ROLES = (
+    (
+        "AAP_MODULE_DATA_INFERENCE_ENDPOINT_EXECUTION_URL",
+        "inference_endpoint_execution_client",
+        "execution",
+    ),
+    (
+        "AAP_MODULE_DATA_INFERENCE_GPU_URL",
+        "inference_gpu_authority_client",
+        "gpu_authority",
+    ),
+    (
+        "AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL",
+        "inference_gpu_health_endpoint_client",
+        "gpu_health_observation",
+    ),
+    (
+        "AAP_MODULE_DATA_INFERENCE_GPU_CONTROL_ENDPOINT_URL",
+        "inference_gpu_control_endpoint_client",
+        "gpu_control",
+    ),
+    ("AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL", "inference_health_data_client", None),
+)
 
 
 def _clone_role_dsn(environment: str, role: str, database: str) -> str:
@@ -114,6 +143,27 @@ async def _grant_worker_consumers(engine, monkeypatch):
         },
     )
     await _apply_lan_grants(engine, monkeypatch)
+    for _, role, profile in _EXECUTION_ROLES:
+        variables = {
+            "expected_database": engine.url.database,
+            "migration_role": "owner",
+            "inference_owner": "inference_code",
+        }
+        if profile is None:
+            variables["inference_health_data_role"] = role
+            grants = ROOT / "infra/docker/inference-health-data-grants.sql"
+        else:
+            variables.update(client_role=role, profile=profile)
+            grants = ROOT / "infra/docker/inference-owner-grants.sql"
+        _run_psql_file(engine, engine.url.database, grants, variables)
+
+
+async def _start_clone_execution_owner(tmp_path, routing_dsn, database, monkeypatch):
+    tmp_path.mkdir()
+    with monkeypatch.context() as clone_env:
+        for environment, role, _ in _EXECUTION_ROLES:
+            clone_env.setenv(environment, _clone_role_dsn(environment, role, database))
+        return await _start_model_execution_owner(tmp_path, routing_dsn)
 
 
 async def _operator_cli(tmp_path, dsn, *arguments):
@@ -326,6 +376,8 @@ def _worker_env_with_writer(
     media_token: str,
     routing_url: str,
     routing_token: str,
+    execution_url: str,
+    execution_token: str,
     writer_url: str,
 ) -> dict[str, str]:
     environment = _worker_environment(
@@ -334,6 +386,8 @@ def _worker_env_with_writer(
         media_token=media_token,
         routing_url=routing_url,
         routing_token=routing_token,
+        execution_url=execution_url,
+        execution_token=execution_token,
     )
     environment.update(
         {
@@ -395,6 +449,7 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
     source_engine = restored_engine = admin = None
     source_owner_runtime = target_owner_runtime = None
     source_owner_server = target_owner_server = None
+    source_execution_owner = target_execution_owner = None
     source_peer = target_peer = None
     dump = tmp_path / "video-restore-runner.dump"
     listener = None
@@ -611,6 +666,14 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                 assert reconciled.result.phase == "completed"
                 assert backend.controller.phase == "bound"
                 original_incarnation = str(backend.controller.backend_incarnation)
+                source_execution_owner, source_execution_url, source_execution_token = (
+                    await _start_clone_execution_owner(
+                        tmp_path / "source-execution",
+                        source_routing_dsn,
+                        source_database,
+                        monkeypatch,
+                    )
+                )
 
                 source_environment = _worker_env_with_writer(
                     database_url=source_legacy_dsn,
@@ -618,6 +681,8 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                     media_token=source_media.token,
                     routing_url=source_owner_url,
                     routing_token=source_routing_token,
+                    execution_url=source_execution_url,
+                    execution_token=source_execution_token,
                     writer_url=source_writer_dsn,
                 )
                 source_peer = _start_runner_peer(job_id, source_environment)
@@ -849,6 +914,12 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
 
                     backend.release[1].set()
                     await _wait_backend_idle(backend)
+                    await _wait_model_owner_settled(
+                        async_sessionmaker(source_engine, expire_on_commit=False),
+                        job_id,
+                    )
+                    await _stop_execution_owner(source_execution_owner)
+                    source_execution_owner = None
                     completed = await _operator_cli(
                         tmp_path, restore_dsn, "--command-file", str(command_file)
                     )
@@ -890,12 +961,22 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                     target_owner_server, target_owner_url = await _start_routing_owner(
                         target_owner_runtime, target_routing_token
                     )
+                    target_execution_owner, target_execution_url, target_execution_token = (
+                        await _start_clone_execution_owner(
+                            tmp_path / "target-execution",
+                            target_routing_dsn,
+                            restored_database,
+                            monkeypatch,
+                        )
+                    )
                     target_environment = _worker_env_with_writer(
                         database_url=target_legacy_dsn,
                         media_url=target_media.origin,
                         media_token=target_media.token,
                         routing_url=target_owner_url,
                         routing_token=target_routing_token,
+                        execution_url=target_execution_url,
+                        execution_token=target_execution_token,
                         writer_url=target_writer_dsn,
                     )
                     target_peer = _start_runner_peer(job_id, target_environment)
@@ -992,6 +1073,16 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                 asyncio.to_thread(target_peer.wait, timeout=5),
                 return_exceptions=True,
             )
+        if source_execution_owner is not None:
+            await _wait_model_owner_settled(
+                async_sessionmaker(source_engine, expire_on_commit=False), job_id
+            )
+            await _stop_execution_owner(source_execution_owner)
+        if target_execution_owner is not None:
+            await _wait_model_owner_settled(
+                async_sessionmaker(restored_engine, expire_on_commit=False), job_id
+            )
+            await _stop_execution_owner(target_execution_owner)
         if source_owner_server is not None:
             await source_owner_server.close()
         if target_owner_server is not None:
