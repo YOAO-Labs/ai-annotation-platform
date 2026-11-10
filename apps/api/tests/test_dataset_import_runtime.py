@@ -133,24 +133,11 @@ def _start_importer(stack, suffix, *, values=None, mounts=()):
         "--env-file",
         str(path),
     ]
-    diagnostic = os.environ.get("AAP_IMPORT_CAPTURE_DIAGNOSTICS") == "1"
-    if diagnostic:
-        command.extend(
-            [
-                "--mount",
-                f"type=bind,source={Path(__file__).with_name('dataset_import_runtime_diagnostic.py')},"
-                "target=/run/import-diagnostic.py,readonly",
-            ]
-        )
     for source, target in mounts:
         command.extend(
             ["--mount", f"type=bind,source={source},target={target},readonly"]
         )
-    if diagnostic:
-        command.extend([stack.image, "python", "/run/import-diagnostic.py"])
-    else:
-        command.append(stack.image)
-    container = _docker(*command)
+    container = _docker(*command, stack.image)
     stack.containers.append(container)
     return container
 
@@ -251,6 +238,7 @@ async def _import_stack(
     from app.core.security import create_access_token
     from app.db.models.storage_connection import StorageConnection
     from app.deps import get_db
+    from app.services.managed_original_creation import bootstrap as bootstrap_originals
     from app.services.storage import storage_service
     from app.services.system_settings_service import SystemSettingsService
 
@@ -272,6 +260,8 @@ async def _import_stack(
     allowlist = [f"{urlsplit(source_endpoint).hostname}/32"]
     if sftp_host:
         allowlist.append(f"{sftp_host}/32")
+    async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+        await bootstrap_originals(db)
     image, identity = importer_image
     world = await _seed_world(test_engine)
     connection_id = uuid4()
@@ -382,17 +372,6 @@ async def _import_stack(
         app_module.dependency_overrides.update(previous)
         if stack:
             for container in reversed(stack.containers):
-                if os.environ.get("AAP_IMPORT_CAPTURE_DIAGNOSTICS") == "1":
-                    result = subprocess.run(
-                        ["docker", "logs", container],
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                        check=False,
-                    )
-                    for line in (result.stdout + "\n" + result.stderr).splitlines():
-                        if line.startswith("IMPORT_DIAGNOSTIC "):
-                            print(line, flush=True)
                 _stop_remove_container(container, identity)
         await auth_engine.dispose()
         async with world.maker.begin() as db:
