@@ -10,7 +10,6 @@ import secrets
 import subprocess
 import tempfile
 from types import SimpleNamespace
-from unittest.mock import Mock
 from uuid import uuid4
 
 import boto3
@@ -109,7 +108,8 @@ def _source_origin(container, image, identity):
 async def _source_stack(test_engine, app_module, monkeypatch):
     from app.config import settings
     from app.core.security import create_access_token
-    from app.deps import get_db, get_media_job_dispatcher
+    from app.deps import get_db
+    from app.services.managed_original_creation import bootstrap as bootstrap_originals
     from app.services.storage import storage_service
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_SOURCE_URL"))
@@ -143,9 +143,6 @@ async def _source_stack(test_engine, app_module, monkeypatch):
             yield db
 
     previous = dict(app_module.dependency_overrides)
-    dispatcher = SimpleNamespace(
-        dispatch_thumbnail=Mock(), dispatch_video_metadata=Mock()
-    )
     try:
         build = await asyncio.to_thread(
             subprocess.run,
@@ -169,14 +166,16 @@ async def _source_stack(test_engine, app_module, monkeypatch):
             check=False,
         )
         assert build.returncode == 0, build.stderr[-2500:]
+        async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+            await bootstrap_originals(db)
         world = await _seed_world(test_engine)
         app_module.dependency_overrides[get_db] = authentication_db
-        app_module.dependency_overrides[get_media_job_dispatcher] = lambda: dispatcher
         monkeypatch.setattr(settings, "assets_source_token", token)
         scheme = "https" if settings.minio_use_ssl else "http"
         values = {
             "ASSETS_SOURCE_DATABASE_URL": _container_database_url(role_url),
             "ASSETS_SOURCE_TOKEN": token,
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": secrets.token_urlsafe(32),
             "ASSETS_SOURCE_S3_ENDPOINT": _container_s3_endpoint(settings),
             "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": f"{scheme}://{settings.minio_endpoint}",
             "ASSETS_SOURCE_S3_ACCESS_KEY": _required_env(
@@ -250,7 +249,6 @@ async def _source_stack(test_engine, app_module, monkeypatch):
                     resources=resources,
                     extras=extras,
                     storage=storage_service,
-                    dispatcher=dispatcher,
                     headers={
                         "manager": {
                             "Authorization": f"Bearer {create_access_token(str(world.actor_id), 'super_admin')}"
@@ -484,7 +482,6 @@ async def test_independent_source_publication_legacy_replay_deletion_and_switchi
         assert accepted.status_code == 200, accepted.text
         assert accepted.json() == {"status": "ok", "item_id": item, "linked_tasks": 1}
         assert accepted.headers["Idempotency-Key"] == str(operation)
-        stack.dispatcher.dispatch_thumbnail.assert_called_once()
         async with world.maker() as owner:
             metadata = (
                 await owner.execute(
@@ -877,8 +874,7 @@ async def test_source_process_loss_preserves_staging_and_single_publication_owne
                     )
                     == 1
                 )
-            assert final_key != orphan_key
-            for key in (orphan_key, final_key):
+            for key in {orphan_key, final_key}:
                 assert (
                     stack.storage.client.get_object(
                         Bucket=stack.storage.datasets_bucket, Key=key

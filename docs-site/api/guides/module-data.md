@@ -374,6 +374,16 @@ workflow LOGIN 不能领取或确认 outbox，也不能读取其私有表。
 完整 Workspace 和各参与 owner 的工件／凭据继续按台账验收。
 公开来源删除、上传与独立清理见下文；完整模块状态见[模块部署台账](/dev/concepts/module-deployment)。
 
+## Assets 来源写入的事务投影
+
+`read_dataset_source_authority(dataset_id, lock)` 返回数据集 ID、创建者、归档时间、
+生命周期修订和已登记来源保护状态；缺失数据集返回空行。读取上述状态不需要 Dataset
+或来源私表的 SELECT 权限；状态投影不能替代当前身份、管理权限及 API key scope 校验。
+
+`lock=true` 在调用方事务内取得 `FOR NO KEY UPDATE` 行锁，保持到调用方提交或回滚；
+`lock=false` 只读取当前语句可见的状态。函数不自行提交、回滚或关闭连接，两个参数都必须非空。
+ZIP、对象来源和上传工作流仍执行各自的归档、修订及来源管理围栏，不通过补授私表权限绕过准入。
+
 ## Assets 来源删除
 
 `delete_dataset(operation_id, actor_id, dataset_id, cleanup_bucket, audit_context)` 和
@@ -393,8 +403,9 @@ association 的建题。活动导入或不能证明无关的旧导入 scope 返�
 `source_in_use`、`active_learning_reference` 或 `creation_in_progress` 返回 HTTP 409；锁争用为
 `source_busy`，换请求复用操作 ID 为 `operation_conflict`。所有 owner 写入、审计和 Assets 回执与调用方
 提交/回滚一致。原始 source bytes 始终保留；只有 item-owned 金字塔进入精确 outbox。
-REST 两个 DELETE 保持 204 空响应，缺失/父子不匹配为 404。UUID `Idempotency-Key` 可选且成功回传；
-同次重试使用原 key。原生回执允许原 actor 仍活跃时重放，REST 的当前管理员检查继续生效。
+REST 两个 DELETE 保持 204 空响应，缺失/父子不匹配仍为 404。UUID `Idempotency-Key` 可选且成功回传；
+同次重试使用原 key。完整 Dataset 已删除后，只有显式 key 命中同一规范请求的成功回执才可重放，
+不是任意缺失数据集都返回成功；原 actor 仍须活跃，REST 当前管理员和 API key 权限检查继续生效。
 
 ## Assets 暂存上传
 

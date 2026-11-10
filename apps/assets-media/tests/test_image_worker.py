@@ -1258,6 +1258,85 @@ async def test_reconcile_sends_all_candidates_in_bounded_batches():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("unreadable", [False, True])
+async def test_running_child_budget_scan_handles_atomic_publish_without_hiding_io_errors(
+    monkeypatch, tmp_path, unreadable
+):
+    from yoao_assets_images_runtime.processing import CHILD_REQUEST_SCHEMA
+
+    source = tmp_path / "source.png"
+    data = _png_bytes()
+    source.write_bytes(data)
+    transient = tmp_path / "atomic-publish"
+    transient.write_bytes(b"temporary")
+    actual_stat = Path.stat
+
+    def concurrent_stat(path, *args, **kwargs):
+        if path == transient:
+            if unreadable:
+                raise PermissionError("encoder workspace unreadable")
+            transient.unlink()
+        return actual_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", concurrent_stat)
+
+    class Heartbeat:
+        def check(self):
+            return None
+
+    output_dir = tmp_path / "output"
+    output_path = output_dir / "thumbnail.webp"
+    policy = _policy()
+
+    async def encode():
+        return await _run_child(
+            {
+                "schema": CHILD_REQUEST_SCHEMA,
+                "action": "thumbnail",
+                "source_path": str(source),
+                "source_sha256": hashlib.sha256(data).hexdigest(),
+                "expected_dimensions": [4, 2],
+                "policy": policy.model_dump(mode="json"),
+                "deadline": time.monotonic() + 30,
+                "output_path": str(output_path),
+            },
+            workspace=tmp_path,
+            output_dir=output_dir,
+            policy=policy,
+            heartbeat=Heartbeat(),
+        )
+
+    if unreadable:
+        with pytest.raises(ImageFailure, match="encode_failed"):
+            await encode()
+    else:
+        body = await encode()
+        encoded = output_path.read_bytes()
+        assert body["output_sha256"] == hashlib.sha256(encoded).hexdigest()
+        assert body["source_sha256"] == hashlib.sha256(data).hexdigest()
+        with Image.open(io.BytesIO(encoded)) as image:
+            assert image.format == "WEBP"
+            assert image.width == 2 * image.height
+
+
+def test_settled_workspace_scan_rejects_disappearing_files(monkeypatch, tmp_path):
+    from yoao_assets_images_runtime.worker import _directory_size
+
+    transient = tmp_path / "published.webp"
+    transient.write_bytes(b"published")
+    actual_stat = Path.stat
+
+    def concurrent_stat(path, *args, **kwargs):
+        if path == transient:
+            transient.unlink()
+        return actual_stat(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "stat", concurrent_stat)
+    with pytest.raises(ImageFailure, match="encode_failed"):
+        _directory_size(tmp_path, 1024)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("code", ["timeout", "lease_lost"])
 async def test_child_process_group_is_terminated_and_waited_on_timeout_or_lease_loss(
     monkeypatch, tmp_path, code

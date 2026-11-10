@@ -827,6 +827,10 @@ API LaunchAgent只增加`UV_ENV_FILE`路径，仍运行`pnpm dev:api`：先用�
 Guide-only没有Source数据库、Dataset或连接器凭据；S3身份只允许annotation桶
 `projects/*/guide/*`的Get／Put／普通Delete，并显式拒绝版本删除。
 
+当前 Source 源码只接受 `ASSETS_SOURCE_MODE=source`。这里的 Guide-only 是既有固定制品的部署记录，
+不能作为当前 Source 构建能力或本阶段采用资格；不为新导入核验恢复该旧模式，也不给旧 Guide
+装配添加 Source 数据库、导入核验 secret 或兼容回退。
+
 八个服务均健康；日常API的DB／Redis／MinIO健康检查均200。六个实际HTTP端点分别
 拒绝无凭据401及带凭据的畸形请求400。真实Guide provider完成签名PUT、HEAD、GET字节
 比对及普通DELETE；ListBucket、前缀外PUT、版本删除均被拒绝，精确探针对象／版本已清理。

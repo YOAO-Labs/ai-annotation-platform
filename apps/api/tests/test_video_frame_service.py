@@ -338,11 +338,15 @@ async def test_segment_evidence_retains_each_actual_submitter(
     segments = await ensure_segments(db_session, ctx)
     assert len(segments) == 2
 
-    await submit_segment(db_session, ctx, segments[0].id, owner, privileged=True)
+    await submit_segment(
+        db_session, ctx, segments[0].id, owner, privileged=True, task=task
+    )
     assert task.status != "review"
     assert task.annotation_contributor_ids == [str(owner.id)]
     other_ctx = await build_context_from_task(db_session, task, actor_id=other.id)
-    await submit_segment(db_session, other_ctx, segments[1].id, other, privileged=True)
+    await submit_segment(
+        db_session, other_ctx, segments[1].id, other, privileged=True, task=task
+    )
     await db_session.refresh(task)
     assert task.status == "review"
     assert task.review_round_id is not None
@@ -455,8 +459,9 @@ async def test_video_collaboration_scopes_annotation_write_and_read_to_segment(
     assert outside.json()["detail"]["reason"] == "video_geometry_outside_segment"
 
 
+@pytest.mark.parametrize("has_unannotated_task", [False, True])
 async def test_video_collaboration_public_enablement_is_available_for_empty_video_project(
-    committed_owner, fenced_http
+    committed_owner, fenced_http, has_unannotated_task
 ):
     from app.core.security import create_access_token
     from tests.factory import create_user
@@ -477,19 +482,37 @@ async def test_video_collaboration_public_enablement_is_available_for_empty_vide
         tool_bindings=build_tool_bindings(["car"]),
     )
     committed_owner.add(project)
+    await committed_owner.flush()
+    task = None
+    if has_unannotated_task:
+        task = Task(
+            project_id=project.id,
+            display_id=f"T-VFS-{uuid.uuid4().hex[:6]}",
+            file_name="clip.mp4",
+            file_path="videos/clip.mp4",
+            file_type="video",
+            status="pending",
+        )
+        project.total_tasks = 1
+        committed_owner.add(task)
     await committed_owner.commit()
     token = create_access_token(subject=str(user.id), role=user.role)
-    response = await fenced_http.patch(
-        f"/api/v1/projects/{project.id}",
-        headers={"Authorization": f"Bearer {token}"},
-        json={"video_collaboration": {"enabled": True, "overlap_frames": 10}},
-    )
+    try:
+        response = await fenced_http.patch(
+            f"/api/v1/projects/{project.id}",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"video_collaboration": {"enabled": True, "overlap_frames": 10}},
+        )
 
-    assert response.status_code == 200, response.text
-    assert response.json()["video_collaboration"] == {
-        "enabled": True,
-        "overlap_frames": 10,
-    }
+        assert response.status_code == 200, response.text
+        assert response.json()["video_collaboration"] == {
+            "enabled": True,
+            "overlap_frames": 10,
+        }
+    finally:
+        if task is not None:
+            await committed_owner.delete(task)
+            await committed_owner.commit()
 
 
 async def test_video_collaboration_revalidates_tool_binding_updates(
@@ -925,16 +948,19 @@ async def test_video_asset_failures_list_metadata_chunk_and_frame_errors(
 
 
 async def test_video_asset_retry_queues_saved_attempts_for_existing_slots(
-    db_session, httpx_client, super_admin, owned_video_transport
+    db_session, httpx_client, super_admin, owned_video_transport, monkeypatch
 ):
+    monkeypatch.setattr(
+        "app.services.video_derivatives.settings.video_chunk_size_frames", 17
+    )
     user, token = super_admin
     _, item = await _make_video_task(db_session, user.id)
     active = item.video_output_id
     chunk = VideoChunk(
         dataset_item_id=item.id,
         chunk_id=1,
-        start_frame=30,
-        end_frame=59,
+        start_frame=17,
+        end_frame=33,
         status="failed",
         error="chunk failed",
     )
@@ -971,7 +997,7 @@ async def test_video_asset_retry_queues_saved_attempts_for_existing_slots(
             "generate_poster": True,
             "probe_timetable": False,
         },
-        {"kind": "chunk", "chunk_id": 1, "chunk_size_frames": 30},
+        {"kind": "chunk", "chunk_id": 1, "chunk_size_frames": 17},
         {"kind": "frame", "frame_index": 8, "width": 320, "format": "jpeg"},
     ]
     work = []
@@ -1323,6 +1349,9 @@ async def test_video_tracker_job_create_get_cancel(
             headers={"Authorization": f"Bearer {outsider_token}"},
         )
         assert denied.status_code == 404, denied.text
+        # The shared test Session spans requests; a rejected Native command
+        # leaves its transaction to the caller, as the real request scope does.
+        await db_session.rollback()
 
     cancel_resp = await httpx_client.delete(
         f"/api/v1/video-tracker-jobs/{body['id']}",

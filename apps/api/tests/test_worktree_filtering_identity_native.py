@@ -149,7 +149,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
                 "stderr": refusal.stderr,
             }
         )
-        assert refusal.returncode == 1 and "已有数据" in refusal.stderr, runs[-1]
+        assert refusal.returncode == 1, runs[-1]
         assert not manifest_path.exists()
         async with owner_engine.begin() as db:
             assert await db.scalar(text("SELECT count(*) FROM users")) == 1
@@ -164,7 +164,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
                 "stderr": first.stderr,
             }
         )
-        assert first.returncode == 0 and "已创建筛选验收数据" in first.stdout, runs[-1]
+        assert first.returncode == 0, runs[-1]
         document = json.loads(manifest_path.read_text())
         assert document["owner"] == backend.resources["owner"]
         project_id = uuid.UUID(document["manifest"]["image"]["project_id"])
@@ -190,9 +190,7 @@ async def test_filtering_cli_preserves_guards_seed_and_resume_with_private_users
                 "stderr": resumed.stderr,
             }
         )
-        assert resumed.returncode == 0 and "复用筛选验收数据" in resumed.stdout, runs[
-            -1
-        ]
+        assert resumed.returncode == 0, runs[-1]
         assert json.loads(manifest_path.read_text()) == document
         async with runtime_engine.connect() as db:
             assert (

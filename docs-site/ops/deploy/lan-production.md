@@ -127,6 +127,10 @@ Identity 私表及列权限在同一授权事务中撤销，内嵌 API 保留固
 
 应用角色保留本地 API/Celery 适配所需的图片媒体 22 项能力，以及已受理图片输入、清单和 Labeling 引用的 16 项能力。受理图片的后台 sweep、垃圾回收和私有回执/Pin helper 不会授给应用角色。这里的 `asset_cleanup_client` 仅有旧存储删除 outbox 的领取/确认能力；LAN Compose 没有启动独立 `assets-cleanup`。若另行部署清理 overlay，按其 [清理工件说明](../../dev/concepts/module-deployment.md) 单独安装完整角色授权，不要把 overlay 的权限叠加到这个 LAN 配置中。
 
+连接器配置也依赖当前公开的列举、读取、策略、接受快照、观察回执、创建、删除及连通测试能力；
+迁移后须重应用此 profile，而不是给应用角色补私表权限或迁移 owner 凭据。
+来源写入的生命周期和来源保护状态通过有限事务投影读取，行锁仍由原调用方事务持有。
+
 `celery-worker-maintenance` 专门消费 `maintenance` 队列，沿用下面限定维护对象的运行角色权限，不挂载迁移账号 secret。
 
 **运行角色并非纯 DML 账号**：现有月分区任务需要 CREATE/DROP 子分区，PostgreSQL 的统计刷新需要视图所有权和数据库 TEMPORARY 权限。因此它拥有上述限定维护对象及 `public` schema CREATE 权限；其余业务对象仍由迁移角色所有。迁移角色单向继承运行角色，运行角色不能反过来成为迁移角色，也没有集群管理权限。

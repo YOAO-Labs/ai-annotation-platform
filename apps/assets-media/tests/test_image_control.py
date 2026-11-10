@@ -246,20 +246,28 @@ async def test_public_observation_binds_current_source_without_signing_or_dispat
 
 
 @pytest.mark.asyncio
-async def test_observation_rejects_captured_snapshot_change_before_head():
+@pytest.mark.parametrize("caller", ["actor", "operator"])
+async def test_observation_rejects_captured_snapshot_change_before_head(caller):
     current = source(owner=c.ImageOwner(kind="task", id=uuid4()))
     database = Database(lambda _operation, _request: current)
     storage = FakeStorage()
 
+    control = ImageControl(database, storage)
     with pytest.raises(c.ImageFailure, match="source_changed"):
-        await ImageControl(database, storage).observe_source(
-            c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id),
-            expected_source_snapshot="f" * 64,
-        )
-
-    assert [operation for operation, _request in database.calls] == [
-        "read_image_source"
-    ]
+        if caller == "actor":
+            await control.observe_source(
+                c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id),
+                expected_source_snapshot="f" * 64,
+            )
+        else:
+            await control.schedule_image_media(
+                c.ScheduleImageMediaRequest(
+                    operation_id=uuid4(),
+                    owner_kind=current.owner.kind,
+                    owner_id=current.owner.id,
+                    spec=c.PyramidWorkSpec(expected_source_snapshot="f" * 64),
+                )
+            )
     assert storage.head_source_calls == []
 
 

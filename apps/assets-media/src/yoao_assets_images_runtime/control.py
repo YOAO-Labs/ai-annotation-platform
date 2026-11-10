@@ -340,14 +340,19 @@ class ImageControl:
         return await self._observe_internal(request)
 
     async def _observe_internal(
-        self, request: c.InternalImageSourceRequest
+        self,
+        request: c.InternalImageSourceRequest,
+        *,
+        expected_source_snapshot: str | None = None,
     ) -> c.ImageSource:
+        if expected_source_snapshot is None:
+            expected_source_snapshot = request.expected_source_snapshot
         owner_request = c.ResolveInternalImageSourceRequest(
             owner_kind=request.owner.kind, owner_id=request.owner.id
         )
         source = await self._native_call("resolve_internal_image_source", owner_request)
-        if request.expected_source_snapshot is not None and (
-            request.expected_source_snapshot != source.source_snapshot
+        if expected_source_snapshot is not None and (
+            expected_source_snapshot != source.source_snapshot
         ):
             raise c.ImageFailure("source_changed")
         if not source.upload_ready:
@@ -520,8 +525,8 @@ class ImageControl:
         source = await self._observe_internal(
             c.InternalImageSourceRequest(
                 owner=c.ImageOwner(kind=request.owner_kind, id=request.owner_id),
-                expected_source_snapshot=request.spec.expected_source_snapshot,
-            )
+            ),
+            expected_source_snapshot=request.spec.expected_source_snapshot,
         )
         spec = request.spec.model_copy(
             update={

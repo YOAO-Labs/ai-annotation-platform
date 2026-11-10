@@ -10,5 +10,6 @@ extend-exclude = [
 
 [per-file-target-version]
 "apps/api/**" = "py311"
+"apps/assets-media/**" = "py311"
 "packages/python-sdk/**" = "py311"
 "scripts/*.py" = "py311"

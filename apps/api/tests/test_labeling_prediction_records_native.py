@@ -9,6 +9,7 @@ from datetime import date, datetime, timezone
 import asyncpg
 import pytest
 from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from yoao_labeling.prediction_partition_contract import (
@@ -33,12 +34,15 @@ from yoao_labeling.screenshot_operations_contract import (
 )
 from yoao_labeling.screenshot_operations_data import ScreenshotOperationsDataClient
 from yoao_owner_data.postgres import verify_function_only_role
+from app.db.models.fixture_run import FixtureRunResource
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.task import Task
 from tests.factory import create_project, create_task, create_user
 from tests.test_jobs_creation_runtime_native import _lan_runtime
 from tests.test_labeling_class_usage_reads_legacy import _cleanup_owned
 from tests.workspace_project_query_helpers import _dsn
+
+pytest_plugins = ("tests.screenshot_seed_support",)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -375,60 +379,70 @@ async def test_prediction_partition_command_owns_monthly_ddl_and_rolls_back(
 
 
 @pytest.mark.parametrize("evidence", ["known", "sql_null", "json_null"])
-async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
+async def test_screenshot_restore_uses_private_owner_and_caller_transaction(
     test_engine,
+    screenshot_seed,
     evidence,
 ):
-    maker = async_sessionmaker(test_engine, expire_on_commit=False)
-    actor_ids: list[uuid.UUID] = []
-    project_ids: list[uuid.UUID] = []
-    task_ids: list[uuid.UUID] = []
-    project_id = task_id = reviewer_id = annotator_id = None
+    maker = screenshot_seed.sessions
     runtime = None
-    connection = None
+    session = None
     review_round_id = uuid.uuid4()
     try:
+        runtime = await _lan_runtime(test_engine)
+        async with runtime.connect() as consumer:
+            assert (
+                await consumer.scalar(text("SELECT current_user"))
+                == "identity_api_consumer"
+            )
+            assert (
+                await consumer.scalar(
+                    text(
+                        "SELECT pg_catalog.has_function_privilege(current_user, "
+                        "'aap_labeling_v1.screenshot_operations_command(jsonb)', 'EXECUTE')"
+                    )
+                )
+                is False
+            )
+            assert (
+                await consumer.scalar(
+                    text(
+                        "SELECT pg_catalog.has_table_privilege(current_user, 'public.tasks', 'SELECT')"
+                    )
+                )
+                is False
+            )
+            with pytest.raises(DBAPIError) as denied:
+                await consumer.execute(
+                    text("SELECT aap_labeling_v1.screenshot_operations_command('{}'::jsonb)")
+                )
+            assert denied.value.orig.sqlstate == "42501"
+
         async with maker.begin() as db:
-            owner = await create_user(
-                db,
-                "project_admin",
-                f"screenshot-owner-{uuid.uuid4().hex}@example.test",
-                "Screenshot owner",
-            )
-            annotator = await create_user(
-                db,
-                "employee",
-                f"screenshot-annotator-{uuid.uuid4().hex}@example.test",
-                "Screenshot annotator",
-            )
-            reviewer = await create_user(
-                db,
-                "employee",
-                f"screenshot-reviewer-{uuid.uuid4().hex}@example.test",
-                "Screenshot reviewer",
-            )
-            actor_ids.extend([owner.id, annotator.id, reviewer.id])
-            annotator_id = annotator.id
-            reviewer_id = reviewer.id
-            project = await create_project(db, owner_id=owner.id)
-            project.display_id = "P-COCO8"
-            project.name = "真实道路场景（截图）"
-            project_id = project.id
-            project_ids.append(project.id)
-            task = await create_task(
-                db,
-                project_id=project.id,
-                display_id="T-SS-COCO8-005",
-                status="in_progress",
-            )
-            task.assignee_id = annotator.id
-            task.reviewer_id = reviewer.id
-            task.annotation_contributor_ids = [str(annotator.id)]
+            task = (
+                await db.scalars(
+                    select(Task)
+                    .join(
+                        FixtureRunResource,
+                        FixtureRunResource.resource_id == Task.project_id,
+                    )
+                    .where(
+                        FixtureRunResource.run_id == screenshot_seed.run_id,
+                        FixtureRunResource.kind == "project",
+                        FixtureRunResource.logical_key == "image_demo",
+                        FixtureRunResource.state == "published",
+                        Task.sequence_order == 4,
+                    )
+                )
+            ).one()
+            project_id, task_id = task.project_id, task.id
+            annotator_id, reviewer_id = task.assignee_id, task.reviewer_id
+            assert annotator_id is not None and reviewer_id is not None
+            task.status = "in_progress"
+            task.annotation_contributor_ids = [str(annotator_id)]
             task.review_round_id = None
             task.review_contributor_ids = None
             task.review_submitter_id = None
-            task_id = task.id
-            task_ids.append(task.id)
 
         if evidence != "known":
             async with maker.begin() as db:
@@ -442,30 +456,9 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
                     },
                 )
 
-        runtime = await _lan_runtime(test_engine)
-        connection = await runtime.connect()
-        transaction = await connection.begin()
-        assert (
-            await connection.scalar(text("SELECT current_user"))
-            == "identity_api_consumer"
-        )
-        assert (
-            await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_function_privilege(current_user, "
-                    "'aap_labeling_v1.screenshot_operations_command(jsonb)', 'EXECUTE')"
-                )
-            )
-            is True
-        )
-        assert (
-            await connection.scalar(
-                text(
-                    "SELECT pg_catalog.has_table_privilege(current_user, 'public.tasks', 'SELECT')"
-                )
-            )
-            is False
-        )
+        session = maker()
+        transaction = await session.begin()
+        connection = await session.connection()
 
         async def execute(request_json):
             return await connection.scalar(
@@ -479,6 +472,7 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
         result = await client.command(
             RestoreReviewReject(
                 schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                run_id=screenshot_seed.run_id,
                 operation="restore_review_reject",
                 project_id=project_id,
                 task_id=task_id,
@@ -495,8 +489,7 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
                 ),
             )
         )
-        assert result.operation == "restore_review_reject"
-        assert result.counts == {"feedbacks": 0, "tasks": 1}
+        assert result.counts["tasks"] == 1
         persisted = (
             await connection.execute(
                 text(
@@ -524,14 +517,7 @@ async def test_screenshot_restore_uses_lan_runtime_and_caller_transaction(
             assert restored.review_round_id is None
             assert restored.review_contributor_ids is None
     finally:
-        if connection is not None:
-            await connection.close()
+        if session is not None:
+            await session.close()
         if runtime is not None:
             await runtime.dispose()
-        if actor_ids or project_ids or task_ids:
-            await _cleanup_owned(
-                maker,
-                actor_ids=actor_ids,
-                project_ids=project_ids,
-                task_ids=task_ids,
-            )

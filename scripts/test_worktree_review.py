@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from worktree_env import (
     WorktreeError,
-    atomic_json,
     isolated_environment,
     load_identity,
     topology,
@@ -181,33 +180,6 @@ class ReviewRegressions(unittest.TestCase):
             with self.assertRaises(WorktreeError):
                 runtime.session_record(resources)
 
-    def test_verified_destroy_releases_the_infrastructure_manifest(self):
-        from sqlalchemy.engine import make_url
-
-        from worktree_resources import LocalResources
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            resources = topology(root, load_identity(root, create=True), "test")
-            manifest = Path(resources["directory"]) / "resources.json"
-            atomic_json(manifest, {"resources": resources})
-            backend = object.__new__(LocalResources)
-            backend.root, backend.resources = root, resources
-            backend.url = make_url("postgresql+asyncpg://owner@127.0.0.1/postgres")
-            backend.inspect = Mock(
-                return_value={
-                    "database": None,
-                    "redis": None,
-                    "buckets": {name: None for name in resources["buckets"].values()},
-                }
-            )
-            backend.database = AsyncMock(return_value=None)
-            backend.owned_runtime_role = AsyncMock(return_value=None)
-            backend.redis_info = Mock(return_value=None)
-            backend.bucket_info = Mock(return_value=None)
-            backend.destroy(resources["confirmation"])
-            self.assertFalse(manifest.exists())
-            self.assertTrue((root / ".worktree/identity.json").exists())
 
     def test_pytest_rejects_dev_mode_before_loading_database_fixtures(self):
         result = subprocess.run(

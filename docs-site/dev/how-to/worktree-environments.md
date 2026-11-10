@@ -209,6 +209,15 @@ pnpm dev:worktree -- destroy --mode e2e --confirm '<id>:e2e'
 
 销毁会先核对全部归属、连接和角色依赖，再删除本模式数据库及准确匹配的自有账号，不对其他数据库执行 `DROP OWNED`。凭据与目标清单保留到全部资源删除成功，失败后可用原配置重试。创建账号与归属 comment 在同一数据库事务里完成；若事务中断但凭据文件已保存，后续 `init` 复用该密码恢复，不自动轮换现有账号。
 
+共享测试 bootstrap 已明确结束、但原环境仍待回收时，使用原工作树和原配置显式进入退役模式：
+
+```bash
+pnpm dev:worktree -- doctor --mode test --retire-finished-bootstrap
+pnpm dev:worktree -- destroy --mode test --retire-finished-bootstrap --confirm '<id>:test'
+```
+
+该模式要求已保存的 test 资源清单与原 bootstrap 的运行、端点、网络及物理身份完全匹配。它只允许检查和删除原资源，不能初始化、重建、导出应用运行环境、启动 Redis、创建账号或升级 bucket。`--confirm`、活跃会话／读者、未结算责任及归属保护仍然生效；不要改写 owner journal 伪造运行状态，也不能用此选项接管未知环境。普通启动和环境导出仍只接受活跃 bootstrap。
+
 销毁工作树前，分别清理已经使用过的模式。Git/Orca 删除工作树不会自动删除数据库和 bucket。
 
 ## 迁移冲突

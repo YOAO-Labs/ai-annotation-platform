@@ -300,6 +300,9 @@ pnpm dev:worktree -- stop --mode test
 为 `test`，其他命令默认为 `dev`。`stop` 还停止该模式的 Redis，保留数据及 AOF。
 `reset/destroy` 必须提供 `doctor` 显示的精确 `--confirm '<id>:<mode>'`，
 并拒绝有连接或归属不符的资源。不要删除或复制 `.worktree/` 身份目录。
+共享测试 bootstrap 已结束而原 test 资源尚未退役时，`doctor/destroy --mode test`
+可显式使用 `--retire-finished-bootstrap`；这不是重建或忽略归属检查的选项。
+具体前置与命令见[结束引导后的准确退役](docs-site/dev/how-to/worktree-environments.md#诊断停止与重建)。
 
 `--skip-migrations` 只接受已在当前 checkout head 的数据库，不再作为未知 revision
 的逃生开关。直接执行原来的 `dev:api`、pytest 或默认 Compose 不经过这个隔离入口。

@@ -2265,12 +2265,13 @@ async def _prepare_fixture_image_pyramid(
     """Keep the fixture admission until the real image owner completes this pyramid."""
     from app.db.models.fixture_run import FixtureNativeMediaWorkIntent
     from app.services.assets_images import image_gateway, image_policy
-    from scripts.image_media_backfill import accept_image_backfill
     from yoao_assets_images.contract import (
-        ImageBackfillSelection,
         ImageSourceSelector,
+        PyramidWorkSpec,
+        ReadImageSourceRequest,
         ReadImageSummariesRequest,
         ReadInternalImageWorkRequest,
+        ScheduleImageMediaRequest,
     )
 
     intent = FixtureNativeMediaWorkIntent(
@@ -2283,17 +2284,23 @@ async def _prepare_fixture_image_pyramid(
     )
     db.add(intent)
     await db.commit()
-    accepted = await accept_image_backfill(
-        ImageBackfillSelection(
-            owner_kind="dataset_item",
-            owner_ids=[item_id],
-            purpose="pyramid",
-            only_missing=True,
-            accepted_before=datetime.now(timezone.utc),
-        ),
-        operation_id=intent.operation_id,
-        policy=image_policy(),
-    )
+    async with image_gateway() as owner:
+        source = await owner.call(
+            "read_image_source",
+            ReadImageSourceRequest(actor_id=actor_id, dataset_item_id=item_id),
+        )
+        accepted = await owner.call(
+            "schedule_image_media",
+            ScheduleImageMediaRequest(
+                operation_id=intent.operation_id,
+                owner_kind="dataset_item",
+                owner_id=item_id,
+                spec=PyramidWorkSpec(
+                    expected_source_snapshot=source.source_snapshot,
+                    policy=image_policy(),
+                ),
+            ),
+        )
     intent.job_id = accepted.work.job_id
     intent.generation = accepted.work.generation
     intent.state = "admitted"

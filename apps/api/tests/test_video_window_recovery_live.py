@@ -20,6 +20,7 @@ from yoao_assets_video_inputs.tracker import TrackerSourceReferenceRequest
 from yoao_inference.pipeline_server import PipelineHttpServer
 from yoao_inference.routing_runtime import RoutingRuntime
 from yoao_inference_contract.routing import make_routing_command
+from yoao_labeling.video_control_contract import ReadWorkerJob
 from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from fastapi import FastAPI, HTTPException, Request
 import httpx
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.services.ml_backend import MLBackendService
+from app.services.video_tracking.control import video_control_job
 from app.services.video_tracking.execution import TrackerExecutionDeferred
 from app.services.video_tracking.runner import run_tracker_job
 from tests.inference_health_observation_helpers import select_binding
@@ -384,23 +386,33 @@ def _start_runner_peer(job_id, environment: dict[str, str]):
     helper = (
         ROOT / "apps" / "api" / "tests" / "fixtures" / "video_window_runner_peer.py"
     )
-    return subprocess.Popen(
-        [sys.executable, str(helper), str(job_id)],
-        cwd=ROOT,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        start_new_session=True,
+    log_path = Path(os.environ["TMPDIR"]) / (
+        f"tracker-runner-{job_id}-{uuid4().hex}.log"
     )
+    with log_path.open("xb") as log:
+        log_path.chmod(0o600)
+        process = subprocess.Popen(
+            [sys.executable, str(helper), str(job_id)],
+            cwd=ROOT,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+            start_new_session=True,
+        )
+    process.runner_log_path = log_path
+    return process
 
 
 async def _wait_entered(backend, index: int, process) -> None:
     async with asyncio.timeout(30):
         while not backend.entered[index].is_set():
             if process.poll() is not None:
-                pytest.fail("tracker worker exited before the controlled model request")
+                pytest.fail(
+                    f"tracker worker exited with {process.returncode} before "
+                    f"the controlled model request; log: {process.runner_log_path}"
+                )
             await asyncio.sleep(0.025)
 
 
@@ -426,7 +438,10 @@ async def _wait_first_checkpoint(sessions_factory, job_id, process):
     async with asyncio.timeout(15):
         while True:
             if process.poll() is not None:
-                pytest.fail("tracker worker exited before committing its first window")
+                pytest.fail(
+                    f"tracker worker exited with {process.returncode} before "
+                    f"committing its first window; log: {process.runner_log_path}"
+                )
             row = await _first_checkpoint(sessions_factory, job_id)
             if row is not None:
                 return dict(row)
@@ -583,14 +598,16 @@ async def _attempt_tracker_run(
 
                 async def commit_then_lose_reply():
                     nonlocal lost_reply
+                    current = await video_control_job(
+                        db,
+                        ReadWorkerJob(
+                            schema="aap-labeling-video-control/v1",
+                            operation="read_worker_job",
+                            job_id=job_id,
+                        ),
+                    )
                     finishing = (
-                        await db.scalar(
-                            text(
-                                "SELECT status='pending_review' FROM public.video_tracker_jobs WHERE id=:job"
-                            ),
-                            {"job": job_id},
-                        )
-                        is True
+                        current is not None and current.status == "pending_review"
                     )
                     await original_commit()
                     if finishing and not lost_reply:
@@ -1044,12 +1061,15 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                                 {"job": job_id},
                             )
                         ).one()
-                    # A later delivery has a new proof and no old in-memory
-                    # candidates; it inspects the original receipt unchanged.
-                    await _expire_exact_claim(
-                        media.sessions, job_id, expected_generation=3
+                    # Duplicate delivery cannot reopen an already settled
+                    # execution or replace its original writer receipt.
+                    settled_execution = await _snapshot_claim(
+                        media.sessions, job_id
                     )
                     await _attempt_tracker_run(execution_sessions, job_id)
+                    assert await _snapshot_claim(
+                        media.sessions, job_id
+                    ) == settled_execution
                     async with media.sessions() as db:
                         replayed = (
                             await db.execute(

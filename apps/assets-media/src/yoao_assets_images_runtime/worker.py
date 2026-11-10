@@ -1429,7 +1429,7 @@ async def _run_child(
         while not wait_task.done():
             heartbeat.check()
             if (
-                _directory_size(workspace, policy.max_temp_bytes)
+                _directory_size(workspace, policy.max_temp_bytes, child_running=True)
                 > policy.max_temp_bytes
             ):
                 raise ImageFailure("resource_limit")
@@ -1629,7 +1629,9 @@ def _validate_child_tiles(
     return result
 
 
-def _directory_size(directory: Path, limit: int) -> int:
+def _directory_size(
+    directory: Path, limit: int, *, child_running: bool = False
+) -> int:
     total = 0
     try:
         for current, directories, files in os.walk(directory, followlinks=False):
@@ -1639,7 +1641,13 @@ def _directory_size(directory: Path, limit: int) -> int:
                     raise ImageFailure("tile_grid_mismatch")
             for name in files:
                 path = Path(current) / name
-                info = path.stat(follow_symlinks=False)
+                try:
+                    info = path.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    if not child_running:
+                        raise
+                    # libvips atomically publishes temporary tiles during encoding.
+                    continue
                 if not stat.S_ISREG(info.st_mode):
                     raise ImageFailure("tile_grid_mismatch")
                 total += info.st_size

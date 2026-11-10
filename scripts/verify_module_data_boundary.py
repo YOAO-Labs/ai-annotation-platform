@@ -2044,7 +2044,6 @@ TEST_FILES = (
     "tests/test_video_deletion_retirement_bindings.py",
     "tests/test_video_deletion_retirement_http_native.py",
     "tests/test_workspace_dataset_unlink_native.py",
-    "tests/test_labeling_counter_deltas_legacy.py",
     "tests/test_labeling_counter_deltas_native.py",
     "tests/test_labeling_counter_deltas_workflows_native.py",
     "tests/test_workspace_project_facts_legacy.py",

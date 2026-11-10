@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -395,8 +396,24 @@ async def _assert_cleanup_login(test_engine, cleanup_engine, media_bucket: str):
 
 
 def _container_database_url(cleanup_url: URL) -> str:
+    _verify_postgres(cleanup_url)
+    container_id = _required_env("AAP_MODULE_DATA_PG_CONTAINER_ID")
+    container = _inspect_docker(container_id)
+    bridge = container["NetworkSettings"]["Networks"]["bridge"]
+    address = ipaddress.ip_address(bridge["IPAddress"])
+    network = _inspect_docker(bridge["NetworkID"])
+    if (
+        address.version != 4
+        or not address.is_private
+        or network["Id"] != bridge["NetworkID"]
+        or network["Name"] != "bridge"
+        or network["Driver"] != "bridge"
+        or network["Containers"][container_id]["IPv4Address"].split("/", 1)[0]
+        != str(address)
+    ):
+        pytest.fail("PostgreSQL container bridge ownership did not match")
     return cleanup_url.set(
-        drivername="postgresql", host="host.docker.internal"
+        drivername="postgresql", host=str(address), port=5432
     ).render_as_string(hide_password=False)
 
 
