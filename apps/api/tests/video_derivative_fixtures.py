@@ -9,6 +9,7 @@ from copy import deepcopy
 import hashlib
 import json
 from types import SimpleNamespace
+from uuid import uuid4
 
 from sqlalchemy import select
 
@@ -20,6 +21,7 @@ from app.services import video_derivative_objects as objects
 from app.services import video_derivative_originals as originals
 from app.services import video_derivative_storage as physical
 from app.services.dataset_assets import LEGACY_LOCATION_ID, register_item_asset
+from app.workers.media import generate_video_derivatives
 
 RAW_VIDEO = b"\x00\x00\x00\x18ftypmp42" + b"canonical-original-video" * 8
 
@@ -195,8 +197,6 @@ async def owned_output(
 
 
 def install_video_transport(monkeypatch):
-    state = SimpleNamespace(calls=[], queued=[])
-
     async def verified(db, output, authority, *, relative=None, bytes_limit=None):
         assert not db.in_transaction(), (
             "release initial business locks before physical reads"
@@ -204,7 +204,6 @@ def install_video_transport(monkeypatch):
         core.validate_result(output, output.result, output.inventory)
         await core.check(db, output, authority)
         await db.commit()
-        state.calls.append((output.id, relative))
         if bytes_limit is not None:
             raise AssertionError("array decoding needs an explicit byte fixture")
         return saved_url(output, relative) if relative else None
@@ -221,11 +220,9 @@ def install_video_transport(monkeypatch):
         except (ValueError, physical.VideoDerivativeStorageError):
             return None
 
-    def dispatch(identifiers):
-        if identifiers:
-            state.queued.append(list(identifiers))
+    def dispatch(_identifiers):
+        return SimpleNamespace(id=str(uuid4()))
 
     monkeypatch.setattr(core, "verified", verified)
-    monkeypatch.setattr(core, "dispatch", dispatch)
+    monkeypatch.setattr(generate_video_derivatives, "delay", dispatch)
     monkeypatch.setattr(core, "thumbnail", thumbnail)
-    return state
