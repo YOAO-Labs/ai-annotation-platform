@@ -13,6 +13,8 @@ from yoao_assets_source.import_delivery_contract import (
     decode_dataset_import_delivery_claim,
     decode_dataset_import_delivery_completion,
 )
+from tests import test_dataset_import_native as native
+from tests.test_dataset_import_native import import_world as import_world
 
 RUN_NATIVE_CASE = os.environ.get("RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST") == "1"
 
@@ -21,22 +23,33 @@ RUN_NATIVE_CASE = os.environ.get("RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST") == "1"
     not RUN_NATIVE_CASE,
     reason="run after migration 0214 is installed on a disposable PostgreSQL test DB",
 )
-async def test_delivery_lease_uses_wall_clock_inside_held_transactions(test_engine):
-    delivery_id = uuid4()
+async def test_delivery_lease_uses_wall_clock_inside_held_transactions(
+    test_engine, import_world
+):
+    world = import_world
+    connection_id = await native._connection(world)
     job_id = uuid4()
-    target_id = uuid4()
     lease_token = uuid4()
     next_token = uuid4()
-
-    async with test_engine.begin() as connection:
-        await connection.execute(
+    async with world.maker() as db:
+        native._assert_ok(await native._accept(db, world, connection_id, job_id=job_id))
+        await db.commit()
+    async with world.maker() as db:
+        token, _ = await native._claim(db, job_id)
+        native._assert_ok(await native._manifest(db, job_id, token, []))
+        await db.commit()
+    async with world.maker() as db:
+        finished = native._assert_ok(await native._finish(db, job_id, token))
+        assert finished["stage"] == "completed"
+        delivery_id = await db.scalar(
             text(
-                "INSERT INTO public.dataset_import_deliveries "
-                "(id, job_id, kind, target_id) "
-                "VALUES (:id, :job_id, 'thumbnail', :target_id)"
+                "SELECT id FROM public.dataset_import_deliveries "
+                "WHERE job_id = :job AND kind = 'notification'"
             ),
-            {"id": delivery_id, "job_id": job_id, "target_id": target_id},
+            {"job": job_id},
         )
+        assert delivery_id is not None
+        await db.commit()
 
     try:
         async with test_engine.connect() as connection:

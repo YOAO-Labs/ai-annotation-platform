@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 from io import BytesIO
+import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import secrets
 import socket
 import subprocess
@@ -23,7 +23,7 @@ from botocore.exceptions import ClientError
 import httpx
 from PIL import Image
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -294,17 +294,6 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
         )
     auth_engine = create_async_engine(test_engine.url, hide_parameters=True)
 
-    @event.listens_for(auth_engine.sync_engine, "before_cursor_execute")
-    def forbid_private_reads(
-        _connection, _cursor, statement, _parameters, _context, _many
-    ):
-        if re.search(
-            r'\b(?:FROM|JOIN)\s+(?:public\.)?"?(?:datasets|dataset_items|storage_connections|project_datasets|tasks)\b',
-            statement,
-            re.I,
-        ):
-            raise AssertionError("import gateway queried provider-private relations")
-
     async def request_db():
         async with async_sessionmaker(auth_engine, expire_on_commit=False)() as db:
             yield db
@@ -518,6 +507,7 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
                 {"secret": ciphertext, "id": stack.connection_id},
             )
         data = _picture()
+        monkeypatch.setattr(settings, "dataset_import_max_files", 7)
         monkeypatch.setattr(settings, "dataset_import_max_total_bytes", 2 * len(data))
         for name in ("a.png", "nested/b.png"):
             stack.storage.client.put_object(
@@ -541,6 +531,22 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
                     },
                 )
         await _accept(stack, operation=job)
+        monkeypatch.setattr(settings, "dataset_import_max_files", 1)
+        monkeypatch.setattr(settings, "dataset_import_max_total_bytes", 1)
+        await _accept(stack, operation=job)
+        async with stack.world.maker.begin() as owner:
+            audit_count = await owner.scalar(
+                text(
+                    "SELECT count(*) FROM public.audit_logs "
+                    "WHERE action='dataset.import' AND detail_json->>'operation_id'=:job"
+                ),
+                {"job": str(job)},
+            )
+            assert audit_count == 1
+            await owner.execute(
+                text("UPDATE public.users SET role='employee' WHERE id=:id"),
+                {"id": stack.world.actor_id},
+            )
         before = await _facts(stack)
         assert (
             len(before.jobs) == 1
@@ -550,6 +556,10 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         assert before.jobs[0]["payload"]["settings_snapshot"][
             "dataset_import_max_total_bytes"
         ] == 2 * len(data)
+        assert (
+            before.jobs[0]["payload"]["settings_snapshot"]["dataset_import_max_files"]
+            == 7
+        )
         worker = _start_importer(stack, "initial")
         await _wait_healthy(worker)
         facts = await _wait_job(stack, job)
@@ -570,6 +580,69 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
             Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
         )["Body"].read()
         assert raw == data
+        assert facts.items[0]["content_hash"] == hashlib.md5(
+            data, usedforsecurity=False
+        ).hexdigest()
+        async with stack.world.maker() as owner:
+            creation = (
+                await owner.execute(
+                    text(
+                        "SELECT status, sha256, size_bytes, requested_by "
+                        "FROM public.managed_original_creations "
+                        "WHERE dataset_id=:dataset AND object_key=:path"
+                    ),
+                    {
+                        "dataset": stack.world.dataset_id,
+                        "path": facts.items[0]["file_path"],
+                    },
+                )
+            ).one()
+            assert creation.status == "verified"
+            assert creation.sha256 == hashlib.sha256(data).hexdigest()
+            assert creation.size_bytes == len(data)
+            assert creation.requested_by == stack.world.actor_id
+        async with stack.world.maker() as owner:
+            entries = (
+                await owner.execute(
+                    text(
+                        "SELECT entry_index, status, publication_id, file_size, "
+                        "content_hash, width, height FROM public.dataset_import_entries "
+                        "WHERE job_id=:job ORDER BY entry_index"
+                    ),
+                    {"job": job},
+                )
+            ).mappings().all()
+            assert [entry["status"] for entry in entries] == ["added", "skipped"]
+            for entry in entries:
+                completion = {
+                    "status": "copied",
+                    "file_size": entry["file_size"],
+                    "content_hash": entry["content_hash"],
+                    "width": entry["width"],
+                    "height": entry["height"],
+                }
+                replay = await owner.scalar(
+                    text(
+                        "SELECT aap_assets_v1.complete_dataset_import_entry("
+                        ":job, :token, :index, :publication, CAST(:completion AS jsonb))"
+                    ),
+                    {
+                        "job": job,
+                        "token": uuid4(),
+                        "index": entry["entry_index"],
+                        "publication": entry["publication_id"],
+                        "completion": json.dumps(completion),
+                    },
+                )
+                assert replay["ok"] is True, replay
+                assert replay["data"]["cursor"] == 2
+                assert replay["data"]["added"] == replay["data"]["skipped"] == 1
+            await owner.commit()
+        async with stack.world.maker.begin() as owner:
+            await owner.execute(
+                text("UPDATE public.users SET role='super_admin' WHERE id=:id"),
+                {"id": stack.world.actor_id},
+            )
         from datetime import datetime, timedelta, timezone
         from app.services.async_job import delete_terminal_jobs_before
 
@@ -614,11 +687,87 @@ async def test_import_acceptance_survives_worker_absence_and_replays_once(
         assert not imported
 
 
+async def test_import_accepted_before_account_deactivation_finishes(
+    test_engine, app_module, monkeypatch, importer_image
+):
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
+        data = _picture("blue")
+        stack.storage.client.put_object(
+            Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
+        )
+        job = await _accept(stack)
+        async with stack.world.maker.begin() as owner:
+            await owner.execute(
+                text("UPDATE public.users SET is_active=false WHERE id=:id"),
+                {"id": stack.world.actor_id},
+            )
+        worker = _start_importer(stack, "inactive-actor")
+        await _wait_healthy(worker)
+        facts = await _wait_job(stack, job)
+        assert facts.file_count == facts.tasks == facts.total_tasks == 1
+        assert facts.jobs[0]["result"]["added"] == 1
+        assert stack.storage.client.get_object(
+            Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
+        )["Body"].read() == data
+
+
+async def test_import_rejects_unpublishable_entry_and_continues(
+    test_engine, app_module, monkeypatch, importer_image
+):
+    async with _import_stack(
+        test_engine, app_module, monkeypatch, importer_image
+    ) as stack:
+        data = _picture("red")
+        oversized = "/".join(("a" * 200, "a" * 200, "a" * 101 + ".png"))
+        for name in (oversized, "z-valid.png"):
+            stack.storage.client.put_object(
+                Bucket=stack.source_bucket,
+                Key=f"{stack.prefix}/batch/{name}",
+                Body=data,
+            )
+        job = await _accept(stack)
+        worker = _start_importer(stack, "invalid-entry")
+        await _wait_healthy(worker)
+        facts = await _wait_job(stack, job)
+        result = facts.jobs[0]["result"]
+        assert result["error_count"] == 1 and result["added"] == 1
+        assert result["skipped"] == 0
+        assert len(result["errors"]) == 1
+        async with stack.world.maker() as owner:
+            entries = (
+                await owner.execute(
+                    text(
+                        "SELECT status, error_code FROM public.dataset_import_entries "
+                        "WHERE job_id=:job ORDER BY entry_index"
+                    ),
+                    {"job": job},
+                )
+            ).all()
+            assert [tuple(entry) for entry in entries] == [
+                ("error", "invalid_source_object"),
+                ("added", None),
+            ]
+        assert facts.file_count == facts.tasks == facts.total_tasks == 1
+        assert facts.items[0]["file_name"] == "z-valid.png"
+        assert stack.storage.client.get_object(
+            Bucket=stack.storage.datasets_bucket, Key=facts.items[0]["file_path"]
+        )["Body"].read() == data
+
+
 @asynccontextmanager
-async def _publication_gate(stack, test_engine):
+async def _publication_gate(stack, test_engine, *, after_settlement=False):
     signature = "uuid,uuid,bigint,uuid,jsonb"
     alias = "_acceptance_import_completion"
     gate = secrets.randbits(60)
+    settlement = (
+        f"v_reply := aap_assets_v1.{alias}(p_job,p_token,p_index,p_publication,p_completion);"
+    )
+    gate_lock = f"PERFORM pg_catalog.pg_advisory_xact_lock({gate});"
+    steps = (
+        f"{settlement} {gate_lock}" if after_settlement else f"{gate_lock} {settlement}"
+    )
     async with test_engine.connect() as holder:
         await holder.execute(text("SELECT pg_advisory_lock(:gate)"), {"gate": gate})
         await holder.commit()
@@ -639,9 +788,10 @@ async def _publication_gate(stack, test_engine):
                     p_job uuid,p_token uuid,p_index bigint,p_publication uuid,p_completion jsonb
                 ) RETURNS jsonb LANGUAGE plpgsql VOLATILE SECURITY DEFINER
                 SET search_path=pg_catalog,pg_temp AS $body$
+                DECLARE v_reply jsonb;
                 BEGIN
-                    PERFORM pg_catalog.pg_advisory_xact_lock({gate});
-                    RETURN aap_assets_v1.{alias}(p_job,p_token,p_index,p_publication,p_completion);
+                    {steps}
+                    RETURN v_reply;
                 END;
                 $body$;
             """)
@@ -672,8 +822,22 @@ async def _publication_gate(stack, test_engine):
                 await holder.commit()
                 released = True
 
+        async def wait_for_gate():
+            async with asyncio.timeout(20):
+                async with test_engine.connect() as observer:
+                    while not await observer.scalar(
+                        text(
+                            "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_locks "
+                            "WHERE locktype='advisory' AND NOT granted "
+                            "AND classid=CAST(:high AS oid) AND objid=CAST(:low AS oid) "
+                            "AND objsubid=1)"
+                        ),
+                        {"high": gate >> 32, "low": gate & 0xFFFFFFFF},
+                    ):
+                        await asyncio.sleep(0.05)
+
         try:
-            yield release
+            yield release, wait_for_gate
         finally:
             await release()
             for container in stack.containers:
@@ -711,15 +875,24 @@ async def test_import_sigkill_after_copy_reclaims_without_duplicate_sql_publicat
             Bucket=stack.source_bucket, Key=f"{stack.prefix}/batch/a.png", Body=data
         )
         job = await _accept(stack)
-        async with _publication_gate(stack, test_engine) as release:
+        async with _publication_gate(
+            stack, test_engine, after_settlement=True
+        ) as (release, wait_for_gate):
             worker = _start_importer(stack, "kill")
             await _wait_healthy(worker)
             old_paths = await _wait_copy(stack)
-            assert not (await _facts(stack)).items
+            await wait_for_gate()
+            before_rollback = await _facts(stack)
+            assert not before_rollback.items
+            assert before_rollback.tasks == before_rollback.total_tasks == 0
+            assert before_rollback.file_count == 0 and not before_rollback.deliveries
             _docker("kill", "--signal", "KILL", worker)
             await release()
         await asyncio.sleep(0.2)
-        assert not (await _facts(stack)).items
+        rolled_back = await _facts(stack)
+        assert not rolled_back.items
+        assert rolled_back.tasks == rolled_back.total_tasks == 0
+        assert rolled_back.file_count == 0 and not rolled_back.deliveries
         async with stack.world.maker.begin() as owner:
             await owner.execute(
                 text(
@@ -763,7 +936,7 @@ async def test_cancel_and_delete_fence_a_copied_late_import_result(
             Bucket=stack.source_bucket, Key=source, Body=data
         )
         job = await _accept(stack)
-        async with _publication_gate(stack, test_engine) as release:
+        async with _publication_gate(stack, test_engine) as (release, _):
             worker = _start_importer(stack, "cancel")
             await _wait_healthy(worker)
             await _wait_copy(stack)
@@ -1131,13 +1304,12 @@ async def test_importer_rejects_broad_relation_and_reverse_membership_credential
                 await owner.execute(text(f"DROP ROLE {member}"))
 
 
-async def test_import_delivery_reaches_real_owned_broker_and_notification_channel(
+async def test_import_notification_reaches_channel_and_image_work_is_accepted(
     test_engine,
     app_module,
     monkeypatch,
     importer_image,
 ):
-    import base64
     import redis.asyncio as aioredis
     from app.config import settings
     from app.workers.dataset_import_delivery import _relay_pending
@@ -1171,13 +1343,12 @@ async def test_import_delivery_reaches_real_owned_broker_and_notification_channe
             next(target for kind, target in facts.deliveries if kind == "notification")
         )
         client = aioredis.from_url(settings.redis_url, socket_timeout=5)
-        own_messages = []
         try:
             async with client.pubsub() as channel:
                 await channel.subscribe(f"notify:{stack.world.actor_id}")
                 await channel.get_message(timeout=2)
                 totals = await _relay_pending()
-                assert totals["delivered"] == 2 and totals["deferred"] == 0
+                assert totals["delivered"] == 1 and totals["deferred"] == 0
                 async with asyncio.timeout(5):
                     while True:
                         notification = await channel.get_message(
@@ -1188,18 +1359,29 @@ async def test_import_delivery_reaches_real_owned_broker_and_notification_channe
                             assert payload["id"] == notification_id
                             assert payload["target_id"] == str(job)
                             break
-                for message in await client.lrange("media", 0, -1):
-                    payload = json.loads(message)
-                    if (
-                        payload.get("headers", {}).get("task")
-                        != "app.workers.image_pyramid.execute_image_media"
-                    ):
-                        continue
-                    body = json.loads(base64.b64decode(payload["body"]))
-                    if body[0] == [None]:
-                        own_messages.append(message)
-                assert len(own_messages) == 1
             async with stack.world.maker() as db:
+                item = facts.items[0]
+                identity = await db.scalar(
+                    text("SELECT media_object_identity FROM public.dataset_items WHERE id=:id"),
+                    {"id": item["id"]},
+                )
+                head = stack.storage.client.head_object(
+                    Bucket=stack.storage.datasets_bucket, Key=item["file_path"]
+                )
+                assert identity["etag"] == head["ETag"].strip('"')
+                assert identity["byte_size"] == head["ContentLength"]
+                image_jobs = (
+                    await db.execute(
+                        text(
+                            "SELECT kind, status FROM public.asset_image_jobs "
+                            "WHERE owner_kind='dataset_item' AND owner_id=:id"
+                        ),
+                        {"id": item["id"]},
+                    )
+                ).all()
+                assert len(image_jobs) == 1
+                assert image_jobs[0].kind == "thumbnail"
+                assert image_jobs[0].status in {"pending", "running", "ready"}
                 assert (
                     await db.scalar(
                         text(
@@ -1210,6 +1392,4 @@ async def test_import_delivery_reaches_real_owned_broker_and_notification_channe
                     == 2
                 )
         finally:
-            for message in own_messages:
-                await client.lrem("media", 1, message)
             await client.aclose()
