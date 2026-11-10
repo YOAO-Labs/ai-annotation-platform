@@ -89,6 +89,11 @@ from .image_admission import AsyncpgImageAdmissionData
 
 EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
     {
+        "begin_import_original_verification(jsonb)",
+        "record_import_original_read(jsonb,jsonb)",
+        "finish_import_original_verification(jsonb,jsonb)",
+        "recover_import_original_verification(jsonb)",
+        "status_import_original_verification(jsonb)",
         "reserve_dataset_upload(uuid,uuid,uuid,text,text)",
         "lock_dataset_upload(uuid,uuid,uuid)",
         "find_dataset_upload_duplicate(uuid,uuid,uuid,text)",
@@ -1168,6 +1173,28 @@ class SourceDatabase:
                         connection, self._config.max_response_bytes
                     ),
                 )
+
+    async def import_verification(self, operation: str, request: dict | None, result=None) -> dict:
+        statements = {
+            "begin": "SELECT aap_assets_v1.begin_import_original_verification($1::jsonb)",
+            "status": "SELECT aap_assets_v1.status_import_original_verification($1::jsonb)",
+            "record": "SELECT aap_assets_v1.record_import_original_read($1::jsonb,$2::jsonb)",
+            "finish": "SELECT aap_assets_v1.finish_import_original_verification($1::jsonb,$2::jsonb)",
+            "recover": "SELECT aap_assets_v1.recover_import_original_verification($1::jsonb)",
+        }
+        async with self._pool.acquire(timeout=self._config.pool_timeout_seconds) as connection:
+            arguments = (request, result) if operation in {"record", "finish"} else (request,)
+            if operation == "begin":
+                # The insert must not autocommit while admission is cancelled.
+                async with connection.transaction():
+                    raw = await connection.fetchval(statements[operation], *arguments)
+                    payload = _NativeData(connection, self._config.max_response_bytes)._parse_payload(raw)
+            else:
+                raw = await connection.fetchval(statements[operation], *arguments)
+                payload = _NativeData(connection, self._config.max_response_bytes)._parse_payload(raw)
+        if not isinstance(payload, dict):
+            raise SourceFailure("invalid_response")
+        return payload
 
     async def ready(self) -> bool:
         async with self._pool.acquire(

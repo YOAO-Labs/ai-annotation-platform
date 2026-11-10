@@ -341,6 +341,7 @@ async def _complete(
         if error_code is not None
         else {
             "status": "copied",
+            "verification_operation_id": str(uuid.uuid4()),
             "file_size": file_size,
             "content_hash": content_hash,
             "width": 640,

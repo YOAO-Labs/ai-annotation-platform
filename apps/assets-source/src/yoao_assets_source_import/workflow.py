@@ -39,12 +39,12 @@ from yoao_assets_source.import_contract import (
     ImportSourceObject,
     ImportState,
 )
+from yoao_assets_source.import_verification_contract import ImportVerificationRequest
 from yoao_assets_images.contract import ImageFailure, ObjectIdentity
 from yoao_assets_source.managed_original_contract import (
     ManagedOriginalFailure,
     ManagedOriginalFailureEvidence,
     ManagedOriginalMaterial,
-    observed_current_head_match,
 )
 
 from .config import ImportConfig
@@ -54,8 +54,14 @@ from .storage import (
     DestinationWriteError,
     TransferResult,
     SourceReadError,
-    _image_dimensions,
     _object_identity_from_verified,
+)
+from .verification import (
+    ExpectedOriginal,
+    ImportVerifier,
+    VerificationFailed,
+    VerificationRejected,
+    VerificationUnavailable,
 )
 
 logger = logging.getLogger("yoao_assets_source_import.workflow")
@@ -254,6 +260,7 @@ class ImportWorkflow:
         self._database = database
         self._storage = storage
         self._config = config
+        self._verifier = None
         self._shutdown = shutdown or asyncio.Event()
 
     async def run_claimed(self, state: ImportState) -> None:
@@ -474,10 +481,16 @@ class ImportWorkflow:
         byte_budget: int,
     ) -> tuple[ImportEntryCompletion, int, ObjectIdentity | None]:
         attempted = 0
+        written_receipt = None
 
         def count_bytes(amount: int) -> None:
             nonlocal attempted
             attempted += amount
+
+        async def record_written(receipt) -> None:
+            nonlocal written_receipt
+            written_receipt = receipt.evidence()
+            await self._database.original_written(target.creation_id, written_receipt)
 
         stream: Any | None = None
         target: ManagedOriginalMaterial | None = None
@@ -488,12 +501,39 @@ class ImportWorkflow:
                 _original_request(entry, state, byte_budget)
             )
             keeper.check()
-            operation = await self._database.open_operation(target.creation_id)
-            if operation.mode == "read":
+            if target.status in {"written", "verified"}:
+                verification_scope = {
+                    "job_id": str(entry.job_id),
+                    "lease_token": str(entry.lease_token),
+                    "entry_index": entry.index,
+                    "item_id": str(entry.item_id),
+                    "creation_id": str(target.creation_id),
+                }
+                if target.status == "written":
+                    operation = await self._database.resume_original(verification_scope)
+                else:
+                    verification_scope["reservation_id"] = str(uuid4())
+                    for attempt in range(5):
+                        keeper.check()
+                        try:
+                            operation = await self._database.reserve_original_read(verification_scope)
+                            break
+                        except Exception as exc:
+                            if not _transient_database_error(exc):
+                                raise
+                            if attempt == 4:
+                                raise LeaseUnavailable from None
+                            await asyncio.sleep(min(0.1 * (2**attempt), max(0, keeper._remaining_lease())))
+                    else:
+                        raise LeaseUnavailable
+            else:
+                operation = await self._database.open_operation(target.creation_id)
+            if operation.mode == "read" or target.status == "written":
                 result = await self._verified_reuse(target, operation, entry, keeper)
                 return (
                     ImportEntryCompletion(
                         status="copied",
+                        verification_operation_id=operation.operation_id,
                         file_size=result.file_size,
                         content_hash=result.content_hash,
                         width=result.dimensions[0] if result.dimensions else None,
@@ -521,14 +561,9 @@ class ImportWorkflow:
                     on_writing=lambda: self._database.original_writing(
                         target.creation_id
                     ),
-                    on_written=lambda receipt: self._database.original_written(
-                        target.creation_id,
-                        {
-                            "etag": receipt.etag,
-                            "version_id": receipt.version_id,
-                            "request_id": receipt.request_id,
-                            "response": receipt.response,
-                        },
+                    on_written=record_written,
+                    on_verify=lambda expected: self._verify_original(
+                        entry, target, operation, keeper, expected
                     ),
                 )
             except BaseException as exc:
@@ -542,24 +577,10 @@ class ImportWorkflow:
                 keeper.check()
                 if result.object_identity is None:
                     raise ImportFailure("invalid_response")
-            verification = {
-                "sha256": result.proof.sha256,
-                "md5": result.proof.md5,
-                "size_bytes": result.proof.size_bytes,
-                "etag": result.proof.etag,
-                "version_id": result.proof.version_id,
-                "observation": (result.proof.verification or {}).get("observation"),
-                "physical_settled": True,
-            }
-            matched = observed_current_head_match(
-                result.proof.verification, size_bytes=result.proof.size_bytes
-            )
-            if matched is not None:
-                verification["current_head_matches"] = matched
-            await self._database.original_verified(target.creation_id, verification)
             return (
                 ImportEntryCompletion(
                     status="copied",
+                    verification_operation_id=operation.operation_id,
                     file_size=result.file_size,
                     content_hash=result.content_hash,
                     width=result.dimensions[0] if result.dimensions else None,
@@ -569,19 +590,29 @@ class ImportWorkflow:
                 result.object_identity,
             )
         except SourceChangedError as exc:
-            await self._fail_original(target, "write", "source_changed", exc)
+            await self._fail_original(
+                target, "write", "source_changed", exc, written_receipt
+            )
             return _item_error("source_changed"), attempted, None
         except SourceNotFoundError as exc:
-            await self._fail_original(target, "write", "source_not_found", exc)
+            await self._fail_original(
+                target, "write", "source_not_found", exc, written_receipt
+            )
             return _item_error("source_not_found"), attempted, None
         except SourcePathError as exc:
-            await self._fail_original(target, "write", "invalid_source_object", exc)
+            await self._fail_original(
+                target, "write", "invalid_source_object", exc, written_receipt
+            )
             return _item_error("invalid_source_object"), attempted, None
         except SourceReadError as exc:
-            await self._fail_original(target, "write", "source_read_failed", exc)
+            await self._fail_original(
+                target, "write", "source_read_failed", exc, written_receipt
+            )
             return _item_error("source_read_failed"), attempted, None
         except DestinationWriteError as exc:
-            await self._fail_original(target, "write", "destination_write_failed", exc)
+            await self._fail_original(
+                target, "write", "destination_write_failed", exc, written_receipt
+            )
             return _item_error("destination_write_failed"), attempted, None
         except ManagedOriginalFailure as exc:
             logger.info(
@@ -589,7 +620,9 @@ class ImportWorkflow:
                 entry.job_id,
                 exc.code,
             )
-            await self._fail_original(target, "open", "allocation_refused", exc)
+            await self._fail_original(
+                target, "open", "allocation_refused", exc, written_receipt
+            )
             return _item_error("destination_write_failed"), attempted, None
         except (WorkerStopping, LeaseUnavailable, ImportFailure):
             raise
@@ -599,7 +632,9 @@ class ImportWorkflow:
                 entry.job_id,
                 type(exc).__name__,
             )
-            await self._fail_original(target, "write", "source_read_failed", exc)
+            await self._fail_original(
+                target, "write", "source_read_failed", exc, written_receipt
+            )
             return _item_error("source_read_failed"), attempted, None
         finally:
             if stream is not None:
@@ -613,27 +648,27 @@ class ImportWorkflow:
         keeper: LeaseKeeper,
     ):
         """Read back an already verified creation; never claim it again."""
-        if target.sha256 is None or target.size_bytes is None:
+        if (
+            target.sha256 is None
+            or target.size_bytes is None
+            or target.size_bytes != entry.source.size
+        ):
             raise ImportFailure("invalid_response")
-        try:
-            verified = await self._storage.verify(
-                target, sha256=target.sha256, size_bytes=target.size_bytes
-            )
-        except DestinationWriteError as exc:
-            await self._abandon_read_operation(target, operation, exc)
-            raise
-        if verified.sha256 != target.sha256 or verified.size_bytes != target.size_bytes:
-            error = SourceChangedError("verified original no longer matches")
-            await self._abandon_read_operation(target, operation, error)
-            raise error
-        keeper.check()
-        await self._database.close_operation(
-            target.creation_id, operation.operation_id, True
+        verified = await self._verify_original(
+            entry,
+            target,
+            operation,
+            keeper,
+            ExpectedOriginal(
+                sha256=target.sha256,
+                size_bytes=target.size_bytes,
+                etag=target.etag,
+                version_id=target.version_id,
+            ),
         )
+        keeper.check()
         dimensions = (
-            await asyncio.to_thread(_image_dimensions, verified.head_bytes)
-            if entry.file_type == "image"
-            else None
+            (verified.width, verified.height) if verified.width is not None else None
         )
         object_identity = None
         if entry.file_type == "image":
@@ -648,18 +683,40 @@ class ImportWorkflow:
             object_identity=object_identity,
         )
 
-    async def _abandon_read_operation(self, target, operation, exc) -> None:
-        if getattr(exc, "storage_operation_unsettled", False):
-            return
+    async def _verify_original(self, entry, target, operation, keeper, expected):
+        request = ImportVerificationRequest(
+            job_id=entry.job_id,
+            lease_token=entry.lease_token,
+            entry_index=entry.index,
+            item_id=entry.item_id,
+            creation_id=target.creation_id,
+            operation_id=operation.operation_id,
+            mode=operation.mode,
+        )
+        if self._verifier is None:
+            self._verifier = ImportVerifier(self._config)
         try:
-            await self._database.close_operation(
-                target.creation_id, operation.operation_id, True
+            return await self._verifier.verify(
+                request,
+                expected=expected,
+                check=keeper.check,
+                remaining_lease=keeper._remaining_lease,
             )
-        except Exception:
-            logger.warning(
-                "Dataset import read permit close failed creation=%s",
-                target.creation_id,
-            )
+        except BaseException as exc:
+            if operation.mode == "read":
+                try:
+                    await self._database.cancel_unstarted_original_read(
+                        request.model_dump(mode="json")
+                    )
+                except Exception:
+                    logger.warning("Could not settle unstarted import verification job=%s", entry.job_id)
+            if isinstance(exc, VerificationFailed):
+                raise ImportFailure("storage_unavailable") from None
+            if isinstance(exc, VerificationRejected):
+                raise ImportFailure(exc.code) from None
+            if isinstance(exc, VerificationUnavailable):
+                raise LeaseUnavailable from None
+            raise
 
     async def _fail_original(
         self,
@@ -667,11 +724,12 @@ class ImportWorkflow:
         stage: str,
         code: str,
         exc: BaseException,
+        receipt: dict[str, Any] | None = None,
     ) -> None:
         """Record durable failure evidence without inventing a written object."""
         if target is None:
             return
-        evidence = _failure_evidence(stage, exc)
+        evidence = _failure_evidence(stage, exc, receipt=receipt)
         outcome = "unknown" if not evidence["physical_settled"] else "failed"
         try:
             await self._database.fail_original(

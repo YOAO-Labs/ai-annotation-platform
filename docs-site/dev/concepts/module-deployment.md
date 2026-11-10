@@ -146,7 +146,8 @@ Learning 必须收口数据版本、训练、评估、主动学习和模型发�
 | Mask 修复与模型拓扑 Native 能力                                                       | 39 个不同用例在分组运行中通过，覆盖同事务回滚检查点、批次共享限时锁及模型拓扑锁；`bo0386` 迁移往返通过，失败回滚重试、取消及终态保护另有受限账号回归证据                                    |
 | Inference 路由                                                                        | 8 个用例通过；真实 HTTP admission 与受限 PostgreSQL owner，验证指定实例与饱和拒绝                                                                                                           |
 | 模型目录公开入口                                                                      | 实际 Uvicorn HTTP 验证全局／项目目录、匿名拒绝、项目外人员不可见及私有缓存策略；普通运行账号没有项目私表读取权限                                                                            |
-| Source 便携合同                                                                       | 319 个用例通过，包含 ZIP64 和原件核验的当前版本证据边界                                                                                                                                     |
+| Source 便携合同                                                                       | 357 个包用例通过，包含真实回环 HTTP 的损坏／不匹配回执、断连、取消与有限等待；不替代数据库、安装镜像或 S3 资格                                                                              |
+| Source 所属导入核验                                                                   | 两路独立静态审查通过；最终源码按严格七字段内部请求、当前操作回执及最小读取权限整合，安装镜像、原九项导入场景与新增并发／锁／取消、真实 S3 验收尚待完成                                      |
 | NuScenes 原件导入与重放                                                               | 11 个完整导入场景与 8 个事务缓存边界用例通过；同一调用事务的新网关复用核验回执，保存点回滚使回执失效，独立测试资源已销毁                                                                    |
 | 主动学习                                                                              | 71 个用例通过，覆盖预览、创建、接纳、收据恢复、原件变更及有界密钥锁争用                                                                                                                     |
 | 分割学习闭环与原生 Mask 输入                                                          | 23 个用例通过，包含冻结数据、审核结果与再次冻结的业务闭环；不据受控训练执行器声明真实 GPU 训练资格                                                                                          |
@@ -1744,7 +1745,7 @@ Assets 的来源删除命令在当前素材库管理员与来源锁内组合 Lea
 
 `apps/assets-source` 的既有 HTTP runtime 执行单文件上传初始化、发布完成、Dataset/Item 删除、同步 ZIP、旧前缀扫描，以及列表、读取、创建、更新、删除和测试六项连接管理操作。连接管理仍通过 API 原有认证入口；内部 Source 接口接收 API 提供的 actor UUID，并由 Identity 与 Assets 原生能力重新验证活动状态、连接范围和当前权限。`ASSETS_SOURCE_URL` 为空时使用本地 Source 工作流；配置远程 URL 后，远程故障不会回退到本地实现。Source 容器不是默认或生产 Compose 的一部分，按独立工件部署。
 
-Source LOGIN 精确执行 26 项 Assets 能力：14 项既有来源/入库函数、9 项连接管理函数和 3 项图片来源能力（已接受来源解析、受理和旧数据集上传事实读取），不授予业务关系、序列或其他 owner schema 的直接权限。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 为 9 项；两个旧媒体投递 claim/ack 能力只供 API maintenance relay。
+Source LOGIN 精确执行 42 项 Assets 能力：15 项来源/入库、11 项连接相关、3 项图片来源、8 项托管原件和 5 项导入核验能力，不授予业务关系、序列或其他 owner schema 的直接权限。Catalog LOGIN 仍为 29 项，导入执行器 LOGIN 为 18 项；两个媒体投递 claim/ack 能力只供 API maintenance relay。
 
 Assets Media 共用控制 LOGIN 执行 49 项能力（视频 18 项、图片 14 项、图片输入 4 项、图片批量清单 4 项、视频输入 9 项），视频 worker 执行 20 项（既有视频 10 项、视频输入执行 9 项和回收扫描 1 项）；图片执行 worker 使用独立 LOGIN，精确执行 6 项图片及 4 项输入能力。Assets cleanup LOGIN 执行 8 项能力，分别处理通用存储 outbox、图片垃圾、图片输入垃圾和视频输入垃圾。以上受限角色均不获得业务表、列、序列、外部 owner schema 或 DDL 权限。视频输入的原生状态、HTTP、独立执行、证据与回收已完成本地数据库和真实对象存储联调，Node 消费者验证全部十个 HTTP 操作。逐帧业务的受理、覆盖、推理、失败重试及候选采纳已接入固定输入；API/Celery、Media 和 Cleanup 的本地容器链路、固定负载与两类在途交接均已有本地证据；全模块目标继续推进。
 
@@ -1796,7 +1797,7 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 ## 独立连接器导入执行
 
-`yoao_assets_source_import` 消费已接受的导入操作，以七项 execute-only Assets 能力和专用来源发布 S3 身份运行，不依赖 API/Celery/Redis 包。API 的接受/取消适配器使用版本化命令；Jobs、Settings 和 Notifications 的跨 owner 数据只经各自能力传递。
+`yoao_assets_source_import` 消费已接受的导入操作，以 18 项 execute-only Assets 能力和专用来源发布 S3 身份运行，不依赖 API/Celery/Redis 包。API 的接受/取消适配器使用版本化命令；Jobs、Settings 和 Notifications 的跨 owner 数据只经各自能力传递。
 
 冻结清单、租约接替、条件源读取与不可变发布路径，使导入在进程中断后继续已提交进度。Item、Labeling append、计数、游标和派发 outbox 原子提交；显式取消与当前作业状态阻止迟到 I/O 重新建题。后续媒体/通知仍由现有执行方接手，outbox 只保证可恢复派发，不宣称计算完成或 broker 恰好一次。
 

@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "job_id",
+        "lease_token",
+        "entry_index",
+        "item_id",
+        "creation_id",
+        "operation_id",
+        "mode"
+      ],
+      "properties": {
+        "job_id": { "type": "string", "format": "uuid" },
+        "lease_token": { "type": "string", "format": "uuid" },
+        "entry_index": { "type": "integer", "minimum": 0, "maximum": 2147483647 },
+        "item_id": { "type": "string", "format": "uuid" },
+        "creation_id": { "type": "string", "format": "uuid" },
+        "operation_id": { "type": "string", "format": "uuid" },
+        "mode": { "enum": ["write", "read"] }
+      }
+    },
+    "receipt": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha256",
+        "md5",
+        "size_bytes",
+        "etag",
+        "version_id",
+        "observation",
+        "physical_settled"
+      ],
+      "properties": {
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "md5": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "size_bytes": { "type": "integer", "minimum": 0 },
+        "etag": { "type": "string", "minLength": 1, "maxLength": 1024 },
+        "version_id": { "type": ["string", "null"], "minLength": 1, "maxLength": 1024 },
+        "observation": { "type": "object" },
+        "physical_settled": { "const": true },
+        "current_head_matches": { "type": ["boolean", "null"] },
+        "width": { "type": ["integer", "null"], "minimum": 1 },
+        "height": { "type": ["integer", "null"], "minimum": 1 }
+      }
+    },
+    "reply": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["state", "result"],
+      "properties": {
+        "state": {
+          "enum": [
+            "reserved",
+            "pending",
+            "drained",
+            "completed",
+            "failed",
+            "fenced",
+            "cancelled",
+            "missing"
+          ]
+        },
+        "result": { "anyOf": [{ "$ref": "#/$defs/receipt" }, { "type": "null" }] }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "state": { "const": "completed" } } },
+          "then": { "properties": { "result": { "$ref": "#/$defs/receipt" } } },
+          "else": { "properties": { "result": { "type": "null" } } }
+        }
+      ]
+    }
+  },
+  "x-invariants": [
+    "Only the Source service resolves frozen target coordinates and performs the full conditional readback.",
+    "A completed receipt is specific to the accepted job, item, creation, storage operation and current lease.",
+    "A later read operation requires a new readback and cannot reuse an earlier receipt.",
+    "The full verification budget is independent of the Source per-socket timeout.",
+    "Drained evidence is retained before final owner settlement and unstarted read reservations are cancelled atomically.",
+    "The built-in importer principal is write-only; connection-backed targets retain their existing shared principal and may expose its read permissions to the importer."
+  ]
+}

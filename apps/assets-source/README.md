@@ -157,6 +157,7 @@ settings are never fallback sources.
 | ----------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `ASSETS_SOURCE_DATABASE_URL` or `_FILE`                                             | Dedicated PostgreSQL login. Accepts PostgreSQL and `postgresql+asyncpg` URLs.                                            |
 | `ASSETS_SOURCE_TOKEN` or `_FILE`                                                    | At least 32 ASCII non-whitespace characters, shared only with the gateway.                                               |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` or `_FILE`                                      | Dedicated importer-verification bearer; distinct from the gateway token and at least 32 ASCII non-whitespace characters. |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` or `_FILE`                                            | Narrow S3 identity used for staging and publication operations.                                                          |
 | `ASSETS_SOURCE_S3_SECRET_KEY` or `_FILE`                                            | Matching S3 secret.                                                                                                      |
 | `ASSETS_SOURCE_S3_ENDPOINT`                                                         | Internal S3-compatible object endpoint.                                                                                  |
@@ -173,6 +174,7 @@ settings are never fallback sources.
 | `ASSETS_SOURCE_POOL_MIN_SIZE`, `ASSETS_SOURCE_POOL_MAX_SIZE`                        | Bounded asyncpg pool; defaults to 1 and 8.                                                                               |
 | `ASSETS_SOURCE_POOL_TIMEOUT_SECONDS`, `ASSETS_SOURCE_SQL_TIMEOUT_SECONDS`           | Connection and statement bounds.                                                                                         |
 | `ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS`, `ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS` | Bounded object-store calls.                                                                                              |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS`                                       | Full importer-original verification budget, 0.1–600 seconds; default 120.                                                |
 
 Set either a secret value or its `_FILE` path, never both. The Source connector
 key is optional at startup and is separate from `ASSETS_SOURCE_TOKEN`. Use the
@@ -206,16 +208,77 @@ docker build -f apps/assets-source/Dockerfile .
 ## Dataset import worker
 
 `Dockerfile.import` builds a separate worker process, started with
-`python -m yoao_assets_source_import`. It uses its own PostgreSQL LOGIN role,
-which must have execute access to exactly nine Dataset import functions;
-it exposes no HTTP port. Source S3 reads are conditional on the listed ETag,
+`python -m yoao_assets_source_import`. It uses its own PostgreSQL LOGIN role
+with the exact functions in `infra/docker/assets-import-grants.sql`; it exposes
+no HTTP port. Source S3 reads are conditional on the listed ETag,
 SFTP uses known-host verification and checks the listed file identity, and the
 destination client uses only multipart create, part, complete, abort, and empty
 object PUT operations.
 
-Image admission uses the ETag, optional VersionId and measured byte count from
-the successful write receipt. Missing or invalid receipt metadata fails the
-entry; the write-only destination client does not need a subsequent HEAD or GET.
+The importer never reads destination objects. After a conditional write and its
+durable storage-owner receipt, the Source service performs a full, version-pinned
+readback using its own saved target and verifies the frozen SHA-256, MD5 and
+size. Importer authenticates to the two finite verification endpoints with
+`ASSETS_IMPORT_VERIFY_TOKEN`; Source uses the matching
+`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`, which must differ from the gateway token.
+`ASSETS_IMPORT_VERIFY_URL` is the Source origin reachable by the importer.
+The Compose overlays mount separate default files:
+`.secrets/assets-source-import-verify-token` for Source UID 10003 and
+`.secrets/assets-import-verify-token` for Importer UID 10004. Prepare both with
+identical bytes and each runtime's read access; do not broaden file permissions
+to share one path. A Source-only Compose deployment still prepares its mounted
+verification secret, even if no importer is running.
+
+For local Compose, combine both existing overlay files in one project and set
+`ASSETS_IMPORT_VERIFY_URL=http://assets-source:8767`; the default private network
+supplies the service name. A host-loopback published port is not a Source origin
+reachable from the Importer container. See the root `DEV.md` deployment recipe.
+
+Requests name only the accepted job, current lease, entry, item, creation and
+storage operation; Source resolves the target itself. Source's
+`ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` bounds admission and the full read
+independently of its S3 per-socket timeout; the importer retains its own finite
+wait budget. The original Source request retries NOWAIT admission contention
+within that budget and rechecks the exact lease before starting any read.
+Source durably records drained read evidence before final owner settlement.
+An uncertain initial acknowledgement, including a gateway error, damaged reply
+or internally valid receipt that disagrees with the locally frozen original,
+recovers only the exact operation's status; it never reposts verification.
+The importer compares SHA256, size, ETag and version against those frozen facts,
+and also MD5 for a fresh write. These expectations stay local; the Source request
+still has exactly seven identity fields. A mismatching status receipt fails.
+Temporary status disconnections, including a truncated declared-length body,
+and HTTP 502/503/504 remain bounded by the original wait budget and confirmed
+lease. Malformed status framing, including illegal chunk lengths, authoritative
+authentication/request rejection and invalid status contracts fail meaningfully
+instead of repeatedly reclaiming the job.
+A failed HTTP call alone does not settle physical I/O: writes remain owned until proven drained,
+and read reservations close only on proof of being unstarted or fully drained.
+Accepted execution keeps its frozen authority after account deactivation or
+demotion; current lease, cancellation, parent and publication fences still apply.
+The current copied-entry contract is selected by `IMPORT_COMPLETION_SCHEMA_RESOURCE`
+and packaged as `0453_import_original_completion.schema.json`; the earlier SQL
+schema remains a historical migration artifact. Source independently revisits
+drained evidence and stale unstarted read reservations, including after lease
+loss. For a terminal, expired, or superseded import scope whose acknowledged
+write has no Source read receipt, recovery atomically fences late admission and
+settles the exact write permit from its retained write receipt; it neither
+deletes the object nor releases a potentially started read. A Source-owned
+admission identifier lets the original request recover its own uncertain
+pre-read admission after an inner database timeout, within its original budget.
+On cancellation or failure, Source shields settlement of that exact unstarted
+admission; it never settles a different admission or assumes an unclosed read.
+
+For the built-in datasets target, the Source S3 identity needs `s3:GetObject`
+and `s3:GetObjectVersion` on the existing `dataset-sources/*` managed-original
+scope. Connection-backed targets must grant their own configured Source
+credentials the same operations on their saved managed-original scope.
+The built-in importer identity does not receive destination read permissions.
+Connection-backed destinations retain the existing shared connection principal:
+the importer can decrypt those configured credentials for writes, so any read
+permissions already held by that principal are also available to the importer.
+There is no separate external read/write credential boundary in this contract.
+
 Transient `dataset_busy` heartbeats retry the same lease only until its last
 confirmed expiry, including the renewal call itself. Lease loss, cancellation
 and uncertain renewal stop I/O and leave recovery to the lease protocol.

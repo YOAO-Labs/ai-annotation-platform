@@ -4436,6 +4436,17 @@ GRANT EXECUTE ON FUNCTION
     aap_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])
     TO :"jobs_owner";
 GRANT CREATE ON SCHEMA aap_assets_v1 TO :"assets_owner";
+ALTER TABLE aap_assets_v1.import_original_verifications OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_import_original_verification() OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._import_verification_scope(jsonb,boolean) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.reserve_import_original_read(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.cancel_unstarted_import_original_read(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.record_import_original_read(jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.finish_import_original_verification(jsonb,jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.recover_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.status_import_original_verification(jsonb) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.resume_import_original_verification(jsonb) OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.fixture_media_births OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.fixture_native_media_jobs OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_fixture_native_media_job_evidence() OWNER TO :"assets_owner";

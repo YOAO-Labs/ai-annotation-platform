@@ -166,6 +166,8 @@ def _host_allowlist(environment: Mapping[str, str]) -> list[str]:
 class ImportConfig:
     database_url: str
     driver_database_url: str
+    verify_url: str
+    verify_token: str = field(repr=False)
     s3_endpoint: str
     s3_region: str
     s3_access_key: str
@@ -195,6 +197,13 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
     database_url, driver_database_url = _postgres_dsn(source)
     s3_endpoint = _origin(source, "ASSETS_IMPORT_S3_ENDPOINT")
     region = source.get("ASSETS_IMPORT_S3_REGION", "us-east-1").strip()
+    verify_token = _required_secret(source, "ASSETS_IMPORT_VERIFY_TOKEN")
+    if not verify_token.isascii() or len(verify_token) < 32 or any(
+        char.isspace() for char in verify_token
+    ):
+        raise ConfigurationError(
+            "ASSETS_IMPORT_VERIFY_TOKEN must contain 32+ ASCII non-whitespace characters"
+        )
     if not region:
         raise ConfigurationError("ASSETS_IMPORT_S3_REGION must not be empty")
 
@@ -242,6 +251,8 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImportConfig:
     return ImportConfig(
         database_url=database_url,
         driver_database_url=driver_database_url,
+        verify_url=_origin(source, "ASSETS_IMPORT_VERIFY_URL"),
+        verify_token=verify_token,
         s3_endpoint=s3_endpoint,
         s3_region=region,
         s3_access_key=_required_secret(source, "ASSETS_IMPORT_S3_ACCESS_KEY"),

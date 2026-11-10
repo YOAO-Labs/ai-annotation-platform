@@ -2454,9 +2454,9 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-source-grants.sql
 ```
 
-数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 26 项 `aap_assets_v1` 能力：14 项来源/入库、9 项连接管理和 3 项图片来源/作业受理能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器仍使用独立的九函数 LOGIN，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
+数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 42 项 `aap_assets_v1` 能力：15 项来源/入库、11 项连接相关、3 项图片来源/作业受理、8 项托管原件和 5 项导入核验能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器使用独立的 18 项 LOGIN 能力，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
 
-服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
+服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort 与 Source 完整核验所需的 `GetObjectVersion`。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
 
 连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
 
@@ -2501,17 +2501,35 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-import-grants.sql
 ```
 
-连接参数和数据库名须指向选定环境。该账号仅能执行七项导入能力，不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理/取消和派发能力留给 API/维护运行时，不授予导入账号。
+连接参数和数据库名须指向选定环境。该账号仅能执行 18 项导入、托管原件和核验回执消费能力，不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理/取消和派发能力留给 API/维护运行时，不授予导入账号。
 
-准备 `.secrets/assets-import-database-url`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。可用 `.env.example` 中对应的 `_FILE` 变量改路径。目标存储身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用目标凭据。
+准备 `.secrets/assets-import-database-url`、`assets-import-verify-token`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、独立核验令牌、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。Source overlay 另准备 `.secrets/assets-source-import-verify-token`，由用户 10003 读取，与 Importer 核验令牌内容相同但不同于网关令牌；两个进程可各用自己的只读文件，不需要放宽文件权限来共用路径。可用 `.env.example` 中对应的 `_FILE` 变量改路径。内建目标身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用内建目标凭据。
 
-图片身份来自成功的 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；回执缺失或格式无效时保留明确的文件失败。目标只写身份不执行上传后的 HEAD/GET。导入心跳的 `dataset_busy` 重试受最后一次确认的租约到期时间约束，续租调用本身也受该期限限制；无法确认时停止 I/O，保留由后续执行者接管的租约状态。
+图片身份来自成功 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；回执缺失或格式无效时保留明确的文件失败。完整版本回读由 Source 的有限核验通道完成，内建目标的只写 Importer 身份不执行 HEAD／GET。Source 仅在原 datasets `dataset-sources/*` 范围补齐 `GetObjectVersion`，不扩大键范围或给 Importer 增加读取权。外部连接目标沿用同一既有配置身份及其权限，不因此获得读写凭据分离；缺少准确版本读取权限时明确失败。导入心跳的 `dataset_busy` 重试仍受最后一次确认的租约到期时间约束，无法确认时停止 I/O。
 
 显式设置 `ASSETS_IMPORT_S3_ENDPOINT` 和 `ASSETS_IMPORT_DATASETS_BUCKET`。执行器每次读取当前数据库白名单，未覆盖时才用 `CONNECTOR_HOST_ALLOWLIST` 部署默认值；显式空数组全拒。SFTP 需将可信指纹文件路径赋给 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS`；默认示例为空，只支持不依赖 SSH 的来源，未知 SFTP 主机被拒绝。
 
+为完整 Source 配置 `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` 或其 `_FILE`；Importer 使用
+内容相同的 `ASSETS_IMPORT_VERIFY_TOKEN` 或其 `_FILE`，并配置从该进程实际可达的
+`ASSETS_IMPORT_VERIFY_URL`。每项秘密只能选择值或文件，两个核验 token 必须与网关
+`ASSETS_SOURCE_TOKEN` 不同；不要把网关 token 或 Source 的 S3 读取凭据传给 Importer。
+Source 另以 `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` 限制整段原件核验，默认 120 秒、
+上限 600 秒，与单次 S3 socket 超时分开；该预算不放进严格的七字段核验请求。
+先应用当前迁移和角色授权，刷新 Source，再启动导入器。核验回执和状态恢复的边界见
+[来源控制](docs-site/api/guides/assets-source.md#source-所属的导入核验)；健康检查不替代真实核验。
+
+本地同时部署 Source 与 Importer 时，将两个既有 Compose 文件放在同一项目，
+复用默认私网及服务名；宿主机的 `127.0.0.1` 发布地址不能直接当作 Importer 容器的 Source 地址。
+部署在别处时，将下例 origin 改为该 Importer 进程实际可达的受控 Source 地址。
+
 ```bash
-docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml up -d --build
-docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml exec assets-import python -m yoao_assets_source_import --healthcheck
+export ASSETS_IMPORT_VERIFY_URL=http://assets-source:8767
+docker compose -p aap-assets-source-import-dev \
+  -f docker-compose.assets-source.yml -f docker-compose.assets-import.yml \
+  up -d --build assets-source assets-import
+docker compose -p aap-assets-source-import-dev \
+  -f docker-compose.assets-source.yml -f docker-compose.assets-import.yml \
+  exec assets-import python -m yoao_assets_source_import --healthcheck
 ```
 
 该项目不进入默认 Compose，不开放 HTTP 端口，不连接 Redis/Celery。宿主联调可用 `uv run --project apps/assets-source --extra importer python -m yoao_assets_source_import`；`--once` 处理至多一项已受理操作。健康检查验证配置和精确 SQL 权限，不能代替来源连通性或实际对象权限验收。
@@ -2534,7 +2552,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-operator-grants.sql
 ```
 
-`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 26 项、Catalog 的 29 项或导入执行器的 9 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
+`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 42 项、Catalog 的 29 项或导入执行器的 18 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
 
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 

@@ -374,8 +374,6 @@ class _RejectedSourceDatabase:
 
         return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
 
-    async def close_operation(self, creation_id, operation_id, physical_settled):
-        return None
 
     async def original_prepared(self, creation_id, prepared):
         return None
@@ -386,8 +384,6 @@ class _RejectedSourceDatabase:
     async def original_written(self, creation_id, receipt):
         return None
 
-    async def original_verified(self, creation_id, verification):
-        return None
 
     async def fail_original(self, creation_id, outcome, error_code, evidence):
         return None
@@ -474,10 +470,6 @@ class _TransactionRecorder:
 
         return ManagedOriginalOperation(operation_id=uuid4(), mode="write")
 
-    async def close_operation(
-        self, creation_id, operation_id, physical_settled
-    ) -> None:
-        self.originals.append((creation_id, "closed"))
 
     async def original_prepared(self, creation_id, prepared) -> None:
         self.originals.append((creation_id, "prepared"))
@@ -488,8 +480,6 @@ class _TransactionRecorder:
     async def original_written(self, creation_id, receipt) -> None:
         self.originals.append((creation_id, "written"))
 
-    async def original_verified(self, creation_id, verification) -> None:
-        self.originals.append((creation_id, "verified"))
 
     async def fail_original(self, creation_id, outcome, error_code, evidence) -> None:
         self.originals.append((creation_id, outcome))
@@ -535,6 +525,7 @@ async def test_image_admission_failure_rolls_back_item_settlement_and_cursor():
             entry,
             ImportEntryCompletion(
                 status="copied",
+                verification_operation_id=uuid4(),
                 file_size=1,
                 content_hash=hashlib.md5(b"x", usedforsecurity=False).hexdigest(),
             ),
@@ -658,6 +649,7 @@ class _ValidOnlyStorage:
         on_prepared=None,
         on_writing=None,
         on_written=None,
+        on_verify=None,
     ):
         assert entry.source.relpath == "batch/valid.jpg"
         assert target.object_key == entry.file_path
@@ -763,6 +755,7 @@ class _BudgetStorage:
         on_prepared=None,
         on_writing=None,
         on_written=None,
+        on_verify=None,
     ):
         self.budgets.append(byte_budget)
         before_io()

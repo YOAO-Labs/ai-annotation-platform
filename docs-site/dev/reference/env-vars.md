@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-11
 ---
 
 # 环境变量参考
@@ -651,9 +651,11 @@ last_reviewed: 2026-11-06
 | `ASSETS_SOURCE_URL` | `—` | 网关：URL 留空时用本地 Source 工作流；设置 URL 后所有操作都走远程，失败不会回退。 |
 | `ASSETS_SOURCE_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 23 项 Assets 能力（14 项来源/入库 + 9 项连接管理）；Catalog 29 项、导入 LOGIN 7 项各自独立。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source、Catalog 和导入 LOGIN 各自只执行部署 grants 中列明的能力。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` | `—` | 导入核验专用令牌；与网关令牌不同，并与导入进程核验令牌相同。 |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY` | `—` | — |
@@ -678,6 +680,7 @@ last_reviewed: 2026-11-06
 | `ASSETS_SOURCE_SQL_TIMEOUT_SECONDS` | `5` | — |
 | `ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS` | `2` | — |
 | `ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS` | `10` | — |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` | `120` | Source 独立对象完整校验的总时限（秒），不同于单次 S3 socket 超时。 |
 
 ## Assets Source serves dataset/source operations; guide bytes use managed uploads.
 
@@ -689,8 +692,11 @@ last_reviewed: 2026-11-06
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_IMPORT_DATABASE_URL` | `—` | 使用专用七函数 LOGIN 和只写来源前缀的对象身份，无 API/Celery/Redis 配置。 |
+| `ASSETS_IMPORT_DATABASE_URL` | `—` | 内置目标使用专用 LOGIN 和只写原件前缀的对象身份，无 API/Celery/Redis 配置。 |
 | `ASSETS_IMPORT_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_IMPORT_VERIFY_URL` | `—` | Source 核验服务的进程可达 origin 与独立令牌。 |
+| `ASSETS_IMPORT_VERIFY_TOKEN` | `—` | — |
+| `ASSETS_IMPORT_VERIFY_TOKEN_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_SECRET_KEY` | `—` | — |

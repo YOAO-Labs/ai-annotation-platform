@@ -242,6 +242,7 @@ class SourceConfig:
     database_url: str
     driver_database_url: str
     service_token: str
+    import_verify_token: str = field(repr=False)
     s3_endpoint: str
     s3_public_endpoint: str
     s3_region: str
@@ -263,6 +264,7 @@ class SourceConfig:
     sql_timeout_seconds: float
     s3_connect_timeout_seconds: float
     s3_read_timeout_seconds: float
+    import_verify_timeout_seconds: float
     image_policy: ImagePolicy = field(default_factory=ImagePolicy)
     upload_url_expires_seconds: int = 900
     image_header_bytes: int = 256 * 1024
@@ -278,6 +280,19 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
     service_token, host, port, max_request_bytes, max_response_bytes = (
         _common_runtime_settings(source)
     )
+    import_verify_token = _required_secret(source, "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN")
+    try:
+        token_bytes = import_verify_token.encode("ascii")
+    except UnicodeEncodeError as exc:
+        raise ConfigurationError("ASSETS_SOURCE_IMPORT_VERIFY_TOKEN must be ASCII") from exc
+    if (
+        len(token_bytes) < 32
+        or any(chr(byte).isspace() for byte in token_bytes)
+        or import_verify_token == service_token
+    ):
+        raise ConfigurationError(
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN must be distinct and contain 32+ ASCII non-whitespace characters"
+        )
 
     s3_endpoint = _http_origin(source, "ASSETS_SOURCE_S3_ENDPOINT")
     s3_public_endpoint = _http_origin(source, "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT")
@@ -305,6 +320,7 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
         database_url=database_url,
         driver_database_url=driver_database_url,
         service_token=service_token,
+        import_verify_token=import_verify_token,
         s3_endpoint=s3_endpoint,
         s3_public_endpoint=s3_public_endpoint,
         s3_region=region,
@@ -333,6 +349,9 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
         ),
         s3_read_timeout_seconds=_positive_float(
             source, "ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS", "10", maximum=120
+        ),
+        import_verify_timeout_seconds=_positive_float(
+            source, "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS", "120", maximum=600
         ),
         image_policy=image_policy,
     )

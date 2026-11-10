@@ -135,6 +135,17 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
+    "aap_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
+    "aap_assets_v1.reserve_import_original_read(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.cancel_unstarted_import_original_read(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.begin_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.record_import_original_read(jsonb,jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.finish_import_original_verification(jsonb,jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.recover_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.status_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.resume_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)": "0453_import_original_verification.sql",
     "aap_jobs_v1.retire_job_publications(uuid,text[])": "0451_jobs_publication_retirement.sql",
     "aap_inference_routing_v1.video_execution_scope_step(text,text)": "0450_video_candidate_status_restore.sql",
     "aap_jobs_v1._video_restore_route_snapshot(bytea,text)": "0450_video_candidate_status_restore.sql",
@@ -1381,6 +1392,7 @@ JOBS_SQL_ARTIFACTS = (
     "0447_jobs_fixture_media_publication.sql",
     "0451_jobs_publication_retirement.sql",
 )
+ASSETS_SOURCE_SQL_ARTIFACTS = ("0453_import_original_verification.sql",)
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
     "0191_dataset_task_append_contract.sql",
@@ -1788,6 +1800,11 @@ SQL_ARTIFACTS = (
     "0448_fixture_external_pyramid_reuse.sql",
     "0449_image_backfill_purpose.sql",
     "0450_video_candidate_status_restore.sql",
+    *ASSETS_SOURCE_SQL_ARTIFACTS,
+)
+ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
+    "0453_import_original_completion.schema.json",
+    "import_verification_contract.schema.json",
 )
 SCHEMA_ARTIFACTS = (
     "0445_assets_fixture_reader_completion.schema.json",
@@ -1990,6 +2007,7 @@ SCHEMA_ARTIFACTS = (
     "0348_labeling_ai_mask_accept.schema.json",
     "0349_labeling_scene_read.schema.json",
     "0366_audit_fixture_cleanup.schema.json",
+    *ASSETS_SOURCE_SCHEMA_ARTIFACTS,
 )
 TEST_FILES = (
     "tests/test_video_frame_service.py",
@@ -3770,6 +3788,13 @@ def _create_source_storage_scope(scope: dict) -> None:
             },
             {
                 "Effect": "Allow",
+                "Action": ["s3:GetObjectVersion"],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['datasets_bucket']}/dataset-sources/*"
+                ],
+            },
+            {
+                "Effect": "Allow",
                 "Action": ["s3:ListBucket"],
                 "Resource": [f"arn:aws:s3:::{scope['datasets_bucket']}"],
             },
@@ -4053,11 +4078,12 @@ def _assert_psql_permission_denied(
 
 
 def _sql_artifact_path(name: str) -> Path:
-    directory = (
-        ROOT / "apps/jobs/src/yoao_jobs/sql"
-        if name in JOBS_SQL_ARTIFACTS
-        else ROOT / "apps/api/alembic/sql"
-    )
+    if name in JOBS_SQL_ARTIFACTS:
+        directory = ROOT / "apps/jobs/src/yoao_jobs/sql"
+    elif name in ASSETS_SOURCE_SQL_ARTIFACTS:
+        directory = ROOT / "apps/assets-source/src/yoao_assets_source"
+    else:
+        directory = ROOT / "apps/api/alembic/sql"
     return directory / name
 
 
@@ -4075,6 +4101,8 @@ def _installed_function_body_sha256(
         "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
         "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
     }.get(sql_name, sql_name)
+    if signature == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)":
+        base_sql_name = "0214_dataset_import_core.sql"
     source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
     function_name = re.escape(signature.split("(", 1)[0])
     match = re.search(
@@ -4091,6 +4119,8 @@ def _installed_function_body_sha256(
         tags = ("before", "after")
         if sql_name == "0450_video_candidate_status_restore.sql":
             tags += ("guard", "candidates")
+        if sql_name == "0453_import_original_verification.sql":
+            tags += ("fields_before", "fields_after", "validation_before", "validation_after")
         literals = {}
         for tag in tags:
             matches = re.findall(
@@ -4100,6 +4130,9 @@ def _installed_function_body_sha256(
                 raise RuntimeError(f"frozen SQL patch literal is not unique: {sql_name}")
             literals[tag] = matches[0]
         replacements = [(literals["before"], literals["after"])]
+        if "fields_before" in literals:
+            replacements.insert(0, (literals["fields_before"], literals["fields_after"]))
+            replacements.insert(1, (literals["validation_before"], literals["validation_after"]))
         if "guard" in literals:
             replacements.append(
                 (literals["guard"], literals["guard"] + literals["candidates"])
@@ -6239,7 +6272,10 @@ def main(
         )
         artifacts = tuple(_sql_artifact_path(name) for name in SQL_ARTIFACTS)
         schema_paths = tuple(
-            ROOT / "apps/api/alembic/sql" / name for name in SCHEMA_ARTIFACTS
+            (ROOT / "apps/assets-source/src/yoao_assets_source" / name)
+            if name in ASSETS_SOURCE_SCHEMA_ARTIFACTS
+            else (ROOT / "apps/api/alembic/sql" / name)
+            for name in SCHEMA_ARTIFACTS
         )
         if (
             not grants_path.is_file()

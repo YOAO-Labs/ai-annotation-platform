@@ -6,6 +6,7 @@ services:
     environment:
       ASSETS_SOURCE_DATABASE_URL_FILE: /run/secrets/assets_source_database_url
       ASSETS_SOURCE_TOKEN_FILE: /run/secrets/assets_source_token
+      ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE: /run/secrets/assets_source_import_verify_token
       ASSETS_SOURCE_S3_ACCESS_KEY_FILE: /run/secrets/assets_source_s3_access_key
       ASSETS_SOURCE_S3_SECRET_KEY_FILE: /run/secrets/assets_source_s3_secret_key
       ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY: ${ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY:-}
@@ -28,9 +29,11 @@ services:
       ASSETS_SOURCE_SQL_TIMEOUT_SECONDS: ${ASSETS_SOURCE_SQL_TIMEOUT_SECONDS:-5}
       ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS: ${ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS:-2}
       ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS: ${ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS:-10}
+      ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS: ${ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS:-120}
     secrets:
       - assets_source_database_url
       - assets_source_token
+      - assets_source_import_verify_token
       - assets_source_s3_access_key
       - assets_source_s3_secret_key
     extra_hosts:
@@ -64,6 +67,8 @@ secrets:
     file: ${ASSETS_SOURCE_DATABASE_URL_FILE:-./.secrets/assets-source-database-url}
   assets_source_token:
     file: ${ASSETS_SOURCE_TOKEN_FILE:-./.secrets/assets-source-token}
+  assets_source_import_verify_token:
+    file: ${ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE:-./.secrets/assets-source-import-verify-token}
   assets_source_s3_access_key:
     file: ${ASSETS_SOURCE_S3_ACCESS_KEY_FILE:-./.secrets/assets-source-s3-access-key}
   assets_source_s3_secret_key:

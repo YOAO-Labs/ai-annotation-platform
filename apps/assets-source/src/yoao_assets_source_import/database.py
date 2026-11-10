@@ -36,6 +36,9 @@ from .config import ImportConfig
 
 EXPECTED_IMPORT_FUNCTIONS = frozenset(
     {
+        "resume_import_original_verification(jsonb)",
+        "reserve_import_original_read(jsonb)",
+        "cancel_unstarted_import_original_read(jsonb)",
         "claim_dataset_import(uuid,integer,uuid)",
         "heartbeat_dataset_import(uuid,uuid,integer)",
         "read_dataset_import_connection(uuid,uuid,jsonb)",
@@ -50,15 +53,16 @@ EXPECTED_IMPORT_FUNCTIONS = frozenset(
         "record_operator_original_prepared(uuid,jsonb)",
         "mark_operator_original_writing(uuid)",
         "record_operator_original_written(uuid,jsonb)",
-        "record_operator_original_verified(uuid,jsonb)",
         "fail_operator_original(uuid,text,text,jsonb)",
-        "close_operator_storage_operation(uuid,uuid,boolean)",
     }
 )
 
 ROLE_PREFLIGHT_SQL = """
 WITH expected(signature) AS (
     VALUES
+        ('resume_import_original_verification(jsonb)'::text),
+        ('reserve_import_original_read(jsonb)'::text),
+        ('cancel_unstarted_import_original_read(jsonb)'::text),
         ('claim_dataset_import(uuid,integer,uuid)'::text),
         ('heartbeat_dataset_import(uuid,uuid,integer)'::text),
         ('read_dataset_import_connection(uuid,uuid,jsonb)'::text),
@@ -73,9 +77,7 @@ WITH expected(signature) AS (
         ('record_operator_original_prepared(uuid,jsonb)'::text),
         ('mark_operator_original_writing(uuid)'::text),
         ('record_operator_original_written(uuid,jsonb)'::text),
-        ('record_operator_original_verified(uuid,jsonb)'::text),
-        ('fail_operator_original(uuid,text,text,jsonb)'::text),
-        ('close_operator_storage_operation(uuid,uuid,boolean)'::text)
+        ('fail_operator_original(uuid,text,text,jsonb)'::text)
 ),
 expected_oids AS (
     SELECT
@@ -364,7 +366,7 @@ class ImportData:
                 token,
                 index,
                 publication_id,
-                completion.model_dump(mode="json"),
+                completion.model_dump(mode="json", exclude_none=True),
             ),
             ImportState,
         )
@@ -480,6 +482,30 @@ class ImportDatabase:
         )
         return decode_managed_original_reply(raw, ManagedOriginalOperation)
 
+    async def reserve_original_read(self, request: dict[str, Any]) -> ManagedOriginalOperation:
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.reserve_import_original_read($1::jsonb)",
+            (request,),
+        )
+        return decode_managed_original_reply(raw, ManagedOriginalOperation)
+
+    async def cancel_unstarted_original_read(self, request: dict[str, Any]) -> None:
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.cancel_unstarted_import_original_read($1::jsonb)",
+            (request,),
+        )
+        if not isinstance(raw, dict) or raw.get("state") not in {
+            "cancelled", "pending", "drained", "completed", "failed", "fenced"
+        }:
+            raise ImportFailure("invalid_response")
+    async def resume_original(self, request: dict[str, Any]) -> ManagedOriginalOperation:
+        raw = await self._original_reply(
+            "SELECT aap_assets_v1.resume_import_original_verification($1::jsonb)",
+            (request,),
+        )
+        return decode_managed_original_reply(raw, ManagedOriginalOperation)
+
+
     async def original_prepared(
         self, creation_id: UUID, prepared: dict[str, Any]
     ) -> None:
@@ -502,13 +528,6 @@ class ImportDatabase:
             (creation_id, receipt),
         )
 
-    async def original_verified(
-        self, creation_id: UUID, verification: dict[str, Any]
-    ) -> None:
-        await self._original_ok(
-            "SELECT aap_assets_v1.record_operator_original_verified($1::uuid,$2::jsonb)",
-            (creation_id, verification),
-        )
 
     async def fail_original(
         self,
@@ -523,15 +542,6 @@ class ImportDatabase:
             (creation_id, outcome, error_code, evidence),
         )
 
-    async def close_operation(
-        self, creation_id: UUID, operation_id: UUID, physical_settled: bool
-    ) -> None:
-        """Settle only this creation's own read permit after a proven drain."""
-        await self._original_ok(
-            "SELECT aap_assets_v1.close_operator_storage_operation("
-            "$1::uuid,$2::uuid,$3::boolean)",
-            (creation_id, operation_id, physical_settled),
-        )
 
     async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:
         async with self._pool.acquire(

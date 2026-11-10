@@ -221,6 +221,7 @@ async def ordinary_source_stack(test_engine, app_module, monkeypatch, tmp_path):
                 hide_password=False
             ),
             "ASSETS_SOURCE_TOKEN": token,
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": secrets.token_urlsafe(32),
             "ASSETS_SOURCE_S3_ENDPOINT": f"{scheme}://{settings.minio_endpoint}",
             "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": f"{scheme}://{settings.minio_endpoint}",
             "ASSETS_SOURCE_S3_ACCESS_KEY": source_access,

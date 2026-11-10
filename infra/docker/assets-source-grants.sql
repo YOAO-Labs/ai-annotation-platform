@@ -104,6 +104,11 @@ GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_source_role";
 
 -- The runtime can execute only Source and verified-original capabilities.
 GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,text,text),
+    aap_assets_v1.begin_import_original_verification(jsonb),
+    aap_assets_v1.record_import_original_read(jsonb,jsonb),
+    aap_assets_v1.finish_import_original_verification(jsonb,jsonb),
+    aap_assets_v1.recover_import_original_verification(jsonb),
+    aap_assets_v1.status_import_original_verification(jsonb),
     aap_assets_v1.begin_operator_auxiliary(jsonb),
     aap_assets_v1.open_operator_storage_operation(uuid),
     aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
@@ -150,6 +155,11 @@ DECLARE
         WHERE role.rolname = current_setting('aap.asset_source_role')
     );
     allowed_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_import_original_verification(jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.record_import_original_read(jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_import_original_verification(jsonb,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.recover_import_original_verification(jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.status_import_original_verification(jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.begin_operator_auxiliary(jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.open_operator_storage_operation(uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.record_operator_original_prepared(uuid,jsonb)')::oid,

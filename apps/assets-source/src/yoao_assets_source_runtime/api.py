@@ -46,6 +46,7 @@ from yoao_assets_source.connections_contract import (
     UpdateConnectionRequest,
     decode_connection_reply,
 )
+from yoao_assets_source.import_verification_contract import ImportVerificationRequest
 from .runtime import SourceRuntime
 
 logger = logging.getLogger("yoao_assets_source_runtime")
@@ -324,6 +325,24 @@ async def _require_gateway(request: Request) -> None:
         )
 
 
+async def _require_import_verifier(request: Request) -> None:
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, token = authorization.partition(" ")
+    expected = request.app.state.config.import_verify_token
+    if (
+        not separator
+        or scheme.casefold() != "bearer"
+        or not token
+        or not token.isascii()
+        or not hmac.compare_digest(token, expected)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid service credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def create_app(
     *,
     config: SourceConfig | None = None,
@@ -365,6 +384,8 @@ def create_app(
     async def request_validation_handler(
         request: Request, _exc: RequestValidationError
     ) -> JSONResponse:
+        if request.url.path in {"/v1/import/verify", "/v1/import/verify-status"}:
+            return JSONResponse(status_code=400, content={"detail": "Invalid request"})
         if request.url.path in _CONNECTION_PATHS:
             return _connection_failure_response("invalid_request")
         if request.url.path in {_ZIP_UPLOAD_PATH, "/v1/source/scan"}:
@@ -386,6 +407,18 @@ def create_app(
                 detail="Assets source is not ready",
             ) from None
         return {"status": "ready"}
+
+    @app.post("/v1/import/verify", dependencies=[Depends(_require_import_verifier)])
+    async def verify_import(request: Request, body: ImportVerificationRequest) -> dict:
+        return await request.app.state.runtime.verify_import_original(body)
+
+    @app.post(
+        "/v1/import/verify-status", dependencies=[Depends(_require_import_verifier)]
+    )
+    async def verify_import_status(
+        request: Request, body: ImportVerificationRequest
+    ) -> dict:
+        return await request.app.state.runtime.import_verification_status(body)
 
     @app.post("/v1/source/upload-init", dependencies=[Depends(_require_gateway)])
     async def upload_init(request: Request, body: UploadInitRequest) -> Response:

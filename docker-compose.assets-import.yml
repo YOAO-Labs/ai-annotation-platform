@@ -5,6 +5,8 @@ services:
       dockerfile: apps/assets-source/Dockerfile.import
     environment:
       ASSETS_IMPORT_DATABASE_URL_FILE: /run/secrets/assets_import_database_url
+      ASSETS_IMPORT_VERIFY_TOKEN_FILE: /run/secrets/assets_import_verify_token
+      ASSETS_IMPORT_VERIFY_URL: ${ASSETS_IMPORT_VERIFY_URL:?Set the Source verification origin}
       ASSETS_IMPORT_S3_ACCESS_KEY_FILE: /run/secrets/assets_import_s3_access_key
       ASSETS_IMPORT_S3_SECRET_KEY_FILE: /run/secrets/assets_import_s3_secret_key
       CONNECTOR_ENCRYPTION_KEY_FILE: /run/secrets/assets_import_encryption_key
@@ -25,6 +27,7 @@ services:
       ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS: ${ASSETS_IMPORT_SFTP_TIMEOUT_SECONDS:-10}
     secrets:
       - assets_import_database_url
+      - assets_import_verify_token
       - assets_import_s3_access_key
       - assets_import_s3_secret_key
       - assets_import_encryption_key
@@ -53,6 +56,8 @@ services:
 secrets:
   assets_import_database_url:
     file: ${ASSETS_IMPORT_DATABASE_URL_FILE:-./.secrets/assets-import-database-url}
+  assets_import_verify_token:
+    file: ${ASSETS_IMPORT_VERIFY_TOKEN_FILE:-./.secrets/assets-import-verify-token}
   assets_import_s3_access_key:
     file: ${ASSETS_IMPORT_S3_ACCESS_KEY_FILE:-./.secrets/assets-import-s3-access-key}
   assets_import_s3_secret_key:
