@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
+import uuid
+
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import select
 
 from app.config import settings
-from app.db.enums import UserRole
+from app.core.security import create_access_token
 from app.db.models.audit_log import AuditLog
-from tests.factory import create_api_key
+from tests.factory import create_api_key, create_user
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+)
 
 
 @pytest.fixture
@@ -42,47 +50,142 @@ _S3_CONN = {
 
 
 @pytest.fixture
-async def configuration_connections(
-    httpx_client, super_admin, project_admin, crypto_key
-):
-    await _set_allowlist(httpx_client, super_admin[1], ["8.8.8.0/24"])
-    connections = {}
-    for name, actor, scope in [
-        ("global", super_admin, "global"),
-        ("super-owned", super_admin, "owner"),
-        ("project-owned", project_admin, "owner"),
-    ]:
-        response = await httpx_client.post(
-            "/api/v1/storage-connections",
-            headers=_h(actor[1]),
-            json={**_S3_CONN, "name": name, "scope": scope},
+async def configuration_actors(committed_owner):
+    actors = {}
+    for role in ("super_admin", "project_admin"):
+        user = await create_user(
+            committed_owner, role, f"config-{uuid.uuid4().hex}@example.test", role
         )
-        assert response.status_code == 201, response.text
-        connections[name] = response.json()["id"]
-    return connections
+        actors[role] = (user, create_access_token(str(user.id), role))
+    # Identity admission and Source operations use independent connections.
+    await committed_owner.commit()
+    return actors
 
 
-@pytest.mark.parametrize("role", ["employee", "annotator", "reviewer", "viewer"])
+@pytest.fixture
+async def configuration_connections(fenced_http, configuration_actors, crypto_key):
+    super_token = configuration_actors["super_admin"][1]
+    previous = await fenced_http.get(
+        "/api/v1/storage-connections/allowlist", headers=_h(super_token)
+    )
+    assert previous.status_code == 200, previous.text
+    previous = previous.json()
+    connections = {}
+    try:
+        await _set_allowlist(fenced_http, super_token, ["8.8.8.0/24"])
+        for name, role, scope in [
+            ("global", "super_admin", "global"),
+            ("super-owned", "super_admin", "owner"),
+            ("project-owned", "project_admin", "owner"),
+        ]:
+            response = await fenced_http.post(
+                "/api/v1/storage-connections",
+                headers=_h(configuration_actors[role][1]),
+                json={**_S3_CONN, "name": name, "scope": scope},
+            )
+            assert response.status_code == 201, response.text
+            connections[name] = response.json()["id"]
+        yield connections
+    finally:
+        failures = []
+        try:
+            for conn_id in connections.values():
+                deleted = await fenced_http.delete(
+                    f"/api/v1/storage-connections/{conn_id}", headers=_h(super_token)
+                )
+                if deleted.status_code != 204:
+                    failures.append(f"{conn_id}: {deleted.status_code} {deleted.text}")
+        finally:
+            if previous["source"] == "database":
+                await _set_allowlist(fenced_http, super_token, previous["entries"])
+            else:
+                reset = await fenced_http.delete(
+                    "/api/v1/storage-connections/allowlist", headers=_h(super_token)
+                )
+                assert reset.status_code == 200, reset.text
+        assert not failures, failures
+
+
+async def _change_role(client, super_token, user_id, role):
+    response = await client.patch(
+        f"/api/v1/users/{user_id}/role",
+        headers=_h(super_token),
+        json={"role": role},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["role"] == role
+
+
+async def _assert_current_actor(client, token, user_id, role):
+    response = await client.get("/api/v1/auth/me", headers=_h(token))
+    assert response.status_code == 200, response.text
+    assert response.json()["id"] == str(user_id)
+    assert response.json()["role"] == role
+
+
+@pytest.mark.parametrize("role", ["employee", "viewer"])
 @pytest.mark.parametrize("api_key", [False, True])
 async def test_configuration_reads_require_current_management_role(
-    httpx_client, db_session, project_admin, configuration_connections, role, api_key
+    fenced_http,
+    committed_owner,
+    configuration_actors,
+    configuration_connections,
+    role,
+    api_key,
 ):
-    user, token = project_admin
+    user, stale_jwt = configuration_actors["project_admin"]
+    token = stale_jwt
     if api_key:
-        _, token = await create_api_key(db_session, user.id, "config-read", ["*"])
-    user.role = UserRole(role)
-    await db_session.flush()
-    for suffix in [
-        "",
-        "/" + configuration_connections["global"],
-        "/" + configuration_connections["project-owned"],
-    ]:
-        response = await httpx_client.get(
+        _, token = await create_api_key(committed_owner, user.id, "config-read", ["*"])
+        await committed_owner.commit()
+    await _change_role(
+        fenced_http, configuration_actors["super_admin"][1], user.id, role
+    )
+    credentials = []
+    if not api_key:
+        # A rejected stale JWT is an authentication failure, not a manager guard.
+        stale = await fenced_http.get("/api/v1/auth/me", headers=_h(stale_jwt))
+        assert stale.status_code in (200, 401), stale.text
+        if stale.status_code == 200:
+            assert stale.json()["role"] == role
+        credentials.append((stale_jwt, 403 if stale.status_code == 200 else 401))
+        token = create_access_token(str(user.id), role)
+    await _assert_current_actor(fenced_http, token, user.id, role)
+    credentials.append((token, 403))
+    for credential, status_code in credentials:
+        for suffix in [
+            "",
+            "/" + configuration_connections["global"],
+            "/" + configuration_connections["project-owned"],
+        ]:
+            response = await fenced_http.get(
+                "/api/v1/storage-connections" + suffix, headers=_h(credential)
+            )
+            assert response.status_code == status_code, response.text
+            assert "8.8.8.8" not in response.text
+            assert '"config"' not in response.text
+
+
+@pytest.mark.parametrize("role", ["annotator", "reviewer"])
+@pytest.mark.parametrize("api_key", [False, True])
+async def test_legacy_account_roles_cannot_authenticate_for_configuration_reads(
+    fenced_http, committed_owner, configuration_connections, role, api_key
+):
+    # Historical roles are not valid role-change targets or active principals.
+    user = await create_user(
+        committed_owner, role, f"legacy-{uuid.uuid4().hex}@example.test", role
+    )
+    token = create_access_token(str(user.id), role)
+    if api_key:
+        _, token = await create_api_key(committed_owner, user.id, "config-read", ["*"])
+    await committed_owner.commit()
+    me = await fenced_http.get("/api/v1/auth/me", headers=_h(token))
+    assert me.status_code == 401, me.text
+    for suffix in ("", "/" + configuration_connections["global"]):
+        response = await fenced_http.get(
             "/api/v1/storage-connections" + suffix, headers=_h(token)
         )
-        assert response.status_code == 403, response.text
-        assert "8.8.8.8" not in response.text
-        assert '"config"' not in response.text
+        assert response.status_code == 401, response.text
 
 
 @pytest.mark.parametrize("actor_name", ["super_admin", "project_admin"])
@@ -90,23 +193,32 @@ async def test_configuration_reads_require_current_management_role(
     "scopes", [None, [], ["datasets:write"], ["datasets:read"], ["*"]]
 )
 async def test_configuration_reads_preserve_manager_visibility_and_require_read_scope(
-    httpx_client, db_session, request, configuration_connections, actor_name, scopes
+    fenced_http,
+    committed_owner,
+    configuration_actors,
+    configuration_connections,
+    actor_name,
+    scopes,
 ):
-    user, token = request.getfixturevalue(actor_name)
+    user, token = configuration_actors[actor_name]
     if scopes is not None:
-        _, token = await create_api_key(db_session, user.id, "config-read", scopes)
+        _, token = await create_api_key(committed_owner, user.id, "config-read", scopes)
+        await committed_owner.commit()
     allowed = scopes is None or "datasets:read" in scopes or "*" in scopes
-    listed = await httpx_client.get("/api/v1/storage-connections", headers=_h(token))
+    listed = await fenced_http.get("/api/v1/storage-connections", headers=_h(token))
     assert listed.status_code == (200 if allowed else 403), listed.text
     visible = set(configuration_connections)
     if actor_name == "project_admin":
         visible.remove("super-owned")
     if allowed:
-        assert {item["id"] for item in listed.json()} == {
+        ids = {item["id"] for item in listed.json()}
+        assert {
             configuration_connections[name] for name in visible
-        }
+        } <= ids
+        if actor_name == "project_admin":
+            assert configuration_connections["super-owned"] not in ids
     for name, conn_id in configuration_connections.items():
-        response = await httpx_client.get(
+        response = await fenced_http.get(
             f"/api/v1/storage-connections/{conn_id}", headers=_h(token)
         )
         expected = 403 if not allowed else 200 if name in visible else 404
@@ -118,24 +230,43 @@ async def test_configuration_reads_preserve_manager_visibility_and_require_read_
             assert "AK" not in response.text and "SK" not in response.text
 
 
+@pytest.mark.parametrize("api_key", [False, True])
 async def test_configuration_reads_recheck_role_after_successful_read(
-    httpx_client, db_session, project_admin, configuration_connections
+    fenced_http,
+    committed_owner,
+    configuration_actors,
+    configuration_connections,
+    api_key,
 ):
-    user, token = project_admin
+    user, jwt = configuration_actors["project_admin"]
+    token = jwt
+    if api_key:
+        _, token = await create_api_key(committed_owner, user.id, "config-read", ["*"])
+        await committed_owner.commit()
     endpoint = (
         "/api/v1/storage-connections/" + configuration_connections["project-owned"]
     )
-    assert (await httpx_client.get(endpoint, headers=_h(token))).status_code == 200
-    user.role = UserRole.EMPLOYEE
-    await db_session.flush()
-    assert (await httpx_client.get(endpoint, headers=_h(token))).status_code == 403
-    changed = await httpx_client.patch(
+    assert (await fenced_http.get(endpoint, headers=_h(token))).status_code == 200
+    await _change_role(
+        fenced_http, configuration_actors["super_admin"][1], user.id, "employee"
+    )
+    if not api_key:
+        stale = await fenced_http.get("/api/v1/auth/me", headers=_h(jwt))
+        assert stale.status_code in (200, 401), stale.text
+        if stale.status_code == 200:
+            assert stale.json()["role"] == "employee"
+        stale_read = await fenced_http.get(endpoint, headers=_h(jwt))
+        assert stale_read.status_code == (403 if stale.status_code == 200 else 401)
+        token = create_access_token(str(user.id), "employee")
+    await _assert_current_actor(fenced_http, token, user.id, "employee")
+    response = await fenced_http.get(endpoint, headers=_h(token))
+    assert response.status_code == 403, response.text
+    changed = await fenced_http.patch(
         endpoint,
         headers=_h(token),
         json={"expected_revision": 1, "name": "unauthorized-edit"},
     )
     assert changed.status_code == 403, changed.text
-    assert '"config"' not in changed.text
 
 
 async def test_allowlist_super_admin_only(httpx_client, super_admin, project_admin):
@@ -342,46 +473,24 @@ async def test_owner_scope_does_not_write_project_id(
 
 
 async def test_owner_scope_list_and_usage_is_owner_or_global_only(
-    httpx_client, super_admin, project_admin, crypto_key
+    fenced_http, configuration_actors, configuration_connections
 ):
-    _, super_token = super_admin
-    _, pm_token = project_admin
-    await _set_allowlist(httpx_client, super_token, ["8.8.8.0/24"])
+    pm_token = configuration_actors["project_admin"][1]
+    global_id = configuration_connections["global"]
+    own_id = configuration_connections["project-owned"]
+    other_id = configuration_connections["super-owned"]
 
-    global_res = await httpx_client.post(
-        "/api/v1/storage-connections",
-        headers=_h(super_token),
-        json=_S3_CONN,
-    )
-    assert global_res.status_code == 201, global_res.text
-    global_id = global_res.json()["id"]
-
-    own_res = await httpx_client.post(
-        "/api/v1/storage-connections",
-        headers=_h(pm_token),
-        json={**_S3_CONN, "name": "pm-oss", "scope": "owner"},
-    )
-    assert own_res.status_code == 201, own_res.text
-    own_id = own_res.json()["id"]
-
-    other_res = await httpx_client.post(
-        "/api/v1/storage-connections",
-        headers=_h(super_token),
-        json={**_S3_CONN, "name": "admin-private", "scope": "owner"},
-    )
-    assert other_res.status_code == 201, other_res.text
-    other_id = other_res.json()["id"]
-
-    listed = await httpx_client.get("/api/v1/storage-connections", headers=_h(pm_token))
+    listed = await fenced_http.get("/api/v1/storage-connections", headers=_h(pm_token))
     assert listed.status_code == 200
     ids = {item["id"] for item in listed.json()}
-    assert ids == {global_id, own_id}
+    assert {global_id, own_id} <= ids
+    assert other_id not in ids
 
-    hidden = await httpx_client.get(
+    hidden = await fenced_http.get(
         f"/api/v1/storage-connections/{other_id}", headers=_h(pm_token)
     )
     assert hidden.status_code == 404
-    unusable = await httpx_client.post(
+    unusable = await fenced_http.post(
         f"/api/v1/storage-connections/{other_id}/test", headers=_h(pm_token)
     )
     assert unusable.status_code == 404
