@@ -1813,10 +1813,11 @@ async def test_source_recovers_drained_original_without_old_publication_authorit
 async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
     test_engine, app_module, monkeypatch, importer_image, first_outcome
 ):
-    from yoao_assets_images.policy import image_policy_from_environment
+    from yoao_assets_source.import_contract import ImportEntryCompletion, ImportFailure
     from yoao_assets_source.import_verification_contract import ImportVerificationResult
+    from yoao_assets_source_import.config import load_config
+    from yoao_assets_source_import.database import ImportDatabase
     from yoao_assets_source_import.storage import _object_identity_from_verified
-    from yoao_assets_source_runtime.image_admission import AsyncpgImageAdmissionData, ImageAdmission
 
     async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
         data = _picture("green")
@@ -1984,40 +1985,42 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                         ]},
                     ) == 0
                 result = by_lease[new_token]["evidence"]["result"]
-                completion = {
-                    "status": "copied", "verification_operation_id": str(written["operation_id"]),
-                    "file_size": result["size_bytes"], "content_hash": result["md5"],
-                    "width": result["width"], "height": result["height"],
-                }
-                async with restricted.begin() as client:
-                    published = await client.scalar(
-                        text(
-                            "SELECT aap_assets_v1.complete_dataset_import_entry("
-                            ":job,:token,:index,:publication,CAST(:completion AS jsonb))"
-                        ),
-                        {
-                            "job": job, "token": new_token, "index": written["entry_index"],
-                            "publication": written["publication_id"], "completion": json.dumps(completion),
-                        },
-                    )
+                completion = ImportEntryCompletion(
+                    status="copied", verification_operation_id=written["operation_id"],
+                    file_size=result["size_bytes"], content_hash=result["md5"],
+                    width=result["width"], height=result["height"],
+                )
+                config = load_config({
+                    **stack.values,
+                    "ASSETS_IMPORT_DATABASE_URL": _required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"),
+                })
+                native = await ImportDatabase.connect(config)
+                try:
                     if first_outcome == "verified":
-                        assert published["ok"] is True and published["data"]["added"] == 1
-                        verified = ImportVerificationResult.model_validate(result)
-                        identity = _object_identity_from_verified(verified, byte_size=verified.size_bytes)
-                        connection = (await client.get_raw_connection()).driver_connection
-                        admission = ImageAdmission(
-                            AsyncpgImageAdmissionData(connection, 16 * 1024 * 1024),
-                            image_policy_from_environment(stack.values),
-                        )
-                        await admission.admit_dataset_item(
-                            item_id=written["item_id"],
-                            publication_id=written["publication_id"],
-                            file_path=written["file_path"],
-                            file_size=verified.size_bytes,
-                            content_hash=verified.md5,
-                            object_identity=identity,
-                            missing_is_skipped=True,
-                        )
+                        async with native.transaction() as client:
+                            published = await client.complete_entry(
+                                job, new_token, written["entry_index"], written["publication_id"], completion
+                            )
+                            assert published.added == 1
+                            verified = ImportVerificationResult.model_validate(result)
+                            identity = _object_identity_from_verified(verified, byte_size=verified.size_bytes)
+                            await client.image_admission.admit_dataset_item(
+                                item_id=written["item_id"],
+                                publication_id=written["publication_id"],
+                                file_path=written["file_path"],
+                                file_size=verified.size_bytes,
+                                content_hash=verified.md5,
+                                object_identity=identity,
+                                missing_is_skipped=True,
+                            )
+                    else:
+                        with pytest.raises(ImportFailure) as failure:
+                            async with native.transaction() as client:
+                                await client.complete_entry(
+                                    job, new_token, written["entry_index"], written["publication_id"], completion
+                                )
+                finally:
+                    await native.close()
                 if first_outcome == "verified":
                     facts = await _facts(stack)
                     assert len(facts.items) == 1
@@ -2028,7 +2031,7 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                         )
                     assert bound == identity.model_dump(mode="json")
                 else:
-                    assert published["ok"] is False and published["error"]["code"] == "operation_conflict"
+                    assert failure.value.code == "operation_conflict"
                     assert not (await _facts(stack)).items
         finally:
             await restricted.dispose()
