@@ -142,6 +142,11 @@ def parse_arguments(argv: list[str]):
     parser.add_argument(
         "--confirm", help="reset/destroy 要求 doctor 显示的精确环境确认值"
     )
+    parser.add_argument(
+        "--retire-finished-bootstrap",
+        action="store_true",
+        help="仅检查或销毁已结束的共享 bootstrap 测试环境",
+    )
     parser.add_argument("--api-port", type=int, default=8100)
     parser.add_argument("--web-port", type=int, default=3100)
     parser.add_argument(
@@ -171,6 +176,10 @@ def parse_arguments(argv: list[str]):
     )
     if options.command == "recover-inference" and options.mode != "e2e":
         parser.error("recover-inference 只用于 e2e")
+    if options.retire_finished_bootstrap and (
+        options.command not in {"doctor", "destroy"} or options.mode != "test"
+    ):
+        parser.error("--retire-finished-bootstrap 只用于 doctor/destroy --mode test")
     if options.scenario and (options.command != "up" or options.mode != "e2e"):
         parser.error("--scenario 只用于 up --mode e2e，不写入日常开发或单元测试库")
     options.execute = execute
@@ -1214,7 +1223,12 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         raise WorktreeError("本工作树尚未初始化；先运行 init") from None
     resources = topology(root, identity, options.mode)
-    backend = LocalResources(resources, settings, code_root=root)
+    backend = LocalResources(
+        resources,
+        settings,
+        code_root=root,
+        retire_finished_bootstrap=options.retire_finished_bootstrap,
+    )
     if options.command == "doctor":
         report = diagnose(backend)
         print(json.dumps(report, ensure_ascii=False, indent=2))

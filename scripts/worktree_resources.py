@@ -32,6 +32,7 @@ from sqlalchemy.pool import NullPool
 
 from worktree_env import (
     WorktreeError,
+    _validate_environment_sources,
     atomic_json,
     isolated_environment,
     load_identity,
@@ -612,6 +613,18 @@ def docker(*arguments: str) -> str:
 
 
 def verified_shared_bootstrap_minio(endpoint_url: str, *, container_id=None):
+    """Verify a live bootstrap owner for application use."""
+    return _verified_shared_bootstrap_minio(
+        endpoint_url, state="running", container_id=container_id
+    )
+
+
+def _verified_finished_shared_bootstrap_minio(endpoint_url: str):
+    """Verify a finished bootstrap owner only for resource retirement."""
+    return _verified_shared_bootstrap_minio(endpoint_url, state="finished")
+
+
+def _verified_shared_bootstrap_minio(endpoint_url: str, *, state: str, container_id=None):
     """Verify the explicitly selected private bootstrap owner without modifying it."""
     selector = os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
     if not selector:
@@ -636,7 +649,7 @@ def verified_shared_bootstrap_minio(endpoint_url: str, *, container_id=None):
     if (
         owner.data.get("cleaned") is not False
         or not isinstance(verification, dict)
-        or verification.get("state") != "running"
+        or verification.get("state") != state
         or verification.get("endpoint") != endpoint_url
     ):
         raise WorktreeError("Shared bootstrap owner is not live for this endpoint")
@@ -776,7 +789,9 @@ class _WorktreeDestroyPreparation:
 
 
 class LocalResources:
-    def __init__(self, resources: dict, settings, *, code_root: Path):
+    def __init__(
+        self, resources: dict, settings, *, code_root: Path, retire_finished_bootstrap=False
+    ):
         self.root = Path(resources["root"])
         expected = topology(self.root, load_identity(self.root), resources["mode"])
         if resources != expected:
@@ -787,14 +802,27 @@ class LocalResources:
         self.code_root = code_root.resolve()
         self.touched = False
         self._prepared = False
+        self._retire_finished_bootstrap = retire_finished_bootstrap
         self._fixture_inference_prepared = False
         self._destroy_preparation = None
         # Validate every source before connecting or writing. Old manifests remain
         # inspectable by doctor/stop/destroy; only an actual child process requires
         # the new dedicated input bucket, after explicit prepare has upgraded it.
-        self._environment(
-            1, require_inputs_bucket=False, database_url=settings.database_url
-        )
+        if retire_finished_bootstrap:
+            _validate_environment_sources(
+                self.resources,
+                database_url=settings.database_url,
+                migration_database_url=settings.effective_migration_database_url,
+                minio_endpoint=settings.minio_endpoint,
+                minio_use_ssl=settings.minio_use_ssl,
+                redis_port=1,
+                inherited=os.environ,
+                retirement=True,
+            )
+        else:
+            self._environment(
+                1, require_inputs_bucket=False, database_url=settings.database_url
+            )
         self.url = make_url(settings.effective_migration_database_url).set(
             database=resources["database"]
         )
@@ -809,6 +837,8 @@ class LocalResources:
         }
         self.target_manifest = self.manifest
         path = state_path(self.root, resources["mode"], "resources.json")
+        if retire_finished_bootstrap and not path.exists():
+            raise WorktreeError("没有已登记的资源清单；拒绝退休或接管")
         if path.exists():
             saved = read_state(path)
             if saved != self.manifest:
@@ -845,6 +875,8 @@ class LocalResources:
         require_inputs_bucket: bool = True,
         database_url: str | None = None,
     ) -> dict:
+        if getattr(self, "_retire_finished_bootstrap", False):
+            raise WorktreeError("退休模式不能创建子进程环境")
         return isolated_environment(
             self.resources,
             code_root=self.code_root,
@@ -857,6 +889,10 @@ class LocalResources:
             inherited=os.environ,
             require_inputs_bucket=require_inputs_bucket,
         )
+
+    def _require_preparation_allowed(self) -> None:
+        if getattr(self, "_retire_finished_bootstrap", False):
+            raise WorktreeError("退休模式不能准备或接管环境")
 
     def _runtime_credentials(self, *, required: bool = False) -> dict | None:
         path = state_path(self.root, self.resources["mode"], "runtime-credentials.json")
@@ -966,6 +1002,8 @@ class LocalResources:
         """Keep generated LOGIN creation and deletion bound to this exact mode."""
         if action not in {"inspect", "check_create", "create", "check_drop", "drop"}:
             raise WorktreeError("无效的运行账号操作")
+        if action in {"check_create", "create"}:
+            self._require_preparation_allowed()
         credentials = self._runtime_credentials()
         shared_owner = (
             make_url(self.settings.database_url).username == self.url.username
@@ -1109,6 +1147,8 @@ class LocalResources:
             await engine.dispose()
 
     def environment(self) -> dict:
+        if getattr(self, "_retire_finished_bootstrap", False):
+            raise WorktreeError("退休模式不能创建子进程环境")
         observed = self.redis_info()
         require_owner(self.resources["redis_name"], observed, self.resources["owner"])
         if not observed or not observed["running"] or not observed["port"]:
@@ -1119,6 +1159,8 @@ class LocalResources:
         return await self._database(action)
 
     async def _database(self, action: str, *, raster_prepared=None) -> dict | None:
+        if action == "create":
+            self._require_preparation_allowed()
         if raster_prepared is not None:
             self._require_destroy_preparation(raster_prepared, "database_intent")
             if (
@@ -1314,6 +1356,7 @@ class LocalResources:
         self._raster_redis_birth_owner = owner
 
     def start_redis(self) -> None:
+        self._require_preparation_allowed()
         import redis
 
         name = self.resources["redis_name"]
@@ -1431,6 +1474,7 @@ class LocalResources:
 
     async def grant_runtime(self) -> None:
         """Grant embedded capabilities and fence a distinct application role."""
+        self._require_preparation_allowed()
         runtime = self.runtime_url()
         engine = create_async_engine(self.url, poolclass=NullPool, hide_parameters=True)
         try:
@@ -2383,6 +2427,7 @@ class LocalResources:
             os.close(descriptor)
 
     def prepare(self, *, skip_migrations: bool = False) -> None:
+        self._require_preparation_allowed()
         self._prepared = False
         self._fixture_inference_prepared = False
         revisions, heads = migration_graph(self.code_root)
@@ -2463,6 +2508,7 @@ class LocalResources:
 
     def upgrade_training_bucket(self) -> None:
         """Called only under the mode lock; retain old data on partial failure."""
+        self._require_preparation_allowed()
         target = _without_buckets(self.target_manifest, "MINIO_INPUTS_BUCKET")
         if self.manifest == target or self.manifest == self.target_manifest:
             return
@@ -2523,6 +2569,7 @@ class LocalResources:
 
     def _ensure_inputs_bucket(self) -> str:
         """Create/tag/enable versioning only for the exact mode-owned input bucket."""
+        self._require_preparation_allowed()
         name = self.target_manifest["resources"]["buckets"]["MINIO_INPUTS_BUCKET"]
         owner = self.target_manifest["resources"]["owner"]
         journal = state_path(
@@ -2570,6 +2617,7 @@ class LocalResources:
         self._ensure_owned_bucket_versioning(bucket)
 
     def _ensure_owned_bucket_versioning(self, bucket: str) -> None:
+        self._require_preparation_allowed()
         if not require_owner(bucket, self.bucket_info(bucket), self.resources["owner"]):
             raise WorktreeError(f"bucket {bucket} 尚未归属于本环境")
         state = self.s3.get_bucket_versioning(Bucket=bucket)
@@ -2584,6 +2632,7 @@ class LocalResources:
 
     def upgrade_inputs_bucket(self) -> None:
         """Explicit prepare step: upgrade a legacy 8/9-bucket mode to 10 buckets."""
+        self._require_preparation_allowed()
         target = self.target_manifest
         intermediate = _without_buckets(target, "MINIO_INPUTS_BUCKET")
         if self.manifest == target:
@@ -2916,6 +2965,17 @@ class LocalResources:
             os.close(descriptor)
 
     def destroy(self, confirmation: str | None) -> None:
+        if getattr(self, "_retire_finished_bootstrap", False):
+            _validate_environment_sources(
+                self.resources,
+                database_url=self.settings.database_url,
+                migration_database_url=self.settings.effective_migration_database_url,
+                minio_endpoint=self.settings.minio_endpoint,
+                minio_use_ssl=self.settings.minio_use_ssl,
+                redis_port=1,
+                inherited=os.environ,
+                retirement=True,
+            )
         with self.fixture_authority_fence():
             self._destroy_owned(confirmation)
 

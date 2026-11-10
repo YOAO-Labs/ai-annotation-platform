@@ -124,27 +124,19 @@ def topology(root: Path, identity: dict, mode: str) -> dict:
     }
 
 
-def isolated_environment(
+def _validate_environment_sources(
     resources: dict,
     *,
-    code_root: Path,
     database_url: str,
     migration_database_url: str,
     minio_endpoint: str,
     redis_port: int,
     inherited: dict,
-    minio_use_ssl: bool = False,
-    require_inputs_bucket: bool = True,
-) -> dict:
-    """Return child-only overrides; never persist or print the connection strings."""
+    minio_use_ssl: bool,
+    retirement: bool = False,
+):
+    """Validate connection sources without creating a child environment."""
     from sqlalchemy.engine import make_url
-
-    if require_inputs_bucket and "MINIO_INPUTS_BUCKET" not in resources.get(
-        "buckets", {}
-    ):
-        raise WorktreeError(
-            "工作树尚未配置独立输入 bucket；请显式运行 init 完成资源升级"
-        )
 
     local = {"localhost", "127.0.0.1", "::1"}
     runtime = make_url(database_url)
@@ -159,6 +151,8 @@ def isolated_environment(
     endpoint = urlsplit("http://" + minio_endpoint)
     if endpoint.username or endpoint.path:
         raise WorktreeError("独立开发环境只接受本机 MinIO endpoint")
+    if retirement and (resources["mode"] != "test" or endpoint.hostname in local):
+        raise WorktreeError("仅可退休使用共享 bootstrap 的测试环境")
     if endpoint.hostname not in local:
         selector = inherited.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
         if (
@@ -167,13 +161,53 @@ def isolated_environment(
             or selector != os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
         ):
             raise WorktreeError("独立开发环境只接受本机 MinIO endpoint")
-        from worktree_resources import verified_shared_bootstrap_minio
+        from worktree_resources import (
+            _verified_finished_shared_bootstrap_minio,
+            verified_shared_bootstrap_minio,
+        )
 
         scheme = "https" if minio_use_ssl else "http"
-        if verified_shared_bootstrap_minio(f"{scheme}://{minio_endpoint}") is None:
+        verify = (
+            _verified_finished_shared_bootstrap_minio
+            if retirement
+            else verified_shared_bootstrap_minio
+        )
+        if verify(f"{scheme}://{minio_endpoint}") is None:
             raise WorktreeError("独立开发环境只接受已验证的测试 MinIO endpoint")
     if not 1 <= redis_port <= 65535:
         raise WorktreeError("无效的独立 Redis 端口")
+    return runtime, migration
+
+
+def isolated_environment(
+    resources: dict,
+    *,
+    code_root: Path,
+    database_url: str,
+    migration_database_url: str,
+    minio_endpoint: str,
+    redis_port: int,
+    inherited: dict,
+    minio_use_ssl: bool = False,
+    require_inputs_bucket: bool = True,
+) -> dict:
+    """Return child-only overrides; never persist or print the connection strings."""
+    if require_inputs_bucket and "MINIO_INPUTS_BUCKET" not in resources.get(
+        "buckets", {}
+    ):
+        raise WorktreeError(
+            "工作树尚未配置独立输入 bucket；请显式运行 init 完成资源升级"
+        )
+
+    runtime, migration = _validate_environment_sources(
+        resources,
+        database_url=database_url,
+        migration_database_url=migration_database_url,
+        minio_endpoint=minio_endpoint,
+        redis_port=redis_port,
+        inherited=inherited,
+        minio_use_ssl=minio_use_ssl,
+    )
     runtime = runtime.set(database=resources["database"])
     migration = migration.set(database=resources["database"])
     directory = Path(resources["directory"])

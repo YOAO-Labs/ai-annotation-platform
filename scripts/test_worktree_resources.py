@@ -1,5 +1,6 @@
 """Additive accepted-input bucket upgrades preserve exact worktree ownership."""
 
+import asyncio
 import fcntl
 import json
 import os
@@ -870,6 +871,197 @@ class FixtureInferenceIdentityTests(unittest.TestCase):
             with backend.fixture_authority_fence():
                 protected.unlink()
             self.assertFalse(protected.exists())
+
+
+class FinishedBootstrapRetirementTests(unittest.TestCase):
+    def setUp(self):
+        from fixture_store import MINIO_IMAGE
+        from storage_s3_contract import CHECKOUT_LABEL, OWNER_LABEL
+        from verify_storage_candidates import ROOT
+
+        self.temporary = TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.resources = topology(
+            self.root, load_identity(self.root, create=True), "test"
+        )
+        self.settings = SimpleNamespace(
+            database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/db",
+            effective_migration_database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/db",
+            minio_endpoint="172.26.9.65:32768",
+            minio_use_ssl=False,
+            minio_access_key="test",
+            minio_secret_key="test",
+        )
+        self.owner_path = self.root / "owner.json"
+        self.owner = {
+            "schema": "aap.storage-poc-owner/v1",
+            "checkout": str(ROOT),
+            "nonce": "a" * 32,
+            "private_directory": str(self.root / ("private-" + "a" * 32)),
+            "cleaned": False,
+            "verification": {
+                "state": "finished",
+                "endpoint": "http://172.26.9.65:32768",
+                "returncode": 1,
+            },
+            "resources": [
+                {"kind": "network", "id": "network", "state": "created"},
+                {
+                    "kind": "container",
+                    "id": "container",
+                    "state": "created",
+                    "image": MINIO_IMAGE,
+                },
+            ],
+        }
+        labels = {OWNER_LABEL: "a" * 32, CHECKOUT_LABEL: str(ROOT)}
+        self.network = {
+            "Id": "network",
+            "Labels": labels.copy(),
+            "Driver": "bridge",
+            "IPAM": {"Config": [{"Gateway": "172.26.9.65"}]},
+            "Containers": {"container": {"EndpointID": "attachment"}},
+        }
+        self.container = {
+            "Id": "container",
+            "State": {"Running": True},
+            "Image": "sha256:" + "b" * 64,
+            "Config": {
+                "Image": MINIO_IMAGE,
+                "Labels": {**labels, "com.docker.compose.service": "minio"},
+            },
+            "NetworkSettings": {
+                "Ports": {"9000/tcp": [{"HostIp": "172.26.9.65", "HostPort": "32768"}]},
+                "Networks": {
+                    "bootstrap": {
+                        "NetworkID": "network",
+                        "Gateway": "172.26.9.65",
+                        "EndpointID": "attachment",
+                    }
+                },
+            },
+        }
+        self.save_owner()
+        self.manifest_path = self.root / ".worktree/test/resources.json"
+        self.manifest = {
+            "schema": 1,
+            "resources": self.resources,
+            "postgres": {"host": "127.0.0.1", "port": 5432},
+            "minio": {"endpoint": self.settings.minio_endpoint, "ssl": False},
+        }
+        atomic_json(self.manifest_path, self.manifest)
+        self.enterContext(
+            patch.dict(
+                os.environ,
+                {"AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER": str(self.owner_path)},
+            )
+        )
+        self.enterContext(
+            patch(
+                "verify_storage_candidates.Owner.inspect",
+                lambda _owner, item: (
+                    self.network if item["kind"] == "network" else self.container
+                ),
+            )
+        )
+        self.enterContext(patch("worktree_resources.boto3.client"))
+
+    def save_owner(self):
+        atomic_json(self.owner_path, self.owner)
+
+    def backend(self, *, retirement=False):
+        return LocalResources(
+            self.resources,
+            self.settings,
+            code_root=self.root,
+            retire_finished_bootstrap=retirement,
+        )
+
+    def test_finished_owner_is_only_available_for_explicit_retirement(self):
+        from worktree_env import isolated_environment
+
+        self.owner["verification"]["state"] = "running"
+        self.save_owner()
+        self.backend()
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.owner["verification"]["state"] = "finished"
+        self.save_owner()
+        with self.assertRaises(WorktreeError):
+            self.backend()
+        backend = self.backend(retirement=True)
+        with self.assertRaises(WorktreeError):
+            backend.prepare()
+        with self.assertRaises(WorktreeError):
+            backend.environment()
+        with self.assertRaises(WorktreeError):
+            backend._environment(6379)
+        with self.assertRaises(WorktreeError):
+            backend.start_redis()
+        with self.assertRaises(WorktreeError):
+            asyncio.run(backend.database("create"))
+        with self.assertRaises(WorktreeError):
+            asyncio.run(backend.owned_runtime_role("create"))
+        with self.assertRaises(WorktreeError):
+            isolated_environment(
+                self.resources,
+                code_root=self.root,
+                database_url=self.settings.database_url,
+                migration_database_url=self.settings.effective_migration_database_url,
+                minio_endpoint=self.settings.minio_endpoint,
+                redis_port=6379,
+                inherited=os.environ,
+            )
+
+    def test_retirement_requires_existing_manifest_and_matching_endpoint_and_bridge(self):
+        self.manifest_path.unlink()
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(self.manifest_path, {"resources": self.resources})
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        atomic_json(self.manifest_path, self.manifest)
+        self.owner["verification"]["endpoint"] = "http://172.26.9.65:32769"
+        self.save_owner()
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.owner["verification"]["endpoint"] = "http://172.26.9.65:32768"
+        self.save_owner()
+        self.network["IPAM"]["Config"][0]["Gateway"] = "172.26.9.66"
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.network["IPAM"]["Config"][0]["Gateway"] = "172.26.9.65"
+        self.container["Id"] = "different-container"
+        with self.assertRaises(ValueError):
+            self.backend(retirement=True)
+
+    def test_destroy_preserves_confirmation_and_active_session_guards(self):
+        backend = self.backend(retirement=True)
+        backend.inspect = lambda: {
+            "database": {"owner": self.resources["owner"], "sessions": 1},
+            "redis": None,
+            "buckets": {},
+        }
+        with self.assertRaises(WorktreeError):
+            backend.destroy("wrong")
+        with self.assertRaises(WorktreeError):
+            backend.destroy(self.resources["confirmation"])
+
+    def test_retirement_flag_is_restricted_to_test_inspection_and_destroy(self):
+        from worktree_runtime import parse_arguments
+
+        for command in ("init", "reset", "up"):
+            with self.subTest(command=command), self.assertRaises(SystemExit):
+                parse_arguments([command, "--mode", "test", "--retire-finished-bootstrap"])
+        with self.assertRaises(SystemExit):
+            parse_arguments(["destroy", "--mode", "e2e", "--retire-finished-bootstrap"])
+        for command in ("doctor", "destroy"):
+            self.assertTrue(
+                parse_arguments([command, "--mode", "test", "--retire-finished-bootstrap"])
+                .retire_finished_bootstrap
+            )
 
 
 if __name__ == "__main__":
