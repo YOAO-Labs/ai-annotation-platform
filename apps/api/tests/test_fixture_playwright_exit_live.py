@@ -150,10 +150,13 @@ def _playwright_files(directory, mode):
     )
     config = directory / "playwright.config.mjs"
     spec = directory / "owned-exit.spec.mjs"
+    report = directory / "playwright-result.json"
     config.write_text(
         "import { defineConfig } from '@playwright/test';\n"
         "export default defineConfig({ testDir: '.', testMatch: 'owned-exit.spec.mjs', "
-        "workers: 1, retries: 0, reporter: 'line', "
+        "workers: 1, retries: 0, reporter: [['line'], ['json', { "
+        f"outputFile: {json.dumps(str(report))}"
+        " }]], "
         f"globalSetup: {json.dumps(str(WEB / 'e2e/global-setup.ts'))}, "
         f"globalTeardown: {json.dumps(str(WEB / 'e2e/global-teardown.ts'))} }});\n",
         encoding="utf-8",
@@ -179,7 +182,7 @@ def _playwright_files(directory, mode):
         "});\n",
         encoding="utf-8",
     )
-    return config
+    return config, report
 
 
 async def _read_until_ready(process, log):
@@ -340,7 +343,7 @@ async def test_actual_playwright_owned_exit_preserves_neighbor(
         )
 
         server, server_task, listener, origin = await _serve_consumer(app_module)
-        config = _playwright_files(tmp_path, mode)
+        config, playwright_report = _playwright_files(tmp_path, mode)
         env = dict(os.environ)
         for name in (
             "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE",
@@ -407,17 +410,19 @@ async def test_actual_playwright_owned_exit_preserves_neighbor(
             log.flush()
             status = await playwright.wait()
         evidence["playwright_exit"] = status
-        output = log_path.read_text(errors="replace")
-        if mode == "failure":
-            assert status == 1 and "INTENTIONAL_OWNED_CONSUMER_FAILURE" in output, (
-                output
-            )
-        else:
-            assert status == 130 and "interrupted" in output.lower(), output
-        assert (
-            "seed/cleanup failed" not in output
-            and "Fixture owner shutdown failed" not in output
-        )
+        report = json.loads(playwright_report.read_text())
+        assert not report.get("errors"), report.get("errors")
+        pending = list(report["suites"])
+        outcomes = []
+        while pending:
+            suite = pending.pop()
+            pending.extend(suite.get("suites", []))
+            for spec in suite.get("specs", []):
+                for test in spec["tests"]:
+                    outcomes.extend(result["status"] for result in test["results"])
+        assert outcomes == ["failed" if mode == "failure" else "interrupted"], report
+        assert status == (1 if mode == "failure" else 130), report
+        evidence["playwright_report"] = str(playwright_report)
         await _wait_exit(handle_a)
         assert not _exited(handle_b)
         async with test_engine.connect() as db:
