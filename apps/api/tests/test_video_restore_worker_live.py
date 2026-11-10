@@ -156,6 +156,17 @@ async def _grant_worker_consumers(engine, monkeypatch):
             variables.update(client_role=role, profile=profile)
             grants = ROOT / "infra/docker/inference-owner-grants.sql"
         _run_psql_file(engine, engine.url.database, grants, variables)
+    _run_psql_file(
+        engine,
+        engine.url.database,
+        ROOT / "infra/docker/inference-health-observation-grants.sql",
+        {
+            "expected_database": engine.url.database,
+            "migration_role": "owner",
+            "inference_owner": "inference_code",
+            "inference_health_observation_role": "inference_health_observation_client",
+        },
+    )
 
 
 async def _start_clone_execution_owner(tmp_path, routing_dsn, database, monkeypatch):
@@ -171,7 +182,7 @@ async def _operator_cli(tmp_path, dsn, *arguments):
     executable = Path(
         os.environ.get(
             "AAP_VIDEO_RESTORE_CLI",
-            str(Path(sys.executable).parent / "aap-video-restore"),
+            str(Path(sys.executable).parent / "yoao-video-restore"),
         )
     )
     assert executable.is_absolute() and executable.is_file()
@@ -472,17 +483,6 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
             created,
         )
         await _grant_worker_consumers(source_engine, monkeypatch)
-        _run_psql_file(
-            source_engine,
-            source_database,
-            ROOT / "infra/docker/inference-health-observation-grants.sql",
-            {
-                "expected_database": source_database,
-                "migration_role": "owner",
-                "inference_owner": "inference_code",
-                "inference_health_observation_role": "inference_health_observation_client",
-            },
-        )
         observation_url = make_url(observation_dsn(test_engine.url)).set(
             drivername="postgresql+asyncpg", database=source_database
         )
@@ -947,15 +947,32 @@ async def test_video_restore_resumes_real_runner_from_exact_versioned_s3_prefix(
                         == completed
                     )
 
-                    async with target_media.sessions.begin() as health_db:
-                        health_service = MLBackendService(health_db)
-                        assert await health_service.check_health(registry_id)
-                        selected = (
-                            await health_service.get_tracker_backend_for_capabilities(
-                                project_id, ["sam2_video"]
-                            )
+                    with monkeypatch.context() as health_patch:
+                        health_patch.setenv(
+                            "TEST_DATABASE_URL",
+                            restored_engine.url.render_as_string(hide_password=False),
                         )
-                        assert selected is not None and selected.id == registry_id
+                        target_observation_url = observation_url.set(
+                            database=restored_database
+                        )
+                        health_patch.setenv(
+                            "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL",
+                            target_observation_url.render_as_string(hide_password=False),
+                        )
+                        async with AsyncExitStack() as health_stack:
+                            await select_binding(
+                                health_stack, health_patch, restored_engine
+                            )
+                            async with target_media.sessions.begin() as health_db:
+                                health_service = MLBackendService(health_db)
+                                assert await health_service.check_health(registry_id)
+                                selected = await (
+                                    health_service.get_tracker_backend_for_capabilities(
+                                        project_id, ["sam2_video"]
+                                    )
+                                )
+                                assert selected is not None
+                                assert selected.id == registry_id
 
                     target_routing_token = uuid.uuid4().hex
                     target_owner_server, target_owner_url = await _start_routing_owner(
