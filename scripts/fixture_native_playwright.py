@@ -124,6 +124,7 @@ def _control_child(listener_fd, stopped_fd):
 
 
 def _proxy_child(listener_fd, stopped_fd):
+    sys.path.insert(0, str(ROOT / "apps/api"))
     from app.services.fixture_native_output_proxy import create_app
 
     _serve_child(create_app(), listener_fd, stopped_fd)

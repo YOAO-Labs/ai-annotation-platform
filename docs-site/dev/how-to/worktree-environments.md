@@ -146,6 +146,8 @@ Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 AP
 `.worktree/e2e/inference-credentials.json`（0600），停止后保留，精确销毁时核验并删除账号。
 启动就绪确认共用 30 秒总期限，单次健康探测使用其中的剩余预算；
 有效的 Native 权限核验响应不因超过 1 秒便被反复截断，不另外延长启动期限。
+私有输出代理由自己的 CLI 入口定位本 checkout 的 API 包，不依赖外层 `PYTHONPATH`；
+这不向独立 Images／Media worker 添加 API 源码路径。
 排空需等待已接纳请求和连接清理完成、私有回执及实际进程退出；结果不明时保留
 `inference-owner.json`、进程和凭据，`stop`／`destroy` 不会把它视为已停止。
 原监督进程已确认退出、没有未证明的消费者时，持有模式锁的恢复命令会核对原进程、
