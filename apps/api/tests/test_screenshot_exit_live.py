@@ -45,6 +45,7 @@ let cancel;
 const cancelled = new Promise(resolve => { cancel = resolve; });
 process.once('SIGINT', () => cancel('SIGINT'));
 let failure;
+const observation = {event: 'outcome', run_id: run, mode, transport_closed: false};
 try {
   const url = `http://fixture.local/api/v1/__test/seed/catalog?profile=screenshots&backend_requirements=none&run_id=${run}`;
   const response = await getScreenshotCatalog(url);
@@ -64,10 +65,12 @@ try {
     }
     const rejected = await getScreenshotCatalog(url.replace('backend_requirements=none', 'backend_requirements=invalid'));
     if (rejected.ok()) throw new Error('invalid catalog scope unexpectedly succeeded');
+    observation.failure_status = rejected.status();
     throw new Error(`seed/catalog failed: ${rejected.status()} ${await rejected.text()}`);
   }
   if (mode !== 'cancel') throw new Error('unknown consumer mode');
   const received = await cancelled;
+  observation.signal = received;
   const error = new Error(`screenshot consumer cancelled by ${received}`);
   error.name = 'AbortError';
   throw error;
@@ -76,9 +79,11 @@ try {
 }
 try {
   await closeFixtureTransport();
+  observation.transport_closed = true;
 } catch (error) {
   failure = failure ? new AggregateError([failure, error], 'Consumer and transport close failed') : error;
 }
+console.log(JSON.stringify(observation));
 if (failure) {
   console.error(failure);
   process.exitCode = failure.name === 'AbortError' ? 130 : 1;
@@ -212,13 +217,16 @@ async def _run_exit(seed, tmp_path, mode):
         original_outcome = RuntimeError(
             f"screenshot consumer {mode} exit={process.returncode}: {output}"
         )
+        outcome = json.loads(stdout)
+        assert outcome["event"] == "outcome"
+        assert outcome["run_id"] == str(run_a) and outcome["mode"] == mode
+        assert outcome["transport_closed"] is True
         if mode == "failure":
             assert process.returncode == 1, (process.returncode, output)
-            assert "seed/catalog failed: 422" in output, output
+            assert outcome["failure_status"] == 422, outcome
         else:
             assert process.returncode == 130, (process.returncode, output)
-            assert "AbortError: screenshot consumer cancelled by SIGINT" in output, output
-        assert not stdout, stdout.decode("utf-8", errors="replace")
+            assert outcome["signal"] == "SIGINT", outcome
     except BaseException as error:
         failure = error
         raise
