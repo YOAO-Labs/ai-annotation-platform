@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Mapping
 from dataclasses import replace
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 from sqlalchemy import func, select
@@ -58,6 +58,9 @@ from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.assets_images import image_gateway, image_policy
 from app.services.labeling_scene import read_spatial_item_facts
 from app.services.project_access import resolve_project_access
+
+if TYPE_CHECKING:
+    from app.services.assets_media import MediaGateway
 
 
 SCHEMA_VERSION = 1
@@ -120,8 +123,8 @@ def _task_payload(task: Task, *, spec: TaskSpec | None = None) -> dict[str, Any]
 
 async def _storage_object_digest(db, item) -> str:
     """Read the exact created version through the existing original owner."""
+    from app.db.models.managed_original_creation import ManagedOriginalCreation as Creation
     from app.services import (
-        managed_original_creation,
         managed_original_reader,
         original_sources,
         storage_access,
@@ -131,8 +134,31 @@ async def _storage_object_digest(db, item) -> str:
 
     source = await original_sources.resolve_item(db, item.id)
     replica = source.replica_facts
-    creation = await managed_original_creation.for_key(
-        db, dataset_id=item.dataset_id, object_key=item.file_path
+    # Read immutable write evidence; current read admission belongs to the Permit below.
+    creation = (
+        (
+            await db.execute(
+                select(
+                    Creation.id,
+                    Creation.status,
+                    Creation.version_id,
+                    Creation.sha256,
+                    Creation.size_bytes,
+                    Creation.location_id,
+                    Creation.bucket,
+                    Creation.object_key,
+                    Creation.etag,
+                ).where(
+                    Creation.id == replica.creation_id,
+                    Creation.owner_kind == "dataset",
+                    Creation.dataset_id == item.dataset_id,
+                )
+            )
+        )
+        .mappings()
+        .one_or_none()
+        if replica is not None
+        else None
     )
     if (
         source.read_route is not None
@@ -319,17 +345,21 @@ async def _ready_large_image_pyramid(
         return False
 
 
-async def verified_video_seed_digest(db, item, *, actor_id: uuid.UUID) -> str:
+async def verified_video_seed_digest(
+    db, item, *, actor_id: uuid.UUID, media: MediaGateway | None = None
+) -> str:
     """Read the canonical original and require the current Native Media poster."""
     from app.services.assets_media import media_gateway
     from app.services.content_snapshot import ContentError
     from yoao_assets_media.contract import ReadSourceRequest
 
     digest = await _storage_object_digest(db, item)
-    async with media_gateway() as owner:
-        reference = await owner.ready_source_reference(
-            ReadSourceRequest(actor_id=actor_id, dataset_item_id=item.id)
-        )
+    request = ReadSourceRequest(actor_id=actor_id, dataset_item_id=item.id)
+    if media is None:
+        async with media_gateway() as owner:
+            reference = await owner.ready_source_reference(request)
+    else:
+        reference = await media.ready_source_reference(request)
     source = reference.source
     if (
         source.dataset_item_id != item.id
@@ -407,6 +437,8 @@ async def _resolve_dataset_and_tasks(
     spec: ProjectSpec,
     users: dict[str, uuid.UUID],
     issues: list[str],
+    *,
+    media: MediaGateway | None = None,
 ) -> tuple[Dataset | None, dict[str, Task], dict[str, dict[str, Any]]]:
     prefix = project.display_id
     datasets = list(
@@ -533,7 +565,9 @@ async def _resolve_dataset_and_tasks(
             continue
         try:
             object_digest = (
-                await verified_video_seed_digest(db, item, actor_id=project.owner_id)
+                await verified_video_seed_digest(
+                    db, item, actor_id=project.owner_id, media=media
+                )
                 if item.file_type == "video"
                 else await _storage_object_digest(db, item)
             )
@@ -739,6 +773,8 @@ async def _resolve_project(
     users: dict[str, uuid.UUID],
     issues: list[str],
     backend_requirements: frozenset[str] | None = None,
+    *,
+    media: MediaGateway | None = None,
 ) -> dict[str, Any] | None:
     project_id = await db.scalar(
         select(FixtureRunResource.resource_id).where(
@@ -760,7 +796,7 @@ async def _resolve_project(
         )
 
     dataset, tasks, task_payload = await _resolve_dataset_and_tasks(
-        db, run_id, project, logical_key, spec, users, issues
+        db, run_id, project, logical_key, spec, users, issues, media=media
     )
     batches = await _resolve_batches(db, project, spec, tasks, issues)
 
@@ -1006,7 +1042,11 @@ async def _resolve_optional_large_image_project(
 
 
 async def build_screenshot_seed_catalog(
-    db: AsyncSession, *, run_id: uuid.UUID, backend_requirements: str | None = None
+    db: AsyncSession,
+    *,
+    run_id: uuid.UUID,
+    backend_requirements: str | None = None,
+    media: MediaGateway | None = None,
 ) -> dict[str, Any]:
     run = await db.get(FixtureRun, run_id, populate_existing=True)
     if (
@@ -1049,7 +1089,7 @@ async def build_screenshot_seed_catalog(
     project_payload: dict[str, Any] = {}
     for logical_key, spec in PROJECT_SPECS.items():
         project = await _resolve_project(
-            db, run_id, logical_key, spec, users, issues, required
+            db, run_id, logical_key, spec, users, issues, required, media=media
         )
         if project is not None:
             project_payload[logical_key] = project

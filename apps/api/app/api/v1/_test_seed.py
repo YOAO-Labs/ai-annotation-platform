@@ -3917,6 +3917,7 @@ class SeedPeekResponse(BaseModel):
 )
 async def seed_catalog(
     run_id: UUID,
+    request: Request,
     profile: Literal["screenshots"] = "screenshots",
     backend_requirements: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -3926,11 +3927,33 @@ async def seed_catalog(
         ScreenshotSeedCatalogError,
         build_screenshot_seed_catalog,
     )
+    from app.services.assets_media import MediaGateway
+    from yoao_assets_media.client import MediaClient
+
+    native = getattr(request.app.state, "fixture_screenshot_native_roots", {}).get(run_id)
+    if (
+        native is None
+        or native["runtime"] is None
+        or native["control"].journal.get("state") not in {"control_started", "serving"}
+    ):
+        raise HTTPException(409, detail={"code": "screenshot_native_owner_unavailable"})
+    control = native["control"]
 
     try:
-        return await build_screenshot_seed_catalog(
-            db, run_id=run_id, backend_requirements=backend_requirements
-        )
+        async with MediaGateway(
+            MediaClient(
+                control.origin,
+                control.token,
+                timeout_seconds=settings.assets_media_timeout_seconds,
+            ),
+            local_execution=False,
+        ) as media:
+            return await build_screenshot_seed_catalog(
+                db,
+                run_id=run_id,
+                backend_requirements=backend_requirements,
+                media=media,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     except ScreenshotSeedCatalogError as exc:

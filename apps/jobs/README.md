@@ -317,6 +317,13 @@ not establish that outcome. Preserve the
 associated queue, results, objects, credentials and evidence until the remaining
 physical obligations are resolved.
 
+A complete Job can mix positively published intents with proved unsent intents,
+for example after cancellation during a queue outage. Retirement verifies each
+intent separately and retains the complete set, including attempts absent from
+the broker. Any published intent makes the Job tombstone `published`, never
+`not_sent`; an entered or unknown attempt still blocks the whole retirement.
+This settles publication only, not the associated physical execution.
+
 Standalone media producers call `prepare_media_delivery` in the existing
 business transaction with their actual subject, original receipt, delivery ID
 and ordinary v2 envelope. The Assets owner validates and locks the source and

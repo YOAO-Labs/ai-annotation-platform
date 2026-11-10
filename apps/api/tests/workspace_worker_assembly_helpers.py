@@ -57,12 +57,14 @@ class WorkspaceCeleryWorker:
         object_store_buckets: dict[str, str] | None = None,
         queue_name: str | None = None,
         fixture_run_id: uuid.UUID | None = None,
+        export_execution: bool = False,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
         self.secret_directory = self.directory / "workspace-worker-secrets"
         self.environment_file = self.secret_directory / "worker.env"
         self.result_dsn_file = self.secret_directory / "preannotation-results-dsn"
+        self.export_execution_dsn_file = self.secret_directory / "export-execution-dsn"
         self.fixture_media_dsn_file = self.secret_directory / "fixture-media-dsn"
         self.fixture_media_target_file = self.secret_directory / "fixture-media-target"
         self._fixture_media_target_source: Path | None = None
@@ -110,6 +112,13 @@ class WorkspaceCeleryWorker:
         self._result_database_url = self._role_dsn(
             "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
             "preannotation_result_client",
+        )
+        self._export_execution_database_url = (
+            self._role_dsn(
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "export_execution_client"
+            )
+            if export_execution
+            else None
         )
         broker_url = make_url(
             os.environ.get("CELERY_BROKER_URL") or self._required("REDIS_URL")
@@ -221,6 +230,10 @@ class WorkspaceCeleryWorker:
             "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
             "preannotation_result_client",
         )
+        if self._export_execution_database_url is not None:
+            self._export_execution_database_url = self._role_dsn(
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "export_execution_client"
+            )
         self._redis_url = self._redis_owner_url.render_as_string(hide_password=False)
 
     def start(self) -> None:
@@ -278,6 +291,14 @@ class WorkspaceCeleryWorker:
             str(self.environment_file),
             "--mount",
             f"type=bind,source={self.result_dsn_file},target=/run/secrets/preannotation_results_dsn,readonly",
+            *(
+                [
+                    "--mount",
+                    f"type=bind,source={self.export_execution_dsn_file},target=/run/secrets/export_execution_dsn,readonly",
+                ]
+                if self._export_execution_database_url is not None
+                else []
+            ),
             *(
                 [
                     "--mount",
@@ -469,6 +490,16 @@ class WorkspaceCeleryWorker:
             != "/run/secrets/preannotation_results_dsn"
         ):
             raise RuntimeError("Worker result owner binding is not function-only")
+        expected_export_secret = (
+            "/run/secrets/export_execution_dsn"
+            if self._export_execution_database_url is not None
+            else ""
+        )
+        if (
+            env.get("EXPORT_EXECUTION_DATABASE_URL")
+            or env.get("EXPORT_EXECUTION_DATABASE_URL_FILE") != expected_export_secret
+        ):
+            raise RuntimeError("Worker export execution owner binding changed")
         workspace_prefixes = (
             "WORKSPACE_MEMBERSHIP",
             "WORKSPACE_OWNER_TRANSFER",
@@ -536,6 +567,10 @@ class WorkspaceCeleryWorker:
         expected_mounts = {
             "/run/secrets/preannotation_results_dsn": self.result_dsn_file.resolve(),
         }
+        if self._export_execution_database_url is not None:
+            expected_mounts["/run/secrets/export_execution_dsn"] = (
+                self.export_execution_dsn_file.resolve()
+            )
         if self._fixture_media_control_url is not None:
             expected_mounts["/run/secrets/fixture_media_dsn"] = self.fixture_media_dsn_file.resolve()
             expected_mounts["/run/secrets/fixture_media_target"] = self.fixture_media_target_file.resolve()
@@ -645,6 +680,8 @@ class WorkspaceCeleryWorker:
             ).password
             or "",
         ]
+        if self._export_execution_database_url is not None:
+            secrets.append(self._export_execution_database_url.password or "")
         secrets.extend(
             value
             for name, value in self._fixture_reader_environment.items()
@@ -686,6 +723,14 @@ class WorkspaceCeleryWorker:
             encoding="utf-8",
         )
         self.result_dsn_file.chmod(0o444)
+        if self._export_execution_database_url is not None:
+            self.export_execution_dsn_file.write_text(
+                self._export_execution_database_url.render_as_string(
+                    hide_password=False
+                ),
+                encoding="utf-8",
+            )
+            self.export_execution_dsn_file.chmod(0o444)
         if self._fixture_media_control_url is not None:
             self.fixture_media_dsn_file.write_text(
                 self._fixture_media_control_url.render_as_string(hide_password=False),
@@ -728,6 +773,12 @@ class WorkspaceCeleryWorker:
             "CELERY_BROKER_URL": self._redis_url,
             "PREANNOTATION_RESULTS_DATABASE_URL": "",
             "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "/run/secrets/preannotation_results_dsn",
+            "EXPORT_EXECUTION_DATABASE_URL": "",
+            "EXPORT_EXECUTION_DATABASE_URL_FILE": (
+                "/run/secrets/export_execution_dsn"
+                if self._export_execution_database_url is not None
+                else ""
+            ),
             "IDENTITY_URL": "",
             "IDENTITY_TOKEN": "",
             "MINIO_ENDPOINT": self.object_store_endpoint,

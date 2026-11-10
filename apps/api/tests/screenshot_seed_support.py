@@ -9,7 +9,7 @@ import json
 import os
 import re
 import shutil
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import sys
 import uuid
@@ -39,9 +39,18 @@ class ScreenshotSeed:
     sessions: async_sessionmaker
     digests: dict[str, str]
     owner: SeedOwner
+    media_bindings: dict[uuid.UUID, tuple[str, str]] = field(repr=False)
 
-    async def catalog(self, *, backend_requirements: str | None = None):
-        query = {"run_id": str(self.run_id), "profile": "screenshots"}
+    async def catalog(
+        self,
+        *,
+        run_id: uuid.UUID | None = None,
+        backend_requirements: str | None = "none",
+    ):
+        query = {
+            "run_id": str(run_id if run_id is not None else self.run_id),
+            "profile": "screenshots",
+        }
         if backend_requirements is not None:
             query["backend_requirements"] = backend_requirements
         path = "/api/v1/__test/seed/catalog?" + urlencode(query)
@@ -53,7 +62,19 @@ class ScreenshotSeed:
         )
 
     async def seed_run(self, run_id: uuid.UUID) -> None:
-        await _seed_owned_run(self.owner, run_id, self.cache_dir, self.analytics_path)
+        self.media_bindings[run_id] = await _seed_owned_run(
+            self.owner, run_id, self.cache_dir, self.analytics_path
+        )
+
+    def media_gateway(self, run_id: uuid.UUID):
+        from app.services.assets_media import MediaGateway
+        from yoao_assets_media.client import MediaClient
+
+        origin, token = self.media_bindings[run_id]
+        return MediaGateway(
+            MediaClient(origin, token, timeout_seconds=settings.assets_media_timeout_seconds),
+            local_execution=False,
+        )
 
 
 def _source_path(variable: str, *, directory: bool) -> Path:
@@ -116,7 +137,7 @@ def screenshot_seed_cache(tmp_path_factory):
 
 async def _seed_owned_run(
     owner: SeedOwner, run_id: uuid.UUID, cache: Path, analytics: Path
-) -> None:
+) -> tuple[str, str]:
     from scripts.nuscenes_fixture import validate_nuscenes_mini
     from scripts.seed_assets import ensure_profile, select_profile
     from scripts.seed_screenshot_assets import (
@@ -244,12 +265,15 @@ async def _seed_owned_run(
         "--cache-dir",
         str(cache),
         "--offline",
+        "--backend-requirements",
+        "none",
         cwd=ROOT / "apps/api",
         env=environment,
     )
     status = await _settled(asyncio.create_task(process.wait()))
     if status != 0:
         raise RuntimeError(f"Screenshot seed process exited with status {status}")
+    return binding["origin"], binding["token"]
 
 
 @pytest.fixture
@@ -301,7 +325,9 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
             sessions = async_sessionmaker(engine, expire_on_commit=False)
             failure = None
             try:
-                await _seed_owned_run(owner, run_id, screenshot_seed_cache, analytics)
+                media_binding = await _seed_owned_run(
+                    owner, run_id, screenshot_seed_cache, analytics
+                )
                 async with sessions() as db:
                     rows = (
                         await db.execute(
@@ -324,6 +350,7 @@ async def screenshot_seed(test_engine, monkeypatch, tmp_path, screenshot_seed_ca
                     sessions=sessions,
                     digests=digests,
                     owner=owner,
+                    media_bindings={run_id: media_binding},
                 )
             except BaseException as exc:
                 failure = exc

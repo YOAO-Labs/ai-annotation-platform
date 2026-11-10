@@ -77,6 +77,10 @@ caffeinate -dimsu pnpm --filter web screenshots:record -- --flow bbox-draw --pro
 `image_interactive` 能力组（包含 exemplar），多个 `--flow` 合并依赖。入口只使用真实后端，缺失时失败，不自动回退 stub。
 `candidate-keyboard-review` 同样要求 `image_interactive`，并额外核验 `sam3-segmentation`。它通过正式预标注 API 和隔离 worker 生成车辆轮廓，保留模型原始置信度、候选索引及源清单中的 `inference_evidence`，不注入固定候选。录制会检查逐项采纳／拒绝请求和标注保存结果；模型未返回足够候选时直接失败。
 
+目录数据与双运行清理测试显式使用 `--backend-requirements none`，仍准备真实原件和 Native Media／Images 产物。要求模型能力时缺少绑定必须拒绝；这些静态目录测试不能证明模型可用、真实推理或录制通过。
+目录读取沿用该 run 已核验的 Native Media owner；第二个 run 不复用第一个 run 的媒体通道，也不修改全局服务配置。找不到本次运行的 owner、owner 已退出或读取失败时仍明确拒绝。
+目录将已验证创建回执作为历史写入证据，读取仍取得当前位置、当前维护修订的许可并核对准确版本和完整摘要。另一个运行完成维护后，历史创建修订不必等于当前读取修订；维护未恢复、内容／归属变化或物理读取失败仍拒绝。
+
 视频范围刷选、跨帧多正点、正负点、框种子和文本发现录制使用 `video_tracker` 能力组，分别对应 `video-tracker-range`、`video-tracker-cross-frame-points`、`video-tracker-positive-negative`、`video-tracker-box-seed`、`video-tracker-text-discovery`。这些流程运行真实追踪作业，并保存请求、候选、采纳及重载验证证据；文本发现按返回几何匹配目标，不依赖固定实例编号。真实执行未证明退役时保留作业和归属锚点，清理会失败，不得按 ID 强删。
 
 Mac 可用 `--profile docs --validate-only` 预演已注册的远程 Linux 模型服务；正式 ML 母版目前使用 Linux 采集：API / Worker 必须能访问模型，模型也必须能访问截图存储的签名媒体 URL。

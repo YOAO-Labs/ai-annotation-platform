@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import builtins
+from contextlib import closing
+import hashlib
 import os
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -73,10 +76,15 @@ async def _owned_id(db, seed, kind, key):
     return value
 
 
-async def _catalog(db, seed, requirements=None):
-    return await catalog.build_screenshot_seed_catalog(
-        db, run_id=seed.run_id, backend_requirements=requirements
-    )
+async def _catalog(db, seed, requirements="none", *, run_id=None):
+    selected_run = seed.run_id if run_id is None else run_id
+    async with seed.media_gateway(selected_run) as media:
+        return await catalog.build_screenshot_seed_catalog(
+            db,
+            run_id=selected_run,
+            backend_requirements=requirements,
+            media=media,
+        )
 
 
 @requires_screenshot_runtime
@@ -223,7 +231,7 @@ async def test_catalog_backend_scope_does_not_hide_fixture_drift(
     project.ml_backend_pool_id = None
     await owner_db.flush()
     with pytest.raises(catalog.ScreenshotSeedCatalogError):
-        await _catalog(owner_db, screenshot_seed)
+        await _catalog(owner_db, screenshot_seed, None)
     result = await _catalog(owner_db, screenshot_seed, "none")
     assert result["projects"]["image_demo"]["ml_backend"] is None
     with pytest.raises(ValueError):
@@ -460,25 +468,62 @@ async def test_nuscenes_storage_resolves_only_its_dataset(screenshot_seed, owner
 
 @requires_screenshot_runtime
 async def test_screenshot_retirement_preserves_another_owned_run(screenshot_seed):
+    from tests.seed_owner_support import _fixture_versions, fixture_original_reader
+
+    def read_original_fingerprints(rows):
+        result = {}
+        with closing(fixture_original_reader()) as reader:
+            for row in rows:
+                key = (row["bucket"], row["object_key"], row["version_id"])
+                response = reader.get_object(
+                    Bucket=key[0], Key=key[1], VersionId=key[2]
+                )
+                assert response["VersionId"] == key[2]
+                digest = hashlib.sha256()
+                size = 0
+                with closing(response["Body"]) as body:
+                    while chunk := body.read(1024 * 1024):
+                        digest.update(chunk)
+                        size += len(chunk)
+                assert (digest.hexdigest(), size) == (row["sha256"], row["size_bytes"])
+                result[key] = (digest.hexdigest(), size)
+        return result
+
+    async def catalog_of(run_id):
+        response = await screenshot_seed.catalog(run_id=run_id)
+        assert response.status_code == 200, response.text
+        return response.json()
+
     second = uuid.uuid4()
     owner = screenshot_seed.owner
     await owner.prepare_suite(second, "screenshot")
     failure = None
     try:
         await screenshot_seed.seed_run(second)
-        async with screenshot_seed.sessions() as db:
-            first = await _catalog(db, screenshot_seed)
-            before = await catalog.build_screenshot_seed_catalog(db, run_id=second)
+        first = await catalog_of(screenshot_seed.run_id)
+        before = await catalog_of(second)
         assert {user["id"] for user in first["users"].values()}.isdisjoint(
             user["id"] for user in before["users"].values()
+        )
+        engine = screenshot_seed.sessions.kw["bind"]
+        second_scope = SimpleNamespace(run_id=second)
+        versions_before = await _fixture_versions(engine, second_scope)
+        fingerprints_before = await asyncio.to_thread(
+            read_original_fingerprints, versions_before
         )
         response = await owner.post(
             "/api/v1/__test/seed/screenshot-cleanup",
             json={"run_id": str(screenshot_seed.run_id)},
         )
         assert response.status_code == 200, response.text
-        async with screenshot_seed.sessions() as db:
-            after = await catalog.build_screenshot_seed_catalog(db, run_id=second)
+        versions_after = await _fixture_versions(engine, second_scope)
+        assert {row["id"]: dict(row) for row in versions_after} == {
+            row["id"]: dict(row) for row in versions_before
+        }
+        assert await asyncio.to_thread(
+            read_original_fingerprints, versions_after
+        ) == fingerprints_before
+        after = await catalog_of(second)
         assert after["run_id"] == str(second)
         assert after["users"] == before["users"]
         assert after["projects"] == before["projects"]

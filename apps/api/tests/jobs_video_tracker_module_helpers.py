@@ -810,6 +810,26 @@ async def _exercise_api_tracker_phase(
         assert (
             cancelled_during_outage["status"] == VideoTrackerJobStatus.CANCELLED.value
         )
+        async with test_engine.connect() as db:
+            failed_redrive_execution_id, failed_redrive_state = (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT execution_id, state "
+                        "FROM aap_jobs_v1.dispatch_publication_attempts "
+                        "WHERE job_id=:job AND execution_id<>:original"
+                    ),
+                    {
+                        "job": uuid.UUID(cancel_job_id),
+                        "original": original_execution_id,
+                    },
+                )
+            ).one()
+        assert failed_redrive_state == "not_sent"
+        retention.bind(
+            f"{phase}:cancel",
+            cancel_job_id,
+            sorted([original_execution_id, failed_redrive_execution_id]),
+        )
         audit_after_outage = await _wait_cancel_audit_count(
             test_engine, cancel_job_id, 1
         )
@@ -847,7 +867,11 @@ async def _exercise_api_tracker_phase(
         ]
         assert len(redrive_execution_ids) == 1
         redrive_execution_id = redrive_execution_ids[0]
-        retention.bind(f"{phase}:cancel", cancel_job_id, sorted(observed_execution_ids))
+        assert failed_redrive_execution_id not in observed_execution_ids
+        cancel_publication_ids = sorted(
+            [*observed_execution_ids, failed_redrive_execution_id]
+        )
+        retention.bind(f"{phase}:cancel", cancel_job_id, cancel_publication_ids)
         assert _broker_state(sender, "gpu") == {
             "queue_size": 2,
             "unacknowledged": 0,
@@ -870,7 +894,7 @@ async def _exercise_api_tracker_phase(
             test_engine, cancel_job_id, cancel_deliveries
         )
         cancel_publications = await _retire_publications(
-            test_engine, cancel_job_id, observed_execution_ids
+            test_engine, cancel_job_id, cancel_publication_ids
         )
         retention.retired(f"{phase}:cancel")
         record_property(f"video_tracker_cancel_native_refusal_{phase}", cancel_refusal)
@@ -905,6 +929,7 @@ async def _exercise_api_tracker_phase(
                 "job_id": cancel_job_id,
                 "original_execution_id": original_execution_id,
                 "redrive_execution_id": redrive_execution_id,
+                "not_sent_redrive_execution_id": failed_redrive_execution_id,
                 "persisted_execution_id_unchanged": True,
                 "http_status_during_outage": unavailable.status_code,
                 "http_status_after_retry": redrive.status_code,

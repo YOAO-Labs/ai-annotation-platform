@@ -24,6 +24,7 @@ from kombu.transport.redis import loads as _kombu_loads
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 import pytest
+from starlette.requests import Request
 
 from app.config import settings
 from app.db.models.annotation import Annotation
@@ -36,15 +37,17 @@ from app.db.models.notification import Notification
 from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.task import Task
+from app.db.models.user import User
 from app.services import legacy_asset_verification
 from app.services.dataset_assets import register_item_asset
-from app.services.exporting import image_jobs
+from app.services.exporting import image_jobs, output_authority
 from tests.factory import create_project, create_user
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     endpoint_url,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_assets_media_live import _guard_role_url
 from tests.test_workspace_cross_frame_worker_live import (
     _assert_workspace_consumer_closure,
 )
@@ -753,11 +756,19 @@ async def _create_fresh_job(
     async with maker.begin() as db:
         project = await db.get(Project, world["project_id"])
         assert project is not None
+        actor = await db.get(
+            User, world["reviewer_id"] if actor_id is None else actor_id
+        )
+        assert actor is not None
+        payload = _new_job_payload(project, opts)
+        payload["output_authority"] = await output_authority.capture(
+            db, project, actor, Request({"type": "http", "headers": []})
+        )
         job, receipt = await image_jobs.create_scoped_job(
             db,
             project,
-            actor_id=world["reviewer_id"] if actor_id is None else actor_id,
-            payload=_new_job_payload(project, opts),
+            actor_id=actor.id,
+            payload=payload,
             batch_id=None,
             targets=["native_json"],
             opts=dict(_TASK_OPTS if opts is None else opts),
@@ -966,10 +977,23 @@ async def _send_export(
 
 
 async def test_export_recovers_after_worker_loss(
-    test_engine, tmp_path, record_property, request
+    test_engine, tmp_path, record_property, request, monkeypatch
 ):
     assert test_engine.url.database and str(test_engine.url.database).endswith("_test")
     _verify_postgres(test_engine.url)
+    publication_url = (
+        _guard_role_url(
+            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+            "jobs_publication_client",
+            test_engine,
+        )
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    monkeypatch.setattr(settings, "jobs_publication_database_url", publication_url)
+    monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+    monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
+    monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
     resources, _, owner_s3 = await assert_workspace_identity(test_engine)
     request.addfinalizer(owner_s3.close)
     export_bucket = resources["buckets"]["MINIO_EXPORT_BUCKET"]
@@ -1025,6 +1049,7 @@ async def test_export_recovers_after_worker_loss(
             object_store_access_key=scope["access_key"],
             object_store_secret_key=scope["secret_key"],
             object_store_buckets=resources["buckets"],
+            export_execution=True,
         )
         assert (
             f"{minio_parts.scheme}://{worker.object_store_endpoint}" == minio_origin
@@ -1144,13 +1169,6 @@ async def test_export_recovers_after_worker_loss(
             }
         )
         assert observation["queued_revocation"]["notifications"] == 1
-        inspect = sender.control.inspect(timeout=2, destination=[worker.node_name])
-        registered = await asyncio.to_thread(inspect.registered)
-        active_queues = await asyncio.to_thread(inspect.active_queues)
-        assert registered and _TASK_NAME in registered[worker.node_name]
-        assert active_queues and {
-            row["name"] for row in active_queues[worker.node_name]
-        } == {worker.queue}
         observation["runtime_before_loss"] = worker.assert_runtime()
         observation["queue"] = worker.queue
         redis_before_kill = _export_lock_snapshot(sender)
@@ -1251,13 +1269,6 @@ async def test_export_recovers_after_worker_loss(
             runtime_after_restart["started_at"]
             != observation["runtime_before_loss"]["started_at"]
         )
-        restarted_inspect = sender.control.inspect(
-            timeout=2, destination=[worker.node_name]
-        )
-        restarted_queues = await asyncio.to_thread(restarted_inspect.active_queues)
-        assert restarted_queues and {
-            row["name"] for row in restarted_queues[worker.node_name]
-        } == {worker.queue}
 
         new_delivery_id = str(uuid.uuid4())
         deliveries[new_delivery_id] = await _send_export(

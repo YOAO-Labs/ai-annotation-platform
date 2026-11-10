@@ -226,7 +226,15 @@ async def _restored_database(test_engine, snapshot, *, retain=None):
                 )
         _postgres_tool(
             test_engine,
-            ["pg_restore", "-U", "owner", "--exit-on-error", "--dbname", clone],
+            [
+                "pg_restore",
+                "-U",
+                "owner",
+                "--exit-on-error",
+                "--single-transaction",
+                "--dbname",
+                clone,
+            ],
             body=snapshot.read_bytes(),
         )
         yield clone

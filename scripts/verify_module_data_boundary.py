@@ -135,6 +135,10 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_jobs_v1.retire_job_publications(uuid,text[])": "0451_jobs_publication_retirement.sql",
+    "aap_inference_routing_v1.video_execution_scope_step(text,text)": "0450_video_candidate_status_restore.sql",
+    "aap_jobs_v1._video_restore_route_snapshot(bytea,text)": "0450_video_candidate_status_restore.sql",
+    "aap_jobs_v1._video_execution_route_step(text,text)": "0405_video_tracker_asset_candidates.sql",
     "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)": "0449_image_backfill_purpose.sql",
     "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)": "0449_image_backfill_purpose.sql",
     "aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)": "0433_project_video_retirement.sql",
@@ -614,7 +618,6 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)",
             "aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)",
             "aap_jobs_v1.guard_retired_dispatch()",
-            "aap_jobs_v1.retire_job_publications(uuid,text[])",
         )
     },
     **{
@@ -1376,6 +1379,7 @@ MODULE_ROLES = (
 JOBS_SQL_ARTIFACTS = (
     "0447_jobs_publication_execution.sql",
     "0447_jobs_fixture_media_publication.sql",
+    "0451_jobs_publication_retirement.sql",
 )
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
@@ -1652,6 +1656,7 @@ SQL_ARTIFACTS = (
     "0402_plugin_terminal_drain_route.sql",
     "0403_plugin_asset_approval.sql",
     "0404_route_scope_supersession.sql",
+    "0405_video_tracker_asset_candidates.sql",
     "0406_labeling_mask_decision_lock.sql",
     "0407_jobs_video_retry.sql",
     "0409_video_execution_settlement.sql",
@@ -1782,6 +1787,7 @@ SQL_ARTIFACTS = (
     "0447_export_fixture_rebind.sql",
     "0448_fixture_external_pyramid_reuse.sql",
     "0449_image_backfill_purpose.sql",
+    "0450_video_candidate_status_restore.sql",
 )
 SCHEMA_ARTIFACTS = (
     "0445_assets_fixture_reader_completion.schema.json",
@@ -4066,7 +4072,11 @@ def _installed_function_body_sha256(
     signature: str,
     sql_name: str,
 ) -> str:
-    source = _sql_artifact_path(sql_name).read_text(encoding="utf-8")
+    base_sql_name = {
+        "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
+        "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
+    }.get(sql_name, sql_name)
+    source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
     function_name = re.escape(signature.split("(", 1)[0])
     match = re.search(
         rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
@@ -4077,6 +4087,28 @@ def _installed_function_body_sha256(
     if match is None:
         raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
     expected = match.group(1)
+    if base_sql_name != sql_name:
+        patch_source = _sql_artifact_path(sql_name).read_text(encoding="utf-8")
+        tags = ("before", "after")
+        if sql_name == "0450_video_candidate_status_restore.sql":
+            tags += ("guard", "candidates")
+        literals = {}
+        for tag in tags:
+            matches = re.findall(
+                rf"\${tag}\$(.*?)\${tag}\$", patch_source, re.DOTALL
+            )
+            if len(matches) != 1:
+                raise RuntimeError(f"frozen SQL patch literal is not unique: {sql_name}")
+            literals[tag] = matches[0]
+        replacements = [(literals["before"], literals["after"])]
+        if "guard" in literals:
+            replacements.append(
+                (literals["guard"], literals["guard"] + literals["candidates"])
+            )
+        for before, after in replacements:
+            if expected.count(before) != 1 or after in expected:
+                raise RuntimeError(f"frozen SQL patch source differs: {signature}")
+            expected = expected.replace(before, after, 1)
     if signature == "aap_labeling_v1.mask_edit_command(jsonb)":
         # Revision bo0430 derives the installed owner from this frozen body.
         marker = "    v_operation := p_request ->> 'operation';\n"

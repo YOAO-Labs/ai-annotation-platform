@@ -318,6 +318,7 @@ async def test_installed_worker_reads_private_original_and_retires_real_delivery
             object_store_secret_key=scope["secret_key"],
             object_store_buckets=resources["buckets"],
             queue_name="export",
+            export_execution=True,
         )
         await worker.configure_fixture_original_reader(
             media_url=settings.assets_media_url, media_token=media.control_token

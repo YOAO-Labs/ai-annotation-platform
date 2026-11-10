@@ -486,7 +486,7 @@ async def test_terminal_refusal_rejects_any_retry_publication(db_session, settle
     )
 
 
-async def test_terminal_refusal_rejects_mixed_published_and_unsent_intents(db_session):
+async def test_mixed_publications_require_exact_set_and_settled_attempts(db_session):
     job = _job()
     db_session.add(job)
     await db_session.flush()
@@ -496,7 +496,15 @@ async def test_terminal_refusal_rejects_mixed_published_and_unsent_intents(db_se
         "CAST(:intent_id AS uuid), CAST(:job_id AS uuid), :execution_id, "
         ":generation, CAST(:lease_token AS uuid)"
     )
-    for lease, outcome in ((first, "refuse"), (second, "finish")):
+    retire = text(
+        "SELECT aap_jobs_v1.retire_job_publications("
+        "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
+    )
+    exact = {
+        "job_id": str(job.id),
+        "execution_ids": sorted([first["execution_id"], second["execution_id"]]),
+    }
+    for lease, outcome in ((first, "finish"), (second, "refuse")):
         assert await db_session.scalar(
             text(
                 "SELECT pg_catalog.pg_try_advisory_xact_lock("
@@ -508,18 +516,21 @@ async def test_terminal_refusal_rejects_mixed_published_and_unsent_intents(db_se
         assert await db_session.scalar(
             text(f"SELECT aap_jobs_v1.begin_dispatch_publication({args})"), lease
         ) == "entered"
+        assert not await db_session.scalar(retire, exact)
         assert await db_session.scalar(
             text(f"SELECT aap_jobs_v1.{outcome}_dispatch_publication({args})"), lease
         )
     assert not await db_session.scalar(
+        retire,
+        {"job_id": str(job.id), "execution_ids": [first["execution_id"]]},
+    )
+    assert await db_session.scalar(retire, exact)
+    assert not await db_session.scalar(
         text(
-            "SELECT aap_jobs_v1.retire_job_publications("
+            "SELECT aap_jobs_v1.job_publications_not_sent("
             "CAST(:job_id AS uuid), CAST(:execution_ids AS text[]))"
         ),
-        {
-            "job_id": str(job.id),
-            "execution_ids": sorted([first["execution_id"], second["execution_id"]]),
-        },
+        exact,
     )
 
 

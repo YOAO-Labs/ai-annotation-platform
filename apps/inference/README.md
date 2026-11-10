@@ -43,6 +43,11 @@ Owned test providers use authenticated health observation rather than a direct f
 
 Durable routing binds scopes, attempts, control operations and retirement to exact backend continuity. Video acquisition includes the current Jobs execution proof. Cancellation, late results and restored execution remain fenced by Jobs/Labeling and routing state; a timeout or expired lease is not proof that backend work stopped.
 
+Video status and restore validate the same digest-bound approved registry candidates
+as acquisition. The candidate list remains part of the original command digest;
+status and recovery do not expand it or bypass current execution and physical
+retirement fences.
+
 Image batch and retry route acquisition carries the current Jobs result-execution
 generation, request digest and lease. The native owner binds each admitted scope
 to that proof and checks the current Job and generation again at managed model
