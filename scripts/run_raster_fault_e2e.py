@@ -942,6 +942,24 @@ def fixture_provider_host(owner):
     return str(gateway)
 
 
+def require_broker_idle(queue):
+    """Keep passive Kombu bindings, but reject pending work or unknown keys."""
+    idle = queue.eval_ro(
+        """
+        local prefix = '_kombu.binding.'
+        for _, key in ipairs(redis.call('KEYS', '*')) do
+            if string.sub(key, 1, string.len(prefix)) ~= prefix
+                or redis.call('TYPE', key).ok ~= 'set' then
+                return 0
+            end
+        end
+        return 1
+        """,
+        0,
+    )
+    require(idle == 1, "raster_queue_not_empty")
+
+
 def exercise_faults(owner, environment, references, suite):
     from botocore.exceptions import ClientError
     from app.services import raster_object_storage as physical
@@ -958,7 +976,7 @@ def exercise_faults(owner, environment, references, suite):
     )
     verify_store_physical(owner)
     with redis.Redis.from_url(environment["REDIS_URL"], socket_timeout=2) as queue:
-        require(queue.dbsize() == 0, "raster_queue_not_empty")
+        require_broker_idle(queue)
     with closing(
         _client(
             "http://" + store["endpoint"],
