@@ -18,7 +18,7 @@ import tempfile
 import threading
 from types import SimpleNamespace
 from urllib.parse import urlsplit
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import boto3
 from botocore.exceptions import ClientError
@@ -1641,9 +1641,9 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
         async with _verification_finish_gate(
             stack, test_engine, function="record_import_original_read"
         ) as (release, wait_for_gate):
-            job = await _accept(stack)
             worker = _start_importer(stack, "stale-started-source")
             await _wait_healthy(worker)
+            job = await _accept(stack)
             await wait_for_gate()
             async with stack.world.maker() as observer:
                 receipt = (
@@ -1678,7 +1678,23 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
                         "lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=:job"
                     ), {"job": job},
                 )
-            await asyncio.sleep(2)
+            # Exercise the Source recovery scan at this creation, rather than
+            # spending the record call's finite SQL timeout sleeping.
+            cursor = {
+                "kind": "creation",
+                "creation_id": str(UUID(int=receipt["creation_id"].int - 1)),
+            }
+            async with stack.world.maker.begin() as owner:
+                recovered = await owner.scalar(
+                    text(
+                        "SELECT aap_assets_v1.recover_import_original_verification("
+                        "CAST(:cursor AS jsonb))"
+                    ),
+                    {"cursor": json.dumps(cursor)},
+                )
+            assert recovered["cursor"] is None or recovered["cursor"]["creation_id"] != str(
+                receipt["creation_id"]
+            )
             async with stack.world.maker() as observer:
                 assert await observer.scalar(
                     text("SELECT status FROM public.managed_original_creations WHERE id=:id"),
@@ -1688,6 +1704,10 @@ async def test_stale_started_write_keeps_permits_until_source_records_drain(
                     text("SELECT count(*) FROM public.storage_operations WHERE id IN (:write_id,:read_id)"),
                     {"write_id": receipt["operation_id"], "read_id": receipt["read_operation_id"]},
                 ) == 2
+            # The gate must still hold the original Source record call, not a
+            # request that already timed out and left ownership unsettled.
+            async with asyncio.timeout(1):
+                await wait_for_gate()
             await release()
             async with asyncio.timeout(15):
                 while True:
