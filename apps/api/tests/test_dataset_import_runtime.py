@@ -29,10 +29,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
+    _container_s3_endpoint,
     _docker,
     _inspect_docker,
     _remove_worker_image,
     _required_env,
+    _shared_bootstrap_minio,
     _stop_remove_container,
     _verified_resource_manifest,
     _verify_postgres,
@@ -228,13 +230,16 @@ async def _wait_copy(stack):
 
 
 @asynccontextmanager
-async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
+async def _import_stack(
+    test_engine, app_module, monkeypatch, importer_image, *, sftp=False
+):
     from app.config import settings
     from app.core.crypto import encrypt_secret
     from app.core.security import create_access_token
     from app.db.models.storage_connection import StorageConnection
     from app.deps import get_db
     from app.services.storage import storage_service
+    from app.services.system_settings_service import SystemSettingsService
 
     role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_IMPORT_URL"))
     assert (
@@ -243,14 +248,22 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
     )
     _verify_postgres(role_url)
     resources = _verified_resource_manifest(test_engine, role_url)
+    if _shared_bootstrap_minio(
+        settings, container_id=_required_env("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+    ) is None:
+        pytest.fail(
+            "import acceptance requires a verified shared bootstrap MinIO gateway"
+        )
+    source_endpoint = _container_s3_endpoint(settings)
+    sftp_host = _host_address() if sftp else None
+    allowlist = [f"{urlsplit(source_endpoint).hostname}/32"]
+    if sftp_host:
+        allowlist.append(f"{sftp_host}/32")
     image, identity = importer_image
     world = await _seed_world(test_engine)
     connection_id = uuid4()
     prefix = f"connector-import-source/{uuid4()}"
-    minio = urlsplit(
-        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
-    )
-    source_endpoint = f"{minio.scheme}://{_host_address()}:{minio.port or 9000}"
+    policy = json.dumps(allowlist)
     connector_config = {
         "endpoint": source_endpoint,
         "bucket": resources["buckets"]["MINIO_IMPORT_BUCKET"],
@@ -288,10 +301,12 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
         await db.execute(
             text(
                 "INSERT INTO public.system_settings(key,value_type,value_json) VALUES "
-                "('connector_host_allowlist','json','[\"10.0.0.0/8\",\"172.16.0.0/12\",\"192.168.0.0/16\"]'::jsonb) "
+                "('connector_host_allowlist','json',CAST(:policy AS jsonb)) "
                 "ON CONFLICT(key) DO UPDATE SET value_json=EXCLUDED.value_json"
-            )
+            ),
+            {"policy": policy},
         )
+    SystemSettingsService.invalidate("connector_host_allowlist")
     auth_engine = create_async_engine(test_engine.url, hide_parameters=True)
 
     async def request_db():
@@ -307,7 +322,7 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
         ) as directory:
             values = {
                 "ASSETS_IMPORT_DATABASE_URL": _container_database_url(role_url),
-                "ASSETS_IMPORT_S3_ENDPOINT": f"{minio.scheme}://host.docker.internal:{minio.port or 9000}",
+                "ASSETS_IMPORT_S3_ENDPOINT": source_endpoint,
                 "ASSETS_IMPORT_S3_ACCESS_KEY": _required_env(
                     "AAP_MODULE_DATA_ASSET_IMPORT_S3_ACCESS_KEY"
                 ),
@@ -318,7 +333,7 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
                     "MINIO_DATASETS_BUCKET"
                 ],
                 "CONNECTOR_ENCRYPTION_KEY": settings.connector_encryption_key,
-                "CONNECTOR_HOST_ALLOWLIST": '["10.0.0.0/8","172.16.0.0/12","192.168.0.0/16"]',
+                "CONNECTOR_HOST_ALLOWLIST": policy,
                 "ASSETS_IMPORT_LEASE_SECONDS": "30",
                 "ASSETS_IMPORT_HEARTBEAT_SECONDS": "2",
                 "ASSETS_IMPORT_POLL_SECONDS": "0.1",
@@ -333,6 +348,7 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
                     world=world,
                     connection_id=connection_id,
                     prefix=prefix,
+                    sftp_host=sftp_host,
                     source_bucket=resources["buckets"]["MINIO_IMPORT_BUCKET"],
                     resources=resources,
                     source_secret=connector_secret,
@@ -438,6 +454,7 @@ async def _import_stack(test_engine, app_module, monkeypatch, importer_image):
                         "value_json": json.dumps(previous_allowlist["value_json"]),
                     },
                 )
+        SystemSettingsService.invalidate("connector_host_allowlist")
         await _cleanup_world(world)
 
 
@@ -1192,9 +1209,9 @@ async def test_real_sftp_requires_known_host_and_rejects_escape(
     from app.core.crypto import encrypt_secret
 
     async with _import_stack(
-        test_engine, app_module, monkeypatch, importer_image
+        test_engine, app_module, monkeypatch, importer_image, sftp=True
     ) as stack:
-        async with _sftp_server(stack.directory, _host_address()) as server:
+        async with _sftp_server(stack.directory, stack.sftp_host) as server:
             async with stack.world.maker.begin() as db:
                 await db.execute(
                     text(
