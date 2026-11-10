@@ -40,6 +40,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _local_s3_client,
     _object_exists,
     _required_env,
+    _shared_bootstrap_minio,
     _verified_resource_manifest,
     _verify_bucket_owner,
 )
@@ -97,8 +98,14 @@ def _owned_resources(test_engine):
 def _s3_endpoint() -> str:
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = httpx.URL(f"{scheme}://{settings.minio_endpoint}")
-    if endpoint.host not in {"localhost", "127.0.0.1", "::1"}:
-        pytest.fail("Mask runtime S3 endpoint must be loopback-only")
+    if (
+        _shared_bootstrap_minio(
+            settings, container_id=os.environ.get("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+        )
+        is None
+        and endpoint.host not in {"localhost", "127.0.0.1", "::1"}
+    ):
+        pytest.fail("Mask runtime S3 endpoint must be loopback or verified bootstrap")
     return str(endpoint).rstrip("/")
 
 

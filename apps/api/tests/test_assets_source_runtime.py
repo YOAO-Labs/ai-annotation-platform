@@ -11,7 +11,6 @@ import subprocess
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import Mock
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 import boto3
@@ -25,6 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
+    _container_s3_endpoint,
     _docker,
     _inspect_docker,
     _remove_worker_image,
@@ -173,11 +173,10 @@ async def _source_stack(test_engine, app_module, monkeypatch):
         app_module.dependency_overrides[get_media_job_dispatcher] = lambda: dispatcher
         monkeypatch.setattr(settings, "assets_source_token", token)
         scheme = "https" if settings.minio_use_ssl else "http"
-        endpoint = urlsplit(f"{scheme}://{settings.minio_endpoint}")
         values = {
             "ASSETS_SOURCE_DATABASE_URL": _container_database_url(role_url),
             "ASSETS_SOURCE_TOKEN": token,
-            "ASSETS_SOURCE_S3_ENDPOINT": f"{scheme}://host.docker.internal:{endpoint.port or 9000}",
+            "ASSETS_SOURCE_S3_ENDPOINT": _container_s3_endpoint(settings),
             "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": f"{scheme}://{settings.minio_endpoint}",
             "ASSETS_SOURCE_S3_ACCESS_KEY": _required_env(
                 "AAP_MODULE_DATA_ASSET_SOURCE_S3_ACCESS_KEY"
