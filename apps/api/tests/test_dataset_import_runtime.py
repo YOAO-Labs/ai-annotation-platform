@@ -388,7 +388,9 @@ async def _import_stack(
             )
             await _wait_healthy(source_container)
             source_origin = _source_origin(source_container, source_image, identity)
-            source_ip = _inspect_docker(source_container)["NetworkSettings"]["IPAddress"]
+            source_ip = _inspect_docker(source_container)["NetworkSettings"]["Networks"][
+                "bridge"
+            ]["IPAddress"]
             assert source_ip
             values = {
                 "ASSETS_IMPORT_DATABASE_URL": _container_database_url(role_url),
