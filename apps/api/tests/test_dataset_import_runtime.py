@@ -1813,6 +1813,11 @@ async def test_source_recovers_drained_original_without_old_publication_authorit
 async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
     test_engine, app_module, monkeypatch, importer_image, first_outcome
 ):
+    from yoao_assets_images.policy import image_policy_from_environment
+    from yoao_assets_source.import_verification_contract import ImportVerificationResult
+    from yoao_assets_source_import.storage import _object_identity_from_verified
+    from yoao_assets_source_runtime.image_admission import AsyncpgImageAdmissionData, ImageAdmission
+
     async with _import_stack(test_engine, app_module, monkeypatch, importer_image) as stack:
         data = _picture("green")
         stack.storage.client.put_object(
@@ -1850,7 +1855,7 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                                 await observer.execute(
                                     text(
                                         "SELECT creation.id AS creation_id,creation.operation_id,"
-                                        "operation.lease_token,entry.entry_index,entry.item_id,entry.publication_id "
+                                        "operation.lease_token,entry.entry_index,entry.item_id,entry.publication_id,entry.file_path "
                                         "FROM public.managed_original_creations creation "
                                         "JOIN public.dataset_import_operations operation "
                                         "ON creation.authority->>'job_id'=operation.job_id::text "
@@ -1995,9 +2000,33 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                             "publication": written["publication_id"], "completion": json.dumps(completion),
                         },
                     )
+                    if first_outcome == "verified":
+                        assert published["ok"] is True and published["data"]["added"] == 1
+                        verified = ImportVerificationResult.model_validate(result)
+                        identity = _object_identity_from_verified(verified, byte_size=verified.size_bytes)
+                        connection = (await client.get_raw_connection()).driver_connection
+                        admission = ImageAdmission(
+                            AsyncpgImageAdmissionData(connection, 16 * 1024 * 1024),
+                            image_policy_from_environment(stack.values),
+                        )
+                        await admission.admit_dataset_item(
+                            item_id=written["item_id"],
+                            publication_id=written["publication_id"],
+                            file_path=written["file_path"],
+                            file_size=verified.size_bytes,
+                            content_hash=verified.md5,
+                            object_identity=identity,
+                            missing_is_skipped=True,
+                        )
                 if first_outcome == "verified":
-                    assert published["ok"] is True and published["data"]["added"] == 1
-                    assert len((await _facts(stack)).items) == 1
+                    facts = await _facts(stack)
+                    assert len(facts.items) == 1
+                    async with stack.world.maker() as observer:
+                        bound = await observer.scalar(
+                            text("SELECT media_object_identity FROM public.dataset_items WHERE id=:id"),
+                            {"id": written["item_id"]},
+                        )
+                    assert bound == identity.model_dump(mode="json")
                 else:
                     assert published["ok"] is False and published["error"]["code"] == "operation_conflict"
                     assert not (await _facts(stack)).items
