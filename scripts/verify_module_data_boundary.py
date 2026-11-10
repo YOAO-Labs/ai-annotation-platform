@@ -6270,6 +6270,7 @@ def main(
         identity_consumer_grants_path = (
             ROOT / "infra/docker/identity-consumer-grants.sql"
         )
+        phase = "preflight-contract-artifacts"
         artifacts = tuple(_sql_artifact_path(name) for name in SQL_ARTIFACTS)
         schema_paths = tuple(
             (ROOT / "apps/assets-source/src/yoao_assets_source" / name)
