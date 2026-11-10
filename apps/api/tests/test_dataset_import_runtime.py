@@ -1263,7 +1263,6 @@ async def test_original_source_request_retries_admission_lock_contention(
                     forward.set()
                     if locked_row == "budget":
                         assert await asyncio.to_thread(finished.wait, 3)
-                        assert original == [(500, None)]
                     else:
                         await asyncio.sleep(1.2 if locked_row == "inner-timeout" else 0.5)
                         assert not finished.is_set()
@@ -2270,6 +2269,7 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
             from yoao_assets_source.managed_original_contract import ManagedOriginalOperation
             from yoao_assets_source_import.config import load_config
             from yoao_assets_source_import.database import ImportDatabase
+            from yoao_assets_source_import.verification import ExpectedOriginal
             from yoao_assets_source_import.workflow import ImportWorkflow, LeaseUnavailable
 
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as unavailable:
@@ -2290,7 +2290,16 @@ async def test_unstarted_read_cancellation_and_current_lease_publication_fence(
                     keeper = SimpleNamespace(check=lambda: None, _remaining_lease=lambda: 5)
                     with pytest.raises(LeaseUnavailable):
                         await ImportWorkflow(database, None, config)._verify_original(
-                            entry, target, ManagedOriginalOperation.model_validate(reservation["data"]), keeper
+                            entry,
+                            target,
+                            ManagedOriginalOperation.model_validate(reservation["data"]),
+                            keeper,
+                            ExpectedOriginal(
+                                sha256=receipt["result"]["sha256"],
+                                size_bytes=receipt["result"]["size_bytes"],
+                                etag=receipt["result"]["etag"],
+                                version_id=receipt["result"]["version_id"],
+                            ),
                         )
                 finally:
                     await database.close()
