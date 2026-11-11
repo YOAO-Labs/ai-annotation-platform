@@ -10,7 +10,7 @@ import {
 import { expect, test as seedTest, type SeedAPI, type SeedData } from "../fixtures/seed";
 import { test as browserTest } from "../fixtures/raster-browser";
 
-const test = mergeTests(seedTest, browserTest);
+const base = mergeTests(seedTest, browserTest);
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 const IMAGE_WIDTH = 64;
@@ -78,7 +78,7 @@ function foregroundArea(rle: CocoRle): number {
   return rle.counts.reduce((area, count, index) => area + (index % 2 === 1 ? count : 0), 0);
 }
 
-async function openTask(page: Page, seed: SeedAPI, data: SeedData, taskId: string): Promise<void> {
+async function prepareTask(page: Page, seed: SeedAPI, data: SeedData, taskId: string): Promise<void> {
   await seed.configureRasterMask(data.project_id, true);
   await seed.advanceTask({
     taskId,
@@ -87,6 +87,10 @@ async function openTask(page: Page, seed: SeedAPI, data: SeedData, taskId: strin
   });
   await seed.prepareRasterImages(data);
   await seed.injectToken(page, data.annotator_email);
+}
+
+async function openTask(page: Page, seed: SeedAPI, data: SeedData, taskId: string): Promise<void> {
+  await prepareTask(page, seed, data, taskId);
   await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
   await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 15_000 });
 }
@@ -175,20 +179,33 @@ async function applyPreview(page: Page): Promise<void> {
   await page.getByTestId("mask-toolbar").getByTestId("mask-primary-action").click();
 }
 
+const test = base.extend<{
+  combinedEditCase: { data: SeedData; taskId: string; annotationId: string; token: string };
+}>({
+  combinedEditCase: [
+    async ({ page, seed }, provideFixture) => {
+      const data = await seed.owned();
+      const taskId = data.task_ids[0];
+      const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
+      const token = await seed.accessToken(data.annotator_email);
+      await prepareTask(page, seed, data, taskId);
+      await provideFixture({ data, taskId, annotationId: fixture.annotation_id, token });
+    },
+    { timeout: 120_000 },
+  ],
+});
+
 test.describe("v0.23.9 Mask 高级编辑发布矩阵", { tag: "@mask-native" }, () => {
   test.use({ viewport: { width: 1440, height: 1080 } });
   test("1. 非正方形图片的方笔刷、圆橡皮、lasso 与 undo/redo 刷新后逐像素一致", async ({
     page,
     request,
-    seed,
+    combinedEditCase: { data, taskId, annotationId, token },
   }) => {
-    const data = await seed.owned();
-    const taskId = data.task_ids[0];
-    const fixture = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
-    const token = await seed.accessToken(data.annotator_email);
-    const before = await maskContent(request, fixture.annotation_id, token);
-    await openTask(page, seed, data, taskId);
-    await beginEdit(page, fixture.annotation_id);
+    const before = await maskContent(request, annotationId, token);
+    await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
+    await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 15_000 });
+    await beginEdit(page, annotationId);
 
     const toolbar = page.getByTestId("mask-toolbar");
     await toolbar.getByTestId("mask-radius-slider").fill("2");
@@ -233,20 +250,20 @@ test.describe("v0.23.9 Mask 高级编辑发布矩阵", { tag: "@mask-native" }, 
 
     const savedResponse = page.waitForResponse(
       (response) =>
-        response.url().endsWith(`/tasks/${taskId}/annotations/${fixture.annotation_id}`) &&
+        response.url().endsWith(`/tasks/${taskId}/annotations/${annotationId}`) &&
         response.request().method() === "PATCH",
     );
     await toolbar.getByTestId("mask-primary-action").click();
     const saveResult = await savedResponse;
     expect(saveResult.ok(), `${saveResult.status()} ${await saveResult.text()}`).toBe(true);
-    const saved = await maskContent(request, fixture.annotation_id, token);
+    const saved = await maskContent(request, annotationId, token);
     expect(saved.counts).not.toEqual(before.counts);
 
     await page.reload();
-    await expect(page.getByTestId(`box-list-item-${fixture.annotation_id}`)).toBeVisible({
+    await expect(page.getByTestId(`box-list-item-${annotationId}`)).toBeVisible({
       timeout: 15_000,
     });
-    expect(await maskContent(request, fixture.annotation_id, token)).toEqual(saved);
+    expect(await maskContent(request, annotationId, token)).toEqual(saved);
   });
 
   test("2. flood fill 保留命中组件：预览提交后逐像素一致（4/8 邻域与擦除排列已下沉单测）", async ({
