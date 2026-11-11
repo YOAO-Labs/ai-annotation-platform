@@ -3232,6 +3232,173 @@ def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
         raise RuntimeError("The owned image source bucket is not versioned")
 
 
+async def _retire_image_import_preparation(backend, birth_oid, user_id, project_id):
+    """Retire only this verifier's completed cross-module probes."""
+    import asyncpg
+
+    from worktree_env import read_state, state_path
+
+    resources = backend.resources
+    manifest = read_state(state_path(Path(resources["root"]), "test", "resources.json"))
+    if (
+        manifest != backend.manifest
+        or manifest.get("postgres", {}).get("database_oid") != birth_oid
+        or type(birth_oid) is not int
+        or birth_oid <= 0
+        or backend.url.username != "owner"
+        or backend.url.database != resources["database"]
+    ):
+        raise RuntimeError("Image-import preparation birth identity is unproven")
+    user_id, project_id = UUID(user_id), UUID(project_id)
+    connection = await asyncpg.connect(
+        backend.url.set(drivername="postgresql").render_as_string(hide_password=False),
+        timeout=5,
+    )
+    try:
+        async with connection.transaction():
+            identity = await connection.fetchrow(
+                "SELECT d.oid::bigint, d.datname, "
+                "pg_catalog.pg_get_userbyid(d.datdba), "
+                "pg_catalog.shobj_description(d.oid,'pg_database'), "
+                "current_user, session_user FROM pg_catalog.pg_database d "
+                "WHERE d.datname=current_database()"
+            )
+            if tuple(identity) != (
+                birth_oid,
+                resources["database"],
+                "owner",
+                resources["owner"],
+                "owner",
+                "owner",
+            ):
+                raise RuntimeError("Image-import preparation database identity changed")
+            await connection.execute("SET LOCAL lock_timeout = '5s'")
+            await connection.execute(
+                "LOCK TABLE public.users, public.projects, public.datasets "
+                "IN ACCESS EXCLUSIVE MODE"
+            )
+            if await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
+                "WHERE datid=(SELECT oid FROM pg_catalog.pg_database "
+                "WHERE datname=current_database()) "
+                "AND backend_type='client backend' AND pid<>pg_backend_pid())"
+            ):
+                raise RuntimeError(
+                    "Image-import preparation has other database clients"
+                )
+            users = await connection.fetch(
+                "SELECT id,email,name,password_hash,role,is_active FROM public.users"
+            )
+            projects = await connection.fetch(
+                "SELECT id,owner_id,name FROM public.projects"
+            )
+            members = await connection.fetch(
+                "SELECT project_id,user_id,role,assigned_by FROM public.project_members"
+            )
+            if (
+                [tuple(row) for row in users]
+                != [
+                    (
+                        user_id,
+                        f"notification-preference-{user_id}@test.invalid",
+                        "Preference owner fixture",
+                        "module-data-fixture",
+                        "employee",
+                        True,
+                    )
+                ]
+                or [tuple(row) for row in projects]
+                != [(project_id, user_id, "Delivery read Node fixture")]
+                or [tuple(row) for row in members]
+                != [(project_id, user_id, "reviewer", user_id)]
+                or await connection.fetchval(
+                    "SELECT EXISTS (SELECT 1 FROM public.datasets)"
+                )
+            ):
+                raise RuntimeError("Image-import preparation contains unexpected rows")
+            # Unknown cascading or SET NULL dependents must not be modified.
+            allowed = {
+                ("public", "users"),
+                ("public", "projects"),
+                ("public", "project_members"),
+                ("public", "notifications"),
+                ("public", "notification_preferences"),
+                ("public", "identity_account_presence"),
+                ("public", "identity_account_preferences"),
+            }
+            references = await connection.fetch(
+                "SELECT n.nspname, c.relname, "
+                "pg_catalog.quote_ident(n.nspname) AS schema_name, "
+                "pg_catalog.quote_ident(c.relname) AS table_name, "
+                "pg_catalog.quote_ident(a.attname) AS column_name, "
+                "fk.confrelid='public.users'::regclass AS is_user, "
+                "array_length(fk.conkey,1) AS child_columns, "
+                "array_length(fk.confkey,1) AS parent_columns, parent.attname AS parent_column "
+                "FROM pg_catalog.pg_constraint fk "
+                "JOIN pg_catalog.pg_class c ON c.oid=fk.conrelid "
+                "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+                "JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum=fk.conkey[1] "
+                "JOIN pg_catalog.pg_attribute parent ON parent.attrelid=fk.confrelid "
+                "AND parent.attnum=fk.confkey[1] "
+                "WHERE fk.contype='f' AND fk.confdeltype IN ('c','n','d') "
+                "AND fk.confrelid IN ('public.users'::regclass,'public.projects'::regclass)"
+            )
+            for ref in references:
+                if (ref["nspname"], ref["relname"]) in allowed:
+                    continue
+                if (
+                    ref["child_columns"] != 1
+                    or ref["parent_columns"] != 1
+                    or ref["parent_column"] != "id"
+                ):
+                    raise RuntimeError(
+                        "Image-import preparation has an unknown cascading reference"
+                    )
+                if await connection.fetchval(
+                    f"SELECT EXISTS (SELECT 1 FROM {ref['schema_name']}.{ref['table_name']} "
+                    f"WHERE {ref['column_name']}=$1)",
+                    user_id if ref["is_user"] else project_id,
+                ):
+                    raise RuntimeError(
+                        "Image-import preparation has an unexpected dependent"
+                    )
+            if (
+                await connection.execute(
+                    "DELETE FROM public.projects WHERE id=$1 AND owner_id=$2",
+                    project_id,
+                    user_id,
+                )
+                != "DELETE 1"
+            ):
+                raise RuntimeError("Image-import preparation project retirement failed")
+            if (
+                await connection.execute(
+                    "DELETE FROM public.users WHERE id=$1", user_id
+                )
+                != "DELETE 1"
+            ):
+                raise RuntimeError("Image-import preparation user retirement failed")
+            if await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM public.users) "
+                "OR EXISTS (SELECT 1 FROM public.projects) "
+                "OR EXISTS (SELECT 1 FROM public.datasets)"
+            ):
+                raise RuntimeError("Image-import preparation is not empty")
+    finally:
+        await connection.close()
+    return {
+        "database_oid": birth_oid,
+        "database": resources["database"],
+        "database_owner": "owner",
+        "owner_marker": resources["owner"],
+        "user_id": str(user_id),
+        "project_id": str(project_id),
+        "completed_probe_retired": True,
+        "other_clients_absent": True,
+        "account_project_dataset_empty": True,
+    }
+
+
 async def _fence_image_import_legacy_storage(backend) -> dict:
     """Fence the exact legacy target and inspect its durable physical ledger."""
     from sqlalchemy import select, text
@@ -11152,8 +11319,6 @@ SELECT id FROM removed;
                     )
                 if identity_seed_selection_live or identity_recording_live:
                     profiles = ["workspace-consumer-grants.sql"]
-                    if identity_seed_selection_live:
-                        profiles.append("workspace-scale-seed-grants.sql")
                     for profile in profiles:
                         _psql(
                             container_id,
@@ -11195,7 +11360,7 @@ GRANT EXECUTE ON FUNCTION
 """,
                         )
                     evidence[
-                        "workspace_scale_seed_operator"
+                        "workspace_seed_selection_consumer"
                         if identity_seed_selection_live
                         else "workspace_recording_consumer"
                     ] = {
@@ -11941,6 +12106,7 @@ SELECT pg_catalog.jsonb_build_object(
             prepare_owned_resources = backend.prepare
 
             def prepare_fenced_resources(*, skip_migrations=False):
+                nonlocal phase
                 prepare_owned_resources(skip_migrations=skip_migrations)
                 if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
@@ -12041,6 +12207,25 @@ SELECT pg_catalog.jsonb_build_object(
                     )
                 )
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
+                if not collect_only and selected_test_paths == {
+                    "tests/test_image_import_identity_profile.py"
+                }:
+                    phase = "retire-image-import-preparation"
+                    _container_details(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        require_running=True,
+                    )
+                    evidence["image_import_preparation_retirement"] = asyncio.run(
+                        _retire_image_import_preparation(
+                            backend,
+                            database_oid,
+                            notification_preference_user_id,
+                            delivery_project_id,
+                        )
+                    )
+                    phase = "pytest"
                 evidence["phase"] = "pytest-collection" if collect_only else "pytest"
                 _write_evidence(output, evidence)
 

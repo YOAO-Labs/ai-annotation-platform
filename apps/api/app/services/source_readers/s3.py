@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import ipaddress
 import re
 from urllib.parse import unquote_plus, urlsplit
 
@@ -136,11 +137,14 @@ class _S3ClientAccess:
             raise StorageError("s3_endpoint_not_supported")
         return endpoint.rstrip("/")
 
+    def _check_destination(self, endpoint):
+        allowed_endpoint(endpoint, self.allowlist)
+
     def _checked_endpoint(self):
         endpoint = self.endpoint
         if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", self.config["bucket"]):
             raise StorageError("s3_bucket_not_supported")
-        allowed_endpoint(endpoint, self.allowlist)
+        self._check_destination(endpoint)
         return endpoint
 
     @contextmanager
@@ -172,7 +176,7 @@ class _S3ClientAccess:
                 target.netloc,
             ):
                 raise StorageError("s3_redirect_denied")
-            allowed_endpoint(endpoint, self.allowlist)
+            self._check_destination(endpoint)
 
         try:
             client.meta.events.register("before-send.s3", guard)
@@ -358,6 +362,20 @@ class ScopedS3Access(_S3ClientAccess):
     config: dict
     secret: dict
     allowlist: tuple[str, ...]
+
+    def _check_destination(self, endpoint):
+        # The owner admits one exact origin with its scoped credentials.
+        if endpoint != self.secret.get("endpoint"):
+            raise StorageError("connector_host_denied")
+        try:
+            address = ipaddress.ip_address(urlsplit(endpoint).hostname)
+        except ValueError:
+            allowed_endpoint(endpoint, self.allowlist)
+        else:
+            # An exact literal owner address needs no DNS. Loopback is reserved
+            # for that origin; other literals still pass the connector IP guard.
+            if not address.is_loopback:
+                allowed_endpoint(endpoint, (str(address),))
 
     def client(self, *, read_timeout=None):
         return self._client(

@@ -70,6 +70,17 @@ _IMAGE_IMPORT_FUNCTIONS = {
     "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
     "aap_assets_v1.publish_operator_item_original(jsonb)",
 }
+_PRIVATE_SCALE_FIXTURE_FUNCTIONS = (
+    "aap_workspace_v1.create_scale_seed_project(uuid,text)",
+    "aap_workspace_v1.ensure_scale_seed_member(uuid,uuid,uuid)",
+    "aap_workspace_v1.guard_scale_seed_cleanup(text)",
+    "aap_workspace_v1.delete_scale_seed_projects(text,uuid[])",
+    "aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)",
+    "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])",
+    "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)",
+    "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)",
+    "aap_labeling_v1.create_scale_seed_annotations(text,uuid,uuid,integer)",
+)
 
 
 def _probe_result(run) -> dict:
@@ -148,6 +159,14 @@ async def _assert_identity_selection_profile(test_engine) -> None:
             )
             for signature in _IMAGE_IMPORT_FUNCTIONS:
                 assert await db.scalar(
+                    text(
+                        "SELECT pg_catalog.has_function_privilege(current_user, "
+                        "CAST(:signature AS regprocedure), 'EXECUTE')"
+                    ),
+                    {"signature": signature},
+                ), signature
+            for signature in _PRIVATE_SCALE_FIXTURE_FUNCTIONS:
+                assert not await db.scalar(
                     text(
                         "SELECT pg_catalog.has_function_privilege(current_user, "
                         "CAST(:signature AS regprocedure), 'EXECUTE')"
