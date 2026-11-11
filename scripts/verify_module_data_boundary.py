@@ -1801,6 +1801,7 @@ SQL_ARTIFACTS = (
     "0449_image_backfill_purpose.sql",
     "0450_video_candidate_status_restore.sql",
     *ASSETS_SOURCE_SQL_ARTIFACTS,
+    "0454_identity_first_seed_account.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -2007,6 +2008,7 @@ SCHEMA_ARTIFACTS = (
     "0348_labeling_ai_mask_accept.schema.json",
     "0349_labeling_scene_read.schema.json",
     "0366_audit_fixture_cleanup.schema.json",
+    "0454_identity_first_seed_account.schema.json",
     *ASSETS_SOURCE_SCHEMA_ARTIFACTS,
 )
 TEST_FILES = (
@@ -2042,6 +2044,8 @@ TEST_FILES = (
     "tests/test_identity_role_audit_live.py",
     "tests/test_identity_seed_selection_live.py",
     "tests/test_identity_seed_selection_native.py",
+    "tests/test_image_import_identity_profile.py",
+    "tests/test_fixture_auxiliary_retirement.py",
     "tests/test_media_seed_identity_live.py",
     "tests/test_media_seed_identity_native.py",
     "tests/test_seed_parent_operator_live.py",
@@ -2512,6 +2516,11 @@ def _retire_resource_root(resource_root: Path, cleanup: dict) -> None:
     directory = state_path(resource_root, "test")
     receipts = sorted(directory.glob("fixture-original-receipt-*.json"))
     journals = sorted(directory.glob("fixture-store-owner-*.json"))
+    legacy_journal = state_path(
+        resource_root, "test", "legacy-original-retirement.json"
+    )
+    if legacy_journal.exists():
+        journals.append(legacy_journal)
     if receipts or journals:
         cleanup["fixture_evidence"] = [
             {
@@ -2527,6 +2536,8 @@ def _retire_resource_root(resource_root: Path, cleanup: dict) -> None:
 
 
 _STRICT_PROFILE_TARGETS = {
+    "tests/test_image_import_identity_profile.py": "identity-image-import",
+    "tests/test_fixture_auxiliary_retirement.py": "fixture-auxiliary-retirement",
     "tests/test_audit_maintenance_native.py": "audit-maintenance-native",
     "tests/test_audit_maintenance_module_live.py": "audit-maintenance-module",
     "tests/test_audit_consumers_cold.py": "audit-consumers-cold",
@@ -2960,7 +2971,7 @@ def _restricted_s3_client(backend, scope: dict):
             signature_version="s3v4",
             connect_timeout=3,
             read_timeout=10,
-            retries={"max_attempts": 1},
+            retries={"total_max_attempts": 1},
             s3={"addressing_style": "path"},
         ),
     )
@@ -3221,9 +3232,763 @@ def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
         raise RuntimeError("The owned image source bucket is not versioned")
 
 
+async def _fence_image_import_legacy_storage(backend) -> dict:
+    """Fence the exact legacy target and inspect its durable physical ledger."""
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db.models.dataset_asset import StorageBinding, StorageLocation
+    from app.services import storage_access, storage_maintenance
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.storage_usage_accounting import scope_key
+    from worktree_resources import require_owner
+
+    resources = backend.resources
+    bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    if not require_owner(bucket, backend.bucket_info(bucket), resources["owner"]):
+        raise RuntimeError("Image-import bucket ownership is unproven")
+    if backend.s3.get_bucket_versioning(Bucket=bucket).get("Status") != "Enabled":
+        raise RuntimeError("Image-import bucket versioning changed")
+    endpoint = (
+        f"{'https' if backend.settings.minio_use_ssl else 'http'}://"
+        f"{backend.settings.minio_endpoint}"
+    ).rstrip("/")
+    identity = managed_storage_identity(endpoint, bucket)
+    usage_scope = scope_key(endpoint, bucket)
+    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as db:
+            database = (
+                await db.execute(
+                    text(
+                        "SELECT d.oid,d.datname,"
+                        "pg_catalog.shobj_description(d.oid,'pg_database'),current_user "
+                        "FROM pg_catalog.pg_database d WHERE d.datname=current_database()"
+                    )
+                )
+            ).one()
+            if not (
+                database[1] == resources["database"] == backend.url.database
+                and database[2] == resources["owner"]
+                and database[3] == backend.url.username
+            ):
+                raise RuntimeError("Image-import database ownership is unproven")
+            await db.rollback()
+            await storage_access.ensure(db, LEGACY_LOCATION_ID)
+            async with db.begin():
+                location = await db.scalar(
+                    select(StorageLocation)
+                    .where(StorageLocation.id == LEGACY_LOCATION_ID)
+                    .with_for_update(nowait=True)
+                )
+                binding = await db.scalar(
+                    select(StorageBinding)
+                    .where(StorageBinding.purpose == "datasets")
+                    .with_for_update(nowait=True)
+                )
+                if not (
+                    location is not None
+                    and location.enabled
+                    and location.kind == "s3"
+                    and location.connection_id is None
+                    and location.config_revision == 1
+                    and location.config
+                    == {
+                        "endpoint": backend.settings.minio_endpoint,
+                        "use_ssl": backend.settings.minio_use_ssl,
+                    }
+                    and binding is not None
+                    and binding.location_id == LEGACY_LOCATION_ID
+                    and binding.generation == 1
+                    and binding.bucket == bucket
+                ):
+                    raise RuntimeError("Image-import legacy storage identity changed")
+                gate = await storage_maintenance.lock_gate(db, LEGACY_LOCATION_ID)
+                if gate is None or gate.state != "active":
+                    raise RuntimeError("Image-import admission gate is not active")
+                gate.state = storage_maintenance.TRANSITIONS[("active", "drain")]
+                gate.revision += 1
+                gate.changed_at = await db.scalar(text("SELECT statement_timestamp()"))
+                gate.changed_by = None
+                revision = gate.revision
+            async with db.begin():
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
+                        "WHERE datname=current_database() AND pid<>pg_backend_pid() "
+                        "AND backend_type='client backend')"
+                    )
+                ):
+                    raise RuntimeError("Image-import database sessions remain")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_operations "
+                        "WHERE location_id=:location)"
+                    ),
+                    {"location": LEGACY_LOCATION_ID},
+                ):
+                    raise RuntimeError("Legacy storage operations remain unsettled")
+                rows = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT id,bucket,storage_identity,status,error_code,"
+                                "prepared,receipt,write_started_at,settled_at,object_key,version_id "
+                                "FROM public.managed_original_creations "
+                                "WHERE location_id=:location ORDER BY id"
+                            ),
+                            {"location": LEGACY_LOCATION_ID},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                for row in rows:
+                    verified = (
+                        row["status"] == "verified"
+                        and row["bucket"] == bucket
+                        and row["storage_identity"] == identity
+                        and row["settled_at"] is not None
+                        and row["object_key"] not in (None, "")
+                        and row["version_id"] not in (None, "", "null")
+                    )
+                    refused_before_io = (
+                        row["status"] == "failed"
+                        and row["error_code"] == "storage_unavailable"
+                        and row["prepared"] is None
+                        and row["receipt"] is None
+                        and row["write_started_at"] is None
+                    )
+                    if not (verified or refused_before_io):
+                        raise RuntimeError("Legacy creation outcome is unproven")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_usage_mutations "
+                        "WHERE scope_key=:scope AND state IN ('pending','unknown'))"
+                    ),
+                    {"scope": usage_scope},
+                ):
+                    raise RuntimeError("Legacy storage accounting is unsettled")
+        for page in backend.s3.get_paginator("list_multipart_uploads").paginate(
+            Bucket=bucket
+        ):
+            if page.get("Uploads"):
+                raise RuntimeError("Image-import multipart uploads remain")
+        if not require_owner(bucket, backend.bucket_info(bucket), resources["owner"]):
+            raise RuntimeError("Image-import bucket ownership changed")
+        return {
+            "database_oid": database[0],
+            "location_id": str(LEGACY_LOCATION_ID),
+            "storage_identity": identity,
+            "usage_scope": usage_scope,
+            "gate_revision": revision,
+            "creations": len(rows),
+            "verified_creations": [
+                {
+                    "id": str(row["id"]),
+                    "key": row["object_key"],
+                    "version": row["version_id"],
+                }
+                for row in rows
+                if row["status"] == "verified"
+            ],
+        }
+    finally:
+        await engine.dispose()
+
+
+async def _probe_image_import_guard(backend, scope) -> dict:
+    """Prove a real open permit fences retirement without touching its versions."""
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services import storage_access, storage_maintenance
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from worktree_env import atomic_json
+
+    bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+
+    def versions():
+        return {
+            (item["Key"], item["VersionId"])
+            for page in backend.s3.get_paginator("list_object_versions").paginate(
+                Bucket=bucket
+            )
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+        }
+
+    before = versions()
+    journal, path = scope["journal"], scope["journal_path"]
+    journal["phase"] = "guard_probe_admitting"
+    atomic_json(path, journal)
+    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as db:
+            permit = await storage_access.acquire(
+                db, LEGACY_LOCATION_ID, "image_import_retirement_probe"
+            )
+        journal["probe_operation"] = str(permit.id)
+        journal["phase"] = "guard_probe_open"
+        atomic_json(path, journal)
+        try:
+            await _fence_image_import_legacy_storage(backend)
+        except RuntimeError as error:
+            if str(error) != "Legacy storage operations remain unsettled":
+                raise
+        else:
+            raise RuntimeError("An open legacy permit failed to block retirement")
+        async with factory() as db:
+            operation = await db.get(StorageOperation, permit.id)
+            if (
+                operation is None
+                or operation.location_id != LEGACY_LOCATION_ID
+                or operation.revision != permit.revision
+                or versions() != before
+            ):
+                raise RuntimeError("Open-permit guard changed owned storage")
+        # This probe never starts physical I/O; its exact permit can be settled.
+        await permit.__aexit__(None, None, None)
+        async with factory.begin() as db:
+            gate = await storage_maintenance.lock_gate(db, LEGACY_LOCATION_ID)
+            if (
+                gate is None
+                or gate.state != "draining"
+                or await db.scalar(
+                    select(StorageOperation.id)
+                    .where(StorageOperation.location_id == LEGACY_LOCATION_ID)
+                    .limit(1)
+                )
+                is not None
+            ):
+                raise RuntimeError("Probe settlement or gate identity changed")
+            from app.services.managed_original_reclaim_fence import require_resumable
+            from app.services.storage_migration_cutovers import require_target_resumable
+
+            await require_resumable(db, LEGACY_LOCATION_ID)
+            await require_target_resumable(db, LEGACY_LOCATION_ID)
+            gate.state = storage_maintenance.TRANSITIONS[("draining", "resume")]
+            gate.revision += 1
+            gate.changed_at = await db.scalar(text("SELECT statement_timestamp()"))
+            gate.changed_by = None
+        journal["phase"] = "identity_ready"
+        journal["guard_probe"] = {
+            "operation_id": str(permit.id),
+            "blocked": True,
+            "versions_unchanged": True,
+        }
+        atomic_json(path, journal)
+        return journal["guard_probe"]
+    finally:
+        await engine.dispose()
+
+
+async def _retire_image_import_bucket(backend, prepared, scope, proof) -> None:
+    """Retire only this fenced bucket while its database ledger is still locked."""
+    from botocore.exceptions import ClientError
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db.models.dataset_asset import StorageBinding, StorageLocation
+    from app.db.models.storage_maintenance import StorageMaintenanceGate
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.storage_usage_accounting import scope_key
+    from worktree_env import atomic_json, read_state
+    from worktree_resources import require_owner
+
+    backend._require_destroy_preparation(prepared, "prepared")
+    journal = scope["journal"]
+    path = scope["journal_path"]
+    bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    endpoint = (
+        f"{'https' if backend.settings.minio_use_ssl else 'http'}://"
+        f"{backend.settings.minio_endpoint}"
+    ).rstrip("/")
+    if (
+        read_state(path) != journal
+        or journal.get("phase") not in {"identity_disabled", "retiring_versions"}
+        or (
+            journal.get("phase") == "identity_disabled"
+            and journal.get("partial_probe", {}).get("state") != "canary_created"
+        )
+        or (
+            journal.get("phase") == "retiring_versions"
+            and (
+                "pending" not in journal
+                or journal["pending"] is not None
+                or journal.get("partial_probe", {}).get("state") != "retired"
+            )
+        )
+        or journal.get("resources") != backend.resources
+        or journal.get("bucket") != bucket
+        or journal.get("fence") != proof
+        or proof.get("storage_identity") != managed_storage_identity(endpoint, bucket)
+        or proof.get("usage_scope") != scope_key(endpoint, bucket)
+    ):
+        raise RuntimeError("Image-import retirement journal changed")
+    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            async with db.begin():
+                database = (
+                    await db.execute(
+                        text(
+                            "SELECT d.oid,d.datname,"
+                            "pg_catalog.shobj_description(d.oid,'pg_database'),current_user "
+                            "FROM pg_catalog.pg_database d WHERE d.datname=current_database()"
+                        )
+                    )
+                ).one()
+                if not (
+                    database[0] == proof["database_oid"]
+                    and database[1] == backend.resources["database"]
+                    and database[2] == backend.resources["owner"]
+                    and database[3] == backend.url.username
+                ):
+                    raise RuntimeError("Image-import database identity changed")
+                location = await db.scalar(
+                    select(StorageLocation)
+                    .where(StorageLocation.id == LEGACY_LOCATION_ID)
+                    .with_for_update(read=True, nowait=True)
+                )
+                binding = await db.scalar(
+                    select(StorageBinding)
+                    .where(StorageBinding.purpose == "datasets")
+                    .with_for_update(read=True, nowait=True)
+                )
+                gate = await db.scalar(
+                    select(StorageMaintenanceGate)
+                    .where(StorageMaintenanceGate.location_id == LEGACY_LOCATION_ID)
+                    .with_for_update(read=True, nowait=True)
+                )
+                if not (
+                    str(LEGACY_LOCATION_ID) == proof["location_id"]
+                    and location is not None
+                    and location.enabled
+                    and location.kind == "s3"
+                    and location.connection_id is None
+                    and location.config_revision == 1
+                    and location.config
+                    == {
+                        "endpoint": backend.settings.minio_endpoint,
+                        "use_ssl": backend.settings.minio_use_ssl,
+                    }
+                    and binding is not None
+                    and binding.location_id == LEGACY_LOCATION_ID
+                    and binding.generation == 1
+                    and binding.bucket == bucket
+                    and gate is not None
+                    and gate.state == "draining"
+                    and gate.revision == proof["gate_revision"]
+                ):
+                    raise RuntimeError("Image-import admission or target changed")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
+                        "WHERE datname=current_database() AND pid<>pg_backend_pid() "
+                        "AND backend_type='client backend')"
+                    )
+                ):
+                    raise RuntimeError("Image-import database sessions remain")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_operations "
+                        "WHERE location_id=:location)"
+                    ),
+                    {"location": LEGACY_LOCATION_ID},
+                ):
+                    raise RuntimeError("Legacy storage operations remain unsettled")
+                if (
+                    await db.scalar(
+                        text(
+                            "SELECT count(*) FROM public.managed_original_creations "
+                            "WHERE location_id=:location"
+                        ),
+                        {"location": LEGACY_LOCATION_ID},
+                    )
+                    != proof["creations"]
+                ):
+                    raise RuntimeError("Legacy creation ledger changed")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.managed_original_creations "
+                        "WHERE storage_identity=:identity AND location_id<>:location)"
+                    ),
+                    {
+                        "identity": proof["storage_identity"],
+                        "location": LEGACY_LOCATION_ID,
+                    },
+                ):
+                    raise RuntimeError("Legacy bucket has a different registered owner")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.managed_original_creations "
+                        "WHERE location_id=:location AND (("
+                        "status='verified' AND bucket=:bucket AND storage_identity=:identity "
+                        "AND settled_at IS NOT NULL AND object_key IS NOT NULL "
+                        "AND object_key <> '' AND version_id IS NOT NULL "
+                        "AND version_id NOT IN ('','null')) OR "
+                        "(status='failed' AND error_code='storage_unavailable' "
+                        "AND prepared IS NULL AND receipt IS NULL AND write_started_at IS NULL)) "
+                        "IS NOT TRUE)"
+                    ),
+                    {
+                        "location": LEGACY_LOCATION_ID,
+                        "bucket": bucket,
+                        "identity": proof["storage_identity"],
+                    },
+                ):
+                    raise RuntimeError("Legacy creation outcome changed")
+                verified_rows = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT id,object_key,version_id FROM public.managed_original_creations "
+                                "WHERE location_id=:location AND status='verified' ORDER BY id"
+                            ),
+                            {"location": LEGACY_LOCATION_ID},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                verified_creations = [
+                    {
+                        "id": str(row["id"]),
+                        "key": row["object_key"],
+                        "version": row["version_id"],
+                    }
+                    for row in verified_rows
+                ]
+                if verified_creations != proof["verified_creations"]:
+                    raise RuntimeError("Legacy verified creation identities changed")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_usage_mutations "
+                        "WHERE scope_key=:scope AND state IN ('pending','unknown'))"
+                    ),
+                    {"scope": proof["usage_scope"]},
+                ):
+                    raise RuntimeError("Legacy storage accounting became unsettled")
+                if not require_owner(
+                    bucket, backend.bucket_info(bucket), backend.resources["owner"]
+                ):
+                    raise RuntimeError("Image-import bucket identity changed")
+                if (
+                    backend.s3.get_bucket_versioning(Bucket=bucket).get("Status")
+                    != "Enabled"
+                ):
+                    raise RuntimeError("Image-import bucket versioning changed")
+                for page in backend.s3.get_paginator("list_multipart_uploads").paginate(
+                    Bucket=bucket
+                ):
+                    if page.get("Uploads"):
+                        raise RuntimeError("Image-import multipart uploads remain")
+                versions = []
+                for page in backend.s3.get_paginator("list_object_versions").paginate(
+                    Bucket=bucket
+                ):
+                    for item in page.get("Versions", []) + page.get(
+                        "DeleteMarkers", []
+                    ):
+                        key, version = item.get("Key"), item.get("VersionId")
+                        if not isinstance(key, str) or version in (None, "", "null"):
+                            raise RuntimeError(
+                                "Image-import object identity is unproven"
+                            )
+                        versions.append({"key": key, "version": version})
+                if len({(item["key"], item["version"]) for item in versions}) != len(
+                    versions
+                ):
+                    raise RuntimeError("Image-import object inventory is inconsistent")
+                retired = []
+                if journal["phase"] == "retiring_versions":
+                    recorded, retired = journal.get("versions"), journal.get("retired")
+                    if (
+                        not isinstance(recorded, list)
+                        or not isinstance(retired, list)
+                        or retired != recorded[: len(retired)]
+                        or {(item["key"], item["version"]) for item in versions}
+                        != {
+                            (item["key"], item["version"])
+                            for item in recorded[len(retired) :]
+                        }
+                    ):
+                        raise RuntimeError("Image-import retirement inventory changed")
+                inventory = {(item["key"], item["version"]) for item in versions}
+                acknowledged = {(item["key"], item["version"]) for item in retired}
+                accounted = inventory | acknowledged
+                missing = [
+                    item
+                    for item in verified_creations
+                    if (item["key"], item["version"]) not in accounted
+                ]
+                if missing:
+                    journal["missing_verified_versions"] = missing
+                    atomic_json(path, journal)
+                    raise RuntimeError("Legacy verified creation version is missing")
+                if journal["phase"] == "identity_disabled":
+                    journal.update(
+                        phase="retiring_versions",
+                        versions=versions,
+                        retired=[],
+                        pending=None,
+                    )
+                    atomic_json(path, journal)
+                else:
+                    versions = recorded[len(retired) :]
+                for item in versions:
+                    journal["pending"] = item
+                    atomic_json(path, journal)
+                    try:
+                        result = backend.s3.delete_object(
+                            Bucket=bucket, Key=item["key"], VersionId=item["version"]
+                        )
+                    except ClientError as error:
+                        response = error.response
+                        if response.get("ResponseMetadata", {}).get(
+                            "HTTPStatusCode"
+                        ) == 403 and response.get("Error", {}).get("Code") in {
+                            "403",
+                            "AccessDenied",
+                        }:
+                            # An explicit denial proves this version was not
+                            # removed; unknown outcomes keep their pending intent.
+                            journal["pending"] = None
+                            journal["last_denial"] = item
+                            atomic_json(path, journal)
+                        raise
+                    if (
+                        result.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                        not in (200, 204)
+                        or result.get("VersionId") != item["version"]
+                    ):
+                        raise RuntimeError(
+                            "Image-import version retirement is unproven"
+                        )
+                    journal["retired"].append(item)
+                    journal["pending"] = None
+                    atomic_json(path, journal)
+                for page in backend.s3.get_paginator("list_object_versions").paginate(
+                    Bucket=bucket
+                ):
+                    if page.get("Versions") or page.get("DeleteMarkers"):
+                        raise RuntimeError(
+                            "Image-import bucket still contains versions"
+                        )
+                if not require_owner(
+                    bucket, backend.bucket_info(bucket), backend.resources["owner"]
+                ):
+                    raise RuntimeError("Image-import bucket identity changed")
+                journal["phase"] = "bucket_delete_intent"
+                atomic_json(path, journal)
+                response = backend.s3.delete_bucket(Bucket=bucket)
+                if (
+                    response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    not in (
+                        200,
+                        204,
+                    )
+                    or backend.bucket_info(bucket) is not None
+                ):
+                    raise RuntimeError("Image-import bucket retirement is unproven")
+                journal["phase"] = "bucket_retired"
+                atomic_json(path, journal)
+    finally:
+        await engine.dispose()
+
+
+def _probe_image_import_partial_retirement(backend, prepared, scope, proof) -> dict:
+    """Prove a real denied second delete keeps the live ledger and journal."""
+    from botocore.exceptions import ClientError
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from worktree_env import atomic_json, read_state
+    from worktree_resources import require_owner
+
+    journal, path = scope["journal"], scope["journal_path"]
+    bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    key = "!aap-retirement-probe/" + uuid4().hex
+    probe = _cleanup_storage_scope(backend)
+    record = {
+        "state": "identity_creating",
+        "access_key": probe["access_key"],
+        "secret_key": probe["secret_key"],
+        "policy": probe["policy"],
+        "config": probe["config"],
+        "container": probe["container"],
+        "key": key,
+    }
+    journal["partial_probe"] = record
+    atomic_json(path, journal)
+    _cleanup_mc(
+        probe,
+        ["admin", "user", "add", "scoped", probe["access_key"], probe["secret_key"]],
+    )
+    probe["user_created"] = True
+    record["state"] = "identity_created"
+    atomic_json(path, journal)
+    bucket_arn = f"arn:aws:s3:::{bucket}"
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:ListBucketVersions",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:GetBucketLocation",
+                    "s3:GetBucketTagging",
+                    "s3:GetBucketVersioning",
+                ],
+                "Resource": [bucket_arn],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObjectVersion"],
+                "Resource": [f"{bucket_arn}/{key}"],
+            },
+        ],
+    }
+    _cleanup_mc(
+        probe,
+        ["admin", "policy", "create", "scoped", probe["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    probe["policy_created"] = True
+    record["state"] = "policy_created"
+    atomic_json(path, journal)
+    _cleanup_mc(
+        probe,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            probe["policy"],
+            "--user",
+            probe["access_key"],
+        ],
+    )
+    record["state"] = "canary_put_intent"
+    atomic_json(path, journal)
+    response = backend.s3.put_object(Bucket=bucket, Key=key, Body=b"retirement probe")
+    version = response.get("VersionId")
+    if version in (None, "", "null"):
+        raise RuntimeError("Retirement probe has no immutable version")
+    record["version"] = version
+    record["state"] = "canary_created"
+    atomic_json(path, journal)
+
+    def versions():
+        return [
+            {"key": item["Key"], "version": item["VersionId"]}
+            for page in backend.s3.get_paginator("list_object_versions").paginate(
+                Bucket=bucket
+            )
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+        ]
+
+    before = versions()
+    canary = {"key": key, "version": version}
+    if len(before) < 2 or before[0] != canary:
+        raise RuntimeError("Retirement probe inventory is not independently ordered")
+    restricted = _restricted_s3_client(backend, probe)
+    administrator = backend.s3
+    try:
+        backend.s3 = restricted
+        try:
+            asyncio.run(_retire_image_import_bucket(backend, prepared, scope, proof))
+        except ClientError as error:
+            if not (
+                error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403
+                and error.response.get("Error", {}).get("Code")
+                in {"403", "AccessDenied"}
+            ):
+                raise
+        else:
+            raise RuntimeError(
+                "Retirement probe unexpectedly deleted a foreign version"
+            )
+    finally:
+        backend.s3 = administrator
+        restricted.close()
+    if not (
+        journal.get("phase") == "retiring_versions"
+        and journal.get("pending") is None
+        and journal.get("versions") == before
+        and journal.get("retired") == [canary]
+        and journal.get("last_denial") == before[1]
+        and versions() == before[1:]
+        and require_owner(
+            bucket, backend.bucket_info(bucket), backend.resources["owner"]
+        )
+    ):
+        raise RuntimeError("Partial retirement did not retain exact owned evidence")
+    if read_state(path) != journal:
+        raise RuntimeError("Partial retirement journal was not retained")
+    for account, expected in ((scope, "disabled"), (probe, "enabled")):
+        info = json.loads(
+            _cleanup_mc(
+                account, ["admin", "user", "info", "scoped", account["access_key"]]
+            )
+        )
+        if info.get("userStatus") != expected:
+            raise RuntimeError("Partial retirement identity changed")
+
+    async def ledger_is_live():
+        engine = create_async_engine(
+            backend.url, poolclass=NullPool, hide_parameters=True
+        )
+        try:
+            async with engine.connect() as db:
+                return (
+                    await db.execute(
+                        text(
+                            "SELECT d.oid,g.state,g.revision FROM pg_catalog.pg_database d "
+                            "JOIN public.storage_maintenance_gates g ON g.location_id=:location "
+                            "WHERE d.datname=current_database()"
+                        ),
+                        {"location": LEGACY_LOCATION_ID},
+                    )
+                ).one()
+        finally:
+            await engine.dispose()
+
+    ledger = asyncio.run(ledger_is_live())
+    if (ledger[0], ledger[1], ledger[2]) != (
+        proof["database_oid"],
+        "draining",
+        proof["gate_revision"],
+    ):
+        raise RuntimeError("Partial retirement lost its database or admission fence")
+    record["state"] = "identity_removing"
+    atomic_json(path, journal)
+    _destroy_cleanup_storage_scope(probe)
+    record.pop("secret_key")
+    record["state"] = "retired"
+    atomic_json(path, journal)
+    return {
+        "deleted_probe_version": True,
+        "next_version_denied": True,
+        "ledger_live": True,
+    }
+
+
 def _cleanup_mc(
     scope: dict, arguments: list[str], *, payload: str | None = None
-) -> None:
+) -> str:
     from worktree_resources import docker
 
     observed = json.loads(docker("inspect", scope["container"]))[0]
@@ -3258,6 +4023,7 @@ def _cleanup_mc(
     )
     if result.returncode:
         raise RuntimeError("MinIO cleanup identity administration failed")
+    return result.stdout
 
 
 def _cleanup_storage_policy(scope: dict) -> dict:
@@ -3763,6 +4529,58 @@ def _create_image_storage_scope(scope: dict) -> None:
             scope["access_key"],
         ],
     )
+
+
+def _create_image_import_storage_scope(scope: dict) -> None:
+    """Give this exclusive profile only managed-original creation and readback."""
+    from worktree_env import atomic_json
+
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    scope["journal"]["phase"] = "identity_created"
+    atomic_json(scope["journal_path"], scope["journal"])
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:AbortMultipartUpload",
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['datasets_bucket']}/__aap_managed_datasets__/*"
+                ],
+            }
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    scope["journal"]["phase"] = "policy_created"
+    atomic_json(scope["journal_path"], scope["journal"])
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+    scope["journal"]["phase"] = "identity_ready"
+    atomic_json(scope["journal_path"], scope["journal"])
 
 
 def _create_source_storage_scope(scope: dict) -> None:
@@ -5768,6 +6586,7 @@ def main(
     media_control_storage = None
     media_worker_storage = None
     image_worker_storage = None
+    image_import_storage = None
     api_bootstrap_storage = None
     audit_archive_writer_storage = None
     audit_archive_reader_storage = None
@@ -5779,6 +6598,21 @@ def main(
 
     try:
         selected_test_paths = {name.split("::", 1)[0] for name in test_files}
+        physical_retirement_profiles = {
+            "tests/test_image_import_identity_profile.py",
+            "tests/test_identity_seed_selection_live.py",
+        }
+        physical_retirement_profile = bool(
+            selected_test_paths & physical_retirement_profiles
+        )
+        if (
+            not collect_only
+            and physical_retirement_profile
+            and len(selected_test_paths) != 1
+        ):
+            raise RuntimeError(
+                "Managed-original retirement requires an exclusive runtime profile"
+            )
         missing_tests = sorted(
             name
             for name in selected_test_paths
@@ -6574,7 +7408,7 @@ def main(
         from sqlalchemy.engine import URL, make_url
 
         from app.config import settings
-        from worktree_env import load_identity, topology
+        from worktree_env import load_identity, read_state, state_path, topology
         from worktree_resources import (
             LocalResources,
             docker,
@@ -6703,6 +7537,43 @@ def main(
         phase = "prepare-owned-test-resources"
         backend.prepare()
         database = resources["database"]
+        manifest = read_state(state_path(resource_root, "test", "resources.json"))
+        birth_oid = manifest.get("postgres", {}).get("database_oid")
+        if manifest != backend.manifest or type(birth_oid) is not int or birth_oid <= 0:
+            raise RuntimeError("Owned test database birth identity is unproven")
+
+        async def observe_owned_database():
+            import asyncpg
+
+            connection = await asyncpg.connect(
+                backend.url.set(drivername="postgresql").render_as_string(
+                    hide_password=False
+                ),
+                timeout=5,
+            )
+            try:
+                return dict(
+                    await connection.fetchrow(
+                        "SELECT d.oid::bigint AS oid,d.datname AS name,"
+                        "pg_catalog.shobj_description(d.oid,'pg_database') AS marker,"
+                        "current_user AS current_user,session_user AS session_user "
+                        "FROM pg_catalog.pg_database d WHERE d.datname=current_database()"
+                    )
+                )
+            finally:
+                await connection.close()
+
+        database_identity = asyncio.run(observe_owned_database())
+        if not (
+            database_identity.get("oid") == birth_oid
+            and database_identity.get("name") == database == backend.url.database
+            and database_identity.get("marker") == resources["owner"]
+            and database_identity.get("current_user") == backend.url.username == "owner"
+            and database_identity.get("session_user") == "owner"
+        ):
+            raise RuntimeError("Owned test database identity is unproven")
+        database_oid = database_identity["oid"]
+        evidence["database_oid"] = database_oid
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
         if len(heads) != 1:
@@ -9834,6 +10705,7 @@ SELECT id FROM removed;
             },
         )
         resource_environment = backend.environment()
+        resource_environment["AAP_MODULE_DATA_PG_DATABASE_OID"] = str(database_oid)
         resource_environment.update(
             {
                 (
@@ -10300,6 +11172,28 @@ SELECT id FROM removed;
                                 "consumer_role": "legacy_runtime",
                             },
                         )
+                    if identity_seed_selection_live:
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database=database,
+                            sql="""
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.begin_operator_auxiliary(jsonb),
+    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    aap_assets_v1.mark_operator_original_writing(uuid),
+    aap_assets_v1.record_operator_original_written(uuid,jsonb),
+    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
+    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    aap_assets_v1.publish_operator_item_original(jsonb),
+    aap_assets_v1.open_operator_storage_operation(uuid),
+    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
+    TO legacy_runtime;
+""",
+                        )
                     evidence[
                         "workspace_scale_seed_operator"
                         if identity_seed_selection_live
@@ -10602,6 +11496,34 @@ SELECT pg_catalog.jsonb_build_object(
             resources["buckets"]["MINIO_BUCKET"],
         }:
             _enable_owned_bucket_versioning(backend, bucket)
+        if not collect_only and physical_retirement_profile:
+            image_import_storage = _cleanup_storage_scope(backend)
+            image_import_storage["datasets_bucket"] = resources["buckets"][
+                "MINIO_DATASETS_BUCKET"
+            ]
+            from worktree_env import atomic_json, state_path
+
+            journal_path = state_path(
+                resource_root, "test", "legacy-original-retirement.json"
+            )
+            if journal_path.exists():
+                raise RuntimeError("Image-import retirement journal already exists")
+            image_import_storage["journal_path"] = journal_path
+            image_import_storage["journal"] = {
+                "schema": 1,
+                "resources": resources,
+                "endpoint": backend.settings.minio_endpoint,
+                "use_ssl": backend.settings.minio_use_ssl,
+                "bucket": image_import_storage["datasets_bucket"],
+                "container": image_import_storage["container"],
+                "access_key": image_import_storage["access_key"],
+                "secret_key": image_import_storage["secret_key"],
+                "policy": image_import_storage["policy"],
+                "config": image_import_storage["config"],
+                "phase": "identity_creating",
+            }
+            atomic_json(journal_path, image_import_storage["journal"], exclusive=True)
+            _create_image_import_storage_scope(image_import_storage)
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
         catalog_storage = _cleanup_storage_scope(backend)
@@ -10936,6 +11858,17 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_MODULE_DATA_PG_CONTAINER_IDENTITY": container_identity,
             }
         )
+        if image_import_storage is not None:
+            resource_environment.update(
+                {
+                    "AAP_IMAGE_IMPORT_S3_ACCESS_KEY": image_import_storage[
+                        "access_key"
+                    ],
+                    "AAP_IMAGE_IMPORT_S3_SECRET_KEY": image_import_storage[
+                        "secret_key"
+                    ],
+                }
+            )
         if api_bootstrap_storage is not None:
             resource_environment.update(
                 {
@@ -11158,6 +12091,11 @@ SELECT pg_catalog.jsonb_build_object(
         local_resources_destroyed = backend is None or not backend.touched
         if backend is not None and backend.touched:
             try:
+                if not collect_only and physical_retirement_profile and exit_code != 0:
+                    evidence["cleanup"]["retention_reason"] = (
+                        "failed_image_import_runtime"
+                    )
+                    raise RuntimeError("Retain the failed image-import runtime")
                 if args.retain_failed_runtime and exit_code != 0:
                     evidence["cleanup"]["retention_reason"] = "requested_failed_runtime"
                     raise RuntimeError(
@@ -11197,28 +12135,163 @@ SELECT pg_catalog.jsonb_build_object(
                             "Child or unknown databases remain; retain the "
                             "enclosing PostgreSQL, storage and credentials"
                         )
-                cleanup_backend = backend
-                if (
-                    container_id
-                    and "tests/test_legacy_video_fence_live.py" in selected_test_paths
-                    and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
-                ):
-                    # This fixture deliberately disables every ordinary LOGIN.
-                    cleanup_backend = LocalResources(
-                        backend.resources,
-                        backend.settings.model_copy(
-                            update={
-                                "database_url": backend.url.render_as_string(
-                                    hide_password=False
+                if not collect_only and physical_retirement_profile:
+                    from worktree_env import atomic_json, read_state
+
+                    scope = image_import_storage
+                    if not container_id or scope is None:
+                        raise RuntimeError(
+                            "Image-import runtime identity is unavailable"
+                        )
+                    journal, journal_path = scope["journal"], scope["journal_path"]
+                    if (
+                        read_state(journal_path) != journal
+                        or journal.get("phase") != "identity_ready"
+                        or journal.get("resources") != backend.resources
+                    ):
+                        raise RuntimeError("Image-import ownership journal changed")
+                    with backend.fixture_authority_fence():
+                        with backend._prepare_owned_destruction(
+                            backend.resources["confirmation"]
+                        ) as prepared:
+                            evidence["cleanup"]["legacy_storage_guard_probe"] = (
+                                asyncio.run(_probe_image_import_guard(backend, scope))
+                            )
+                            journal["phase"] = "gate_fencing"
+                            atomic_json(journal_path, journal)
+                            proof = asyncio.run(
+                                _fence_image_import_legacy_storage(backend)
+                            )
+                            if proof["database_oid"] != database_oid:
+                                raise RuntimeError(
+                                    "Managed-original database birth changed"
                                 )
+                            if (
+                                "tests/test_identity_seed_selection_live.py"
+                                in selected_test_paths
+                            ):
+                                creations = proof["verified_creations"]
+                                if (
+                                    len(creations) != 4
+                                    or len({row["key"] for row in creations}) != 4
+                                ):
+                                    raise RuntimeError(
+                                        "Scale-seed verified original ledger is incomplete"
+                                    )
+                            databases = [
+                                item
+                                for item in database_catalog
+                                if item["name"] == backend.resources["database"]
+                            ]
+                            if (
+                                len(databases) != 1
+                                or databases[0]["oid"] != proof["database_oid"]
+                            ):
+                                raise RuntimeError(
+                                    "Image-import database birth changed"
+                                )
+                            journal["fence"] = proof
+                            journal["phase"] = "gate_fenced"
+                            atomic_json(journal_path, journal)
+                            evidence["cleanup"]["legacy_storage_fence"] = proof
+                            journal["phase"] = "identity_disabling"
+                            atomic_json(journal_path, journal)
+                            user_info = [
+                                "admin",
+                                "user",
+                                "info",
+                                "scoped",
+                                scope["access_key"],
+                            ]
+                            if (
+                                json.loads(_cleanup_mc(scope, user_info)).get(
+                                    "userStatus"
+                                )
+                                != "enabled"
+                            ):
+                                raise RuntimeError(
+                                    "Image-import identity was not enabled"
+                                )
+                            _cleanup_mc(
+                                scope,
+                                [
+                                    "admin",
+                                    "user",
+                                    "disable",
+                                    "scoped",
+                                    scope["access_key"],
+                                ],
+                            )
+                            if (
+                                json.loads(_cleanup_mc(scope, user_info)).get(
+                                    "userStatus"
+                                )
+                                != "disabled"
+                            ):
+                                raise RuntimeError(
+                                    "Image-import identity fence is unproven"
+                                )
+                            journal["phase"] = "identity_disabled"
+                            atomic_json(journal_path, journal)
+                            evidence["cleanup"]["legacy_storage_partial_probe"] = (
+                                _probe_image_import_partial_retirement(
+                                    backend, prepared, scope, proof
+                                )
+                            )
+                            asyncio.run(
+                                _retire_image_import_bucket(
+                                    backend, prepared, scope, proof
+                                )
+                            )
+                            if (
+                                read_state(journal_path) != journal
+                                or journal.get("phase") != "bucket_retired"
+                                or backend.bucket_info(journal["bucket"]) is not None
+                            ):
+                                raise RuntimeError(
+                                    "Image-import bucket retirement changed"
+                                )
+                            backend._accept_legacy_original_retirement(
+                                prepared, journal, proof
+                            )
+                            evidence["cleanup"]["legacy_storage_retirement"] = {
+                                "bucket_retired": True,
+                                "versions_retired": len(journal["retired"]),
+                                "ledger_live_through_retirement": True,
                             }
-                        ),
-                        code_root=ROOT,
-                    )
-                cleanup_backend.destroy(backend.resources["confirmation"])
+                            backend._destroy_prepared_database(prepared)
+                            backend._destroy_prepared_services(prepared)
+                            backend._destroy_prepared_buckets(prepared)
+                            backend._finish_prepared_destruction(prepared)
+                            journal["phase"] = "runtime_retired"
+                            atomic_json(journal_path, journal)
+                else:
+                    cleanup_backend = backend
+                    if (
+                        container_id
+                        and "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                        and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
+                    ):
+                        # This fixture deliberately disables every ordinary LOGIN.
+                        cleanup_backend = LocalResources(
+                            backend.resources,
+                            backend.settings.model_copy(
+                                update={
+                                    "database_url": backend.url.render_as_string(
+                                        hide_password=False
+                                    )
+                                }
+                            ),
+                            code_root=ROOT,
+                        )
+                    cleanup_backend.destroy(backend.resources["confirmation"])
                 evidence["cleanup"]["local_resources_destroyed"] = True
                 local_resources_destroyed = True
             except Exception as error:
+                if not collect_only and physical_retirement_profile:
+                    evidence["cleanup"].setdefault(
+                        "retention_reason", "image_import_retirement_unproven"
+                    )
                 evidence["cleanup"]["errors"].append(
                     {"resource": "local-resources", "error_type": type(error).__name__}
                 )
@@ -11229,6 +12302,7 @@ SELECT pg_catalog.jsonb_build_object(
             ("mask_content", mask_content_storage),
             ("mask_cleanup", mask_cleanup_storage),
             ("api_bootstrap", api_bootstrap_storage),
+            ("image_import", image_import_storage),
             ("image_worker", image_worker_storage),
             ("media_worker", media_worker_storage),
             ("media_control", media_control_storage),
@@ -11237,7 +12311,16 @@ SELECT pg_catalog.jsonb_build_object(
         ):
             if scope is not None and local_resources_destroyed:
                 try:
+                    if label == "image_import":
+                        from worktree_env import atomic_json
+
+                        scope["journal"]["phase"] = "identity_removing"
+                        atomic_json(scope["journal_path"], scope["journal"])
                     _destroy_cleanup_storage_scope(scope)
+                    if label == "image_import":
+                        scope["journal"].pop("secret_key")
+                        scope["journal"]["phase"] = "complete"
+                        atomic_json(scope["journal_path"], scope["journal"])
                     evidence["cleanup"][label + "_storage_identity_removed"] = True
                 except Exception as error:
                     evidence["cleanup"]["errors"].append(

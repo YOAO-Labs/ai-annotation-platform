@@ -283,7 +283,11 @@ async def _seed_session(run_id: uuid.UUID | None, admission_id: uuid.UUID | None
     configure_fixture_tools_path()
     from fixture_suite_coordinator import verified_fixture_owner_url
     from app.db.models.fixture_run import FixtureRunAdmission
-    from app.services import fixture_run_ownership as ownership, storage_access
+    from app.services import (
+        fixture_run_ownership as ownership,
+        managed_original_creation,
+        storage_access,
+    )
 
     owner_engine = create_async_engine(
         await verified_fixture_owner_url(), hide_parameters=True
@@ -294,6 +298,7 @@ async def _seed_session(run_id: uuid.UUID | None, admission_id: uuid.UUID | None
             owner_engine.connect() as connection,
             AsyncSession(bind=connection, expire_on_commit=False) as db,
         ):
+            await managed_original_creation.bootstrap(db)
             run = await ownership._lock_run(db, run_id)
             admission = await db.scalar(
                 select(FixtureRunAdmission)

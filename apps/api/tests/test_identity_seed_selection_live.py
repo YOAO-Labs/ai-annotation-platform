@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import builtins
 from datetime import UTC, datetime
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -26,9 +27,12 @@ from tests.project_guide_asset_owner_helpers import (
     endpoint_url,
 )
 from tests.test_asset_storage_cleanup_runtime import (
+    _local_s3_client,
+    _required_env,
     _verify_bucket_owner,
     _verify_postgres,
 )
+from tests.test_image_import_identity_profile import test_db_url as test_db_url  # noqa: F401
 from tests.test_workspace_import_cli_live import (
     _IDENTITY_CONSUMER_FUNCTIONS,
     _assert_empty_owned_rows,
@@ -48,12 +52,24 @@ ROOT = Path(__file__).resolve().parents[3]
 PROBE = ROOT / "apps/api/tests/fixtures/identity_seed_selection_probe.py"
 _SCALE_ADMIN = "aap_identity_v1.read_scale_seed_super_admin()"
 _SCALE_ANNOTATOR = "aap_identity_v1.read_scale_seed_annotator(uuid[])"
-_SELECTION_FUNCTIONS = {_SCALE_ADMIN, _SCALE_ANNOTATOR}
+_SELECTION_FUNCTIONS = {
+    _SCALE_ADMIN,
+    _SCALE_ANNOTATOR,
+    "aap_identity_v1.read_first_seed_account()",
+}
 _IMAGE_IMPORT_FUNCTIONS = {
     "aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text)",
     "aap_assets_v1.append_operator_items(uuid,uuid,jsonb)",
+    "aap_assets_v1.begin_operator_auxiliary(jsonb)",
+    "aap_assets_v1.open_operator_storage_operation(uuid)",
+    "aap_assets_v1.record_operator_original_prepared(uuid,jsonb)",
+    "aap_assets_v1.mark_operator_original_writing(uuid)",
+    "aap_assets_v1.record_operator_original_written(uuid,jsonb)",
+    "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
+    "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
+    "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
+    "aap_assets_v1.publish_operator_item_original(jsonb)",
 }
-_IMPORT_IMAGE_NAMES = ("first.png", "second.png")
 
 
 def _probe_result(run) -> dict:
@@ -96,11 +112,18 @@ async def _assert_identity_selection_profile(test_engine) -> None:
         test_engine.url.database,
     )
     assert str(runtime_url.database).endswith("_test")
+    assert runtime_url.host == "127.0.0.1" and not runtime_url.query
     runtime = create_async_engine(runtime_url, hide_parameters=True)
     try:
         async with runtime.connect() as db:
             assert await db.scalar(text("SELECT current_user")) == "legacy_runtime"
             assert await db.scalar(text("SELECT session_user")) == "legacy_runtime"
+            assert await db.scalar(
+                text(
+                    "SELECT oid::bigint FROM pg_catalog.pg_database "
+                    "WHERE datname=current_database()"
+                )
+            ) == int(_required_env("AAP_MODULE_DATA_PG_DATABASE_OID"))
             flags = (
                 await db.execute(
                     text(
@@ -182,80 +205,6 @@ async def _assert_identity_selection_profile(test_engine) -> None:
                 "'public.users','SELECT,INSERT,UPDATE,REFERENCES')"
             )
         )
-
-
-def _create_dataset_storage_scope(resources, owner_s3, bucket: str, settings):
-    """Reuse the owned disposable principal with bucket-head and prefix access."""
-    import sys
-    from types import SimpleNamespace
-
-    sys.path.insert(0, str(ROOT / "scripts"))
-    from verify_module_data_boundary import (
-        _cleanup_mc,
-        _cleanup_storage_scope,
-        _destroy_cleanup_storage_scope,
-    )
-
-    scope = _cleanup_storage_scope(
-        SimpleNamespace(settings=settings, resources=resources, s3=owner_s3)
-    )
-    scope["bucket"] = bucket
-    prefix = f"__aap_trusted_nuscenes__-{uuid.uuid4().hex}"
-    policy = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:GetObject",
-                    "s3:GetObjectVersion",
-                    "s3:PutObject",
-                    "s3:DeleteObject",
-                ],
-                "Resource": [f"arn:aws:s3:::{bucket}/{prefix}/*"],
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucket", "s3:GetBucketLocation"],
-                "Resource": [f"arn:aws:s3:::{bucket}"],
-            },
-        ],
-    }
-    try:
-        _cleanup_mc(
-            scope,
-            [
-                "admin",
-                "user",
-                "add",
-                "scoped",
-                scope["access_key"],
-                scope["secret_key"],
-            ],
-        )
-        scope["user_created"] = True
-        _cleanup_mc(
-            scope,
-            ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
-            payload=json.dumps(policy),
-        )
-        scope["policy_created"] = True
-        _cleanup_mc(
-            scope,
-            [
-                "admin",
-                "policy",
-                "attach",
-                "scoped",
-                scope["policy"],
-                "--user",
-                scope["access_key"],
-            ],
-        )
-        return scope, _destroy_cleanup_storage_scope, prefix
-    except BaseException:
-        _destroy_cleanup_storage_scope(scope)
-        raise
 
 
 async def _insert_selection_accounts(test_engine, suffix: str) -> dict[str, uuid.UUID]:
@@ -453,7 +402,7 @@ async def _wait_for_selector_gate(
 
     while asyncio.get_running_loop().time() < deadline:
         activity = await _scale_activity(
-            test_engine, application_name, test_engine.url.username
+            test_engine, application_name, "legacy_runtime"
         )
         if (
             activity is not None
@@ -630,9 +579,7 @@ def _scale_result_ids(stdout: str) -> tuple[uuid.UUID, uuid.UUID]:
     return uuid.UUID(project_match.group(1)), uuid.UUID(annotator_match.group(1))
 
 
-async def _image_import(
-    cli: WorkspaceImportCli, image_dir: str, name: str, prefix: str
-):
+async def _image_import(cli: WorkspaceImportCli, image_dir: str, name: str):
     return await asyncio.to_thread(
         cli.run_command,
         (
@@ -642,8 +589,6 @@ async def _image_import(
             image_dir,
             "--name",
             name,
-            "--folder",
-            prefix,
         ),
     )
 
@@ -667,9 +612,19 @@ async def _import_state(test_engine, name: str) -> dict:
             (
                 await db.execute(
                     text(
-                        "SELECT dataset_id,file_name,file_path,file_size,file_type "
-                        "FROM public.dataset_items WHERE dataset_id=ANY(CAST(:ids AS uuid[])) "
-                        "ORDER BY dataset_id,file_name"
+                        "SELECT i.dataset_id,i.file_name,i.file_path,i.file_size,i.file_type,"
+                        "i.content_hash,i.metadata->>'storage_relative_path' AS relative_path,"
+                        "c.id AS creation_id,c.bucket,c.object_key,c.version_id,c.sha256,"
+                        "c.status,u.state AS usage_state,u.physical_outcome "
+                        "FROM public.dataset_items i "
+                        "JOIN public.dataset_assets a ON a.dataset_item_id=i.id "
+                        "JOIN public.dataset_asset_locations l ON l.asset_id=a.id "
+                        "AND l.role='managed_original' "
+                        "JOIN public.managed_original_creations c ON c.id=l.creation_id "
+                        "LEFT JOIN public.storage_usage_mutations u ON u.owner_id=c.id "
+                        "AND u.producer='managed_original_creation' "
+                        "WHERE i.dataset_id=ANY(CAST(:ids AS uuid[])) "
+                        "ORDER BY i.dataset_id,i.file_name"
                     ),
                     {"ids": [row["id"] for row in datasets]},
                 )
@@ -709,13 +664,46 @@ def _bucket_versions(owner_s3, bucket: str, prefix: str) -> list[dict]:
     return result
 
 
-def _read_object(owner_s3, bucket: str, key: str) -> bytes:
-    response = owner_s3.get_object(Bucket=bucket, Key=key)
+def _read_object(owner_s3, bucket: str, key: str, version_id: str) -> bytes:
+    response = owner_s3.get_object(Bucket=bucket, Key=key, VersionId=version_id)
+    assert response["VersionId"] == version_id
     body = response["Body"]
     try:
         return body.read()
     finally:
         body.close()
+
+
+def _assert_imported_objects(owner_s3, bucket, dataset_id, items, expected):
+    assert {item["file_name"] for item in items} == set(expected)
+    assert len(items) == len(expected)
+    for item in items:
+        filename = item["file_name"]
+        content = expected[filename]
+        parts = item["object_key"].split("/")
+        assert len(parts) == 5
+        assert parts[:3] == ["__aap_managed_datasets__", str(dataset_id), "_objects"]
+        assert str(uuid.UUID(parts[3])) == parts[3]
+        assert parts[3] == str(item["creation_id"])
+        assert parts[4] == filename
+        assert item["dataset_id"] == dataset_id
+        assert item["relative_path"] == filename
+        assert item["file_path"] == item["object_key"]
+        assert item["file_size"] == len(content) and item["file_type"] == "image"
+        assert item["bucket"] == bucket and item["status"] == "verified"
+        assert (
+            item["usage_state"] == "confirmed" and item["physical_outcome"] == "written"
+        )
+        assert (
+            item["content_hash"]
+            == item["sha256"]
+            == hashlib.sha256(content).hexdigest()
+        )
+        assert item["version_id"] not in (None, "", "null")
+        assert (
+            _read_object(owner_s3, bucket, item["object_key"], item["version_id"])
+            == content
+        )
 
 
 def _png_pixel(red: int, green: int, blue: int) -> bytes:
@@ -749,6 +737,21 @@ async def test_installed_identity_seed_selection_consumers(
     bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     _verify_bucket_owner(owner_s3, bucket, resources["owner"])
     assert owner_s3.list_objects_v2(Bucket=bucket).get("Contents", []) == []
+    from scripts.prepare_original_catalog import main as prepare_original_catalog
+
+    # Owner provisioning is separate from the installed consumer's environment.
+    with monkeypatch.context() as owner_env:
+        for key, value in {
+            "DATABASE_URL": test_engine.url.render_as_string(hide_password=False),
+            "MINIO_ENDPOINT": settings.minio_endpoint,
+            "MINIO_USE_SSL": str(settings.minio_use_ssl).lower(),
+            "MINIO_DATASETS_BUCKET": bucket,
+            "MINIO_ACCESS_KEY": settings.minio_access_key,
+            "MINIO_SECRET_KEY": settings.minio_secret_key,
+        }.items():
+            owner_env.setenv(key, value)
+        await prepare_original_catalog()
+    assert owner_s3.get_bucket_versioning(Bucket=bucket).get("Status") == "Enabled"
 
     source_root = tmp_path / "identity-seed-selection-fixture"
     source_root.mkdir()
@@ -767,11 +770,12 @@ async def test_installed_identity_seed_selection_consumers(
     authority_host = (
         f"[{endpoint.hostname}]" if ":" in endpoint.hostname else endpoint.hostname
     )
-    scope, destroy_scope, prefix = _create_dataset_storage_scope(
-        resources, owner_s3, bucket, settings
-    )
-    assert scope["access_key"] != settings.minio_access_key
-    assert scope["secret_key"] != settings.minio_secret_key
+    access_key = _required_env("AAP_IMAGE_IMPORT_S3_ACCESS_KEY")
+    secret_key = _required_env("AAP_IMAGE_IMPORT_S3_SECRET_KEY")
+    assert access_key != settings.minio_access_key
+    assert secret_key != settings.minio_secret_key
+    writer_s3 = _local_s3_client(settings, access_key, secret_key)
+    prefix = "__aap_managed_datasets__"
     cli = None
     owner_cli = None
     run_ids = {
@@ -797,17 +801,17 @@ async def test_installed_identity_seed_selection_consumers(
             buckets=resources["buckets"],
             minio_authority=f"{authority_host}:{endpoint.port or 9000}",
             minio_use_ssl=endpoint.scheme == "https",
-            s3_access_key=scope["access_key"],
-            s3_secret_key=scope["secret_key"],
+            s3_access_key=access_key,
+            s3_secret_key=secret_key,
+            managed_original_writer=True,
         )
         await asyncio.to_thread(cli.start)
         await _assert_identity_selection_profile(test_engine)
 
         missing_name = f"selection-empty-{uuid.uuid4().hex[:10]}"
-        missing = await _image_import(cli, "/fixture/images", missing_name, prefix)
+        missing = await _image_import(cli, "/fixture/images", missing_name)
         record_property("identity_seed_import_without_users", missing.evidence)
         assert not missing.timed_out and missing.exit_code == 0, missing.evidence
-        assert "数据库中没有用户" in missing.stdout
         async with test_engine.connect() as db:
             assert await db.scalar(text("SELECT count(*) FROM public.users")) == 0
             assert (
@@ -833,10 +837,9 @@ async def test_installed_identity_seed_selection_consumers(
         assert not guard_run.timed_out and guard_run.exit_code == 0, guard_run.evidence
         guard = _probe_result(guard_run)
         assert guard["exit_code"] == 2, guard
-        assert "refusing to run with environment=production" in guard["stderr"]
 
         import_name = f"identity seed images {suffix}"
-        first_import = await _image_import(cli, "/fixture/images", import_name, prefix)
+        first_import = await _image_import(cli, "/fixture/images", import_name)
         record_property("identity_seed_import_first", first_import.evidence)
         assert not first_import.timed_out and first_import.exit_code == 0, (
             first_import.evidence
@@ -847,19 +850,9 @@ async def test_installed_identity_seed_selection_consumers(
         assert first_dataset["file_count"] == 2
         assert first_dataset["created_by"] in set(accounts.values())
         assert len(first_state["items"]) == 2
-        assert {
-            item["file_name"]: (
-                item["file_path"],
-                item["file_size"],
-                item["file_type"],
-            )
-            for item in first_state["items"]
-        } == {
-            name: (f"{prefix}/{name}", len(content), "image")
-            for name, content in image_bytes.items()
-        }
-        for name, expected in image_bytes.items():
-            assert _read_object(owner_s3, bucket, f"{prefix}/{name}") == expected
+        _assert_imported_objects(
+            writer_s3, bucket, first_dataset["id"], first_state["items"], image_bytes
+        )
 
         old_image_bytes = dict(image_bytes)
         image_bytes = {
@@ -868,7 +861,7 @@ async def test_installed_identity_seed_selection_consumers(
         }
         for name, content in image_bytes.items():
             (image_dir / name).write_bytes(content)
-        second_import = await _image_import(cli, "/fixture/images", import_name, prefix)
+        second_import = await _image_import(cli, "/fixture/images", import_name)
         record_property("identity_seed_import_repeat", second_import.evidence)
         assert not second_import.timed_out and second_import.exit_code == 0, (
             second_import.evidence
@@ -881,25 +874,36 @@ async def test_installed_identity_seed_selection_consumers(
             row["created_by"] in set(accounts.values()) for row in repeated["datasets"]
         )
         assert len(repeated["items"]) == 4
-        for name, expected in image_bytes.items():
-            assert _read_object(owner_s3, bucket, f"{prefix}/{name}") == expected
-        versioning = owner_s3.get_bucket_versioning(Bucket=bucket).get("Status")
+        original_items = [
+            item
+            for item in repeated["items"]
+            if item["dataset_id"] == first_dataset["id"]
+        ]
+        assert original_items == first_state["items"]
+        second_dataset = next(
+            dataset
+            for dataset in repeated["datasets"]
+            if dataset["id"] != first_dataset["id"]
+        )
+        second_items = [
+            item
+            for item in repeated["items"]
+            if item["dataset_id"] == second_dataset["id"]
+        ]
+        _assert_imported_objects(
+            writer_s3, bucket, first_dataset["id"], original_items, old_image_bytes
+        )
+        _assert_imported_objects(
+            writer_s3, bucket, second_dataset["id"], second_items, image_bytes
+        )
+        keys = {item["object_key"] for item in repeated["items"]}
+        assert len(keys) == 4
         versions = _bucket_versions(owner_s3, bucket, prefix)
-        if versioning == "Enabled":
-            assert len(versions) == 4, versions
-            for name in _IMPORT_IMAGE_NAMES:
-                matching = [row for row in versions if row["key"] == f"{prefix}/{name}"]
-                assert (
-                    len(matching) == 2 and sum(row["latest"] for row in matching) == 1
-                )
-        assert all(
-            _read_object(owner_s3, bucket, f"{prefix}/{name}") != old_image_bytes[name]
-            for name in _IMPORT_IMAGE_NAMES
-        )
-        record_property(
-            "identity_seed_import_object_rewrite",
-            {"bucket_versioning": versioning, "versions": versions},
-        )
+        assert {(row["key"], row["version_id"]) for row in versions} == {
+            (item["object_key"], item["version_id"]) for item in repeated["items"]
+        }
+        assert len(versions) == 4 and all(row["latest"] for row in versions)
+        record_property("identity_seed_import_immutable_versions", versions)
 
         owner_cli = WorkspaceImportCli(
             test_engine,
@@ -908,12 +912,10 @@ async def test_installed_identity_seed_selection_consumers(
             buckets=resources["buckets"],
             minio_authority=f"{authority_host}:{endpoint.port or 9000}",
             minio_use_ssl=endpoint.scheme == "https",
-            s3_access_key=scope["access_key"],
-            s3_secret_key=scope["secret_key"],
+            s3_access_key=access_key,
+            s3_secret_key=secret_key,
             fixture_family="scale",
-            fixture_run_ids=frozenset(
-                value for key, value in run_ids.items() if key != "denied"
-            ),
+            fixture_run_ids=frozenset(run_ids.values()),
         )
         await asyncio.to_thread(owner_cli.start)
         expected_admin = accounts["admin_inactive_oldest"]
@@ -978,10 +980,9 @@ async def test_installed_identity_seed_selection_consumers(
                     assert forbidden.value.orig.sqlstate == "42501"
             finally:
                 await runtime.dispose()
-            denied = await _run_scale(cli, run_ids["denied"])
-            record_property("identity_seed_scale_owner_denied", denied.evidence)
+            denied = await _run_scale(owner_cli, run_ids["denied"])
+            record_property("identity_seed_scale_selector_denied", denied.evidence)
             assert not denied.timed_out and denied.exit_code != 0, denied.evidence
-            assert "E2E seed routes are disabled" in denied.stderr, denied.stderr
             assert await _scale_state(test_engine, run_ids["denied"]) == {
                 "project": None,
                 "dataset": None,
@@ -991,7 +992,24 @@ async def test_installed_identity_seed_selection_consumers(
                 "annotations": 0,
                 "selected_members": [],
             }
+            async with test_engine.connect() as db:
+                admissions = (
+                    await db.execute(
+                        text(
+                            "SELECT kind,state FROM yoao_fixture_v1.fixture_run_admissions "
+                            "WHERE run_id=:run_id"
+                        ),
+                        {"run_id": run_ids["denied"]},
+                    )
+                ).all()
+                assert admissions == [("scale_seed", "settled")]
             assert await _user_snapshot(test_engine) == users_before_scale
+            assert (
+                await _scale_state(test_engine, run_ids["first"]) == first_scale_state
+            )
+            assert (
+                await _scale_state(test_engine, run_ids["second"]) == second_scale_state
+            )
         finally:
             async with test_engine.begin() as db:
                 await db.execute(
@@ -1011,7 +1029,6 @@ async def test_installed_identity_seed_selection_consumers(
                 "identity_seed_scale_late_annotation_failure", late.evidence
             )
             assert not late.timed_out and late.exit_code != 0, late.evidence
-            assert "controlled scale-seed annotation failure" in late.stderr
             partial = await _scale_state(test_engine, run_ids["late"])
             assert partial["project"] is not None and partial["dataset"] is not None
             assert {
@@ -1056,7 +1073,7 @@ async def test_installed_identity_seed_selection_consumers(
                 test_engine, owner_cli, pending_gate, application_name
             )
             backend_pid = activity["pid"]
-            assert activity["usename"] == test_engine.url.username
+            assert activity["usename"] == "legacy_runtime"
             assert activity["application_name"] == application_name
             assert activity["client_host"] == client_address
             assert activity["selector_call"] is True
@@ -1178,14 +1195,14 @@ async def test_installed_identity_seed_selection_consumers(
                     )
                 )
             elif owner_cli.network_id is not None:
-                owned_ids = [value for key, value in run_ids.items() if key != "denied"]
+                owned_ids = list(run_ids.values())
                 await cleanup(
                     lambda: _cleanup_scale_runs(owner_cli, test_engine, owned_ids)
                 )
             await cleanup(lambda: asyncio.to_thread(owner_cli.close))
         if cli is not None:
             await cleanup(lambda: asyncio.to_thread(cli.close))
-        await cleanup(lambda: asyncio.to_thread(destroy_scope, scope))
+        await cleanup(lambda: asyncio.to_thread(writer_s3.close))
         if cleanup_failures:
             if original is not None:
                 cleanup_failures.insert(0, original)

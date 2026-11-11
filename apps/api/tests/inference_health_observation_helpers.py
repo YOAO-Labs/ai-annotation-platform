@@ -19,8 +19,6 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
 
-ROOT = Path(__file__).resolve().parents[3]
-
 _SELECTION_SETTINGS = (
     "inference_health_observation_url",
     "inference_health_observation_token",
@@ -53,7 +51,7 @@ async def observation_provider(database_url):
     dsn = observation_dsn(database_url)
     token = secrets.token_urlsafe(32)
     with tempfile.TemporaryDirectory(
-        prefix="inference-health-observation-", dir=ROOT / ".worktree"
+        prefix="inference-health-observation-"
     ) as temporary:
         directory = Path(temporary)
         dsn_file, token_file = directory / "database", directory / "token"

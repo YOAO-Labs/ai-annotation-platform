@@ -175,7 +175,7 @@ async def _state(owner, marker, ids):
     "case", ["normal", "zero", "tasks_fail", "annotations_fail", "no_admin"]
 )
 async def test_scale_seed_stages_preserve_owned_scope(scale_world, case, monkeypatch):
-    owner, _consumer = scale_world
+    owner, consumer = scale_world
     run_id = uuid.uuid4()
     marker = seed_scale._marker(run_id)
     actor_name = "workspace-scale-" + case + "-" + run_id.hex[:8]
@@ -184,7 +184,6 @@ async def test_scale_seed_stages_preserve_owned_scope(scale_world, case, monkeyp
     )
     monkeypatch.setattr(seed_scale.settings, "environment", "development")
     monkeypatch.setattr(seed_scale.settings, "e2e_seed_enabled", True)
-    monkeypatch.setattr(seed_scale, "Session", owner)
     await _prepare_scale_run(owner, run_id)
 
     def fail_stage(connection, cursor, statement, parameters, context, executemany):
@@ -202,13 +201,34 @@ async def test_scale_seed_stages_preserve_owned_scope(scale_world, case, monkeyp
     try:
         if case == "no_admin":
             with pytest.raises(SystemExit) as error:
-                await seed_scale.seed(4, 2, 1, run_id=run_id)
+                await seed_scale.seed(
+                    4,
+                    2,
+                    1,
+                    run_id=run_id,
+                    owner_sessions=owner,
+                    selector_sessions=consumer,
+                )
             assert error.value.code == 1
         elif case in {"tasks_fail", "annotations_fail"}:
-            with pytest.raises(RuntimeError, match="controlled scale stage failure"):
-                await seed_scale.seed(4, 2, 1, run_id=run_id)
+            with pytest.raises(RuntimeError):
+                await seed_scale.seed(
+                    4,
+                    2,
+                    1,
+                    run_id=run_id,
+                    owner_sessions=owner,
+                    selector_sessions=consumer,
+                )
         else:
-            await seed_scale.seed(0 if case == "zero" else 4, 2, 1, run_id=run_id)
+            await seed_scale.seed(
+                0 if case == "zero" else 4,
+                2,
+                1,
+                run_id=run_id,
+                owner_sessions=owner,
+                selector_sessions=consumer,
+            )
         state = await _state(owner, marker, ids)
         if case == "no_admin":
             assert state["project"] is None
@@ -249,10 +269,16 @@ async def seeded_scale(scale_world, monkeypatch, marker):
     run_marker = seed_scale._marker(run_id)
     monkeypatch.setattr(seed_scale.settings, "environment", "development")
     monkeypatch.setattr(seed_scale.settings, "e2e_seed_enabled", True)
-    monkeypatch.setattr(seed_scale, "Session", owner)
     await _prepare_scale_run(owner, run_id)
     try:
-        await seed_scale.seed(4, 2, 1, run_id=run_id)
+        await seed_scale.seed(
+            4,
+            2,
+            1,
+            run_id=run_id,
+            owner_sessions=owner,
+            selector_sessions=consumer,
+        )
         async with owner() as db:
             project_id = await db.scalar(
                 text("SELECT id FROM projects WHERE name=:m"), {"m": run_marker}

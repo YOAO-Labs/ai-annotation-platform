@@ -1397,18 +1397,25 @@ AAP_IDENTITY_ROLE_AUDIT_LIVE=1 \
 
 `import_images.py` 只从公开账号事实选任意首账号，保留不检查角色／启用状态的行为。
 `seed_scale.py` 使用 `aap-identity-scale-seed-actors/v1` 两项固定只读能力，创建时间留在
-Identity 内部。普通 Identity API／worker 配置保持五项函数；仅对隔离测试库的夹具
-owner 账号在普通围栏后显式追加选择能力：
+Identity 内部。选择在 `DATABASE_URL` 指定的受限运行账号上执行；私有夹具 owner 通道
+仍只负责运行台账、准入与写入。普通 Identity API／worker 配置保持五项函数；仅对
+隔离测试库的受信任运行账号在普通围栏后显式追加选择能力：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
-  -v identity_owner=identity_code -v consumer_role="$FIXTURE_OWNER_ROLE" \
+  -v identity_owner=identity_code -v consumer_role="$FIXTURE_RUNTIME_ROLE" \
   -f infra/docker/identity-scale-seed-grants.sql
 ```
 
 此例只用于自己拥有的测试资源；不能把追加能力交给普通 HTTP／worker。实际图片导入
-还需要既有 Assets 运维能力。规模种子使用明确的 `--run-id`、隔离测试库和夹具 owner
-通道；只清理该运行登记的项目与数据集，旧共享名称不会被自动接管或删除。
+还需要既有 Assets 运维能力。规模种子使用明确的 `--run-id`、隔离测试库和经验证的
+夹具 owner 通道；运行账号缺少选择权限时失败，不回退 owner。只清理该运行登记的
+项目与数据集，旧共享名称不会被自动接管或删除。
+
+私有 test／e2e 夹具还会核对资源清单 `resources.json` 中创建数据库时记录的
+`postgres.database_oid`、实际数据库归属及 owner／运行连接。缺少出生记录或同名数据库
+已被替换时直接拒绝，不用当前 OID 补写旧清单。应先按已有 owner 流程准确核验并退役
+旧测试资源，再新建环境；原失败现场与未结算记录保持保留。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \

@@ -24,7 +24,7 @@ import mimetypes
 from pathlib import Path
 from uuid import UUID, uuid4
 
-import boto3
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 
 from yoao_assets_source.operator_contract import (
@@ -38,34 +38,8 @@ from app.services.assets_operator import AssetsOperatorGateway
 
 IMAGE_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif"}
 
-engine = create_async_engine(settings.database_url, echo=False)
+engine = create_async_engine(settings.database_url, echo=False, hide_parameters=True)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-
-
-def get_s3_client():
-    from botocore.config import Config
-
-    scheme = "https" if settings.minio_use_ssl else "http"
-    return boto3.client(
-        "s3",
-        endpoint_url=f"{scheme}://{settings.minio_endpoint}",
-        aws_access_key_id=settings.minio_access_key,
-        aws_secret_access_key=settings.minio_secret_key,
-        config=Config(
-            connect_timeout=2,
-            read_timeout=60,
-            retries={"total_max_attempts": 1, "mode": "standard"},
-            proxies={},
-        ),
-    )
-
-
-def ensure_bucket(client, bucket: str):
-    try:
-        client.head_bucket(Bucket=bucket)
-    except Exception:
-        client.create_bucket(Bucket=bucket)
-        print(f"  创建 bucket: {bucket}")
 
 
 def infer_file_type(suffix: str) -> str:
@@ -98,11 +72,11 @@ async def import_to_dataset(
     print(f"\n数据集名称: {name}")
     print(f"找到 {len(images)} 张图片，开始导入...\n")
 
-    s3 = get_s3_client()
     bucket = settings.minio_datasets_bucket
-    ensure_bucket(s3, bucket)
 
     async with Session() as db:
+        identity = (await db.execute(text("SELECT session_user, current_user"))).one()
+        print(f"数据库身份: {identity[0]} / {identity[1]}")
         owner = await IdentityCommandService(db).lookup_first_seed_account()
         if not owner:
             print("错误: 数据库中没有用户，请先运行 seed.py")

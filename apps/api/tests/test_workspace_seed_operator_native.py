@@ -44,6 +44,10 @@ ROOT = Path(__file__).resolve().parents[3]
 @asynccontextmanager
 async def _seed_world(test_engine):
     async with _world(test_engine) as (owner, api, role, _url):
+        from app.services import managed_original_creation
+
+        async with owner() as db:
+            await managed_original_creation.bootstrap(db)
         async with api() as db:
             for signature in (
                 "aap_workspace_v1.create_point_cloud_seed_project(uuid,text,text,uuid,jsonb)",

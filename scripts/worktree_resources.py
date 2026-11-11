@@ -786,6 +786,7 @@ class _WorktreeDestroyPreparation:
         self.raster_database_oid = None
         self.raster_redis_retired = False
         self.raster_source_stopped = False
+        self.legacy_original_retirement = None
 
 
 class LocalResources:
@@ -841,6 +842,12 @@ class LocalResources:
             raise WorktreeError("没有已登记的资源清单；拒绝退休或接管")
         if path.exists():
             saved = read_state(path)
+            saved_postgres = saved.get("postgres")
+            if isinstance(saved_postgres, dict) and "database_oid" in saved_postgres:
+                oid = saved_postgres["database_oid"]
+                if type(oid) is not int or oid <= 0:
+                    raise WorktreeError("数据库出生身份无效；保留资源")
+                self.manifest["postgres"]["database_oid"] = oid
             if saved != self.manifest:
                 legacy_8 = _without_buckets(
                     self.manifest, "MINIO_TRAINING_BUCKET", "MINIO_INPUTS_BUCKET"
@@ -864,7 +871,7 @@ class LocalResources:
                 signature_version="s3v4",
                 connect_timeout=3,
                 read_timeout=10,
-                retries={"max_attempts": 1},
+                retries={"total_max_attempts": 1},
             ),
         )
 
@@ -1158,9 +1165,17 @@ class LocalResources:
     async def database(self, action: str = "inspect") -> dict | None:
         return await self._database(action)
 
-    async def _database(self, action: str, *, raster_prepared=None) -> dict | None:
+    async def _database(
+        self, action: str, *, raster_prepared=None, legacy_prepared=None
+    ) -> dict | None:
         if action == "create":
             self._require_preparation_allowed()
+        if action == "drop" and legacy_prepared is None:
+            journal = state_path(
+                self.root, self.resources["mode"], "legacy-original-retirement.json"
+            )
+            if journal.exists():
+                raise WorktreeError("受管原件退休日志仍存在；拒绝删除数据库")
         if raster_prepared is not None:
             self._require_destroy_preparation(raster_prepared, "database_intent")
             if (
@@ -1170,6 +1185,16 @@ class LocalResources:
                 or raster_prepared.raster_database_oid <= 0
             ):
                 raise WorktreeError("Raster 数据库销毁身份不明确；保留资源")
+        if legacy_prepared is not None:
+            self._require_destroy_preparation(legacy_prepared, "database_intent")
+            proof = legacy_prepared.legacy_original_retirement
+            if (
+                action != "drop"
+                or not isinstance(proof, dict)
+                or type(proof.get("database_oid")) is not int
+                or proof["database_oid"] <= 0
+            ):
+                raise WorktreeError("受管原件数据库身份不明确；保留资源")
         # Same session-lock / AUTOCOMMIT pattern as apps/api/scripts/prepare_e2e_db.py;
         # additionally require a database ownership marker rather than adopting by name.
         engine = create_async_engine(
@@ -1223,8 +1248,35 @@ class LocalResources:
                         raise WorktreeError(
                             "Raster 原始数据库不存在或身份已变化；保留资源"
                         )
+                    if legacy_prepared is not None and (
+                        observed is None
+                        or observed["oid"]
+                        != legacy_prepared.legacy_original_retirement["database_oid"]
+                    ):
+                        raise WorktreeError("受管原件数据库身份已变化；保留资源")
                     present = require_owner(name, observed, self.resources["owner"])
                     quoted = engine.dialect.identifier_preparer.quote_identifier(name)
+                    if action == "create":
+                        path = state_path(
+                            self.root, self.resources["mode"], "resources.json"
+                        )
+                        if not path.exists():
+                            atomic_json(path, self.manifest, exclusive=True)
+                        if read_state(path) != self.manifest:
+                            raise WorktreeError(
+                                "资源清单在数据库创建期间变化；保留资源"
+                            )
+                        birth_oid = self.manifest["postgres"].get("database_oid")
+                        if birth_oid is not None and (
+                            not present or observed["oid"] != birth_oid
+                        ):
+                            raise WorktreeError("数据库出生身份已变化；保留资源")
+                        if (
+                            present
+                            and birth_oid is None
+                            and self.resources["mode"] in {"test", "e2e"}
+                        ):
+                            raise WorktreeError("数据库缺少出生身份；拒绝接管")
                     if action == "create" and not present:
                         await connection.exec_driver_sql(f"CREATE DATABASE {quoted}")
                         owner = self.resources["owner"].replace("'", "''")
@@ -1242,6 +1294,18 @@ class LocalResources:
                         name, verified, self.resources["owner"]
                     ):
                         raise WorktreeError("数据库创建未能验证")
+                    if action == "create" and not present:
+                        if type(verified["oid"]) is not int or verified["oid"] <= 0:
+                            raise WorktreeError("数据库出生身份未能验证；保留资源")
+                        if read_state(path) != self.manifest:
+                            raise WorktreeError(
+                                "资源清单在数据库创建期间变化；保留资源"
+                            )
+                        self.manifest["postgres"]["database_oid"] = verified["oid"]
+                        self.target_manifest["postgres"]["database_oid"] = verified[
+                            "oid"
+                        ]
+                        atomic_json(path, self.manifest)
                     if action == "drop" and verified is not None:
                         raise WorktreeError("数据库删除未能验证")
                     return (
@@ -2966,6 +3030,13 @@ class LocalResources:
             os.close(descriptor)
 
     def destroy(self, confirmation: str | None) -> None:
+        journal = state_path(
+            self.root, self.resources["mode"], "legacy-original-retirement.json"
+        )
+        if journal.exists():
+            raise WorktreeError(
+                "受管原件退休日志仍存在；保留数据库和存储，使用其所属受限退休流程"
+            )
         if getattr(self, "_retire_finished_bootstrap", False):
             _validate_environment_sources(
                 self.resources,
@@ -3034,6 +3105,47 @@ class LocalResources:
             or prepared.phase != phase
         ):
             raise WorktreeError("销毁准备或排他锁状态不一致；保留资源")
+
+    def _accept_legacy_original_retirement(self, prepared, journal, proof):
+        """Bind an exact completed physical retirement to this locked teardown."""
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+        from app.services.managed_original_retirement import managed_storage_identity
+
+        self._require_destroy_preparation(prepared, "prepared")
+        path = state_path(
+            self.root, self.resources["mode"], "legacy-original-retirement.json"
+        )
+        bucket = self.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+        endpoint = (
+            f"{'https' if self.settings.minio_use_ssl else 'http'}://"
+            f"{self.settings.minio_endpoint}"
+        ).rstrip("/")
+        if not (
+            path.exists()
+            and self.resources["mode"] == "test"
+            and prepared.storage is None
+            and prepared.raster_owner is None
+            and read_state(path) == journal
+            and journal.get("resources") == self.resources
+            and journal.get("endpoint") == self.settings.minio_endpoint
+            and journal.get("use_ssl") is self.settings.minio_use_ssl
+            and journal.get("bucket") == bucket
+            and journal.get("phase") == "bucket_retired"
+            and journal.get("fence") == proof
+            and "pending" in journal
+            and journal["pending"] is None
+            and journal.get("versions") == journal.get("retired")
+            and isinstance(journal.get("versions"), list)
+            and isinstance(proof, dict)
+            and proof.get("location_id") == str(LEGACY_LOCATION_ID)
+            and proof.get("storage_identity")
+            == managed_storage_identity(endpoint, bucket)
+            and type(proof.get("database_oid")) is int
+            and proof["database_oid"] > 0
+            and self.bucket_info(bucket) is None
+        ):
+            raise WorktreeError("受管原件退休身份或回执不明确；保留数据库")
+        prepared.legacy_original_retirement = proof
 
     def _bind_raster_destroy_identity(self, prepared, owner):
         self._require_destroy_preparation(prepared, "prepared")
@@ -3259,6 +3371,16 @@ class LocalResources:
 
     def _destroy_prepared_database(self, prepared):
         self._require_destroy_preparation(prepared, "prepared")
+        journal = state_path(
+            self.root, self.resources["mode"], "legacy-original-retirement.json"
+        )
+        if journal.exists():
+            proof = prepared.legacy_original_retirement
+            if not isinstance(proof, dict):
+                raise WorktreeError("受管原件尚未按日志退休；保留数据库")
+            self._accept_legacy_original_retirement(
+                prepared, read_state(journal), proof
+            )
         if (
             prepared.storage == "raster_provider_retired"
             and not prepared.raster_redis_retired
@@ -3274,6 +3396,8 @@ class LocalResources:
         # Recheck each exact owner at the write boundary; never force DROP.
         if prepared.storage == "raster_provider_retired":
             asyncio.run(self._database("drop", raster_prepared=prepared))
+        elif prepared.legacy_original_retirement is not None:
+            asyncio.run(self._database("drop", legacy_prepared=prepared))
         else:
             asyncio.run(self.database("drop"))
         if prepared.raster_owner is not None:

@@ -92,6 +92,7 @@ async def _restore_owned_originals(test_engine):
 
 @pytest.fixture
 async def owned_import(db_session, _restore_owned_originals, monkeypatch, tmp_path):
+    await creation.bootstrap(db_session)
     from app.services.storage import storage_service
 
     client = Client()

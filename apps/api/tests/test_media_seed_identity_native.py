@@ -260,13 +260,18 @@ async def test_screenshot_personas_use_exact_owned_accounts(screenshot_seed, sce
                 await seed_screenshot_profile._seed_users(db, run_id)
         assert commits[0] == 0
 
-        if scenario == "valid":
-            result = await catalog.build_screenshot_seed_catalog(db, run_id=run_id)
-            assert result["users"]["annotator"]["id"] == str(user_id)
-            assert result["users"]["annotator"]["email"] == email
-        else:
-            with pytest.raises(catalog.ScreenshotSeedCatalogError):
-                await catalog.build_screenshot_seed_catalog(db, run_id=run_id)
+        async with screenshot_seed.media_gateway(run_id) as media:
+            if scenario == "valid":
+                result = await catalog.build_screenshot_seed_catalog(
+                    db, run_id=run_id, backend_requirements="none", media=media
+                )
+                assert result["users"]["annotator"]["id"] == str(user_id)
+                assert result["users"]["annotator"]["email"] == email
+            else:
+                with pytest.raises(catalog.ScreenshotSeedCatalogError):
+                    await catalog.build_screenshot_seed_catalog(
+                        db, run_id=run_id, backend_requirements="none", media=media
+                    )
         await db.rollback()
 
 

@@ -71,17 +71,14 @@ import capabilities; the Catalog login remains separate with twenty-nine
 capabilities.
 
 The local image and nuScenes importer scripts register Dataset/Item state
-through six native Assets functions. A separate trusted `asset_operator_client`
-login is published for consumers of those six functions. The complete scripts
-keep their existing composition connection: the six-function login cannot run
-their Identity, Workspace or Labeling steps. This is not part of the Source
-runtime or its 37-function login:
-the importer scripts call the native SQL contract on their caller-owned
-transaction and do not use the Source HTTP API or fall back through
-`ASSETS_SOURCE_URL`. The operator login has no direct table privileges and no
-other owner-schema access. Existing owner UUIDs record attribution; possession
-of this operator credential supplies the SQL execution authority. Import
-scripts retain their current validation and ownership selection.
+through the Assets operator functions. The trusted `asset_operator_client`
+login can also execute Identity's bounded `read_first_seed_account()` for local
+image attribution. It receives no Identity table or profile-relation access.
+The nuScenes importer additionally composes Workspace, Labeling and spatial
+capabilities in its caller transaction; the Assets operator login alone cannot
+perform those steps. Neither importer falls back through `ASSETS_SOURCE_URL`.
+Existing owner UUIDs record attribution; the operator credential grants the
+corresponding SQL execution authority.
 
 Item registration is ordered and split into batches of at most 500 entries.
 Request bodies are limited to 8 MiB; reads return bounded pages of at most 500

@@ -88,7 +88,13 @@ class StorageService:
         b = bucket or self.bucket
         try:
             self.client.head_bucket(Bucket=b)
-        except ClientError:
+        except ClientError as exc:
+            if exc.response.get("Error", {}).get("Code") not in {
+                "404",
+                "NoSuchBucket",
+                "NotFound",
+            }:
+                raise
             self.client.create_bucket(Bucket=b)
 
     def ensure_all_buckets(self) -> None:

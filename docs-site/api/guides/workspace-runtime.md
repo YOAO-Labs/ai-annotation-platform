@@ -311,8 +311,9 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 原件、未退役执行、学习历史、辅助引用或忙锁会阻止删除，保留锚点。
 
 规模种子仅在 `_test` / `_e2e` 隔离库且显式启用 E2E seed 时运行，通过受信任的夹具
-owner 通道访问私有台账；普通 API／worker 不获得该权限。生产环境仍在 CLI 创建 engine
-前拒绝。旧 `scale-seed` 名称不会由新运行的清理隐式删除。
+owner 通道访问私有台账和写入；Identity 账号选择使用单独的受限运行账号，权限缺失
+时不会切回 owner。普通 API／worker 不获得夹具 owner 权限。生产环境仍在 CLI 创建
+engine 前拒绝。旧 `scale-seed` 名称不会由新运行的清理隐式删除。
 两个截图支持助手复用 `get_workspace_project`，保留原 Session.get 缓存与范围校验。
 这些消费者的 Workspace 边界不代表其余领域的批量 DML 已完成提取。
 

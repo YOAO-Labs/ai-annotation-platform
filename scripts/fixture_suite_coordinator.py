@@ -104,7 +104,23 @@ def _verified_resources(environment):
     _refuse_unless(mode in {"test", "e2e"}, "fixture_owned_topology_required")
     root = _canonical_resource_root(environment.get("AAP_WORKTREE_RESOURCE_ROOT"))
     resources = topology(root, load_identity(root), mode)
-    manifest = read_state(state_path(root, mode, "resources.json"))
+    path = state_path(root, mode, "resources.json")
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "r") as stream:
+            info, current = os.fstat(stream.fileno()), path.lstat()
+            _refuse_unless(
+                stat.S_ISREG(info.st_mode)
+                and info.st_uid == os.geteuid()
+                and stat.S_IMODE(info.st_mode) == 0o600
+                and info.st_nlink == 1
+                and (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino),
+                "fixture_manifest_invalid",
+            )
+            manifest = json.load(stream)
+    except (OSError, ValueError, UnicodeError):
+        raise FixtureSetupRefused("fixture_manifest_invalid") from None
+    _refuse_unless(isinstance(manifest, dict), "fixture_manifest_invalid")
     _refuse_unless(manifest.get("resources") == resources, "fixture_manifest_mismatch")
     return root, resources, manifest
 
@@ -197,6 +213,11 @@ async def _provisioning_child(environment, payload):
 async def _verified_database(environment=None):
     environment = os.environ if environment is None else environment
     resource_root, resources, manifest = _verified_resources(environment)
+    birth_oid = manifest.get("postgres", {}).get("database_oid")
+    _refuse_unless(
+        type(birth_oid) is int and birth_oid > 0,
+        "fixture_database_birth_unproven",
+    )
     owner = make_url(environment["PLAYWRIGHT_E2E_DATABASE_URL"])
     runtime = make_url(
         environment.get("FIXTURE_RUNTIME_DATABASE_URL") or environment["DATABASE_URL"]
@@ -233,7 +254,8 @@ async def _verified_database(environment=None):
                 )
             ).one()
             _refuse_unless(
-                row[1] == resources["database"]
+                row[0] == birth_oid
+                and row[1] == resources["database"]
                 and row[3] == resources["owner"]
                 and row[4] == owner.username
                 and row[2] != runtime.username,
@@ -266,7 +288,7 @@ async def _verified_database(environment=None):
             _refuse_unless(
                 role[0] == runtime.username
                 and role[1] == identity["database"]
-                and role[2] == identity["database_oid"]
+                and role[2] == identity["database_oid"] == birth_oid
                 and role[3]
                 and not any(role[4:]),
                 "fixture_runtime_role_unproven",

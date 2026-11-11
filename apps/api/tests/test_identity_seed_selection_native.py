@@ -3,14 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
-import io
 import json
 import os
 import subprocess
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 import uuid
 
 import pytest
@@ -20,7 +16,6 @@ from app.db.models.project import Project
 from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.services.identity_commands import IdentityCommandService
-from scripts import import_images
 from tests.test_workspace_consumer_profile_native import _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -35,24 +30,9 @@ pytestmark = [
 ]
 
 
-def _replay(name, value, record_property):
-    assert value == GOLDEN[name]
-    record_property("identity_seed_selection_replay", name)
-
-
 @pytest.fixture
 async def selection_world(test_engine):
     async with _world(test_engine) as (owner, consumer, role, _url):
-        # Match the existing worktree CLI's two Assets capabilities used here;
-        # the LAN application profile intentionally does not include them.
-        async with test_engine.begin() as db:
-            await db.execute(
-                text(
-                    "GRANT EXECUTE ON FUNCTION "
-                    "aap_assets_v1.create_operator_image_dataset(uuid,uuid,text,text), "
-                    "aap_assets_v1.append_operator_items(uuid,uuid,jsonb) TO " + role
-                )
-            )
         result = await _grants(
             test_engine, ROOT / "infra/docker/identity-scale-seed-grants.sql", role
         )
@@ -345,94 +325,6 @@ async def test_combined_selector_uses_statement_start_snapshot(
         if event.contains(target, "before_cursor_execute", gate):
             event.remove(target, "before_cursor_execute", gate)
         await _remove_scale_actors(owner, name, ids)
-
-
-class _Objects:
-    def __init__(self):
-        self.calls = []
-
-    def head_bucket(self, **kwargs):
-        self.calls.append("head")
-
-    def upload_file(self, path, bucket, key, **kwargs):
-        self.calls.append([key, Path(path).read_bytes().decode()])
-
-
-@pytest.mark.parametrize("scenario", ["empty", "inactive_viewer", "multiple", "limit"])
-async def test_image_import_identity_behavior(
-    selection_world, scenario, monkeypatch, tmp_path, record_property
-):
-    owner, consumer = selection_world
-    name = "identity-import-" + scenario
-    ids = set()
-    if scenario != "empty":
-        async with owner.begin() as db:
-            for n in range(2 if scenario == "multiple" else 1):
-                user = User(
-                    email=f"{name}-{n}@seed.test",
-                    name="import fixture",
-                    password_hash="fixture",
-                    role="viewer",
-                    is_active=False,
-                )
-                db.add(user)
-                await db.flush()
-                ids.add(user.id)
-    objects = _Objects()
-    monkeypatch.setattr(import_images, "get_s3_client", lambda: objects)
-    monkeypatch.setattr(
-        import_images.settings, "minio_datasets_bucket", "fixture-datasets"
-    )
-    dispose = AsyncMock()
-    monkeypatch.setattr(import_images, "engine", SimpleNamespace(dispose=dispose))
-    async with owner() as before:
-        ids = set((await before.execute(text("SELECT id FROM public.users"))).scalars())
-    session = consumer
-    monkeypatch.setattr(import_images, "Session", session)
-    images = tmp_path / "pictures"
-    images.mkdir()
-    for filename in ("a.png", "b.jpg"):
-        (images / filename).write_text(filename)
-    output = io.StringIO()
-    with contextlib.redirect_stdout(output):
-        await import_images.import_to_dataset(
-            str(images), name, "identity-input", 1 if scenario == "limit" else None
-        )
-    async with owner() as db:
-        datasets = list(
-            (
-                await db.execute(
-                    text(
-                        "SELECT id,created_by,file_count FROM datasets WHERE name=:name"
-                    ),
-                    {"name": name},
-                )
-            ).mappings()
-        )
-        files = list(
-            (
-                await db.execute(
-                    text(
-                        "SELECT file_name,file_path FROM dataset_items WHERE dataset_id IN (SELECT id FROM datasets WHERE name=:name) ORDER BY file_name"
-                    ),
-                    {"name": name},
-                )
-            ).mappings()
-        )
-    _replay(
-        name,
-        {
-            "dataset_count": len(datasets),
-            "owner_in_candidates": all(row["created_by"] in ids for row in datasets),
-            "file_counts": [row["file_count"] for row in datasets],
-            "files": [dict(row) for row in files],
-            "objects": objects.calls,
-            "disposed": dispose.await_count,
-            "missing_user": "数据库中没有用户" in output.getvalue(),
-            "finished": "导入完成" in output.getvalue(),
-        },
-        record_property,
-    )
 
 
 @pytest.mark.parametrize(

@@ -211,6 +211,12 @@ class _FakeS3Client(Client):
         )
 
 
+@pytest.fixture
+async def db_session(db_session):
+    await creation.bootstrap(db_session)
+    return db_session
+
+
 @pytest.fixture(autouse=True)
 def controlled_transport(monkeypatch):
     monkeypatch.setattr(creation, "create_client", lambda **_: storage_service.client)

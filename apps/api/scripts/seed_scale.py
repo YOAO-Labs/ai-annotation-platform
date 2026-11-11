@@ -11,11 +11,13 @@ a blocker; it is never treated as proof that the creator stopped.
 import argparse
 import builtins
 import asyncio
+import os
 import sys
 import uuid
 
 from fastapi import HTTPException
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
@@ -50,12 +52,18 @@ async def _purge(db: AsyncSession, run_id: uuid.UUID) -> None:
 
 
 async def seed(
-    n_tasks: int, n_batches: int, n_annotated: int, *, run_id: uuid.UUID
+    n_tasks: int,
+    n_batches: int,
+    n_annotated: int,
+    *,
+    run_id: uuid.UUID,
+    owner_sessions: async_sessionmaker[AsyncSession],
+    selector_sessions: async_sessionmaker[AsyncSession],
 ) -> None:
     from app.services.identity_commands import IdentityCommandService
 
     marker = _marker(run_id)
-    async with Session() as db:
+    async with owner_sessions() as db:
         await assert_isolated_test_seed_database(db)
         run = await db.get(FixtureRun, run_id)
         if run is None or run.family != "scale" or run.parent_run_id is not None:
@@ -67,9 +75,10 @@ async def seed(
             if projects or datasets:
                 raise HTTPException(409, detail={"code": "fixture_run_scope_changed"})
             labeling = LabelingScaleSeedOperations(db)
-            owner_id, annotator_id = await IdentityCommandService(
-                db
-            ).resolve_scale_seed_actors()
+            async with selector_sessions() as selector_db:
+                owner_id, annotator_id = await IdentityCommandService(
+                    selector_db
+                ).resolve_scale_seed_actors()
             if not owner_id or not annotator_id:
                 print("[seed_scale] need a super_admin and an annotator project member")
                 raise SystemExit(1)
@@ -138,7 +147,6 @@ async def seed(
 
 
 async def _main() -> None:
-    global Session
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--run-id", required=True, type=uuid.UUID)
     parser.add_argument("--purge", action="store_true")
@@ -146,6 +154,7 @@ async def _main() -> None:
     parser.add_argument("m", nargs="?", type=int, default=50)
     parser.add_argument("k", nargs="?", type=int, default=20_000)
     args = parser.parse_args()
+    selector_sessions = Session
     owner_engine = None
     try:
         from scripts.fixture_tools import configure_fixture_tools_path
@@ -153,21 +162,37 @@ async def _main() -> None:
         configure_fixture_tools_path()
         from fixture_suite_coordinator import verified_fixture_owner_url
 
+        runtime_url = make_url(os.environ["DATABASE_URL"])
+        fixture_runtime = os.environ.get("FIXTURE_RUNTIME_DATABASE_URL")
+        if engine.url != runtime_url or (
+            fixture_runtime and engine.url != make_url(fixture_runtime)
+        ):
+            raise RuntimeError(
+                "Selector database differs from the verified fixture runtime"
+            )
+
         async with Session() as db:
             await assert_isolated_test_seed_database(db)
 
         owner_engine = create_async_engine(
             await verified_fixture_owner_url(), echo=False, hide_parameters=True
         )
-        Session = async_sessionmaker(
+        owner_sessions = async_sessionmaker(
             owner_engine, class_=AsyncSession, expire_on_commit=False
         )
         if args.purge:
-            async with Session() as db:
+            async with owner_sessions() as db:
                 await _purge(db, args.run_id)
             print(f"[seed_scale] purged run {args.run_id}")
         else:
-            await seed(args.n, args.m, args.k, run_id=args.run_id)
+            await seed(
+                args.n,
+                args.m,
+                args.k,
+                run_id=args.run_id,
+                owner_sessions=owner_sessions,
+                selector_sessions=selector_sessions,
+            )
     finally:
         if owner_engine is not None:
             await owner_engine.dispose()

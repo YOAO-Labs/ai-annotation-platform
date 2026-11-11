@@ -131,6 +131,7 @@ class WorkspaceImportCli:
         fixture_run_ids: frozenset[uuid.UUID] | None = None,
         fixture_family: str | None = None,
         original_reader: bool = False,
+        managed_original_writer: bool = False,
     ) -> None:
         if (fixture_run_ids is None) != (fixture_family is None) or (
             fixture_run_ids is not None
@@ -147,9 +148,15 @@ class WorkspaceImportCli:
             raise ValueError("Private fixture CLI needs its exact family and run IDs")
         if original_reader and fixture_family is not None:
             raise ValueError("Original-reader and private owner profiles are separate")
+        if managed_original_writer and (original_reader or fixture_family is not None):
+            raise ValueError(
+                "Managed-original writer requires its own consumer profile"
+            )
         self.fixture_run_ids = fixture_run_ids
         self.fixture_family = fixture_family
-        self.host_network = fixture_family is not None or original_reader
+        self.host_network = (
+            fixture_family is not None or original_reader or managed_original_writer
+        )
         self.original_reader_environment = {
             name: self._required(name) if original_reader else ""
             for name in _ORIGINAL_READER_KEYS
@@ -207,7 +214,7 @@ class WorkspaceImportCli:
         _verify_postgres(test_engine.url)
         self.redis_owner_url = _verify_redis()
         self.minio = None
-        if not self.host_network:
+        if not self.host_network or managed_original_writer:
             resource_url = make_url(self._required("AAP_MODULE_DATA_ASSET_CLEANUP_URL"))
             if (resource_url.host, resource_url.port) != (
                 test_engine.url.host,
@@ -229,6 +236,13 @@ class WorkspaceImportCli:
                 self.minio["ssl"],
             ):
                 raise RuntimeError("CLI MinIO endpoint differs from the verified store")
+            if managed_original_writer:
+                from app.config import settings
+
+                if minio_authority != settings.minio_endpoint:
+                    raise RuntimeError(
+                        "CLI managed-original endpoint differs from its catalog"
+                    )
         self.database_name = database_name
         self.database_url = self._runtime_database_url(runtime_database_url)
         self.identity_auth_database_url = ""
@@ -1145,6 +1159,8 @@ class WorkspaceImportCli:
         if self.host_network:
             _verify_postgres(self.test_engine.url)
             _verify_redis()
+            if self.minio is not None:
+                _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
             for path, digest in self.fixture_metadata.items():
                 if (
                     path != path.resolve(strict=True)

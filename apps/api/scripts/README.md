@@ -78,6 +78,25 @@ PYTHONPATH=. uv run python scripts/backfill_scenes.py --dataset-id <uuid> --mode
 
 **不在 docker 启动时自动跑**——管理员人工 review 后执行。
 
+## prepare_original_catalog
+
+管理员在运行本地图片或 nuScenes 导入器前，使用与目标平台一致的所有 bucket 配置，
+单独以数据库 owner 和对象存储管理员身份运行此命令。它验证既有目录和 datasets 绑定，
+准备该精确 bucket 并启用版本化；目标配置漂移时拒绝更改目录或创建其他 bucket。
+必须显式设置以下变量，不能借用普通导入进程的凭据：
+
+```bash
+cd apps/api
+DATABASE_URL="$CATALOG_OWNER_DATABASE_URL" \
+MINIO_ENDPOINT="$PLATFORM_MINIO_ENDPOINT" MINIO_USE_SSL="$PLATFORM_MINIO_USE_SSL" \
+MINIO_DATASETS_BUCKET="$PLATFORM_DATASETS_BUCKET" \
+MINIO_ACCESS_KEY="$STORAGE_ADMIN_ACCESS_KEY" MINIO_SECRET_KEY="$STORAGE_ADMIN_SECRET_KEY" \
+uv run python -m scripts.prepare_original_catalog
+```
+
+准备完成后，在独立进程中用各导入器的受限数据库及对象存储身份运行；不要向导入器传递
+owner 数据库 URL 或存储管理员密钥。缺少或失效的目标仍明确拒绝，不会由导入器自动修复。
+
 ## import_nuscenes_scene (v0.14.2)
 
 把 nuScenes-mini 的一个/多个 scene 转成本平台点云原生目录 + 入库(MinIO + DB)。
@@ -116,7 +135,7 @@ dataset 按 DS-NU-<name> 复用;同名 scene 已存在则跳过。详见脚本�
 - `nuscenes_fixture.py`:从官方地址分段续传 nuScenes mini，在仓库外缓存并安全解压 key-frame samples
 - `seed_pointcloud.py`:nuScenes mini scene-0061 → 固定 dev 点云项目，并按 scene 建包（截图 profile 不建包）
 - `seed_scale.py`:在隔离测试库中为明确的 `--run-id UUID` 创建大规模压测夹具；使用同一 UUID 的 `--purge` 清理精确清单，未收尾的运行会阻止清理。
-- `import_images.py`:批量导入本地图片到 dataset
+- `import_images.py`:批量导入本地图片到 dataset，启动时输出实际数据库 session／current 用户以便核对受限身份。
 - `bootstrap_admin.py`:从 ENV 读取首次超管信息，提交由 CLI 持有；用户创建归 `IdentityCommandService`，`application/bootstrap_admin.py` 组合 `AuditService` 写入同事务审计。已存在邮箱不改资料、不追加审计。
 - `backfill_task_datasets.py`:`--dry-run` / `--verify` 使用 PostgreSQL 只读事务，`--apply` 按批提交；`application/task_dataset_backfill.py` 负责扫描/报告并委托 `project_task_dataset.ensure_membership` 写入，不改冻结版本内容。
 - `reset_datasets.py`:清空 datasets + 关联表

@@ -1834,6 +1834,8 @@ ALTER FUNCTION aap_identity_fixture_v1.delete_invitations(uuid[])
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_fixture_v1.delete_organization_members(uuid[])
     OWNER TO :"identity_owner";
+ALTER FUNCTION aap_identity_v1.read_first_seed_account()
+    OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_scale_seed_super_admin()
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_v1.read_scale_seed_annotator(uuid[])

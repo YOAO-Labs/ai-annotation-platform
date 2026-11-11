@@ -519,6 +519,10 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 本地导入器通过 `AssetsOperatorGateway` 将这些函数绑定到自己的 SQL Session；nuScenes 路径与既有 Labeling、Workspace 和空间写入共用外层事务，函数不自行提交。它们不是 Source HTTP 工作流，没有 `ASSETS_SOURCE_URL` 远程选择或错误回退。对象存储上传、nuScenes 文件写入及必要的既有对象覆盖不属于 SQL 事务，回滚保留原始字节。专用 operator LOGIN 不读业务表，也不继承其他角色。完整边界与部署顺序见仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)；SQL schema 在 `apps/api/alembic/sql/0218_assets_operator.schema.json`。
 
+图片导入的 `asset_operator_client` 另可执行 Identity 的 `read_first_seed_account()`，只返回现有账号的 ID 和邮箱，不筛选角色或启用状态；多个账号时不保证选择顺序。该能力不授予用户表或账号 profile 关系的读取权限，也不改变调用方事务。
+
+首次运行图片或 nuScenes 导入前，管理员须在与目标存储配置一致的环境中，以数据库 owner 和对象存储管理员身份单独运行 `python -m scripts.prepare_original_catalog`。命令要求显式提供 `DATABASE_URL`、`MINIO_ENDPOINT`、`MINIO_USE_SSL`、`MINIO_DATASETS_BUCKET`、`MINIO_ACCESS_KEY` 和 `MINIO_SECRET_KEY`，并使用其余已配置的 bucket 设置；它核对目录绑定、准备准确的 datasets bucket 并启用版本化，配置漂移时拒绝修改目标。随后导入进程仅使用各自的受限连接与对象存储身份，不接收数据库 owner URL 或存储管理员密钥；缺少或失效的目标不会被导入器自动修复。
+
 ## 持久连接器导入
 
 Assets 的 `prepare_dataset_import`、`accept_dataset_import` 与 `cancel_dataset_import` 服务公开适配器；独立执行器只获得 claim、heartbeat、connection、manifest、next、complete-entry、finish 七项能力，不能接受新授权或读取其他 owner 关系。协议为 `aap-dataset-import/v1`，完整定义见 `0214_dataset_import.schema.json` 和随包的 `import_contract.schema.json`。

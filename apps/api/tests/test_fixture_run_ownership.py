@@ -908,7 +908,6 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
     monkeypatch.setattr(settings, "environment", "development")
     monkeypatch.setattr(settings, "e2e_seed_enabled", True)
     sessions = async_sessionmaker(test_engine, expire_on_commit=False)
-    monkeypatch.setattr(seed_scale, "Session", sessions)
     first, second = uuid.uuid4(), uuid.uuid4()
     async with sessions.begin() as db:
         owner = await create_user(
@@ -942,8 +941,12 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
         async with private_seed_owner() as fixture_owner:
             await fixture_owner.prepare_suite(first, "scale")
             await fixture_owner.prepare_suite(second, "scale")
-        await seed_scale.seed(4, 2, 1, run_id=first)
-        await seed_scale.seed(4, 2, 1, run_id=second)
+        await seed_scale.seed(
+            4, 2, 1, run_id=first, owner_sessions=sessions, selector_sessions=sessions
+        )
+        await seed_scale.seed(
+            4, 2, 1, run_id=second, owner_sessions=sessions, selector_sessions=sessions
+        )
         async with sessions.begin() as db:
             neighbor = dict(
                 (

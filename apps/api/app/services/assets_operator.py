@@ -155,21 +155,6 @@ class AssetsOperatorGateway:
         # Verified receipts proved by this gateway inside one caller transaction.
         self._receipt_transaction = None
         self._verified_receipts: dict[UUID, tuple[str, int]] = {}
-        self._catalog_ready = False
-
-    async def _ensure_owner_catalog(self) -> None:
-        """Seed committed storage catalog facts before any native allocation.
-
-        A fresh database has no legacy location/binding rows until an owner
-        bootstrap runs; allocations then fail with target-unavailable. Reuse the
-        existing owner bootstrap so standalone imports initialize it too.
-        """
-        if self._catalog_ready:
-            return
-        from app.services import managed_original_creation as originals
-
-        await originals.bootstrap(self.db)
-        self._catalog_ready = True
 
     def _active_caller_transaction(self):
         """Return the transaction that owns this caller's row locks.
@@ -607,8 +592,6 @@ class AssetsOperatorGateway:
             from app.services.dataset_assets import LEGACY_LOCATION_ID
             from app.services.storage import storage_service
 
-            from urllib.parse import urlsplit
-
             from app.config import settings
 
             expected_endpoint = (
@@ -619,10 +602,9 @@ class AssetsOperatorGateway:
             if (
                 str(material.get("location_id")) != str(LEGACY_LOCATION_ID)
                 or material.get("bucket") != storage_service.datasets_bucket
-                or urlsplit(actual_endpoint).netloc
-                != urlsplit(expected_endpoint).netloc
+                or actual_endpoint != expected_endpoint
             ):
-                raise OperatorFailure("creation_target_unavailable")
+                raise _operator_failure("creation_target_unavailable")
             return _SharedClient(storage_service.client)
         from urllib.parse import urlsplit
 
@@ -658,11 +640,12 @@ class AssetsOperatorGateway:
         prepared = receipt = verified = None
         head_matches: bool | None = None
         completion_started = False
-        client_context = self._material_client(material)
+        client_context = None
         client = None
         failure = None
         unknown = False
         try:
+            client_context = self._material_client(material)
             client = client_context.__enter__()
             prepared = writer.prepare_stream(
                 client,
@@ -734,6 +717,9 @@ class AssetsOperatorGateway:
                 )
         except BaseException as exc:
             failure = exc
+            if client_context is not None and client is None:
+                # A failed context entry may have acquired a physical handle.
+                unknown = True
             if not completion_started and prepared is not None:
                 try:
                     writer.abort_prepared(client, bucket, key, prepared)
@@ -959,7 +945,6 @@ class AssetsOperatorGateway:
         """Allocate through the owner, write pinned bytes, then record proof."""
         from types import SimpleNamespace
 
-        await self._ensure_owner_catalog()
         material = await self._native_data(
             "aap_assets_v1.begin_operator_auxiliary",
             {
@@ -1047,7 +1032,6 @@ class AssetsOperatorGateway:
             create_stream,
         )
 
-        await self._ensure_owner_catalog()
         await ownership.reserve(
             self.db, run_id, "item", item_id, logical_key=f"operator-item-{item_id.hex}"
         )
@@ -1123,8 +1107,6 @@ class AssetsOperatorGateway:
         import hashlib
 
         from types import SimpleNamespace
-
-        await self._ensure_owner_catalog()
 
         sha256 = hashlib.sha256(data).hexdigest()
         size = len(data)

@@ -1805,7 +1805,7 @@ Media 接管另使用 20 秒、600 帧、约 32.4 MB 的视频：暂停实际执
 
 ## 可信本地导入器写入
 
-本地图片和 nuScenes 导入脚本通过 Assets 的六项 operator SQL 能力登记数据，不经过 `apps/assets-source` HTTP runtime，也不读取 `ASSETS_SOURCE_URL` 或在远程错误后回退。它们使用调用方 SQL Session；nuScenes 的 Dataset/Item、Labeling、Workspace 和空间事实仍在原有外层事务中提交。S3 上传或 nuScenes 对象覆盖无法随数据库回滚，原始字节保留。独立 `asset_operator_client` 只可执行这六项函数，不具有表权限或其他 owner schema 权限。owner UUID 保持归属标记，图片 owner 选择和 nuScenes Catalog 资格/锁顺序沿用现有行为。
+本地图片和 nuScenes 导入脚本通过 Assets operator SQL 能力登记数据，不经过 `apps/assets-source` HTTP runtime，也不读取 `ASSETS_SOURCE_URL` 或在远程错误后回退。它们使用调用方 SQL Session；nuScenes 的 Dataset/Item、Labeling、Workspace 和空间事实仍在原有外层事务中提交。S3 上传或 nuScenes 对象覆盖无法随数据库回滚，原始字节保留。独立 `asset_operator_client` 具有固定 Assets 能力，以及图片归属所需的单项 Identity 账号选择函数；它没有表权限或角色继承。owner UUID 保持归属标记，图片 owner 选择和 nuScenes Catalog 资格/锁顺序沿用现有行为。
 
 0218 新增的 `dataset_operator_operations` 以不可变回执记录操作且没有 live Dataset/Item 外键。追加、更新最多 500 项一批；读取使用有序 Item UUID 游标和跨页 snapshot digest，单页受 15 MiB 记录 JSON、16 MiB 响应和 500 项限制，单次请求受 8 MiB 限制。更新在 Assets 校验 opaque source snapshot 后只合并请求字段。部署 grants 和完整字段语义见[同库数据接口](/api/guides/module-data#可信导入器数据集与素材登记)、仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)。这是现有共享数据库上的可信本地写入边界，不代表独立 Assets 或 CLI 部署资格。
 

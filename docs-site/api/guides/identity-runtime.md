@@ -152,8 +152,10 @@ Identity API 仍只有两视图／五函数；审计 LOGIN 仅追加三个审计
 
 没有额外的 UUID 排序、账号锁、授权或提交。这些 `STABLE` 函数只对调用语句的快照
 负责；规模种子把 Workspace annotator 成员事实组成 UUID 数组，在同一 SQL 语句中传给
-第二项能力。可信账号的追加配置是 `identity-scale-seed-grants.sql`；普通消费者仍是
-既有两视图／五函数，无法执行选择能力。不能拆成跨连接的先读候选、再选账号。
+第二项能力。`seed_scale.py` 在其受限运行账号上执行这两次选择，夹具 owner 通道
+仍负责私有台账和写入；选择权限缺失时不回退 owner。可信运行账号的追加配置是
+`identity-scale-seed-grants.sql`；普通消费者仍是既有两视图／五函数，无法执行选择能力。
+不能拆成跨连接的先读候选、再选账号。
 
 图片导入只复用既有公开账号事实，无序选择任意首账号，不增加角色或启用条件。
 定向与冷运行范围见[运维账号选择](/dev/concepts/module-deployment#identity-运维账号选择)。

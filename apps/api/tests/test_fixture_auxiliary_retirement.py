@@ -160,6 +160,11 @@ async def _assert_root_precedes_source_lock(test_engine, root_id, command, param
 async def test_fixture_auxiliary_retirement_rolls_back_and_reclaims_only_its_run(
     fixture_and_fenced_http, committed_owner, e2e_consumer, test_engine, monkeypatch
 ):
+    from app.services import managed_original_creation
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    async with async_sessionmaker(test_engine)() as owner:
+        await managed_original_creation.bootstrap(owner)
     client, db = fixture_and_fenced_http, committed_owner
     monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
     runs = [client.owner_suite.new_run(namespace) for namespace in (A, B)]
