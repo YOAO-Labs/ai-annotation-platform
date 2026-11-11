@@ -2722,6 +2722,20 @@ async def seed_screenshot_recording_backend(
     return {"registry_id": str(backend.id)}
 
 
+@router.post("/seed/owned-prepare", include_in_schema=False)
+async def prepare_owned_native(
+    payload: SeedOwnedRequest, request: Request, db: AsyncSession = Depends(get_db)
+):
+    """Prepare this exact owned run's native processes before the test body."""
+    if getattr(request.app.state, "fixture_native_runtime", None) is None:
+        raise HTTPException(409, detail={"code": "fixture_native_suite_required"})
+
+    async def prepared(_scope, _admission_id):
+        return {"ok": True}
+
+    return await _run_owned_seed(db, payload, "native_prepare", prepared, request)
+
+
 @router.post(
     "/seed/owned",
     response_model=SeedOwned,

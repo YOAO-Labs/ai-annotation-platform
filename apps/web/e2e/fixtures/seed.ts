@@ -640,6 +640,18 @@ export class SeedAPI {
     return { namespace: token, suite_id: suiteId, run_id: runId };
   }
 
+  /** Prepare the default owned run's native processes outside the product test budget. */
+  async prepareRasterOwned(): Promise<void> {
+    const token = this.ownedNamespace();
+    const res = await postFixture(`${API_BASE}/api/v1/__test/seed/owned-prepare`, {
+      data: this.ownedScope(token),
+      timeout: 60_000,
+    });
+    if (!res.ok()) {
+      throw new Error(`seed/owned-prepare failed: ${res.status()} ${await res.text()}`);
+    }
+  }
+
   /**
    * Build this test's own namespaced image-workbench fixture without touching
    * any other namespace. Tokens derive from the run identity and either an
@@ -1315,26 +1327,44 @@ export const test = base.extend<Fixtures, { fixtureOwner: void }>({
     },
     { scope: "worker", auto: true },
   ],
-  seed: async ({ request }, use, testInfo) => {
-    const api = new SeedAPI(request, testInfo);
-    // playwright fixture 的 use 不是 React Hook
-    // eslint-disable-next-line react-hooks/rules-of-hooks
-    await use(api);
-    // Finish-time screenshots already exist; the context trace remains open.
-    // Retire exact page owners before deleting their media, even after failure.
-    try {
-      await api.retireOwnedPages();
-    } catch (error) {
+  seed: [
+    async ({ request }, use, testInfo) => {
+      const api = new SeedAPI(request, testInfo);
+      let setupFailure: unknown;
       try {
-        await api.cleanupOwnedFixtures();
-      } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], "Seed fixture teardown failed");
+        if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1") {
+          await api.prepareRasterOwned();
+        }
+        // eslint-disable-next-line react-hooks/rules-of-hooks
+        await use(api);
+      } catch (error) {
+        setupFailure = error;
+        throw error;
+      } finally {
+        // Finish-time screenshots already exist; retire pages before their media.
+        try {
+          try {
+            await api.retireOwnedPages();
+          } catch (error) {
+            try {
+              await api.cleanupOwnedFixtures();
+            } catch (cleanupError) {
+              throw new AggregateError([error, cleanupError], "Seed fixture teardown failed");
+            }
+            throw error;
+          }
+          await api.cleanupOwnedFixtures();
+        } catch (cleanupError) {
+          if (setupFailure !== undefined) {
+            throw new AggregateError([setupFailure, cleanupError], "Seed fixture failed");
+          }
+          throw cleanupError;
+        }
       }
-      throw error;
-    }
-    // Deterministic per-test cleanup for every owned namespace the test built.
-    await api.cleanupOwnedFixtures();
-  },
+    },
+    // Allow the existing 60-second operation budgets for preparation and cleanup.
+    { timeout: 120_000 },
+  ],
 });
 
 export { expect };

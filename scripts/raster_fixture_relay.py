@@ -61,6 +61,7 @@ class RasterFixtureRelay:
         self.suite_id = suite_id
         self.runs = {}
         self.intents = {}
+        self.prepared = set()
         self.tasks = {}
         self.emails = set()
         self.lock = threading.Lock()
@@ -201,6 +202,14 @@ class RasterFixtureRelay:
                                             error
                                         ).__name__
                                 if (
+                                    payload.get("path") == PREFIX + "owned-prepare"
+                                    and known.get("status") == 200
+                                    and not response.get("owner_error")
+                                    and not response.get("journal_error")
+                                    and not response.get("disposal_error")
+                                ):
+                                    entry["preparation_succeeded"] = True
+                                if (
                                     payload.get("path") == PREFIX + "owned"
                                     and known.get("status") == 200
                                     and not entry["registered"]
@@ -221,6 +230,8 @@ class RasterFixtureRelay:
                                     action == "ack"
                                     and response.get("state") == "acknowledged"
                                 ):
+                                    if not entry["acknowledged"] and entry.get("preparation_succeeded"):
+                                        relay.prepared.add(payload["data"]["run_id"])
                                     entry["acknowledged"] = True
                             if (
                                 response.get("status") is not None
@@ -448,17 +459,22 @@ class RasterFixtureRelay:
         operation = path[len(PREFIX) :]
         data = request.get("data")
         require(isinstance(data, dict), "raster_relay_invalid_data")
-        if operation in {"owned", "owned-cleanup", "raster-fault-verify", "cleanup"}:
+        if operation in {"owned", "owned-prepare", "owned-cleanup", "raster-fault-verify", "cleanup"}:
             require(
                 data.get("suite_id") == self.suite_id, "raster_relay_suite_mismatch"
             )
-            if operation == "owned":
+            if operation in {"owned", "owned-prepare"}:
                 run_id, namespace = data.get("run_id"), data.get("namespace")
                 self._identity(run_id, namespace)
-                require(run_id not in self.intents, "raster_fixture_run_reused")
-                # Retain the exact attempted scope even when the native owner
-                # commits an admission and then returns a failed response.
-                self.intents[run_id] = namespace
+                if operation == "owned" and run_id in self.prepared:
+                    require(
+                        self.intents.get(run_id) == namespace, "raster_relay_namespace_mismatch"
+                    )
+                    self.prepared.remove(run_id)
+                else:
+                    require(run_id not in self.intents, "raster_fixture_run_reused")
+                    # Preserve attempted scopes for exact cleanup after a failed request.
+                    self.intents[run_id] = namespace
                 return
             if operation == "owned-cleanup":
                 run_id, namespace = data.get("run_id"), data.get("namespace")
@@ -466,6 +482,19 @@ class RasterFixtureRelay:
                 require(
                     self.intents.get(run_id) == namespace, "raster_relay_run_unowned"
                 )
+                require(
+                    not any(
+                        not entry["acknowledged"]
+                        and (
+                            entry["payload"].get("data", {}).get("run_id")
+                            or self.tasks.get(entry["payload"].get("data", {}).get("task_id"))
+                        )
+                        == run_id
+                        for entry in self.operations.values()
+                    ),
+                    "raster_relay_run_unsettled",
+                )
+                self.prepared.discard(run_id)
                 return
             if operation == "cleanup":
                 return
