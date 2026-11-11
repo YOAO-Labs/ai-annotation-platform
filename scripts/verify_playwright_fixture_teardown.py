@@ -6,12 +6,18 @@ inner Playwright invocations intentionally fail; this command succeeds only
 when both failures and both independent neighbors have been fully proved.
 On an unproved result, source files, processes, owner state and evidence are
 left in place for inspection; this utility never performs recovery cleanup.
+
+Each case is bounded to 2,400 seconds: two suites each have two 120-second
+web-server startup limits and seven 120-second native/API/control drains,
+plus two 120-second snapshot/coordination allowances. This observation
+budget changes no production timeout and never signals on expiration.
 """
 from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import closing
+from contextlib import closing, contextmanager
+import fcntl
 import hashlib
 import json
 import os
@@ -22,6 +28,9 @@ import socket
 import stat
 import subprocess
 import sys
+import threading
+import time
+from urllib.parse import quote, urlsplit
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -34,7 +43,13 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from fixture_native_playwright import _private, _start_ticks, _verify_run_receipts
-from fixture_store import _client, _native_physical_retirement_receipt, _native_retirement_receipt, reader_credentials
+from fixture_store import (
+    _canonical_native_output_policy, _client, _native_iam_info,
+    _native_output_paths, _native_output_policy, _native_output_provider,
+    _native_physical_retirement_receipt, _native_retirement_receipt,
+    _private_bytes, _root_credentials, reader_credentials, verified_native_output,
+    verified_store,
+)
 from fixture_suite_coordinator import _verified_database
 from linux_pidfd import open_pidfd, pidfd_alive, pidfd_send_signal
 from verify_storage_candidates import Owner
@@ -42,6 +57,47 @@ from worktree_env import atomic_json, state_path
 
 NATIVE = ("celery-media", "celery-pyramid", "media-worker", "image-worker", "proxy")
 FAILURE = "INTENTIONAL_GLOBAL_TEARDOWN_ACCEPTANCE_FAILURE"
+CASE_SECONDS = 2 * (2 * 120 + 7 * 120) + 2 * 120
+
+# Same run-resource joins as tests/test_screenshot_exit_live.py: no display
+# names, prefixes or unowned rows enter this neighbor proof.
+ROW_QUERIES = {
+    "resources": "SELECT to_jsonb(r) FROM yoao_fixture_v1.fixture_run_resources r WHERE r.run_id=:run ORDER BY r.kind,r.resource_id",
+    "users": "SELECT to_jsonb(t) FROM public.users t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='user' WHERE r.run_id=:run ORDER BY t.id",
+    "projects": "SELECT to_jsonb(t) FROM public.projects t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='project' WHERE r.run_id=:run ORDER BY t.id",
+    "datasets": "SELECT to_jsonb(t) FROM public.datasets t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='dataset' WHERE r.run_id=:run ORDER BY t.id",
+    "items": "SELECT to_jsonb(t) FROM public.dataset_items t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='item' WHERE r.run_id=:run ORDER BY t.id",
+    "tasks": "SELECT to_jsonb(t) FROM public.tasks t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='task' WHERE r.run_id=:run ORDER BY t.id",
+    "annotations": "SELECT to_jsonb(t) FROM public.annotations t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='annotation' WHERE r.run_id=:run ORDER BY t.id",
+    "creations": "SELECT to_jsonb(t) FROM public.managed_original_creations t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind IN ('creation','auxiliary') WHERE r.run_id=:run ORDER BY t.id",
+    "auxiliary": "SELECT to_jsonb(t) FROM public.dataset_auxiliary_originals t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.id AND r.kind='auxiliary' WHERE r.run_id=:run ORDER BY t.id",
+    "scenes": "SELECT to_jsonb(t) FROM public.scenes t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.dataset_id AND r.kind='dataset' WHERE r.run_id=:run ORDER BY t.id",
+    "project_datasets": "SELECT to_jsonb(t) FROM public.project_datasets t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.project_id AND r.kind='project' WHERE r.run_id=:run ORDER BY t.id",
+    "batches": "SELECT to_jsonb(t) FROM public.task_batches t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.project_id AND r.kind='project' WHERE r.run_id=:run ORDER BY t.id",
+    "predictions": "SELECT to_jsonb(t) FROM public.predictions t JOIN yoao_fixture_v1.fixture_run_resources r ON r.resource_id=t.project_id AND r.kind='project' WHERE r.run_id=:run ORDER BY t.id,t.created_at",
+}
+
+
+@contextmanager
+def case_deadline(case):
+    """Bound blocking OS/provider calls as well as asynchronous waits."""
+    require(signal.getitimer(signal.ITIMER_REAL) == (0.0, 0.0), "existing_alarm_conflict")
+    previous = signal.getsignal(signal.SIGALRM)
+
+    def expired(_signum, _frame):
+        raise RuntimeError("case_deadline_expired")
+
+    signal.signal(signal.SIGALRM, expired)
+    signal.setitimer(signal.ITIMER_REAL, CASE_SECONDS)
+    try:
+        atomic_json(case / "budget.json", {
+            "schema": "aap-playwright-case-budget/v1",
+            "seconds": CASE_SECONDS, "started_monotonic_ns": time.monotonic_ns(),
+        }, exclusive=True)
+        yield
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
+        signal.signal(signal.SIGALRM, previous)
 
 
 def require(condition, code):
@@ -153,7 +209,7 @@ async function wait(name: string) {
   while (!existsSync(join(dir, name))) await new Promise(r => setTimeout(r, 200));
 }
 test("real owned workbench", async ({ page, request }, info) => {
-  test.setTimeout(0);
+  test.setTimeout(Number(process.env.TEARDOWN_ACCEPTANCE_TEST_TIMEOUT_MS));
   const seed = new SeedAPI(request, info);
   let failure: unknown;
   try {
@@ -208,7 +264,8 @@ import base from "./playwright.config";
 export default defineConfig({{ ...base,
   testMatch: ["**/tests/{spec.name}"],
   globalTeardown: "./{hook.name}",
-  workers: 1, retries: 0, reporter: "line",
+  workers: 1, retries: 0,
+  reporter: [["line"], ["json", {{ outputFile: process.env.TEARDOWN_ACCEPTANCE_REPORT! }}]],
   outputDir: process.env.TEARDOWN_ACCEPTANCE_OUTPUT!,
 }});
 '''
@@ -223,7 +280,9 @@ def launch(case_dir, suite, role, ports, config):
     env.update(PLAYWRIGHT_FIXTURE_RUN_ID=str(suite),
                PLAYWRIGHT_ISOLATED_API_PORT=str(ports[0]), PLAYWRIGHT_ISOLATED_WEB_PORT=str(ports[1]),
                TEARDOWN_ACCEPTANCE_DIR=str(case_dir), TEARDOWN_ACCEPTANCE_ROLE=role,
-               TEARDOWN_ACCEPTANCE_OUTPUT=str(case_dir / "playwright-output"))
+               TEARDOWN_ACCEPTANCE_OUTPUT=str(case_dir / "playwright-output"),
+               TEARDOWN_ACCEPTANCE_REPORT=str(case_dir / "report.json"),
+               TEARDOWN_ACCEPTANCE_TEST_TIMEOUT_MS=str(CASE_SECONDS * 1000))
     # Execute Playwright in this exact node process, rather than signalling a
     # package-manager wrapper or a process group.
     log = os.open(case_dir / "playwright.log", os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
@@ -235,6 +294,33 @@ def launch(case_dir, suite, role, ports, config):
         os.close(log)
     return {"dir": case_dir, "suite": suite, "process": process, "role": role,
             "playwright": process_identity(process.pid)}
+
+
+def report_result(instance, spec_path, expected):
+    report = marker(instance["dir"] / "report.json")
+    require(report["errors"] == [], "playwright_global_error")
+    specs = []
+
+    def visit(suite):
+        specs.extend(suite.get("specs", []))
+        for child in suite.get("suites", []):
+            visit(child)
+
+    for suite in report["suites"]:
+        visit(suite)
+    require(len(specs) == 1 and specs[0]["title"] == "real owned workbench"
+            and Path(specs[0]["file"]).name == spec_path.name
+            and len(specs[0]["tests"]) == 1, "playwright_report_scope_changed")
+    test = specs[0]["tests"][0]
+    require(test["projectId"] == "chromium" and test["expectedStatus"] == "passed"
+            and len(test["results"]) == 1, "playwright_report_test_changed")
+    result = test["results"][0]
+    require(result["retry"] == 0 and result["status"] == expected,
+            "playwright_result_not_expected")
+    if expected == "interrupted":
+        require(not result.get("error") and not result.get("errors"),
+                "playwright_interruption_has_test_error")
+    return result["status"]
 
 
 async def wait_marker(instance, filename, neighbor=None):
@@ -282,6 +368,19 @@ async def manifest(engine, run):
     return [row["value"] for row in rows]
 
 
+async def business_fingerprints(engine, run):
+    result = {}
+    async with engine.connect() as connection:
+        await connection.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        for name, sql in ROW_QUERIES.items():
+            rows = (await connection.execute(text(sql), {"run": run})).scalars().all()
+            canonical = json.dumps(rows, sort_keys=True, separators=(",", ":")).encode()
+            result[name] = {"count": len(rows), "sha256": hashlib.sha256(canonical).hexdigest()}
+    require(all(result[name]["count"] > 0 for name in ("resources", "users", "projects", "datasets", "items", "tasks", "creations")),
+            "neighbor_business_scope_incomplete")
+    return result
+
+
 async def versions(engine, run):
     rows = await query(engine,
         "SELECT r.kind,c.id,c.location_id,c.storage_identity,c.bucket,c.object_key,c.version_id,"
@@ -320,6 +419,107 @@ def read_originals(owner, rows):
     return result
 
 
+async def read_only_thread(function, *args):
+    """Do not terminate a provider/inspection process when the case times out."""
+    loop = asyncio.get_running_loop()
+    future = loop.create_future()
+
+    def execute():
+        try:
+            value = function(*args)
+        except BaseException as error:
+            def finish(error=error):
+                if not future.done():
+                    future.set_exception(error)
+        else:
+            def finish(value=value):
+                if not future.done():
+                    future.set_result(value)
+        try:
+            loop.call_soon_threadsafe(finish)
+        except RuntimeError:
+            # The bounded parent has already left; the read-only probe owns
+            # no authority to alter or retire any resource.
+            pass
+
+    threading.Thread(target=execute, daemon=True).start()
+    return await future
+
+
+@contextmanager
+def store_observation(owner_path):
+    lock_path = owner_path.parent / "fixture-store.lock"
+    descriptor = os.open(lock_path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        info, current = os.fstat(descriptor), lock_path.lstat()
+        require(stat.S_ISREG(info.st_mode) and info.st_uid == os.geteuid()
+                and stat.S_IMODE(info.st_mode) == 0o600 and info.st_nlink == 1
+                and (info.st_dev, info.st_ino) == (current.st_dev, current.st_ino),
+                "fixture_store_lock_changed")
+        fcntl.flock(descriptor, fcntl.LOCK_SH)
+        current = lock_path.lstat()
+        require((info.st_dev, info.st_ino, info.st_nlink)
+                == (current.st_dev, current.st_ino, current.st_nlink), "fixture_store_lock_changed")
+        yield Owner(owner_path)
+    finally:
+        os.close(descriptor)
+
+
+def observe_native_birth(owner_path, identity, run):
+    with store_observation(owner_path) as owner:
+        target = verified_native_output(owner, identity, run)
+        paths = _native_output_paths(owner, run)
+        raw = _private_bytes(paths["receipt"])
+        require(hashlib.sha256(raw).hexdigest() == target["receipt_sha256"],
+                "native_birth_receipt_changed")
+        return {"receipt_sha256": target["receipt_sha256"],
+                "birth": json.loads(raw),
+                "seed_sha256": hashlib.sha256(_private_bytes(paths["seed"])).hexdigest()}
+
+
+def observe_native_absence(owner_path, identity, run, birth):
+    """Reinspect the exact provider, bucket and six IAM identities, read-only."""
+    with store_observation(owner_path) as owner:
+        store = owner.data["fixture_store"]
+        require(store["database"] == identity, "fixture_store_database_changed")
+        paths = _native_output_paths(owner, run)
+        raw = _private_bytes(paths["receipt"])
+        seed = _private_bytes(paths["seed"])
+        require(hashlib.sha256(raw).hexdigest() == birth["receipt_sha256"]
+                and json.loads(raw) == birth["birth"]
+                and hashlib.sha256(seed).hexdigest() == birth["seed_sha256"]
+                and birth["birth"]["provider"] == _native_output_provider(owner, store),
+                "native_birth_identity_changed")
+        verified_store(owner, identity)
+        accounts = json.loads(seed)
+        access, secret = _root_credentials(owner)
+        with closing(_client(store["admin_endpoint"], access, secret)) as client:
+            buckets = {item["Name"] for item in client.list_buckets()["Buckets"]}
+        require(store["bucket"] in buckets and birth["birth"]["bucket"] not in buckets,
+                "native_bucket_absence_unproved")
+        mc_env = {
+            "PATH": os.environ["PATH"],
+            "MC_CONFIG_DIR": str(owner.private / "mc"),
+            "MC_HOST_fixture": "http://" + quote(access, safe="") + ":" + quote(secret, safe="")
+            + "@" + urlsplit(store["admin_endpoint"]).netloc,
+        }
+        for role in ("writer", "reader", "cleanup"):
+            evidence = birth["birth"]["accounts"][role]
+            account = accounts[role]["access_key"]
+            policy_name = owner.data["fixture_native_outputs"][run.hex][role + "_policy"]
+            policy = _canonical_native_output_policy(json.loads(_private_bytes(paths[role + "_policy"])))
+            expected = _canonical_native_output_policy(_native_output_policy(birth["birth"]["bucket"], role=role))
+            digest = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+            require(evidence == {"identity_sha256": hashlib.sha256(account.encode()).hexdigest(),
+                                 "policy_name": policy_name, "policy_sha256": digest}
+                    and policy == expected, "native_iam_identity_changed")
+            require(_native_iam_info(mc_env, "user", account) is None
+                    and _native_iam_info(mc_env, "policy", policy_name) is None,
+                    "native_iam_absence_unproved")
+    return {"provider_identity_rechecked": True, "bucket_absent": True,
+            "iam_user_and_policy_absent": ["writer", "reader", "cleanup"]}
+
+
 async def snapshot(instance, resources, engine, owner, neighbor=None):
     ready = await wait_marker(instance, "ready.json", neighbor)
     require(ready["suite_id"] == str(instance["suite"]), "ready_suite_changed")
@@ -353,10 +553,14 @@ async def snapshot(instance, resources, engine, owner, neighbor=None):
     processes["provider"] = provider_child(authority["pid"], run)
     own_versions = await versions(engine, run)
     owned_manifest = await manifest(engine, run)
+    business = await business_fingerprints(engine, run) if instance["role"] == "neighbor" else None
+    native_birth = await read_only_thread(observe_native_birth, owner.path, owner.data["fixture_store"]["database"], run)
+    require(native_birth["receipt_sha256"] == native["receipt_sha256"], "native_birth_receipt_changed")
     originals = read_originals(owner, own_versions)
     instance.update(run=run, ready=ready, directory=directory, native_path=native_path,
                     processes=processes, generation=generation, native=native,
-                    versions=own_versions, originals=originals, manifest=owned_manifest)
+                    versions=own_versions, originals=originals, manifest=owned_manifest,
+                    business=business, native_birth=native_birth)
     private_file(instance["dir"] / "snapshot.json", json.dumps({
         "schema": "aap-playwright-global-teardown-snapshot/v1",
         "suite_id": str(instance["suite"]), "run_id": str(run),
@@ -365,6 +569,7 @@ async def snapshot(instance, resources, engine, owner, neighbor=None):
         "playwright_process": safe_identity(instance["playwright"]),
         "processes": {name: safe_identity(process) for name, process in processes.items()},
         "original_versions": own_versions, "resource_manifest": owned_manifest,
+        "business_fingerprints": business, "native_birth": native_birth,
     }, default=str, sort_keys=True).encode())
     check_live(instance)
     return instance
@@ -464,15 +669,18 @@ async def verify_retired(instance, resources, engine, owner_path):
                     and all(business["iam_retirement"][kind][key] is True
                             for key in ("user_submitted", "user_absent", "policy_submitted", "policy_absent"))
                     for kind in business["iam_retirement"]), "business_retirement_unproved")
+    actual_absence = await read_only_thread(
+        observe_native_absence, owner_path, store["database"], run, instance["native_birth"],
+    )
     return {"suite_id": str(suite), "run_id": str(run), "native_receipt_sha256": native["receipt_sha256"],
             "physical_receipt_sha256": digest, "original_versions_reclaimed": len(reclaimed),
+            "native_physical_observation": actual_absence,
             "provider_exit": "pidfd observed; zero exit inferred from successful fixture provider close contract",
             "processes": {name: safe_identity(p) for name, p in instance["processes"].items()}}
 
 
 async def run_case(name, evidence, sources, resources, engine, owner_path):
     case = evidence / name
-    case.mkdir(mode=0o700)
     ports = free_ports()
     a_suite, b_suite = uuid.uuid4(), uuid.uuid4()
     b = launch(case / "B", b_suite, "neighbor", ports[2:], sources[2])
@@ -486,7 +694,14 @@ async def run_case(name, evidence, sources, resources, engine, owner_path):
         private_file(a["dir"] / "release", b"release\n")
     else:
         require(live(a["playwright"]), "playwright_identity_changed")
+        signal_record = {"schema": "aap-playwright-sigint/v1", "suite_id": str(a_suite),
+                         "pid": a["playwright"]["pid"], "start": a["playwright"]["start"],
+                         "signal": "SIGINT", "count": 1}
+        atomic_json(a["dir"] / "signal-intent.json", signal_record, exclusive=True)
         pidfd_send_signal(a["playwright"]["fd"], signal.SIGINT)
+        atomic_json(a["dir"] / "signal-sent.json", {
+            **signal_record, "sent_monotonic_ns": time.monotonic_ns(),
+        }, exclusive=True)
     while a["process"].poll() is None:
         check_live(b)
         await asyncio.sleep(0.2)
@@ -495,6 +710,7 @@ async def run_case(name, evidence, sources, resources, engine, owner_path):
     require(a_status != 0, "a_unexpected_success")
     if name == "failure":
         require(FAILURE in (a["dir"] / "playwright.log").read_text(errors="replace"), "intentional_assertion_not_observed")
+    a_result = report_result(a, sources[0], "failed" if name == "failure" else "interrupted")
     a_proof = await verify_retired(a, resources, engine, owner_path)
     check_live(b)
     neighbor_run = await query(engine, "SELECT id,state,family FROM yoao_fixture_v1.fixture_runs "
@@ -503,9 +719,19 @@ async def run_case(name, evidence, sources, resources, engine, owner_path):
             and neighbor_run[0]["state"] == "open" and neighbor_run[0]["family"] == "owned",
             "neighbor_run_changed")
     require(await manifest(engine, b["run"]) == b["manifest"], "neighbor_resource_manifest_changed")
+    after_business = await business_fingerprints(engine, b["run"])
+    atomic_json(b["dir"] / "business-after.json", {
+        "schema": "aap-playwright-business-fingerprints/v1", "run_id": str(b["run"]),
+        "rows": after_business,
+    }, exclusive=True)
+    require(after_business == b["business"], "neighbor_business_rows_changed")
     after_versions = await versions(engine, b["run"])
     require(after_versions == b["versions"] and read_originals(Owner(owner_path), after_versions) == b["originals"],
             "neighbor_original_versions_changed")
+    neighbor_birth = await read_only_thread(
+        observe_native_birth, owner_path, Owner(owner_path).data["fixture_store"]["database"], b["run"],
+    )
+    require(neighbor_birth == b["native_birth"], "neighbor_native_target_changed")
     private_file(b["dir"] / "release", b"reload\n")
     reloaded = await wait_marker(b, "reloaded.json")
     require(reloaded == b["ready"], "neighbor_reload_identity_changed")
@@ -516,9 +742,11 @@ async def run_case(name, evidence, sources, resources, engine, owner_path):
     b_status = b["process"].returncode
     atomic_json(b["dir"] / "wait-status.json", {"pid": b["playwright"]["pid"], "returncode": b_status}, exclusive=True)
     require(b_status == 0, "neighbor_playwright_failed")
+    b_result = report_result(b, sources[0], "passed")
     b_proof = await verify_retired(b, resources, engine, owner_path)
     summary = {"schema": "aap-playwright-global-teardown-acceptance/v1", "case": name,
-               "a_wait_status": a_status, "b_wait_status": b_status, "a": a_proof, "b": b_proof,
+               "a_wait_status": a_status, "b_wait_status": b_status,
+               "a_test_status": a_result, "b_test_status": b_result, "a": a_proof, "b": b_proof,
                "neighbor_original_versions_preserved": len(after_versions), "neighbor_real_reload": True}
     atomic_json(case / "summary.json", summary, exclusive=True)
     for instance in (a, b):
@@ -533,6 +761,7 @@ async def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", required=True)
     args = parser.parse_args()
+    os.umask(0o077)
     evidence = evidence_directory(args.evidence)
     require(os.environ.get("AAP_WORKTREE_MODE") == "e2e", "e2e_exec_required")
     require(not os.environ.get("CI") and not os.environ.get("PLAYWRIGHT_RASTER_OFFLINE")
@@ -547,11 +776,12 @@ async def main():
     require(owner.data["fixture_store"]["database"] == identity, "fixture_store_database_changed")
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     sources = source_files(uuid.uuid4().hex)
-    try:
-        await run_case("failure", evidence, sources, resources, engine, owner_path)
-        await run_case("cancel", evidence, sources, resources, engine, owner_path)
-    finally:
-        await engine.dispose()
+    for name in ("failure", "cancel"):
+        case = evidence / name
+        case.mkdir(mode=0o700)
+        with case_deadline(case):
+            await run_case(name, evidence, sources, resources, engine, owner_path)
+    await engine.dispose()
     for path in sources:
         path.unlink()
     atomic_json(evidence / "complete.json", {"schema": "aap-playwright-global-teardown-acceptance/v1", "cases": ["failure", "cancel"]}, exclusive=True)
