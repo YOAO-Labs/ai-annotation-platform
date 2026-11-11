@@ -243,33 +243,34 @@ class CommandTests(unittest.TestCase):
             with self.assertRaises(runtime.WorktreeError):
                 runtime.reject_orphans(backend, allow_inference=True)
 
-    def test_process_identity_rejects_pid_reuse_and_other_checkouts(self):
+    @unittest.skipUnless(
+        __import__("sys").platform == "linux", "requires Linux process birth"
+    )
+    def test_process_identity_uses_kernel_birth_not_wallclock(self):
+        import os
         import worktree_runtime as runtime
 
-        self.assertTrue(hasattr(runtime, "process_matches"))
-        from unittest.mock import patch
-
-        record = {"pid": 123, "started": "start-a"}
-        with patch.object(
-            runtime,
-            "process_identity",
-            return_value={"started": "start-b", "command": "/ours/worktree_runtime.py"},
+        scope = str(Path(__file__).resolve().parents[1])
+        record = runtime.process_handle(os.getpid(), scope)
+        self.assertIsNotNone(record)
+        self.assertNotIn("command", record)
+        self.assertTrue(
+            runtime.process_matches({**record, "started": "old-wallclock"}, scope)
+        )
+        for replacement in (
+            {"start_ticks": record["start_ticks"] + 1},
+            {"boot_id": "other-boot"},
+            {"scope": str(Path(scope) / "other")},
+            {"command_hash": "other-command"},
         ):
-            self.assertFalse(
-                runtime.process_matches(record, "/ours/worktree_runtime.py")
-            )
-
-        with patch.object(
-            runtime,
-            "process_identity",
-            return_value={
-                "started": "start-a",
-                "command": "/theirs/worktree_runtime.py",
-            },
-        ):
-            self.assertFalse(
-                runtime.process_matches(record, "/ours/worktree_runtime.py")
-            )
+            with self.subTest(replacement=replacement):
+                self.assertFalse(
+                    runtime.process_matches({**record, **replacement}, scope)
+                )
+        for field in ("start_ticks", "boot_id"):
+            unproven = {key: value for key, value in record.items() if key != field}
+            with self.subTest(missing=field), self.assertRaises(runtime.WorktreeError):
+                runtime.process_matches(unproven, scope)
 
     def test_manual_scenario_is_limited_to_e2e_up(self):
         import worktree_runtime as runtime

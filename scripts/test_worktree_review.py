@@ -152,24 +152,6 @@ class ReviewRegressions(unittest.TestCase):
         ):
             self.assertEqual(application[key], "")
 
-    def test_process_handles_match_relative_invocation_without_recording_argv(self):
-        self.assertTrue(hasattr(runtime, "process_handle"))
-        identity = {
-            "started": "start-a",
-            "command": "python scripts/worktree_runtime.py up",
-        }
-        with patch.object(runtime, "process_identity", return_value=identity):
-            handle = runtime.process_handle(123, str(ROOT))
-            self.assertTrue(runtime.process_matches(handle, str(ROOT)))
-            self.assertNotIn("command", handle)
-            self.assertFalse(runtime.process_matches(handle, str(ROOT / "other")))
-        with patch.object(
-            runtime,
-            "process_identity",
-            return_value={**identity, "command": "python other.py"},
-        ):
-            self.assertFalse(runtime.process_matches(handle, str(ROOT)))
-
     def test_corrupt_session_record_is_an_actionable_error(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

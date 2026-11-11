@@ -1653,6 +1653,15 @@ def inside_with_inference(path, arguments, inference):
 def failure_evidence(error):
     """Retain causal identities without exposing arbitrary exception text."""
     value = {"type": type(error).__name__}
+    locations = []
+    trace = error.__traceback__
+    while trace is not None:
+        source = Path(trace.tb_frame.f_code.co_filename).resolve()
+        if source.parent == ROOT / "scripts":
+            locations.append({"file": source.name, "line": trace.tb_lineno})
+        trace = trace.tb_next
+    if locations:
+        value["locations"] = locations
     if isinstance(error, builtins.BaseExceptionGroup):
         value["errors"] = [failure_evidence(item) for item in error.exceptions]
     elif isinstance(error, (ContractError, InterruptedError)):

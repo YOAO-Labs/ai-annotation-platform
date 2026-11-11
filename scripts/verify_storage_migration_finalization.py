@@ -44,7 +44,7 @@ from verify_storage_source_fence import (
     until_ready,
 )
 from worktree_env import application_environment, atomic_json, frontend_environment
-from worktree_runtime import process_handle, process_identity, process_matches
+from worktree_runtime import process_handle, process_matches
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "aap.storage-migration-finalization-verification/v1"
@@ -164,14 +164,15 @@ raise SystemExit(child.wait())
         )
         value = json.loads(path.read_bytes())
         handle = value["handle"]
-        actual = process_identity(handle["pid"])
-        require(
-            actual and actual["started"] == handle["started"], "owned_process_changed"
-        )
-        require(os.getpgid(handle["pid"]) == value["pgid"], "owned_group_changed")
         # The PID and birth receipt predate a possible Celery title update.
         current = process_handle(handle["pid"], record["script"])
-        require(current is not None, "owned_process_missing")
+        require(
+            current
+            and current["start_ticks"] == handle.get("start_ticks")
+            and current["boot_id"] == handle.get("boot_id"),
+            "owned_process_changed",
+        )
+        require(os.getpgid(handle["pid"]) == value["pgid"], "owned_group_changed")
         value["handle"] = current
         atomic_json(path, value)
         return current
@@ -192,11 +193,13 @@ raise SystemExit(child.wait())
             if receipt.exists():
                 value = json.loads(receipt.read_bytes())
                 old = value["handle"]
-                actual = process_identity(old["pid"])
-                if actual and actual["started"] == old["started"]:
-                    handles.append(
-                        (process_handle(old["pid"], str(script)), value["pgid"])
-                    )
+                current = process_handle(old["pid"], str(script))
+                if (
+                    current
+                    and current["start_ticks"] == old.get("start_ticks")
+                    and current["boot_id"] == old.get("boot_id")
+                ):
+                    handles.append((current, value["pgid"]))
             if not record.get("handle"):
                 # Recover only a pre-recorded, exact private script argument.
                 for directory in Path("/proc").iterdir():

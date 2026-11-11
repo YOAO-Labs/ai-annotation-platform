@@ -54,15 +54,6 @@ _ROUTING = (
 )
 
 
-def _start_ticks(pid: int) -> int:
-    try:
-        stat_line = Path(f"/proc/{pid}/stat").read_text()
-        # The command in parentheses can contain whitespace and closing parens.
-        return int(stat_line[stat_line.rfind(")") + 1 :].split()[19])
-    except (OSError, ValueError, IndexError) as error:
-        raise WorktreeError("无法读取推理夹具的 Linux 进程身份") from error
-
-
 _HEALTH = (
     "aap_inference_health_observation_v1.health_observation_policy()",
     "aap_inference_health_observation_v1.open_health_observation_subject(text,uuid,uuid)",
@@ -533,12 +524,8 @@ class FixtureInferenceServices:
         if not handle:
             self.poisoned = True
             raise WorktreeError("无法核对推理夹具进程；保留记录")
-        handle["start_ticks"] = _start_ticks(self.process.pid)
         self.pidfd = open_pidfd(self.process.pid)
-        if (
-            not process_matches(handle, str(script))
-            or _start_ticks(self.process.pid) != handle["start_ticks"]
-        ):
+        if not process_matches(handle, str(script)):
             raise WorktreeError("推理夹具进程身份变化；保留记录")
         if not self.marker_path.exists() or read_state(self.marker_path) != marker:
             raise WorktreeError("推理夹具启动记录归属变化；保留进程")
@@ -669,15 +656,11 @@ class FixtureInferenceServices:
             # Even a different identity at the old PID is not a settled receipt.
             raise WorktreeError("无法确认原推理夹具监督进程退出")
         script = str(self.code_root / "scripts/fixture_inference_services.py")
-        if not process_matches(marker, script) or _start_ticks(
-            marker["pid"]
-        ) != marker.get("start_ticks"):
+        if not process_matches(marker, script):
             raise WorktreeError("无法核对原推理夹具进程；保留记录")
         descriptor = open_pidfd(marker["pid"])
         try:
-            if not process_matches(marker, script) or _start_ticks(
-                marker["pid"]
-            ) != marker.get("start_ticks"):
+            if not process_matches(marker, script):
                 raise WorktreeError("推理夹具进程身份变化；保留记录")
             self._credentials = self._load_credentials()
             if self._credentials is None:
@@ -707,7 +690,6 @@ class FixtureInferenceServices:
                 parent is None
                 or read_state(self.marker_path) != marker
                 or not process_matches(marker, script)
-                or _start_ticks(marker["pid"]) != marker.get("start_ticks")
             ):
                 raise WorktreeError("推理夹具进程或记录变化；拒绝接管")
             self.record = {**marker, "parent": parent}
@@ -731,7 +713,6 @@ class FixtureInferenceServices:
                 self.record,
                 str(self.code_root / "scripts/fixture_inference_services.py"),
             )
-            and _start_ticks(self.record["pid"]) == self.record.get("start_ticks")
         )
 
     def supervision_ready(self) -> bool:
@@ -768,6 +749,7 @@ class FixtureInferenceServices:
                         "scope",
                         "command_hash",
                         "start_ticks",
+                        "boot_id",
                     )
                 }
             ]

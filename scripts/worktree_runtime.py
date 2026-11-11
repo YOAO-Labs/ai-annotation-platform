@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import ctypes
 import fcntl
+from functools import cache
 import hashlib
 import json
 import os
@@ -186,8 +187,17 @@ def parse_arguments(argv: list[str]):
     return options
 
 
+@cache
+def _boot_id() -> str:
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+
+
 def process_identity(pid: int) -> dict | None:
     if not isinstance(pid, int) or pid <= 0:
+        return None
+    try:
+        start_ticks = _process_start_ticks(pid)
+    except FileNotFoundError:
         return None
     outputs = []
     for field in ("lstart=", "command="):
@@ -201,7 +211,17 @@ def process_identity(pid: int) -> dict | None:
         if result.returncode or not result.stdout.strip():
             return None
         outputs.append(result.stdout.strip())
-    return {"started": outputs[0], "command": outputs[1]}
+    try:
+        if _process_start_ticks(pid) != start_ticks:
+            return None
+    except FileNotFoundError:
+        return None
+    return {
+        "started": outputs[0],
+        "command": outputs[1],
+        "start_ticks": start_ticks,
+        "boot_id": _boot_id(),
+    }
 
 
 def process_handle(pid: int, scope: str) -> dict | None:
@@ -211,16 +231,26 @@ def process_handle(pid: int, scope: str) -> dict | None:
     return {
         "pid": pid,
         "started": actual["started"],
+        "start_ticks": actual["start_ticks"],
+        "boot_id": actual["boot_id"],
         "scope": str(Path(scope).resolve()),
         "command_hash": hashlib.sha256(actual["command"].encode()).hexdigest(),
     }
 
 
 def process_matches(record: dict, required_script: str) -> bool:
+    if (
+        type(record.get("start_ticks")) is not int
+        or record["start_ticks"] < 0
+        or not isinstance(record.get("boot_id"), str)
+        or not record["boot_id"]
+    ):
+        raise WorktreeError("进程记录缺少可验证的内核出生身份；保留记录及资源")
     actual = process_identity(record.get("pid"))
     return bool(
         actual
-        and actual["started"] == record.get("started")
+        and actual["start_ticks"] == record.get("start_ticks")
+        and actual["boot_id"] == record.get("boot_id")
         and record.get("scope") == str(Path(required_script).resolve())
         and record.get("command_hash")
         == hashlib.sha256(actual["command"].encode()).hexdigest()
