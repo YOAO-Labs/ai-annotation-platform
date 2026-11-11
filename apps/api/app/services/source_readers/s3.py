@@ -103,10 +103,8 @@ def allowed_endpoint(endpoint, allowlist):
         raise StorageError("connector_host_denied") from None
 
 
-@dataclass(frozen=True, repr=False)
-class S3Access:
+class _S3ClientAccess:
     config: dict
-    secret_enc: bytes
     allowlist: tuple[str, ...]
 
     @property
@@ -138,16 +136,15 @@ class S3Access:
             raise StorageError("s3_endpoint_not_supported")
         return endpoint.rstrip("/")
 
-    @contextmanager
-    def client(self, *, read_timeout=None):
+    def _checked_endpoint(self):
         endpoint = self.endpoint
         if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", self.config["bucket"]):
             raise StorageError("s3_bucket_not_supported")
         allowed_endpoint(endpoint, self.allowlist)
-        try:
-            secret = decrypt_secret(self.secret_enc)
-        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
-            raise StorageError("connection_unavailable") from None
+        return endpoint
+
+    @contextmanager
+    def _client(self, endpoint, secret, *, read_timeout=None):
         try:
             client = boto3.client(
                 "s3",
@@ -207,6 +204,23 @@ class S3Access:
             raise StorageError("content_source_unavailable") from None
         finally:
             close_registered(client)
+
+
+@dataclass(frozen=True, repr=False)
+class S3Access(_S3ClientAccess):
+    config: dict
+    secret_enc: bytes
+    allowlist: tuple[str, ...]
+
+    @contextmanager
+    def client(self, *, read_timeout=None):
+        endpoint = self._checked_endpoint()
+        try:
+            secret = decrypt_secret(self.secret_enc)
+        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
+            raise StorageError("connection_unavailable") from None
+        with self._client(endpoint, secret, read_timeout=read_timeout) as client:
+            yield client
 
     def list_page(self, relative, cursor=None, *, directories=False):
         prefix = directory_prefix(self.config.get("base_prefix", ""), relative)
@@ -335,3 +349,17 @@ class S3Access:
                 "capabilities": capabilities,
                 "anchor": self.anchor,
             }
+
+
+@dataclass(frozen=True, repr=False)
+class ScopedS3Access(_S3ClientAccess):
+    """Use credentials already admitted by the physical owner, without a platform key."""
+
+    config: dict
+    secret: dict
+    allowlist: tuple[str, ...]
+
+    def client(self, *, read_timeout=None):
+        return self._client(
+            self._checked_endpoint(), self.secret, read_timeout=read_timeout
+        )

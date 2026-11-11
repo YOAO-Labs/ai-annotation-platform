@@ -1940,7 +1940,7 @@ export function useWorkbenchShellModel({
   const maskToolActive = isVideoTask
     ? s.videoTool === "mask" || s.videoTool === "mask-track"
     : s.tool === "mask";
-  // 当前工具对应的交互 prompt (非交互工具回落 point, 仅用于 sam/warmup 的后端选取, 不参与门控)。
+  // 非交互工具仅回落点后端读取能力；预热仍要求当前工具为交互工具。
   const activeInteractivePrompt = promptOfTool(activeAiTool);
   const [singleFrameOutputGeometry, setSingleFrameOutputGeometry] = useState<"polygon" | "mask">(
     "mask",

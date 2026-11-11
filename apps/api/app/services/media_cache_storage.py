@@ -309,8 +309,7 @@ async def target_for_ref(db, ref, *, require_enabled=True):
                 or ref["binding_generation"] != binding["binding_generation"]
             ):
                 _reject()
-            from app.core.crypto import encrypt_secret
-            from app.services.source_readers.s3 import S3Access
+            from app.services.source_readers.s3 import ScopedS3Access
             from yoao_assets_media_runtime.fixture_native_outputs import load_target
 
             control_url = fixture_media_execution._control_url().render_as_string(hide_password=False)
@@ -326,9 +325,9 @@ async def target_for_ref(db, ref, *, require_enabled=True):
                 _reject()
             target = replace(
                 target,
-                _access=S3Access(
+                _access=ScopedS3Access(
                     access.config,
-                    encrypt_secret({"access_key": writer["access_key"], "secret_key": writer["secret_key"]}),
+                    writer,
                     access.allowlist,
                 ),
             )

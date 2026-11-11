@@ -251,8 +251,12 @@ async def _wait_worker_ready(sender: Celery, worker: WorkspaceCeleryWorker) -> N
 async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_id):
     result = sender.AsyncResult(str(task_id))
     deadline = asyncio.get_running_loop().time() + 20
+    last_state = None
     while asyncio.get_running_loop().time() < deadline:
-        if await asyncio.to_thread(lambda: result.state) == "SUCCESS":
+        last_state = await asyncio.to_thread(lambda: result.state)
+        if last_state in {"FAILURE", "REVOKED"}:
+            await asyncio.to_thread(result.get, propagate=True)
+        if last_state == "SUCCESS":
             broker = await asyncio.to_thread(_broker_state, sender, worker.queue)
             inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
             active = await asyncio.to_thread(inspect.active)
@@ -276,7 +280,8 @@ async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_i
                 return {"task_id": str(task_id), **broker, "worker_answered": True}
         await asyncio.sleep(0.25)
     raise AssertionError(
-        "Celery result was stored but the broker message stayed outstanding"
+        f"Celery task {task_id} did not reach success plus broker acknowledgement "
+        f"(last result state: {last_state})"
     )
 
 

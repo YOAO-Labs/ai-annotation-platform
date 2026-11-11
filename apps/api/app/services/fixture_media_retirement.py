@@ -83,8 +83,7 @@ async def _retire_output(db, control, kind, identifier, model, remove):
             await storage_access.ensure(owner, saved.location_id)
             target = await media_cache_storage.target_for_ref(owner, reference, require_enabled=False)
             from dataclasses import replace
-            from app.core.crypto import encrypt_secret
-            from app.services.source_readers.s3 import S3Access
+            from app.services.source_readers.s3 import ScopedS3Access
 
             cleanup = control.cleanup_target
             if (
@@ -96,9 +95,9 @@ async def _retire_output(db, control, kind, identifier, model, remove):
                 raise ContentError("fixture_media_owner_changed", 409)
             target = replace(
                 target,
-                _access=S3Access(
+                _access=ScopedS3Access(
                     target._access.config,
-                    encrypt_secret({"access_key": cleanup["access_key"], "secret_key": cleanup["secret_key"]}),
+                    cleanup,
                     target._access.allowlist,
                 ),
             )
