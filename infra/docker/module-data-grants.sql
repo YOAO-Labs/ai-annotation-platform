@@ -436,7 +436,7 @@ GRANT USAGE ON SEQUENCE public.display_seq_scenes TO :"assets_owner";
 GRANT SELECT, INSERT (
     id, dataset_id, file_name, file_path, file_type, file_size,
     content_hash, width, height, metadata
-), UPDATE (id, file_size, content_hash, width, height, scene_id, frame_index, updated_at), DELETE
+), UPDATE (id, file_path, file_size, content_hash, width, height, scene_id, frame_index, updated_at), DELETE
     ON public.dataset_items TO :"assets_owner";
 GRANT SELECT (operation_id, actor_id, dataset_id, item_id, request, result, created_at),
     INSERT (operation_id, actor_id, dataset_id, item_id, request, result)

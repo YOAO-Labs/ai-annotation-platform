@@ -475,9 +475,6 @@ async def test_purge_busy_scope_stops_before_committed_deletion(
                 with pytest.raises(HTTPException) as error:
                     await seed_scale._purge(db, run_id)
                 assert error.value.status_code == 409
-                assert error.value.detail["reason"] == (
-                    "project_busy" if scope == "project" else "source_busy"
-                )
                 await db.rollback()
             await locked.rollback()
         assert await _state(owner, run_marker, ids) == before

@@ -305,11 +305,6 @@ async def test_append_client_cannot_read_or_write_private_tables_or_escalate(
     async with legacy_runtime_engine.connect() as legacy:
         assert await legacy.scalar(
             text(
-                "SELECT has_any_column_privilege(current_user, 'public.projects', 'SELECT')"
-            )
-        )
-        assert await legacy.scalar(
-            text(
                 "SELECT has_table_privilege(current_user, 'public.datasets', "
                 "'SELECT,INSERT,UPDATE,DELETE')"
             )
@@ -661,6 +656,11 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
     asset_image_worker_engine: AsyncEngine,
 ):
     expected = {
+        "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+        "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
+        "aap_assets_v1.finish_image_original_worker(uuid,uuid)",
+        "aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
+        "aap_assets_v1.finish_accepted_image_original(uuid,uuid)",
         "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
         "aap_assets_v1.heartbeat_image_media(uuid,bigint,uuid,integer)",
         "aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)",

@@ -689,10 +689,10 @@ node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
 会提交极大 Audit ID 的维护／冷消费者测试各用独立 profile，避免不可回滚的序列或
 归档夹具影响后续消费者；验收记录保留三条预检 Audit 事件，不把它们当成测试产生的写入。
 会提交固定演示账号的父级 seed 测试也独立运行，避免其 `admin` 账号影响其他验收。
-图片身份导入使用独占 `identity-image-import` profile。公开关系和独立 Node 探针完成后，
+图片身份导入和 installed scale CLI 分别使用独占 profile。公开关系和独立 Node 探针完成后，
 验证器在数据库出生身份、准确用户／项目集合及无其他客户端的守卫下，仅退役自己的
-准备探针，再执行无账号导入等场景；未知行或级联依赖使准备失败，不执行全表清空。
-该源码 CLI 资格与独立 installed scale CLI 资格分别记录，不能相互替代。
+准备探针，再执行各自的空业务库场景；未知行或级联依赖使准备失败，不执行全表清空。
+源码 CLI 与独立安装 CLI 的资格分别记录，不能相互替代。
 Workspace、Notifications 和 Audit 的独立 Node 对照依赖须分别安装在
 `apps/<模块>/conformance/node` 自身：在各目录执行
 `pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts`；
@@ -1417,6 +1417,9 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 项目与数据集，旧共享名称不会被自动接管或删除。
 受限 scale 账号不获 `workspace-scale-seed-grants.sql` 中的私有夹具写入／清理能力；
 项目、批次、任务和运行台账由既有私有 owner 通道处理。
+部署受管原件发布能力时，使用本部署的迁移账号重新应用 `module-data-grants.sql`，
+为既有 Assets NOLOGIN owner 补齐 `dataset_items.file_path` 更新列权限；不向 operator、
+API 或 worker 直接授予该私表权限，不需要变更表结构或扩展 Identity 选择能力。
 
 私有 test／e2e 夹具还会核对资源清单 `resources.json` 中创建数据库时记录的
 `postgres.database_oid`、实际数据库归属及 owner／运行连接。缺少出生记录或同名数据库

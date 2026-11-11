@@ -12207,9 +12207,7 @@ SELECT pg_catalog.jsonb_build_object(
                     )
                 )
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
-                if not collect_only and selected_test_paths == {
-                    "tests/test_image_import_identity_profile.py"
-                }:
+                if not collect_only and physical_retirement_profile:
                     phase = "retire-image-import-preparation"
                     _container_details(
                         container_id,
