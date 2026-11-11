@@ -944,20 +944,37 @@ def fixture_provider_host(owner):
 
 def require_broker_idle(queue):
     """Keep passive Kombu bindings, but reject pending work or unknown keys."""
-    idle = queue.eval_ro(
+    blocked = queue.eval_ro(
         """
         local prefix = '_kombu.binding.'
         for _, key in ipairs(redis.call('KEYS', '*')) do
+            local kind = redis.call('TYPE', key).ok
             if string.sub(key, 1, string.len(prefix)) ~= prefix
-                or redis.call('TYPE', key).ok ~= 'set' then
-                return 0
+                or kind ~= 'set' then
+                local size = -1
+                if kind == 'list' then size = redis.call('LLEN', key)
+                elseif kind == 'hash' then size = redis.call('HLEN', key)
+                elseif kind == 'zset' then size = redis.call('ZCARD', key)
+                elseif kind == 'string' then size = redis.call('STRLEN', key)
+                elseif kind == 'set' then size = redis.call('SCARD', key)
+                elseif kind == 'stream' then size = redis.call('XLEN', key)
+                end
+                return {key, kind, size, redis.call('PTTL', key)}
             end
         end
-        return 1
+        return {}
         """,
         0,
     )
-    require(idle == 1, "raster_queue_not_empty")
+    if blocked:
+        error = ContractError("raster_queue_not_empty")
+        error.broker_observation = {
+            "key_hex": blocked[0].hex(),
+            "type": blocked[1].decode("ascii"),
+            "size": blocked[2],
+            "remaining_ttl_ms": blocked[3],
+        }
+        raise error
 
 
 def exercise_faults(owner, environment, references, suite):
@@ -1635,6 +1652,8 @@ def failure_evidence(error):
     if hasattr(error, "adopted_outcomes"):
         value["adopted_outcomes"] = error.adopted_outcomes
         value["children_live"] = error.children_live
+    if hasattr(error, "broker_observation"):
+        value["broker_observation"] = error.broker_observation
     if hasattr(error, "api_outcome"):
         value["api_outcome"] = error.api_outcome
     if hasattr(error, "web_outcome"):

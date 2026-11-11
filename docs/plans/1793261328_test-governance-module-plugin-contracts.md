@@ -1552,3 +1552,6 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - `candidate-source-verification-runtime-after8` 在当前安装闭包下实跑 verified／failed 两个同 Creation 场景，2 passed、0 failures／errors／skips；准确 PostgreSQL、本次存储身份及外层 bootstrap 正常退役，只保留夹具回执。JUnit 对账确认：`after4` 的 28 项、`after6` 的修正项与 `after8` 合计覆盖全部 33 个不同 Runtime 节点，原九项 Importer 包含在内；此前八项 Native SQL 证据单独保留。该分批证据关闭导入测试合同修正，不伪称单轮完整运行或全 T1／T2 通过。
 - 已释放并正常清理完成的 Source 实施、只读复审及读排空工作树；三份 Source 实施／复审分支仍保留。唯一因已初始化子模块而需强制移除的复审 checkout，事先核对固定 TrackEval 内容、干净状态、远端同名分支、无 stash／不可达提交及独占 Git 元数据；未强制清理运行环境。全部真实失败 Source／Raster 环境继续保留。
 - 第六轮规范 Raster 从冻结的 `f80b64407` 与现有准备完毕工作树启动，完整运行原有产品族及 Source Worker 场景，不过滤用例、不增加重试。其 5,842 个制品输入及三个入口 helper 与候选相同；此前 SDK、前端和 Native 准备未因测试修正而重复。运行期间禁止并发 Docker 构建或清理；T2 两份后续浏览器失败／取消程序仅完成静态设计，尚未运行或签收。
+- `candidate-canonical-raster-resume-after6` 在 189.532 秒后仍被 `raster_queue_not_empty` 围栏拒绝，尚未运行浏览器；失败工作树、真实数据库／存储及原 owner 保留。准确出生的 Redis 随后只读观察到五个被动绑定集合，原 owner 摘要未变；这不是失败瞬间的队列证明，不能据此删除消息、放宽围栏或宣称同一根因已修复。
+- 主进程在独立诊断工作树保持原 fail-closed 条件，只让同一次只读 Lua 检查返回首个拒绝键的准确字节身份、类型、大小及剩余 TTL，并随原错误保存；不读取消息体、不作第二次非原子推断。真实 socket-only Redis 的十个场景通过，包含被动绑定保留、各类工作／未知键拒绝、状态不变及后续队列空闲时仍保留原拒绝证据；准确进程 SIGTERM、退出 0、容器／目录正常退役，Ruff 与空白检查通过。这只是失败证据修正，尚未确认当前 Raster 的实际拒绝键或取得浏览器资格。
+- 完整 T1 默认十三 profile 验收已从冻结的 `80d98b58c` 和当前十八制品闭包启动；另两个独立 Terra／xhigh 工作树分别实施真实普通 Playwright 与截图失败／取消验收入口，禁止启动应用、构建、清理或将静态提交当成 T2 通过。候选运行期间不集成这些后续改动，后续门保持关闭。
