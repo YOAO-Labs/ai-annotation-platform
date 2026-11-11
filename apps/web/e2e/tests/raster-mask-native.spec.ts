@@ -154,6 +154,12 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     request,
     seed,
   }) => {
+    const interactiveRequests: string[] = [];
+    page.on("request", (outgoing) => {
+      if (new URL(outgoing.url()).pathname.endsWith("/interactive-annotating")) {
+        interactiveRequests.push(outgoing.url());
+      }
+    });
     const data = await seed.owned();
     const taskId = data.task_ids[0];
     await openTask(page, seed, data, taskId);
@@ -211,6 +217,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     await page.reload();
     await expect(page.getByTestId(`box-list-item-${created.id}`)).toBeVisible({ timeout: 15_000 });
     expect(await getMaskContent(request, created.id, token)).toEqual(editedContent);
+    expect(interactiveRequests).toEqual([]);
   });
 
   test("2. one hole and three components survive persistence and refresh", async ({
