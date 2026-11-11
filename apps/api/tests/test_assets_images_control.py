@@ -171,7 +171,11 @@ async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
         assert result.thumbnail_url is None
     assert (
         await db_session.scalar(
-            text("SELECT count(*) FROM public.asset_image_operations")
+            text(
+                "SELECT count(*) FROM public.asset_image_operations "
+                "WHERE actor_id IN (:first_actor, :second_actor)"
+            ),
+            {"first_actor": first_actor, "second_actor": second_actor},
         )
         == 2
     )
@@ -194,7 +198,11 @@ async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
     assert (await changed.source_reference(request)).original_url
     assert (
         await db_session.scalar(
-            text("SELECT count(*) FROM public.asset_image_operations")
+            text(
+                "SELECT count(*) FROM public.asset_image_operations "
+                "WHERE actor_id IN (:first_actor, :second_actor)"
+            ),
+            {"first_actor": first_actor, "second_actor": second_actor},
         )
         == 2
     )
@@ -208,7 +216,11 @@ async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
     assert (await changed.source_reference(request)).original_url
     assert (
         await db_session.scalar(
-            text("SELECT count(*) FROM public.asset_image_operations")
+            text(
+                "SELECT count(*) FROM public.asset_image_operations "
+                "WHERE actor_id IN (:first_actor, :second_actor)"
+            ),
+            {"first_actor": first_actor, "second_actor": second_actor},
         )
         == 3
     )
