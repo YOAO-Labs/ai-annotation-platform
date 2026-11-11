@@ -32,7 +32,10 @@ from yoao_assets_media.transport import SourceReference
 from app.services import assets_catalog
 from app.api.v1 import datasets as dataset_routes
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
-from tests.identity_e2e_support import fenced_http as fenced_http
+from tests.identity_e2e_support import (
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+)
 
 
 def _dataset_payload(
