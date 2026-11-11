@@ -756,12 +756,14 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     from contextlib import closing
     from pathlib import Path
 
-    from app.config import settings
-    from app.services import image_pyramid_originals as originals
-    from botocore.exceptions import ClientError
+    import boto3
+    from botocore.config import Config
     from celery import Celery
     from sqlalchemy import text
     from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    from app.config import settings
+    from app.services import image_pyramid_originals as originals
 
     from tests.identity_e2e_support import fixture_routing_owner
     from tests.project_guide_asset_owner_helpers import assert_workspace_identity, endpoint_url
@@ -790,11 +792,14 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     if str(root / "scripts") not in sys.path:
         sys.path.insert(0, str(root / "scripts"))
     import fixture_media_control
+    from fixture_suite_coordinator import _resource_root, _verified_database, state_path
     from verify_module_data_boundary import _destroy_cleanup_storage_scope
+    from verify_playwright_fixture_teardown import observe_native_absence, observe_native_birth
+    from yoao_assets_media_runtime.fixture_native_outputs import load_target_file
 
     monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    owner = suite = media = worker = sender = scope = store = owner_log = None
+    owner = suite = media = worker = sender = scope = store = output_store = owner_log = None
     run = neighbor = job_id = None
     completed = False
     try:
@@ -806,10 +811,18 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         monkeypatch.setenv("ASSETS_MEDIA_URL", media_url)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
         monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        suite_id = uuid.uuid4()
+        owner_environment = {
+            **os.environ,
+            "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
+            "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(suite_id),
+            "PLAYWRIGHT_FIXTURE_RUN_ID": str(suite_id),
+        }
         owner_log = tempfile.TemporaryFile()
         process = subprocess.Popen(
             [sys.executable, str(root / "apps/web/e2e/fixtures/seed-request.py")],
             cwd=root / "apps/api",
+            env=owner_environment,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=owner_log,
@@ -818,12 +831,12 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             bufsize=0,
         )
         owner = _PreservedSeedOwner(process, owner_log)
-        suite = OwnedSuite(owner, uuid.uuid4())
-        await asyncio.wait_for(owner.prepare_suite(suite.suite_id, "owned"), 60)
+        suite = OwnedSuite(owner, suite_id)
+        await owner.verify_suite(suite_id, "owned")
         run = suite.new_run("bf" + uuid.uuid4().hex[:8])
         neighbor = suite.new_run("nb" + uuid.uuid4().hex[:8])
-        world = await asyncio.wait_for(_build_owned(owner, run), 120)
-        await asyncio.wait_for(_build_owned(owner, neighbor), 120)
+        world = await _build_owned(owner, run)
+        await _build_owned(owner, neighbor)
         async with test_engine.connect() as db:
             dataset_id = await db.scalar(
                 text(
@@ -840,10 +853,30 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         existing_item = uuid.UUID(before.json()["item_id"])
 
         secret_path = await fixture_media_control.receipt_path(run.run_id)
-        control_url = await fixture_media_control.provision(
-            test_engine.url, run.run_id, secret_path
-        )
+        control_url = await fixture_media_control.load_control(run.run_id, secret_path)
         native_target = await fixture_media_control.native_target(run.run_id)
+        _, fixture_resources, fixture_identity = await _verified_database()
+        owner_path = state_path(
+            _resource_root(fixture_resources),
+            fixture_resources["mode"],
+            "fixture-store-owner.json",
+        )
+        birth = await asyncio.to_thread(
+            observe_native_birth, owner_path, fixture_identity, run.run_id
+        )
+        target_reader = load_target_file(
+            native_target["reader_file"],
+            control_url.render_as_string(hide_password=False),
+            "aap_fixture_media_",
+        )
+        output_store = boto3.client(
+            "s3",
+            endpoint_url=target_reader["endpoint"],
+            aws_access_key_id=target_reader["access_key"],
+            aws_secret_access_key=target_reader["secret_key"],
+            region_name="us-east-1",
+            config=Config(signature_version="s3v4"),
+        )
         resources, _, store = await assert_workspace_identity(test_engine)
         scope = await asyncio.to_thread(_backfill_worker_scope, resources, store)
         sender = Celery(
@@ -851,6 +884,23 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             broker=settings.effective_celery_broker,
             backend=settings.effective_celery_broker,
         )
+        # Keep the owner's qualified worker alive but prevent it racing the
+        # installed worker before the post-cutoff item has been created.
+        native_node = f"aap-fixture-{run.run_id.hex}-media@127.0.0.1"
+        native_queue = f"aap_workspace_worker_{run.run_id.hex}_media"
+        paused = await asyncio.to_thread(
+            sender.control.cancel_consumer,
+            native_queue,
+            destination=[native_node],
+            reply=True,
+        )
+        assert paused and any(
+            native_node in reply and "ok" in reply[native_node] for reply in paused
+        )
+        inspect = sender.control.inspect(timeout=2, destination=[native_node])
+        queues = await asyncio.to_thread(inspect.active_queues)
+        assert queues and native_node in queues
+        assert native_queue not in {row["name"] for row in queues[native_node]}
         headers = await _login(owner, world)
         operation_id = uuid.uuid4()
         headers["Idempotency-Key"] = str(operation_id)
@@ -974,10 +1024,11 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             ).mappings().all()
         assert versions
         for version in versions:
+            assert version["bucket"] == native_target["bucket"]
             params = {"Bucket": version["bucket"], "Key": version["object_key"]}
             if version["version_id"] is not None:
                 params["VersionId"] = version["version_id"]
-            response = await asyncio.to_thread(store.get_object, **params)
+            response = await asyncio.to_thread(output_store.get_object, **params)
             with closing(response["Body"]) as body:
                 payload = await asyncio.to_thread(body.read)
             assert len(payload) == version["size_bytes"]
@@ -1065,17 +1116,12 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                             {"purpose": f"media_original_{source.replica_facts.creation_id.hex}"},
                         ) == 1
                     assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+            worker.stop()
             cleaned = await _cleanup_owned(owner, run)
             assert cleaned.status_code == 200, cleaned.text
-            for version in versions:
-                params = {"Bucket": version["bucket"], "Key": version["object_key"]}
-                if version["version_id"] is not None:
-                    params["VersionId"] = version["version_id"]
-                with pytest.raises(ClientError) as missing:
-                    await asyncio.to_thread(store.head_object, **params)
-                assert missing.value.response["Error"]["Code"] in {
-                    "404", "NoSuchKey", "NoSuchVersion", "NotFound"
-                }
+            await asyncio.to_thread(
+                observe_native_absence, owner_path, fixture_identity, run.run_id, birth
+            )
             async with test_engine.connect() as observer:
                 assert await observer.scalar(
                     text(
@@ -1098,7 +1144,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         cleaned_neighbor = await _cleanup_owned(owner, neighbor)
         assert cleaned_neighbor.status_code == 200, cleaned_neighbor.text
         await suite.finish()
-        worker.stop()
+        await owner.retire_native_suite()
         await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)
         await asyncio.to_thread(sender.AsyncResult(str(job_id)).forget)
         await asyncio.to_thread(sender.AsyncResult(str(mismatch_id)).forget)
@@ -1112,11 +1158,12 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         await _stop_media_runtime(media)
         await routing.__aexit__(None, None, None)
         store.close()
+        output_store.close()
         completed = True
     finally:
         if not completed:
             _RETAINED_BACKFILL_RUNTIME.append(
-                (owner, suite, media, worker, sender, scope, store, owner_log, routing)
+                (owner, suite, media, worker, sender, scope, store, output_store, owner_log, routing)
             )
             print(
                 f"Retained unsettled media backfill run={run} neighbor={neighbor} "
