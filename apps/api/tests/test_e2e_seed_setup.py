@@ -137,8 +137,14 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
             return os.environ["PLAYWRIGHT_E2E_DATABASE_URL"], resources, {"fixture": "isolated"}
         fixture_suite_coordinator._verified_database = verified_database
         from sqlalchemy.ext.asyncio import AsyncEngine
+        disposals = 0
         async def fail_disposal(self, *args, **kwargs):
-            raise OSError("controlled engine disposal failure")
+            global disposals
+            disposals += 1
+            if disposals > 2:
+                raise OSError("controlled engine disposal failure")
+            return await original_disposal(self, *args, **kwargs)
+        original_disposal = AsyncEngine.dispose
         AsyncEngine.dispose = fail_disposal
         asyncio.run(module.serve_authority(ready_fd))
     """)
@@ -189,6 +195,28 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
                     stream.flush()
                     return json.loads(stream.readline())
 
+                acknowledged_id = str(uuid.uuid4())
+                assert exchange("execute", acknowledged_id, payload=payload)["status"] == 404
+                assert exchange("ack", acknowledged_id)["state"] == "acknowledged"
+                first_id = str(uuid.uuid4())
+                first = exchange("execute", first_id, payload=payload)
+                assert first["status"] == 404
+                shutdown_id = str(uuid.uuid4())
+                shutdown = exchange(
+                    "execute", shutdown_id, payload={"operation": "owner_shutdown"}
+                )
+                assert shutdown["owner_error"] == "SeedSetupRefused"
+                events = [
+                    json.loads(line)
+                    for line in (directory / "failures.ndjson").read_text().splitlines()
+                ]
+                refusal = next(event for event in events if event["operation_id"] == shutdown_id)
+                assert refusal["unacknowledged_operations"] == [
+                    {"operation_id": first_id, "state": "completed", "acknowledged": False}
+                ]
+                assert exchange("ack", first_id)["state"] == "acknowledged"
+                assert exchange("ack", shutdown_id)["state"] == "acknowledged"
+
                 outcome = exchange("execute", operation_id, payload=payload)
                 assert outcome["disposal_error"] == "OSError"
                 assert outcome["operation_response"]["status"] == 404
@@ -196,8 +224,11 @@ def test_authority_recovers_actual_http_response_when_disposal_fails(tmp_path):
                 assert exchange("ack", operation_id)["state"] == "acknowledged"
                 refused = exchange("execute", str(uuid.uuid4()), payload=payload)
                 assert refused["owner_error"] == "OperationOutcomeUnresolved"
-        event = json.loads((directory / "failures.ndjson").read_text())
-        assert event["operation_id"] == operation_id
+        events = [
+            json.loads(line)
+            for line in (directory / "failures.ndjson").read_text().splitlines()
+        ]
+        event = next(event for event in events if event["operation_id"] == operation_id)
         assert event["response"] == outcome["operation_response"]
     finally:
         os.close(read_fd)

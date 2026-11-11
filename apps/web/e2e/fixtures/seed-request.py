@@ -932,7 +932,20 @@ async def serve_authority(ready_fd):
                 [error, persist_error],
             ) from None
 
-    def journal_failure(payload, *, operation_id, response=None, error=None):
+    def unacknowledged_operations(operation_id):
+        return [
+            {
+                "operation_id": key,
+                "state": item["state"],
+                "acknowledged": item["acknowledged"],
+            }
+            for key, item in operations.items()
+            if key != operation_id and not item["acknowledged"]
+        ]
+
+    def journal_failure(
+        payload, *, operation_id, response=None, error=None, unacknowledged=None
+    ):
         descriptor = open_private_append(directory / "failures.ndjson")
         try:
             event = {
@@ -944,6 +957,8 @@ async def serve_authority(ready_fd):
                 if error
                 else None,
             }
+            if unacknowledged is not None:
+                event["unacknowledged_operations"] = unacknowledged
             with os.fdopen(descriptor, "a") as stream:
                 descriptor = -1
                 stream.write(json.dumps(event) + "\n")
@@ -1092,10 +1107,9 @@ async def serve_authority(ready_fd):
                                     "Fixture authority database changed"
                                 )
                         if operation == "owner_shutdown":
-                            if any(
-                                key != operation_id and not item["acknowledged"]
-                                for key, item in operations.items()
-                            ):
+                            unacknowledged = unacknowledged_operations(operation_id)
+                            if unacknowledged:
+                                entry["unacknowledged_operations"] = unacknowledged
                                 raise SeedSetupRefused(
                                     "Fixture operation outcomes remain unacknowledged"
                                 )
@@ -1453,10 +1467,9 @@ async def serve_authority(ready_fd):
                                 raise SeedSetupRefused(
                                     "Invalid native suite retirement"
                                 )
-                            if any(
-                                key != operation_id and not item["acknowledged"]
-                                for key, item in operations.items()
-                            ):
+                            unacknowledged = unacknowledged_operations(operation_id)
+                            if unacknowledged:
+                                entry["unacknowledged_operations"] = unacknowledged
                                 raise SeedSetupRefused(
                                     "Fixture operation outcomes remain unacknowledged"
                                 )
@@ -1605,6 +1618,7 @@ async def serve_authority(ready_fd):
                                     "operation_response", entry["actual_response"]
                                 ),
                                 error=entry["error"],
+                                unacknowledged=entry.get("unacknowledged_operations"),
                             )
                         except Exception as journal_error:
                             entry["journal_error"] = journal_error

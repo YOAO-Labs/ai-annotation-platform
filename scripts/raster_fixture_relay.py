@@ -163,6 +163,7 @@ class RasterFixtureRelay:
                                             "payload": payload,
                                             "acknowledged": False,
                                             "registered": False,
+                                            "response_state": "unknown",
                                         }
                                         relay.operations[operation_id] = entry
                                     else:
@@ -190,6 +191,19 @@ class RasterFixtureRelay:
                             )
                             known = response.get("operation_response", response)
                             with relay.lock:
+                                if response.get("state") == "pending":
+                                    entry["response_state"] = "pending"
+                                elif response.get("state") == "acknowledged" or (
+                                    (
+                                        response.get("status") is not None
+                                        or response.get("owner_error")
+                                    )
+                                    and response.get("owner_error") not in {
+                                        "OperationOutcomeUnresolved",
+                                        "OperationIdentityConflict",
+                                    }
+                                ):
+                                    entry["response_state"] = "completed"
                                 if (
                                     known.get("status") is not None
                                     and known["status"] != 200
@@ -557,9 +571,24 @@ class RasterFixtureRelay:
                     break
                 self.connection_condition.wait(remaining)
             self.unsettled = bool(self.inflight or outstanding() or self.failure)
+            with self.lock:
+                snapshot = {
+                    "inflight": self.inflight,
+                    "connections": len(self.connections),
+                    "clients": len(self.clients),
+                    "operations": [
+                        {
+                            "operation_id": operation_id,
+                            "response_state": entry["response_state"],
+                            "acknowledgement": "unknown",
+                        }
+                        for operation_id, entry in self.operations.items()
+                        if not entry["acknowledged"]
+                    ],
+                }
         if self.unsettled and on_unsettled is not None:
             try:
-                on_unsettled("raster_fixture_relay_unsettled")
+                on_unsettled("raster_fixture_relay_unsettled", snapshot)
             except BaseException as error:
                 journal_failure = error
         if self.unsettled:

@@ -294,8 +294,21 @@ class RasterFixtureShutdownTests(unittest.TestCase):
                     lambda: self.relay.inflight == 0, timeout=2
                 )
             )
+        snapshots = []
         with self.assertRaisesRegex(ContractError, "raster_fixture_relay_unsettled"):
-            self.relay.close(timeout=0.2)
+            self.relay.close(
+                timeout=0.2, on_unsettled=lambda reason, snapshot: snapshots.append(snapshot)
+            )
+        self.assertEqual(
+            snapshots[0]["operations"],
+            [
+                {
+                    "operation_id": operation_id,
+                    "response_state": "completed",
+                    "acknowledgement": "unknown",
+                }
+            ],
+        )
         with socket.socket(socket.AF_UNIX) as recovery:
             recovery.connect(str(Path(self.directory.name) / "fixture.sock"))
             recovery.sendall(
@@ -350,12 +363,11 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         self.assertEqual(os.read(self.ready_read, 1), b"1")
         recorded = []
 
-        def on_unsettled(reason):
+        def on_unsettled(reason, snapshot):
             recorded.append(
                 (
                     reason,
-                    self.relay.inflight,
-                    len(self.relay.connections),
+                    snapshot,
                     self.relay.server.socket.fileno() >= 0,
                 )
             )
@@ -364,7 +376,27 @@ class RasterFixtureShutdownTests(unittest.TestCase):
         with self.assertRaisesRegex(ContractError, "raster_fixture_relay_unsettled"):
             self.relay.close(timeout=0.2, on_unsettled=on_unsettled)
         self.assertLess(time.monotonic() - started, 2)
-        self.assertEqual(recorded, [("raster_fixture_relay_unsettled", 1, 1, True)])
+        self.assertEqual(
+            recorded,
+            [
+                (
+                    "raster_fixture_relay_unsettled",
+                    {
+                        "inflight": 1,
+                        "connections": 1,
+                        "clients": 1,
+                        "operations": [
+                            {
+                                "operation_id": operation_id,
+                                "response_state": "unknown",
+                                "acknowledgement": "unknown",
+                            }
+                        ],
+                    },
+                    True,
+                )
+            ],
+        )
         self.assertIsNone(self.relay.seed.poll())
         os.write(self.release_write, b"1")
         self.assertEqual(

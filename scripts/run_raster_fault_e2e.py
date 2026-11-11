@@ -1458,9 +1458,12 @@ def inside_with_inference(path, arguments, inference):
     failure = None
     shutdown_failures = []
 
-    def record_unsettled(reason):
+    def record_unsettled(reason, snapshot=None):
         recorded = Owner(path)
-        recorded.data["raster_shutdown"] = {"state": "unsettled", "reason": reason}
+        shutdown = recorded.data.setdefault("raster_shutdown", {})
+        shutdown.update(state="unsettled", reason=reason)
+        if snapshot is not None:
+            shutdown["relay_snapshot"] = snapshot
         recorded.save()
 
     def retain_unsettled(reason):

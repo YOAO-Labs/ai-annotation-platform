@@ -162,6 +162,11 @@ suite 清理先完成全部子运行的原生执行退休，再逐个清理数�
 收到 socket 写入成功不构成调用方确认。未知物理 I/O 或未确认结果会阻止受保护的
 authority 关闭；如果私有失败日志无法持久写入，原操作结果及日志错误分别保留在存活的
 authority 中，后续变更拒绝执行，不能用重建 owner 消除该故障。
+关闭或 Native suite 退休因未确认结果被拒绝时，私有 `failures.ndjson` 同时记录
+阻塞操作 UUID、authority 的 `pending`／`completed` 状态及确认状态；Raster relay
+未结算时在 `raster_shutdown.relay_snapshot` 记录其观察到的未确认 UUID 和响应状态。
+relay 未观察到确认时标为 `unknown`，不把连接中断或已收到响应当作确认；这些诊断
+不改变原始失败、退休守卫或恢复规则。
 若真实 HTTP 操作已有状态与正文、随后数据库连接池释放失败，同一 UUID 的恢复结果
 分别保留 `operation_response` 和 `disposal_error`；释放责任未证明结束时继续拒绝新变更，
 不得重放原操作。完整原始结果只保存在私有 authority 和证据中，普通输出仍需脱敏。
