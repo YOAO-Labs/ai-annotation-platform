@@ -942,15 +942,27 @@ def fixture_provider_host(owner):
     return str(gateway)
 
 
-def require_broker_idle(queue):
-    """Keep passive Kombu bindings, but reject pending work or unknown keys."""
+def require_broker_idle(queue, paused_run_ids):
+    """Keep passive bindings and sealed workers' expiring heartbeat metadata."""
+    heartbeats = [
+        f"celery:hb:aap-fixture-{uuid.UUID(run_id).hex}-{kind}@127.0.0.1"
+        for run_id in paused_run_ids
+        for kind in ("media", "pyramid")
+    ]
     blocked = queue.eval_ro(
         """
-        local prefix = '_kombu.binding.'
+        local bindings = '_kombu.binding.'
+        local heartbeats = {}
+        for _, key in ipairs(ARGV) do heartbeats[key] = true end
         for _, key in ipairs(redis.call('KEYS', '*')) do
             local kind = redis.call('TYPE', key).ok
-            if string.sub(key, 1, string.len(prefix)) ~= prefix
-                or kind ~= 'set' then
+            local passive = kind == 'set'
+                and string.sub(key, 1, string.len(bindings)) == bindings
+            if not passive and heartbeats[key] and kind == 'string' then
+                passive = redis.call('PTTL', key) > 0
+                    and string.match(redis.call('GET', key), '^%d+$') ~= nil
+            end
+            if not passive then
                 local size = -1
                 if kind == 'list' then size = redis.call('LLEN', key)
                 elseif kind == 'hash' then size = redis.call('HLEN', key)
@@ -965,6 +977,7 @@ def require_broker_idle(queue):
         return {}
         """,
         0,
+        *heartbeats,
     )
     if blocked:
         error = ContractError("raster_queue_not_empty")
@@ -993,7 +1006,9 @@ def exercise_faults(owner, environment, references, suite):
     )
     verify_store_physical(owner)
     with redis.Redis.from_url(environment["REDIS_URL"], socket_timeout=2) as queue:
-        require_broker_idle(queue)
+        require_broker_idle(
+            queue, (case["run_id"] for case in owner.data["raster"]["cases"])
+        )
     with closing(
         _client(
             "http://" + store["endpoint"],
