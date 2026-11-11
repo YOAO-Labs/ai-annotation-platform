@@ -403,6 +403,10 @@ async def test_fixed_snapshot_admission_and_cleanup_fail_closed(worker_db):
             published=True,
         )
         await ownership.seal(registration, run_id, family="scale")
+        assert await registration.scalar(
+            text("SELECT aap_assets_v1.seal_fixture_run_without_media(:run)"),
+            {"run": run_id},
+        ) is True
         await ownership.guard_dataset_jobs(registration, [dataset.id])
         await registration.commit()
         with pytest.raises(ContentError, match="image_export_isolation_unsupported"):

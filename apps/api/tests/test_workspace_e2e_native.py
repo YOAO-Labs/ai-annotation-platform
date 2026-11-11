@@ -35,13 +35,16 @@ from tests.identity_e2e_support import (
     committed_owner as committed_owner,
     fenced_http as fenced_http,
     fixture_and_fenced_http as fixture_and_fenced_http,
+    fixture_routing_owner,
     owner_fault_http as owner_fault_http,
     scenario_rle_bindings as scenario_rle_bindings,
 )
 from tests.seed_owner_support import (
     _fixture_versions,
     _read_versions,
+    OwnedSuite,
     fixture_original_reader,
+    private_seed_owner,
 )
 from tests.test_training_dataset_references import (
     committed_rle_bindings as committed_rle_bindings,
@@ -87,6 +90,38 @@ async def fixture_operator(test_engine):
             result = await _grants(test_engine, ROOT / "infra/docker" / profile, role)
             assert result.returncode == 0, result.stderr
         yield producer.kw["bind"]
+
+
+@pytest.fixture
+async def fault_suite(test_engine, monkeypatch):
+    """Keep in-process fault cases under a suite without native participants."""
+    async with (
+        fixture_routing_owner(test_engine, monkeypatch),
+        private_seed_owner() as owner,
+    ):
+        suite = OwnedSuite(owner, uuid.uuid4())
+        await owner.prepare_suite(suite.suite_id, "owned")
+        failure = None
+        try:
+            yield suite
+        except BaseException as exc:
+            failure = exc
+            raise
+        finally:
+            if owner.failure is not None:
+                if failure is None:
+                    raise owner.failure
+            else:
+                try:
+                    await suite.finish()
+                    await owner.shutdown_authority(suite.suite_id)
+                except BaseException as cleanup_failure:
+                    if failure is not None:
+                        raise BaseExceptionGroup(
+                            "Fixture operation and suite cleanup failed",
+                            [failure, cleanup_failure],
+                        ) from None
+                    raise
 
 
 async def _snapshot(engine):
@@ -290,14 +325,14 @@ async def test_fixture_writes_keep_cache_pending_work_and_transaction(
 
 async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
     owner_fault_http,
-    fixture_and_fenced_http,
+    fault_suite,
     test_engine,
     fixture_operator,
     monkeypatch,
 ):
     from app.api.v1 import _test_seed_attachments as attachments
 
-    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
+    run = fault_suite.new_run(NAMESPACE)
     response = await owner_fault_http.post(
         "/api/v1/__test/seed/owned", json=run.payload()
     )
@@ -394,13 +429,13 @@ async def test_owner_unretired_video_blocks_fixture_cleanup_before_any_delete(
 
 @pytest.mark.parametrize("kind", ["project", "template"])
 async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
-    owner_fault_http, fixture_and_fenced_http, test_engine, monkeypatch, kind
+    owner_fault_http, fault_suite, test_engine, monkeypatch, kind
 ):
     from app.db.models.project import Project
     from app.db.models.project_template import ProjectTemplate
 
-    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
-    built = await fixture_and_fenced_http.post(
+    run = fault_suite.new_run(NAMESPACE)
+    built = await fault_suite.owner.post(
         "/api/v1/__test/seed/filtering", json=run.payload()
     )
     assert built.status_code == 200, built.text
@@ -481,9 +516,9 @@ async def test_owner_cleanup_detects_renamed_project_and_template_residuals(
 
 
 async def test_owner_lidar_cleanup_propagates_transaction_abort_before_storage(
-    owner_fault_http, fixture_and_fenced_http, test_engine, monkeypatch
+    owner_fault_http, fault_suite, test_engine, monkeypatch
 ):
-    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
+    run = fault_suite.new_run(NAMESPACE)
     response = await owner_fault_http.post(
         "/api/v1/__test/seed/lidar", json=run.payload()
     )
@@ -620,11 +655,11 @@ async def test_fixture_capabilities_require_explicit_operator_profile(test_engin
 
 @pytest.mark.parametrize("state", ["23514", "55P03"])
 async def test_owner_final_cleanup_denial_rolls_back_records_and_allows_retry(
-    owner_fault_http, fixture_and_fenced_http, test_engine, monkeypatch, state
+    owner_fault_http, fault_suite, test_engine, monkeypatch, state
 ):
     from botocore.exceptions import ClientError
 
-    run = fixture_and_fenced_http.owner_suite.new_run(NAMESPACE)
+    run = fault_suite.new_run(NAMESPACE)
     response = await owner_fault_http.post(
         "/api/v1/__test/seed/owned", json=run.payload()
     )
