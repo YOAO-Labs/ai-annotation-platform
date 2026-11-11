@@ -654,12 +654,11 @@ async def _stop_known_process(process):
 
 
 async def _stop_media_runtime(media):
-    for process in (media.image_process, media.control_process):
-        if process.poll() is None:
-            process.terminate()
-        await asyncio.to_thread(process.wait, timeout=30)
+    if media.image_process is not None:
+        await _stop_known_process(media.image_process)
+        media.image_stream.close()
+    await _stop_known_process(media.control_process)
     await media.control_client.aclose()
-    media.image_stream.close()
     media.control_stream.close()
     media.owner_s3.close()
 
