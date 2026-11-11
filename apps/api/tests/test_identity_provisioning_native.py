@@ -224,7 +224,10 @@ async def test_bootstrap_defaults_audit_atomicity_and_existing_email_noop(
                             "disabled_reason,last_login_at,last_seen_at,"
                             "password_admin_reset_at,deactivation_requested_at,"
                             "deactivation_reason,deactivation_scheduled_at,created_at "
-                            "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
+                            "FROM public.users "
+                            "JOIN public.identity_account_presence ON identity_account_presence.user_id=users.id "
+                            "JOIN public.identity_account_preferences ON identity_account_preferences.user_id=users.id "
+                            "WHERE users.id=:id"
                         ),
                         {"id": account_id},
                     )
@@ -469,7 +472,10 @@ async def test_import_environment_guard_reuse_and_defaults(test_engine, monkeypa
                         text(
                             "SELECT email,name,role,status,is_active,email_verified_at,"
                             "credential_generation,preferences::text,password_hash "
-                            "FROM public.users JOIN public.identity_account_presence ON user_id=users.id WHERE users.id=:id"
+                            "FROM public.users "
+                            "JOIN public.identity_account_presence ON identity_account_presence.user_id=users.id "
+                            "JOIN public.identity_account_preferences ON identity_account_preferences.user_id=users.id "
+                            "WHERE users.id=:id"
                         ),
                         {"id": account_id},
                     )

@@ -53,11 +53,14 @@ _AUDIT_VIEWS = {
 }
 _READ_ONLY_TABLES = {"alembic_version"}
 _IDENTITY_API_FUNCTIONS = {
+    "read_accepted_api_key_facts(uuid,uuid)",
     "read_actor_facts(uuid)",
     "lock_accounts_share(uuid[],boolean)",
     "lock_accounts_update(uuid[],boolean)",
     "lock_accounts_key_share(uuid[],boolean)",
     "check_accepted_api_key(uuid,uuid,text[])",
+    "is_jti_revoked(uuid)",
+    "get_credential_generation(uuid)",
 }
 _IDENTITY_API_VIEWS = {
     "aap_identity_v1.account_profiles",
