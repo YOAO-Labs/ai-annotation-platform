@@ -1116,6 +1116,19 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                             {"purpose": f"media_original_{source.replica_facts.creation_id.hex}"},
                         ) == 1
                     assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+            installed_birth = worker.assert_runtime()
+            await asyncio.to_thread(
+                worker._docker, "kill", "--signal", "TERM", worker.container_id
+            )
+            installed_exit = await asyncio.to_thread(
+                worker._docker, "wait", worker.container_id, timeout=20
+            )
+            assert installed_exit.strip() == "0"
+            installed_stopped = worker._inspect(worker.container_id)
+            worker._verify_container_record(installed_stopped)
+            assert installed_stopped["State"]["StartedAt"] == installed_birth["started_at"]
+            assert installed_stopped["State"]["Running"] is False
+            assert installed_stopped["State"]["ExitCode"] == 0
             worker.stop()
             cleaned = await _cleanup_owned(owner, run)
             assert cleaned.status_code == 200, cleaned.text
