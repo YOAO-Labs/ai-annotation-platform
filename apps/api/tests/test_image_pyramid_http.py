@@ -243,9 +243,13 @@ async def test_read_only_key_can_retry_and_queues_exact_task_and_original(
             .values(status="failed", updated_at=pyramids.utcnow() - timedelta(hours=1))
         )
         await db.commit()
+
+    async def enqueue(*args, **kwargs):
+        queued.append((args, kwargs))
+        return "queued-fixture"
+
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: queued.append((args, kwargs)) or "queued-fixture",
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid", enqueue
     )
     response = await state.client.post(state.route + "/retry", headers=state.headers)
     assert response.status_code == 202 and response.json()["status"] == "queued", (
@@ -383,9 +387,13 @@ async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_c
     monkeypatch.setattr(
         "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
     )
+
+    async def enqueue(*args, **kwargs):
+        queued.append((args, kwargs))
+        return "metadata-retry"
+
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: queued.append((args, kwargs)) or "metadata-retry",
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid", enqueue
     )
     async with state.factory() as db:
         generation = await db.get(ImagePyramidGeneration, (state.asset_id, 1))

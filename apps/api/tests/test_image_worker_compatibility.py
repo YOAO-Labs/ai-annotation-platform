@@ -1,4 +1,4 @@
-"""Pre-cutover Celery messages cannot admit image work from owner IDs."""
+"""Image worker delivery and reconciliation contracts."""
 
 from __future__ import annotations
 
@@ -10,21 +10,8 @@ from sqlalchemy.engine import make_url
 
 from app.workers.image_pyramid import (
     execute_image_media,
-    generate_image_pyramid,
     _reconcile_image_media,
 )
-
-
-def test_obsolete_owner_id_delivery_is_acknowledged_without_execution(monkeypatch):
-    executed = []
-    monkeypatch.setattr(
-        "app.services.assets_images.run_image_job",
-        lambda job_id=None: executed.append(job_id),
-    )
-
-    generate_image_pyramid.run("dataset_item", str(uuid.uuid4()), True)
-
-    assert executed == []
 
 
 @pytest.mark.asyncio

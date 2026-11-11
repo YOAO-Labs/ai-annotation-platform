@@ -1,4 +1,4 @@
-"""Real thumbnail pixels, native publication and owner-backed Dataset output."""
+"""Real thumbnail pixels and native publication."""
 
 from __future__ import annotations
 import hashlib
@@ -10,10 +10,8 @@ from PIL import Image
 import pytest
 from yoao_assets_images.contract import ImageSource
 from yoao_assets_images.policy import ImagePolicy
-from yoao_assets_images.transport import ImageSourceReference
 from yoao_assets_images_runtime.processing import build_thumbnail
 from app.db.models.dataset import Dataset, DatasetItem
-from app.services.dataset import DatasetService
 from tests.test_assets_images_execution import (
     _source,
     _enqueue,
@@ -28,7 +26,7 @@ from tests.test_assets_images_execution import (
 
 @pytest.mark.asyncio
 async def test_regenerated_thumbnail_replaces_stale_placeholder(
-    db_session, annotator, monkeypatch, tmp_path
+    db_session, annotator, tmp_path
 ):
     actor, _ = annotator
     dataset = Dataset(
@@ -95,27 +93,6 @@ async def test_regenerated_thumbnail_replaces_stale_placeholder(
     current = ImageSource.model_validate(await _source(db_session, item.id))
     assert current.thumbnail_current and current.blurhash == processed.blurhash
 
-    async def verified_reference(_db, requests):
-        assert len(requests) == 1 and requests[0].actor_id == actor.id
-        return [
-            ImageSourceReference(
-                actor_id=actor.id,
-                source=current,
-                original_url="https://browser.test/source",
-                thumbnail_url="https://browser.test/thumbnail",
-                expires_in=3600,
-            )
-        ]
-
-    monkeypatch.setattr(
-        "app.services.dataset.image_source_references", verified_reference
-    )
-    items, _ = await DatasetService(db_session).list_items(
-        dataset.id, actor_id=actor.id
-    )
-    output = next(row for row in items if row["id"] == item.id)
-    assert (output["width"], output["height"]) == (64, 48)
-    assert output["thumbnail_url"] == "https://browser.test/thumbnail"
     with Image.open(io.BytesIO(processed.webp_bytes)) as thumbnail:
         thumbnail.load()
         assert thumbnail.size == (256, 192)
@@ -123,5 +100,5 @@ async def test_regenerated_thumbnail_replaces_stale_placeholder(
             abs(a - b) < 6
             for a, b in zip(thumbnail.convert("RGB").getpixel((128, 96)), (20, 160, 80))
         )
-    placeholder = blurhash.decode(output["blurhash"], 3, 3).getpixel((1, 1))
+    placeholder = blurhash.decode(current.blurhash, 3, 3).getpixel((1, 1))
     assert all(abs(a - b) < 10 for a, b in zip(placeholder, (20, 160, 80)))

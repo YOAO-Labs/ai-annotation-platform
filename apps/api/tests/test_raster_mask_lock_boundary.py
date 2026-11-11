@@ -34,6 +34,12 @@ async def test_final_write_requires_the_exact_verified_reference(
     reference = await storage.store_coco_rle(
         FOREGROUND_RLE, storage=objects, db=db_session
     )
+    load_coco_rle = storage.load_coco_rle
+
+    async def load_from_owned_provider(value):
+        return await load_coco_rle(value, storage=objects, db=db_session)
+
+    monkeypatch.setattr(storage, "load_coco_rle", load_from_owned_provider)
     alias = {**reference, "storage_encoding": "identity"}
     geometry = {"type": "raster_mask", "mask": reference}
     upload = await _seed_upload(db_session, task.id, reference)

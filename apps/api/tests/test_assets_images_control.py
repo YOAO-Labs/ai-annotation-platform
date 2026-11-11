@@ -133,16 +133,22 @@ async def test_shared_image_read_repairs_do_not_collide_across_actors_or_policy(
     from app.services.assets_images import SqlAlchemyImageDatabase
 
     class SourceStorage:
-        async def head_source(self, source):
-            return source.object_identity or ObjectIdentity(
-                etag="registered", byte_size=2048
-            )
+        def bind_original(self, permit):
+            class BoundOriginal:
+                async def head_source(self, source):
+                    assert source.file_path == permit.object_key
+                    return source.object_identity or ObjectIdentity(
+                        etag="registered", byte_size=2048
+                    )
+
+                async def sign_source(self, source, expires_in=3600):
+                    assert source.file_path == permit.object_key
+                    return f"https://images.test/{source.file_path}"
+
+            return BoundOriginal()
 
         async def head_cache(self, _key):
             return None
-
-        async def sign_source(self, source, expires_in=3600):
-            return f"https://images.test/{source.file_path}"
 
     first_actor, second_actor = (
         await _seed_actor(db_session),
