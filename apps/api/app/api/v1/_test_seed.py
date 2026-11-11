@@ -5553,8 +5553,10 @@ async def prepare_raster_images(
     )
     from app.services.assets_images import image_gateway, image_policy
     from yoao_assets_images.contract import (
+        ImageSourceSelector,
         PrepareImageMediaRequest,
         ReadImageSourceRequest,
+        ReadImageSummariesRequest,
         ReadImageWorkRequest,
     )
 
@@ -5685,10 +5687,27 @@ async def prepare_raster_images(
                     "read_image_work",
                     ReadImageWorkRequest(actor_id=actor_id, job_id=work.job_id),
                 )
-                current = await owner.call(
-                    "read_image_source",
-                    ReadImageSourceRequest(actor_id=actor_id, task_id=task_id),
+                summaries = await owner.call(
+                    "read_image_summaries",
+                    ReadImageSummariesRequest(
+                        actor_id=actor_id,
+                        selectors=[ImageSourceSelector(task_id=task_id)],
+                        profile_version=policy.profile_version,
+                    ),
                 )
+            if len(summaries.items) != 1:
+                raise RuntimeError("Fixture image publication is not uniquely resolved")
+            summary = summaries.items[0]
+            current = summary.source
+            if work.kind == "pyramid":
+                publication_current = (
+                    summary.pyramid.status == "ready"
+                    and summary.pyramid.generation is not None
+                    and (summary.pyramid.width, summary.pyramid.height)
+                    == (current.width, current.height)
+                )
+            else:
+                publication_current = current.thumbnail_current
             if (
                 status.work.job_id != work.job_id
                 or status.work.generation != work.generation
@@ -5707,7 +5726,7 @@ async def prepare_raster_images(
                 or current.source_generation != source.source_generation
                 or current.source_snapshot != source.source_snapshot
                 or current.source_drifted
-                or not current.thumbnail_current
+                or not publication_current
             ):
                 raise RuntimeError("Fixture image publication changed")
             if reused:
