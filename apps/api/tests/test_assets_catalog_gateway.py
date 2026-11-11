@@ -507,8 +507,6 @@ def _image_source_reference(
     )
 
 
-
-
 @pytest.mark.parametrize("remote", [False, True])
 @pytest.mark.asyncio
 async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remote):
@@ -682,7 +680,6 @@ async def test_catalog_image_links_withhold_unverified_urls_without_storage_fall
     assert signed == []
 
 
-
 _RETAINED_BACKFILL_RUNTIME = []
 
 
@@ -716,7 +713,14 @@ def _backfill_worker_scope(resources, store):
     try:
         _cleanup_mc(
             scope,
-            ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+            [
+                "admin",
+                "user",
+                "add",
+                "scoped",
+                scope["access_key"],
+                scope["secret_key"],
+            ],
         )
         scope["user_created"] = True
         _cleanup_mc(
@@ -727,7 +731,15 @@ def _backfill_worker_scope(resources, store):
         scope["policy_created"] = True
         _cleanup_mc(
             scope,
-            ["admin", "policy", "attach", "scoped", scope["policy"], "--user", scope["access_key"]],
+            [
+                "admin",
+                "policy",
+                "attach",
+                "scoped",
+                scope["policy"],
+                "--user",
+                scope["access_key"],
+            ],
         )
         return scope
     except BaseException:
@@ -766,7 +778,10 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     from app.services import image_pyramid_originals as originals
 
     from tests.identity_e2e_support import fixture_routing_owner
-    from tests.project_guide_asset_owner_helpers import assert_workspace_identity, endpoint_url
+    from tests.project_guide_asset_owner_helpers import (
+        assert_workspace_identity,
+        endpoint_url,
+    )
     from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
     from tests.seed_owner_support import (
         OwnedSuite,
@@ -794,12 +809,17 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     import fixture_media_control
     from fixture_suite_coordinator import _resource_root, _verified_database, state_path
     from verify_module_data_boundary import _destroy_cleanup_storage_scope
-    from verify_playwright_fixture_teardown import observe_native_absence, observe_native_birth
+    from verify_playwright_fixture_teardown import (
+        observe_native_absence,
+        observe_native_birth,
+    )
     from yoao_assets_media_runtime.fixture_native_outputs import load_target_file
 
     monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing = fixture_routing_owner(test_engine, monkeypatch)
-    owner = suite = media = worker = sender = scope = store = output_store = owner_log = None
+    owner = suite = media = worker = sender = scope = store = output_store = (
+        owner_log
+    ) = None
     run = neighbor = job_id = None
     completed = False
     try:
@@ -848,7 +868,9 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             )
         assert dataset_id is not None
         seed_payload = {**run.payload(), "dataset_id": str(dataset_id)}
-        before = await owner.post("/api/v1/__test/seed/backfill-image", json=seed_payload)
+        before = await owner.post(
+            "/api/v1/__test/seed/backfill-image", json=seed_payload
+        )
         assert before.status_code == 200, before.text
         existing_item = uuid.UUID(before.json()["item_id"])
 
@@ -905,6 +927,10 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         operation_id = uuid.uuid4()
         headers["Idempotency-Key"] = str(operation_id)
         path = f"/api/v1/datasets/{dataset_id}/{route}"
+        missing = await fenced_http.post(
+            f"/api/v1/datasets/{uuid.uuid4()}/{route}", headers=headers
+        )
+        assert missing.status_code == 404, missing.text
         accepted = await fenced_http.post(path, headers=headers)
         assert accepted.status_code == 202, accepted.text
         repeated = await fenced_http.post(path, headers=headers)
@@ -917,47 +943,69 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         assert receipt["purpose"] == purpose and receipt["status"] == "pending"
         cutoff = datetime.fromisoformat(receipt["accepted_before"])
         job_id = uuid.UUID(receipt["job_id"])
-        other_route = "backfill-media" if purpose == "dimensions" else "backfill-dimensions"
+        other_route = (
+            "backfill-media" if purpose == "dimensions" else "backfill-dimensions"
+        )
         conflict = await fenced_http.post(
             f"/api/v1/datasets/{dataset_id}/{other_route}", headers=headers
         )
         assert conflict.status_code == 409, conflict.text
 
-        after = await owner.post("/api/v1/__test/seed/backfill-image", json=seed_payload)
+        after = await owner.post(
+            "/api/v1/__test/seed/backfill-image", json=seed_payload
+        )
         assert after.status_code == 200, after.text
         late_item = uuid.UUID(after.json()["item_id"])
         async with test_engine.connect() as db:
             rows = (
-                await db.execute(
-                    text(
-                        "SELECT id,created_at,width,height,thumbnail_path "
-                        "FROM public.dataset_items WHERE id=ANY(:ids)"
-                    ),
-                    {"ids": [existing_item, late_item]},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT id,created_at,width,height,thumbnail_path "
+                            "FROM public.dataset_items WHERE id=ANY(:ids)"
+                        ),
+                        {"ids": [existing_item, late_item]},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             items = {row["id"]: dict(row) for row in rows}
-            assert items[existing_item]["created_at"] <= cutoff < items[late_item]["created_at"]
+            assert (
+                items[existing_item]["created_at"]
+                <= cutoff
+                < items[late_item]["created_at"]
+            )
             job = (
-                await db.execute(
-                    text("SELECT kind,project_id,payload FROM public.async_jobs WHERE id=:job"),
-                    {"job": job_id},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT kind,project_id,payload FROM public.async_jobs WHERE id=:job"
+                        ),
+                        {"job": job_id},
+                    )
                 )
-            ).mappings().one()
+                .mappings()
+                .one()
+            )
             assert job["kind"] == "media_backfill" and job["project_id"] is None
             assert job["payload"]["dataset_id"] == str(dataset_id)
             assert job["payload"]["purpose"] == purpose
             assert job["payload"]["operation_id"] == str(operation_id)
             assert datetime.fromisoformat(job["payload"]["accepted_before"]) == cutoff
             dispatches = (
-                await db.execute(
-                    text(
-                        "SELECT execution_id,envelope FROM aap_jobs_v1.dispatch_intents "
-                        "WHERE job_id=:job"
-                    ),
-                    {"job": job_id},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT execution_id,envelope FROM aap_jobs_v1.dispatch_intents "
+                            "WHERE job_id=:job"
+                        ),
+                        {"job": job_id},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
             assert len(dispatches) == 1
             assert dispatches[0]["execution_id"] == str(job_id)
             envelope = dispatches[0]["envelope"]
@@ -983,7 +1031,9 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         await worker.configure_fixture_original_reader(
             media_url=media_url, media_token=media.control_token
         )
-        worker.configure_fixture_media_control(control_url, output_file=native_target["writer_file"])
+        worker.configure_fixture_media_control(
+            control_url, output_file=native_target["writer_file"]
+        )
         worker.start()
         await _wait_worker_ready(sender, worker)
 
@@ -1000,28 +1050,41 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         await _eventually("exact backfill execution settled", settled, timeout=180)
         await _wait_broker_ack(sender, worker, job_id)
         async with test_engine.connect() as db:
-            status = await db.scalar(text("SELECT status FROM public.async_jobs WHERE id=:job"), {"job": job_id})
+            status = await db.scalar(
+                text("SELECT status FROM public.async_jobs WHERE id=:job"),
+                {"job": job_id},
+            )
             assert status == "completed"
             observed = (
-                await db.execute(
-                    text("SELECT id,width,height,thumbnail_path FROM public.dataset_items WHERE id=ANY(:ids)"),
-                    {"ids": [existing_item, late_item]},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT id,width,height,thumbnail_path FROM public.dataset_items WHERE id=ANY(:ids)"
+                        ),
+                        {"ids": [existing_item, late_item]},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         async with test_engine.connect() as db:
             versions = (
-                await db.execute(
-                    text(
-                        "SELECT version.id,version.object_key,version.version_id,"
-                        "version.sha256,version.size_bytes,output.storage_ref->>'bucket' AS bucket "
-                        "FROM aap_assets_v1.fixture_media_versions AS version "
-                        "JOIN public.thumbnail_outputs AS output ON output.id=version.owner_id "
-                        "WHERE version.run_id=:run AND version.dataset_id=:dataset "
-                        "AND version.owner_kind='thumbnail' AND version.state='verified'"
-                    ),
-                    {"run": run.run_id, "dataset": dataset_id},
+                (
+                    await db.execute(
+                        text(
+                            "SELECT version.id,version.object_key,version.version_id,"
+                            "version.sha256,version.size_bytes,output.storage_ref->>'bucket' AS bucket "
+                            "FROM aap_assets_v1.fixture_media_versions AS version "
+                            "JOIN public.thumbnail_outputs AS output ON output.id=version.owner_id "
+                            "WHERE version.run_id=:run AND version.dataset_id=:dataset "
+                            "AND version.owner_kind='thumbnail' AND version.state='verified'"
+                        ),
+                        {"run": run.run_id, "dataset": dataset_id},
+                    )
                 )
-            ).mappings().all()
+                .mappings()
+                .all()
+            )
         assert versions
         for version in versions:
             assert version["bucket"] == native_target["bucket"]
@@ -1034,13 +1097,21 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             assert len(payload) == version["size_bytes"]
             assert hashlib.sha256(payload).hexdigest() == version["sha256"]
         observed = {row["id"]: dict(row) for row in observed}
-        assert (observed[existing_item]["width"], observed[existing_item]["height"]) == (64, 48)
+        assert (
+            observed[existing_item]["width"],
+            observed[existing_item]["height"],
+        ) == (64, 48)
         assert observed[existing_item]["thumbnail_path"] is not None
-        assert observed[late_item]["width"] is None and observed[late_item]["height"] is None
+        assert (
+            observed[late_item]["width"] is None
+            and observed[late_item]["height"] is None
+        )
         assert observed[late_item]["thumbnail_path"] is None
         async with test_engine.connect() as db:
             completed_generation = await db.scalar(
-                text("SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"),
+                text(
+                    "SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                ),
                 {"job": job_id},
             )
         mismatch_id = uuid.uuid4()
@@ -1052,19 +1123,31 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         )
         await _wait_broker_ack(sender, worker, mismatch_id)
         async with test_engine.connect() as db:
-            assert await db.scalar(
-                text("SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"),
-                {"job": job_id},
-            ) == completed_generation
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                    ),
+                    {"job": job_id},
+                )
+                == completed_generation
+            )
 
         neighbor_versions = await _fixture_versions(test_engine, neighbor)
         with closing(fixture_original_reader()) as reader:
-            neighbor_bytes = await asyncio.to_thread(_read_versions, reader, neighbor_versions)
+            neighbor_bytes = await asyncio.to_thread(
+                _read_versions, reader, neighbor_versions
+            )
             factory = async_sessionmaker(test_engine, expire_on_commit=False)
             async with factory() as db:
-                source = await originals.pin(db, "task", uuid.UUID(world["task_ids"][0]))
+                source = await originals.pin(
+                    db, "task", uuid.UUID(world["task_ids"][0])
+                )
                 authority = await originals.delegated(
-                    db, originals.system_authorization("task", uuid.UUID(world["task_ids"][0]), source)
+                    db,
+                    originals.system_authorization(
+                        "task", uuid.UUID(world["task_ids"][0]), source
+                    ),
                 )
                 await db.rollback()
                 async with originals.media(db, authority, source) as stage:
@@ -1074,7 +1157,9 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                                 "SELECT count(*) FROM public.storage_operations "
                                 "WHERE purpose=:purpose AND node_id='aap-assets-media'"
                             ),
-                            {"purpose": f"media_original_{source.replica_facts.creation_id.hex}"},
+                            {
+                                "purpose": f"media_original_{source.replica_facts.creation_id.hex}"
+                            },
                         )
                         generation = await observer.scalar(
                             text(
@@ -1089,7 +1174,9 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                     assert blocked.status_code == 409, blocked.text
                     async with test_engine.connect() as observer:
                         assert await observer.scalar(
-                            text("SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"),
+                            text(
+                                "SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"
+                            ),
                             {"run": run.run_id},
                         )
                     await asyncio.to_thread(sender.AsyncResult(str(job_id)).forget)
@@ -1101,21 +1188,34 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                     )
                     await _wait_broker_ack(sender, worker, job_id)
                     async with test_engine.connect() as observer:
-                        assert await observer.scalar(
-                            text(
-                                "SELECT generation FROM aap_jobs_v1.fixture_media_backfills "
-                                "WHERE job_id=:job"
-                            ),
-                            {"job": job_id},
-                        ) == generation
-                        assert await observer.scalar(
-                            text(
-                                "SELECT count(*) FROM public.storage_operations "
-                                "WHERE purpose=:purpose AND node_id='aap-assets-media'"
-                            ),
-                            {"purpose": f"media_original_{source.replica_facts.creation_id.hex}"},
-                        ) == 1
-                    assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+                        assert (
+                            await observer.scalar(
+                                text(
+                                    "SELECT generation FROM aap_jobs_v1.fixture_media_backfills "
+                                    "WHERE job_id=:job"
+                                ),
+                                {"job": job_id},
+                            )
+                            == generation
+                        )
+                        assert (
+                            await observer.scalar(
+                                text(
+                                    "SELECT count(*) FROM public.storage_operations "
+                                    "WHERE purpose=:purpose AND node_id='aap-assets-media'"
+                                ),
+                                {
+                                    "purpose": f"media_original_{source.replica_facts.creation_id.hex}"
+                                },
+                            )
+                            == 1
+                        )
+                    assert (
+                        await asyncio.to_thread(
+                            _read_versions, reader, neighbor_versions
+                        )
+                        == neighbor_bytes
+                    )
             installed_birth = worker.assert_runtime()
             await asyncio.to_thread(
                 worker._docker, "kill", "--signal", "TERM", worker.container_id
@@ -1126,7 +1226,9 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
             assert installed_exit.strip() == "0"
             installed_stopped = worker._inspect(worker.container_id)
             worker._verify_container_record(installed_stopped)
-            assert installed_stopped["State"]["StartedAt"] == installed_birth["started_at"]
+            assert (
+                installed_stopped["State"]["StartedAt"] == installed_birth["started_at"]
+            )
             assert installed_stopped["State"]["Running"] is False
             assert installed_stopped["State"]["ExitCode"] == 0
             worker.stop()
@@ -1143,17 +1245,23 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
                     ),
                     {"job": job_id, "run": run.run_id, "dataset": dataset_id},
                 )
-                assert await observer.scalar(
-                    text(
-                        "SELECT count(*) FROM aap_assets_v1.fixture_media_versions AS version "
-                        "LEFT JOIN aap_assets_v1.fixture_media_version_retirements AS retirement "
-                        "ON retirement.version_id=version.id "
-                        "WHERE version.run_id=:run AND version.dataset_id=:dataset "
-                        "AND retirement.state IS DISTINCT FROM 'absent'"
-                    ),
-                    {"run": run.run_id, "dataset": dataset_id},
-                ) == 0
-            assert await asyncio.to_thread(_read_versions, reader, neighbor_versions) == neighbor_bytes
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM aap_assets_v1.fixture_media_versions AS version "
+                            "LEFT JOIN aap_assets_v1.fixture_media_version_retirements AS retirement "
+                            "ON retirement.version_id=version.id "
+                            "WHERE version.run_id=:run AND version.dataset_id=:dataset "
+                            "AND retirement.state IS DISTINCT FROM 'absent'"
+                        ),
+                        {"run": run.run_id, "dataset": dataset_id},
+                    )
+                    == 0
+                )
+            assert (
+                await asyncio.to_thread(_read_versions, reader, neighbor_versions)
+                == neighbor_bytes
+            )
         cleaned_neighbor = await _cleanup_owned(owner, neighbor)
         assert cleaned_neighbor.status_code == 200, cleaned_neighbor.text
         await suite.finish()
@@ -1176,7 +1284,18 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     finally:
         if not completed:
             _RETAINED_BACKFILL_RUNTIME.append(
-                (owner, suite, media, worker, sender, scope, store, output_store, owner_log, routing)
+                (
+                    owner,
+                    suite,
+                    media,
+                    worker,
+                    sender,
+                    scope,
+                    store,
+                    output_store,
+                    owner_log,
+                    routing,
+                )
             )
             print(
                 f"Retained unsettled media backfill run={run} neighbor={neighbor} "

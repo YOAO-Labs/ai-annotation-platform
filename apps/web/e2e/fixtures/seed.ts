@@ -1330,36 +1330,31 @@ export const test = base.extend<Fixtures, { fixtureOwner: void }>({
   seed: [
     async ({ request }, use, testInfo) => {
       const api = new SeedAPI(request, testInfo);
-      let setupFailure: unknown;
+      const failures: unknown[] = [];
       try {
         if (process.env.PLAYWRIGHT_RASTER_OFFLINE === "1") {
           await api.prepareRasterOwned();
         }
-        // eslint-disable-next-line react-hooks/rules-of-hooks
         await use(api);
       } catch (error) {
-        setupFailure = error;
-        throw error;
-      } finally {
-        // Finish-time screenshots already exist; retire pages before their media.
-        try {
-          try {
-            await api.retireOwnedPages();
-          } catch (error) {
-            try {
-              await api.cleanupOwnedFixtures();
-            } catch (cleanupError) {
-              throw new AggregateError([error, cleanupError], "Seed fixture teardown failed");
-            }
-            throw error;
-          }
-          await api.cleanupOwnedFixtures();
-        } catch (cleanupError) {
-          if (setupFailure !== undefined) {
-            throw new AggregateError([setupFailure, cleanupError], "Seed fixture failed");
-          }
-          throw cleanupError;
-        }
+        failures.push(error);
+      }
+      // Finish-time screenshots already exist; retire pages before their media.
+      try {
+        await api.retireOwnedPages();
+      } catch (error) {
+        failures.push(error);
+      }
+      try {
+        await api.cleanupOwnedFixtures();
+      } catch (error) {
+        failures.push(error);
+      }
+      if (failures.length === 1) {
+        throw failures[0];
+      }
+      if (failures.length > 1) {
+        throw new AggregateError(failures, "Seed fixture failed");
       }
     },
     // Allow the existing 60-second operation budgets for preparation and cleanup.

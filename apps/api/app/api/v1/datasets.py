@@ -1023,9 +1023,6 @@ async def _schedule_media_backfill(
     from app.services.reference_access import reject_reference_scope
 
     await reject_reference_scope(db, dataset_id=dataset_id)
-    await AssetsCatalogGateway(db).get(
-        GetDatasetRequest(actor_id=actor.id, dataset_id=dataset_id)
-    )
     key = normalize_idempotency_key(
         str(idempotency_key) if idempotency_key is not None else None
     )

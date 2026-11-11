@@ -78,7 +78,12 @@ function foregroundArea(rle: CocoRle): number {
   return rle.counts.reduce((area, count, index) => area + (index % 2 === 1 ? count : 0), 0);
 }
 
-async function prepareTask(page: Page, seed: SeedAPI, data: SeedData, taskId: string): Promise<void> {
+async function prepareTask(
+  page: Page,
+  seed: SeedAPI,
+  data: SeedData,
+  taskId: string,
+): Promise<void> {
   await seed.configureRasterMask(data.project_id, true);
   await seed.advanceTask({
     taskId,
@@ -180,7 +185,12 @@ async function applyPreview(page: Page): Promise<void> {
 }
 
 const test = base.extend<{
-  combinedEditCase: { data: SeedData; taskId: string; annotationId: string; token: string };
+  combinedEditCase: {
+    data: SeedData;
+    taskId: string;
+    annotationId: string;
+    token: string;
+  };
 }>({
   combinedEditCase: [
     async ({ page, seed }, provideFixture) => {
