@@ -81,7 +81,8 @@ function startOwner() {
   if (!socketPath) {
     child.once("exit", (code, signal) => {
       if (code !== 0 || !closing || pending.length) {
-        const reason = failureKind ?? (signal ? `process signal ${signal}` : `process exit ${code}`);
+        const reason =
+          failureKind ?? (signal ? `process signal ${signal}` : `process exit ${code}`);
         fail(new Error(`Fixture setup failed: ${reason}`));
       }
     });
