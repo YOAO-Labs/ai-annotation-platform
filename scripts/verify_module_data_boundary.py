@@ -4026,6 +4026,15 @@ def _probe_image_import_partial_retirement(backend, prepared, scope, proof) -> d
                 "Action": ["s3:DeleteObjectVersion"],
                 "Resource": [f"{bucket_arn}/{key}"],
             },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObject"],
+                "Resource": [f"{bucket_arn}/{key}"],
+                "Condition": {
+                    "StringLike": {"s3:versionid": "*?*"},
+                    "StringNotEquals": {"s3:versionid": "null"},
+                },
+            },
         ],
     }
     _cleanup_mc(

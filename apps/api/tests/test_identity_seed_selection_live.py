@@ -774,15 +774,19 @@ async def test_installed_identity_seed_selection_consumers(
 
     source_root = tmp_path / "identity-seed-selection-fixture"
     source_root.mkdir()
+    source_root.chmod(0o755)
     shutil.copyfile(PROBE, source_root / PROBE.name)
+    (source_root / PROBE.name).chmod(0o644)
     image_dir = source_root / "images"
     image_dir.mkdir()
+    image_dir.chmod(0o755)
     image_bytes = {
         "first.png": _png_pixel(220, 50, 40),
         "second.png": _png_pixel(30, 120, 220),
     }
     for name, content in image_bytes.items():
         (image_dir / name).write_bytes(content)
+        (image_dir / name).chmod(0o644)
 
     endpoint = urlsplit(endpoint_url())
     assert endpoint.scheme in {"http", "https"} and endpoint.hostname
