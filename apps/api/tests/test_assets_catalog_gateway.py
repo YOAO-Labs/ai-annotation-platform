@@ -789,6 +789,7 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
         _read_versions,
         fixture_original_reader,
     )
+    from tests.test_assets_media_live import _guard_role_url
     from tests.test_fixture_inference_retirement_live import (
         _eventually,
         _login,
@@ -815,6 +816,19 @@ async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
     )
     from yoao_assets_media_runtime.fixture_native_outputs import load_target_file
 
+    publication_url = (
+        _guard_role_url(
+            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+            "jobs_publication_client",
+            test_engine,
+        )
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    monkeypatch.setattr(settings, "jobs_publication_database_url", publication_url)
+    monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+    monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
+    monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
     monkeypatch.setattr(settings, "jobs_queue_url", "")
     routing = fixture_routing_owner(test_engine, monkeypatch)
     owner = suite = media = worker = sender = scope = store = output_store = (
