@@ -71,6 +71,8 @@ pytestmark = [
 def _postgres_tool(test_engine, command, *, body=None):
     _verify_postgres(test_engine.url)
     assert test_engine.url.username == "owner"
+    if command[0] == "pg_restore":
+        command = [*command, "--single-transaction"]
     result = subprocess.run(
         [
             "docker",
