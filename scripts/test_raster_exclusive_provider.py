@@ -298,6 +298,138 @@ class RasterProviderTests(unittest.TestCase):
             provider.retire_provider(self.owner, self.backend)
         self.assertFalse(any(call[1] == "kill" for call in self.calls))
 
+    def test_minio_retirement_preserves_the_same_owners_postgres(self):
+        postgres_container = "e" * 64
+        postgres_volume = "postgres-volume"
+        self.owner.data["raster"]["postgres"] = {
+            "container_id": postgres_container,
+            "volume_id": postgres_volume,
+        }
+        self.owner.data["resources"].extend([
+            {"kind": "container", "id": postgres_container, "name": "postgres"},
+            {"kind": "volume", "id": postgres_volume, "name": postgres_volume},
+        ])
+        self.owner.present.update({postgres_container, postgres_volume})
+        provider.retire_provider(self.owner, self.backend)
+        provider.require_retired_provider(self.owner, self.backend.resources)
+        self.assertEqual(self.owner.present, {postgres_container, postgres_volume})
+
+    def test_unrecorded_docker_resource_refuses_provider_retirement(self):
+        self.owner.data["resources"].append(
+            {"kind": "container", "id": "f" * 64, "name": "foreign"}
+        )
+        with self.assertRaisesRegex(ContractError, "raster_store_topology_changed"):
+            provider.retire_provider(self.owner, self.backend)
+        self.assertFalse(any(call[1] == "kill" for call in self.calls))
+
+    def test_postgres_is_retained_without_database_retirement_proof(self):
+        self.owner.data["raster"]["postgres"] = {
+            "container_id": "e" * 64,
+            "volume_id": "postgres-volume",
+            "database_oid": 123,
+        }
+        self.backend._require_destroy_preparation = lambda *_: None
+        prepared = SimpleNamespace(
+            raster_owner=self.owner,
+            storage="raster_provider_retired",
+            raster_redis_retired=True,
+            raster_source_stopped=False,
+            raster_database_oid=123,
+        )
+        with self.assertRaisesRegex(ContractError, "raster_postgres_retirement_unproven"):
+            provider.retire_postgres(self.owner, self.backend, prepared)
+        self.assertFalse(any(call[1] == "kill" for call in self.calls))
+
+
+    def test_postgres_port_or_birth_change_is_refused(self):
+        from verify_module_data_boundary import POSTGRES_IMAGE
+
+        container_id = "e" * 64
+        volume_id = "postgres-volume"
+        self.owner.data["raster"]["postgres"] = {
+            "container_id": container_id, "volume_id": volume_id,
+            "image_id": "sha256:" + "f" * 64,
+            "pid": 43, "started_at": "pg-start", "port": 19000,
+        }
+        self.owner.data["resources"].extend([
+            {"kind": "container", "id": container_id, "name": "postgres", "image": POSTGRES_IMAGE},
+            {"kind": "volume", "id": volume_id, "name": volume_id},
+        ])
+        self.owner.private = self.owner.path.parent / "private"
+        self.owner.private.mkdir(parents=True)
+        credentials = self.owner.private / "postgres.env"
+        credentials.write_text(
+            "POSTGRES_USER=owner\nPOSTGRES_PASSWORD=" + "a" * 43 + "\nPOSTGRES_DB=postgres\n"
+        )
+        credentials.chmod(0o600)
+        pg = {
+            "Image": "sha256:" + "f" * 64,
+            "Name": "/postgres",
+            "Config": {
+                "Image": POSTGRES_IMAGE,
+                "Env": credentials.read_text().splitlines(),
+            },
+            "State": {"Status": "running", "Running": True, "Pid": 43, "StartedAt": "pg-start"},
+            "RestartCount": 0,
+            "Mounts": [{"Type": "volume", "Name": volume_id, "Destination": "/var/lib/postgresql/data", "RW": True}],
+        }
+
+        def verified(item):
+            return pg if item["id"] == container_id else {"Driver": "local"}
+
+        with (
+            patch.object(self.owner, "verified", side_effect=verified),
+            patch.object(provider, "command", return_value=container_id),
+        ):
+            provider.verified_postgres(self.owner, self.owner.resources, port=19000)
+            with self.assertRaisesRegex(ContractError, "raster_postgres_identity_changed"):
+                provider.verified_postgres(self.owner, self.owner.resources, port=19001)
+            pg["State"]["StartedAt"] = "replacement"
+            with self.assertRaisesRegex(ContractError, "raster_postgres_identity_changed"):
+                provider.verified_postgres(self.owner, self.owner.resources, port=19000)
+
+
+
+class PostgresRetentionTests(unittest.TestCase):
+    def test_failed_source_retirement_preserves_database(self):
+        import fixture_store
+        import worktree_resources
+
+        with tempfile.TemporaryDirectory() as directory:
+            backend = worktree_resources.LocalResources.__new__(
+                worktree_resources.LocalResources
+            )
+            backend.root = Path(directory)
+            backend.resources = {"mode": "e2e"}
+            prepared = worktree_resources._WorktreeDestroyPreparation(
+                backend, object(), None
+            )
+            backend._destroy_preparation = prepared
+            prepared.raster_owner = SimpleNamespace(data={"raster": {}}, save=lambda: None)
+            prepared.storage = "raster_provider_retired"
+            prepared.raster_redis_retired = True
+            prepared.raster_source_stopped = True
+            with (
+                patch.object(
+                    worktree_resources, "state_path",
+                    return_value=Path(directory) / "missing-journal",
+                ),
+                patch.object(fixture_store, "_raster_require_stopped_for_destroy"),
+                patch.object(
+                    fixture_store, "_raster_remove_stopped_for_destroy",
+                    side_effect=ContractError("source-removal-unsettled"),
+                ),
+                patch.object(backend, "_database") as database,
+            ):
+                with self.assertRaisesRegex(ContractError, "source-removal-unsettled"):
+                    backend._destroy_prepared_database(prepared)
+            database.assert_not_called()
+            self.assertEqual(prepared.phase, "prepared")
+            self.assertEqual(
+                prepared.raster_owner.data["raster"]["fixture_source_retirement"],
+                "intent",
+            )
+
 
 class RasterGuardOrderingTests(unittest.TestCase):
     def test_failed_fixture_guard_cannot_start_provider_or_drop_roles(self):

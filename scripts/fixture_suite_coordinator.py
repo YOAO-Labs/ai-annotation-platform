@@ -240,6 +240,34 @@ async def _verified_database(environment=None):
         and manifest.get("postgres", {}).get("port") == (owner.port or 5432),
         "fixture_database_roles_mismatch",
     )
+    raster_selector = environment.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
+    require_private_postgres = environment.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+    _refuse_unless(
+        not require_private_postgres or raster_selector,
+        "fixture_database_birth_unproven",
+    )
+    if raster_selector:
+        from raster_exclusive_provider import _items, verified_postgres
+        from verify_storage_candidates import Owner
+
+        raster = Owner(raster_selector)
+        _items(raster, resources)
+        _refuse_unless(
+            not require_private_postgres or "postgres" in raster.data["raster"],
+            "fixture_database_birth_unproven",
+        )
+        if "postgres" in raster.data["raster"]:
+            _refuse_unless(
+                owner.host == "127.0.0.1" and owner.username == "owner",
+                "fixture_database_target_mismatch",
+            )
+            _refuse_unless(
+                raster.data["raster"]["postgres"].get("database_oid") == birth_oid,
+                "fixture_database_birth_unproven",
+            )
+            await _settled_thread(
+                verified_postgres, raster, resources, port=owner.port or 5432
+            )
     engine = create_async_engine(owner, poolclass=NullPool, hide_parameters=True)
     app_engine = create_async_engine(runtime, poolclass=NullPool, hide_parameters=True)
     try:

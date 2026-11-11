@@ -1324,6 +1324,24 @@ class LocalResources:
 
     async def verify_database_server(self, owner_connection) -> None:
         """Prove both logins share one server before inspecting or changing resources."""
+        selector = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
+        require_private_postgres = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+        if require_private_postgres and not selector:
+            raise WorktreeError("Raster PostgreSQL owner 缺失；保留资源")
+        if selector:
+            from raster_exclusive_provider import _items, verified_postgres
+            from verify_storage_candidates import Owner
+
+            raster = Owner(selector)
+            _items(raster, self.resources)
+            if require_private_postgres and "postgres" not in raster.data["raster"]:
+                raise WorktreeError("Raster PostgreSQL 出生身份缺失；保留资源")
+            if "postgres" in raster.data["raster"]:
+                if self.url.host != "127.0.0.1":
+                    raise WorktreeError("Raster PostgreSQL 必须使用原始 loopback 端口")
+                verified_postgres(
+                    raster, self.resources, port=self.url.port or 5432
+                )
         runtime = make_url(self.settings.database_url).set(database="postgres")
         engine = create_async_engine(
             runtime,
@@ -2517,6 +2535,18 @@ class LocalResources:
         )
         asyncio.run(self.owned_runtime_role("create"))
         asyncio.run(self.database("create"))
+        raster_owner = getattr(self, "_raster_redis_birth_owner", None)
+        if raster_owner is not None and "postgres" in raster_owner.data["raster"]:
+            postgres = raster_owner.data["raster"]["postgres"]
+            oid = self.manifest["postgres"].get("database_oid")
+            if (
+                os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") != str(raster_owner.path)
+                or "database_oid" in postgres
+                or type(oid) is not int or oid <= 0
+            ):
+                raise WorktreeError("Raster PostgreSQL 数据库出生身份不明确；保留资源")
+            postgres["database_oid"] = oid
+            raster_owner.save()
         for name, observed in inventory["buckets"].items():
             if observed is None:
                 self.s3.create_bucket(Bucket=name)
@@ -2537,6 +2567,11 @@ class LocalResources:
             state_path(self.root, self.resources["mode"], part).mkdir(
                 mode=0o700, parents=True, exist_ok=True
             )
+        if os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
+            from fixture_suite_coordinator import _verified_database
+
+            # Verify the physical server and its durable database birth before Alembic.
+            asyncio.run(_verified_database(self.environment()))
         if not skip_migrations and set(current) != set(heads):
             result = subprocess.run(
                 [sys.executable, "-m", "alembic", "upgrade", "head"],
@@ -2552,6 +2587,8 @@ class LocalResources:
                     f"独立数据库迁移失败，退出码 {result.returncode}；共享数据库未被迁移"
                 )
         validate_revisions(revisions, heads, asyncio.run(self.revisions()), skip=True)
+        if os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER"):
+            asyncio.run(_verified_database(self.environment()))
         asyncio.run(self.grant_runtime())
         asyncio.run(self.verify_runtime_login())
         if self.resources["mode"] in {"test", "e2e"}:
@@ -3389,9 +3426,17 @@ class LocalResources:
         if prepared.storage == "raster_provider_retired":
             if not prepared.raster_source_stopped or prepared.fixture_owner is None:
                 raise WorktreeError("Raster 原始存储未证明停止；保留数据库")
-            from fixture_store import _raster_require_stopped_for_destroy
+            from fixture_store import (
+                _raster_remove_stopped_for_destroy,
+                _raster_require_stopped_for_destroy,
+            )
 
             _raster_require_stopped_for_destroy(prepared.fixture_owner, self.resources)
+            prepared.raster_owner.data["raster"]["fixture_source_retirement"] = "intent"
+            prepared.raster_owner.save()
+            _raster_remove_stopped_for_destroy(prepared.fixture_owner, self.resources)
+            prepared.raster_owner.data["raster"]["fixture_source_retirement"] = "completed"
+            prepared.raster_owner.save()
         prepared.phase = "database_intent"
         # Recheck each exact owner at the write boundary; never force DROP.
         if prepared.storage == "raster_provider_retired":
@@ -3412,14 +3457,8 @@ class LocalResources:
                 )
                 prepared.raster_owner.save()
             if prepared.storage == "raster_provider_retired":
-                from fixture_store import (
-                    _raster_finish_removed_for_destroy,
-                    _raster_remove_stopped_for_destroy,
-                )
+                from fixture_store import _raster_finish_removed_for_destroy
 
-                _raster_remove_stopped_for_destroy(
-                    prepared.fixture_owner, self.resources
-                )
                 _raster_finish_removed_for_destroy(
                     prepared.fixture_owner, self.resources
                 )

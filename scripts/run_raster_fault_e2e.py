@@ -51,7 +51,13 @@ from raster_images_process import (  # noqa: E402
     image_role,
     make_credentials,
 )
-from raster_exclusive_provider import retire_provider, verify_exclusive_provider  # noqa: E402
+from raster_exclusive_provider import (  # noqa: E402
+    _items,
+    retire_postgres,
+    retire_provider,
+    verified_postgres,
+    verify_exclusive_provider,
+)
 from storage_s3_contract import ContractError, require  # noqa: E402
 from verify_storage_candidates import Owner, command, host_port, private_write  # noqa: E402
 from worktree_env import load_identity, state_path, topology  # noqa: E402
@@ -659,6 +665,59 @@ def provision(resources, owner):
     return endpoint, root_access, root_secret
 
 
+def provision_postgres(resources, owner):
+    """Create this run's PostgreSQL under the existing durable Docker owner."""
+    from sqlalchemy.engine import URL
+    from verify_module_data_boundary import POSTGRES_IMAGE
+
+    password = secrets.token_urlsafe(32)
+    env_file = owner.private / "postgres.env"
+    private_write(
+        env_file,
+        f"POSTGRES_USER=owner\nPOSTGRES_PASSWORD={password}\nPOSTGRES_DB=postgres\n".encode(),
+    )
+    volume = owner.create("volume")
+    container = owner.container(
+        POSTGRES_IMAGE,
+        args=(
+            "--pull=never",
+            "--publish", "127.0.0.1::5432",
+            "--env-file", str(env_file),
+            "--volume", volume["id"] + ":/var/lib/postgresql/data",
+        ),
+    )
+    owner.start(container)
+    observed = owner.verified(container)
+    state = observed.get("State") or {}
+    port = host_port(owner, container, 5432)
+    owner.data["raster"]["postgres"] = {
+        "container_id": container["id"],
+        "volume_id": volume["id"],
+        "pid": state.get("Pid"),
+        "image_id": observed.get("Image"),
+        "started_at": state.get("StartedAt"),
+        "port": port,
+    }
+    owner.save()
+    verified_postgres(owner, resources, port=port)
+    deadline = time.monotonic() + 30
+    while True:
+        verified_postgres(owner, resources, port=port)
+        probe = subprocess.run(
+            ["docker", "exec", container["id"], "pg_isready",
+             "-h", "127.0.0.1", "-p", "5432", "-U", "owner", "-d", "postgres"],
+            capture_output=True, timeout=5, check=False,
+        )
+        if probe.returncode == 0:
+            break
+        require(time.monotonic() < deadline, "raster_postgres_not_ready")
+        time.sleep(0.2)
+    return URL.create(
+        "postgresql+asyncpg", username="owner", password=password,
+        host="127.0.0.1", port=port, database="postgres",
+    ).render_as_string(hide_password=False)
+
+
 def request_fixtures(owner, environment, suite, attempts):
     """Use the real in-process fixture router, never a listening API."""
     process = subprocess.Popen(
@@ -885,23 +944,9 @@ async def inspect_records(environment, references, suite, prepared_cases):
 
 def verify_store_physical(owner):
     store = owner.data["raster"]
-    require(
-        {(item["kind"], item["id"]) for item in owner.data["resources"]}
-        == {
-            ("container", store["container_id"]),
-            ("network", store["network_id"]),
-            ("volume", store["volume_id"]),
-        },
-        "raster_store_topology_changed",
-    )
-    container = next(
-        item for item in owner.data["resources"] if item["id"] == store["container_id"]
-    )
-    network = next(
-        item for item in owner.data["resources"] if item["id"] == store["network_id"]
-    )
-    volume = next(
-        item for item in owner.data["resources"] if item["id"] == store["volume_id"]
+    items = _items(owner, store["resources"])
+    container, network, volume = (
+        items[name] for name in ("container", "network", "volume")
     )
     observed = owner.verified(container)
     observed_network = owner.verified(network)
@@ -1318,6 +1363,8 @@ def inside(path, arguments):
     require(
         os.environ.get("AAP_WORKTREE_RESOURCE_ROOT") == str(ROOT)
         and os.environ.get("AAP_WORKTREE_MODE") == "e2e"
+        and os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+        and os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") == str(Path(path))
         and Owner(path).data["raster"]["resources"] == resources,
         "raster_worktree_identity_changed",
     )
@@ -1716,6 +1763,8 @@ def destroy_with_images_role(backend, owner, confirmation):
             asyncio.run(image_role(backend, owner, "drop"))
             owner.data["raster"]["images"]["state"] = "database_role_removed"
             owner.save()
+            if "postgres" in owner.data["raster"]:
+                retire_postgres(owner, backend, prepared)
             backend._finish_prepared_destruction(prepared)
 
 
@@ -1761,6 +1810,7 @@ def outer(arguments):
         owner = Owner(manifest, create=True)
         try:
             endpoint, access, secret = provision(resources, owner)
+            postgres_url = provision_postgres(resources, owner)
             for key in tuple(os.environ):
                 if key.upper() in {
                     "MINIO_ENDPOINT",
@@ -1775,6 +1825,8 @@ def outer(arguments):
                     "MINIO_ACCESS_KEY": access,
                     "MINIO_SECRET_KEY": secret,
                     "MINIO_USE_SSL": "false",
+                    "AAP_PRIVATE_FIXTURE_RASTER_OWNER": str(manifest),
+                    "AAP_PRIVATE_FIXTURE_RASTER_POSTGRES": "1",
                 }
             )
             from app.config import settings
@@ -1783,7 +1835,18 @@ def outer(arguments):
             require(
                 settings.environment == "development", "raster_development_required"
             )
-            backend = LocalResources(resources, settings, code_root=ROOT)
+            backend = LocalResources(
+                resources,
+                settings.model_copy(update={
+                    "database_url": postgres_url,
+                    "migration_database_url": postgres_url,
+                    "minio_endpoint": endpoint,
+                    "minio_access_key": access,
+                    "minio_secret_key": secret,
+                    "minio_use_ssl": False,
+                }),
+                code_root=ROOT,
+            )
             reject_orphans(backend)
             inventory = backend.inspect()
             require(

@@ -31,17 +31,91 @@ def _items(owner, resources):
         "raster_provider_scope_changed",
     )
     expected = {
-        ("container", store["container_id"]),
-        ("network", store["network_id"]),
-        ("volume", store["volume_id"]),
+        "container": ("container", store["container_id"]),
+        "network": ("network", store["network_id"]),
+        "volume": ("volume", store["volume_id"]),
     }
+    postgres = store.get("postgres")
+    if postgres is not None:
+        require(
+            isinstance(postgres, dict)
+            and postgres.get("container_id")
+            and postgres.get("volume_id"),
+            "raster_postgres_inventory_invalid",
+        )
+        expected.update({
+            "postgres_container": ("container", postgres["container_id"]),
+            "postgres_volume": ("volume", postgres["volume_id"]),
+        })
     actual = owner.data["resources"]
     require(
-        len(actual) == 3
-        and {(item["kind"], item["id"]) for item in actual} == expected,
+        len(actual) == len(expected)
+        and len(set(expected.values())) == len(expected)
+        and {(item["kind"], item["id"]) for item in actual} == set(expected.values()),
         "raster_store_topology_changed",
     )
-    return {item["kind"]: item for item in actual}
+    return {
+        role: next(item for item in actual if (item["kind"], item["id"]) == identity)
+        for role, identity in expected.items()
+    }
+
+
+def verified_postgres(owner, resources, *, port):
+    """Verify the original private server, not merely a matching loopback URL."""
+    from fixture_store import _private_bytes
+    from verify_module_data_boundary import POSTGRES_IMAGE
+
+    items = _items(owner, resources)
+    require("postgres_container" in items, "raster_postgres_birth_missing")
+    container = items["postgres_container"]
+    volume = items["postgres_volume"]
+    birth = owner.data["raster"]["postgres"]
+    credentials = _private_bytes(owner.private / "postgres.env").decode("ascii").splitlines()
+    require(
+        len(credentials) == 3
+        and credentials[0] == "POSTGRES_USER=owner"
+        and credentials[1].startswith("POSTGRES_PASSWORD=")
+        and re.fullmatch(r"POSTGRES_PASSWORD=[A-Za-z0-9_-]{43}", credentials[1])
+        and credentials[2] == "POSTGRES_DB=postgres",
+        "raster_postgres_credentials_invalid",
+    )
+    observed = owner.verified(container)
+    physical_volume = owner.verified(volume)
+    state = observed.get("State") or {}
+    config = observed.get("Config") or {}
+    env = config.get("Env") or []
+    mounts = observed.get("Mounts") or []
+    require(
+        container.get("image") == POSTGRES_IMAGE
+        and observed.get("Name") == "/" + container["name"]
+        and config.get("Image") == POSTGRES_IMAGE
+        and isinstance(birth.get("image_id"), str)
+        and re.fullmatch(r"sha256:[0-9a-f]{64}", birth["image_id"])
+        and observed.get("Image") == birth["image_id"]
+        and all([entry for entry in env if entry.startswith(line.split("=", 1)[0] + "=")] == [line] for line in credentials)
+        and state.get("Status") == "running"
+        and state.get("Running") is True
+        and state.get("Pid") == birth.get("pid")
+        and type(state.get("Pid")) is int and state["Pid"] > 0
+        and state.get("StartedAt") == birth.get("started_at")
+        and bool(state.get("StartedAt"))
+        and observed.get("RestartCount") == 0
+        and physical_volume.get("Driver") == "local"
+        and len(mounts) == 1
+        and mounts[0].get("Type") == "volume"
+        and mounts[0].get("Name") == volume["id"]
+        and mounts[0].get("Destination") == "/var/lib/postgresql/data"
+        and mounts[0].get("RW") is True
+        and type(port) is int and port == birth.get("port")
+        and host_port(owner, container, 5432) == port,
+        "raster_postgres_identity_changed",
+    )
+    users = command([
+        "docker", "ps", "-a", "--no-trunc", "--filter",
+        "volume=" + volume["id"], "--format", "{{.ID}}",
+    ]).splitlines()
+    require(users == [container["id"]], "raster_postgres_volume_shared")
+    return items
 
 
 def _require_producer_boundary(owner):
@@ -314,10 +388,134 @@ def require_retired_provider(owner, resources):
         and receipt.get("volume_removed") == items["volume"]["id"]
         and receipt.get("network_removed")
         in {items["network"]["id"], items["network"]["name"]}
-        and all(item.get("state") == "absent" for item in items.values()),
+        and all(items[name].get("state") == "absent" for name in ("container", "volume", "network")),
         "raster_provider_retirement_unproven",
     )
-    for item in items.values():
+    for item in (items[name] for name in ("container", "volume", "network")):
         require(
             owner.inspect(item) is None, "raster_provider_retirement_identity_changed"
         )
+
+
+def retire_postgres(owner, backend, prepared):
+    """Retire the same server only after every guarded database owner is settled."""
+    import asyncio
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    backend._require_destroy_preparation(prepared, "services_removed")
+    store = owner.data["raster"]
+    birth = store["postgres"]
+    require(
+        prepared.raster_owner is owner
+        and prepared.storage == "raster_provider_retired"
+        and prepared.raster_redis_retired
+        and prepared.raster_source_stopped
+        and store.get("fixture_source_finalization") == "completed"
+        and store["images"].get("state") == "database_role_removed"
+        and birth.get("database_oid") == prepared.raster_database_oid
+        and type(prepared.raster_database_oid) is int
+        and prepared.raster_database_oid > 0
+        and "postgres_retirement" not in store,
+        "raster_postgres_retirement_unproven",
+    )
+    port = backend.url.port or 5432
+    items = verified_postgres(owner, backend.resources, port=port)
+    container, volume = items["postgres_container"], items["postgres_volume"]
+
+    async def require_empty():
+        engine = create_async_engine(
+            backend.url.set(database="postgres"), poolclass=NullPool, hide_parameters=True
+        )
+        try:
+            async with engine.connect() as connection:
+                await backend.verify_database_server(connection)
+                remaining = await connection.scalar(text(
+                    "SELECT count(*) FROM pg_catalog.pg_database "
+                    "WHERE NOT datistemplate AND datname <> 'postgres'"
+                ))
+                sessions = await connection.scalar(text(
+                    "SELECT count(*) FROM pg_catalog.pg_stat_activity "
+                    "WHERE backend_type='client backend' AND pid <> pg_backend_pid()"
+                ))
+                require(remaining == 0 and sessions == 0, "raster_postgres_not_empty")
+        finally:
+            await engine.dispose()
+
+    asyncio.run(require_empty())
+    verified_postgres(owner, backend.resources, port=port)
+    receipt = {
+        "state": "signal_intent",
+        "container_id": container["id"],
+        "volume_id": volume["id"],
+        "database_oid": birth["database_oid"],
+        "image_id": birth["image_id"],
+        "pid": birth["pid"],
+        "started_at": birth["started_at"],
+        "port": port,
+    }
+    store["postgres_retirement"] = receipt
+    owner.save()
+    acknowledged = command(["docker", "kill", "--signal", "SIGTERM", container["id"]])
+    require(acknowledged in {container["id"], container["name"]}, "raster_postgres_signal_unconfirmed")
+    receipt.update(state="signal_acknowledged", signal="SIGTERM", signal_ack=acknowledged)
+    owner.save()
+    exit_code = command(["docker", "wait", container["id"]])
+    require(exit_code.isdecimal() and int(exit_code) <= 255, "raster_postgres_wait_invalid")
+    receipt.update(state="wait_acknowledged", wait_exit=int(exit_code))
+    owner.save()
+    require(exit_code == "0", "raster_postgres_exit_unsettled")
+    observed = owner.verified(container)
+    state = observed.get("State") or {}
+    require(
+        observed.get("Name") == "/" + container["name"]
+        and state.get("Status") == "exited"
+        and state.get("Running") is False
+        and state.get("Pid") == 0
+        and state.get("ExitCode") == 0
+        and state.get("OOMKilled") is False
+        and not state.get("Error")
+        and state.get("StartedAt") == birth["started_at"]
+        and bool(state.get("FinishedAt"))
+        and observed.get("RestartCount") == 0,
+        "raster_postgres_exit_unsettled",
+    )
+    receipt.update(
+        state="exit_observed",
+        finished_at=state["FinishedAt"],
+        exit_state={
+            "status": state["Status"],
+            "running": state["Running"],
+            "pid": state["Pid"],
+            "exit_code": state["ExitCode"],
+            "oom_killed": state["OOMKilled"],
+            "error_empty": not state.get("Error"),
+            "restart_count": observed["RestartCount"],
+        },
+    )
+    owner.save()
+    receipt["state"] = "container_remove_intent"
+    owner.save()
+    removed = command(["docker", "rm", container["id"]])
+    require(removed in {container["id"], container["name"]}, "raster_postgres_remove_unconfirmed")
+    receipt.update(state="container_remove_acknowledged", container_removed=removed)
+    owner.save()
+    require(owner.inspect(container) is None, "raster_postgres_container_still_present")
+    container["state"] = "absent"
+    owner.verified(volume)
+    users = command([
+        "docker", "ps", "-a", "--no-trunc", "--filter",
+        "volume=" + volume["id"], "--format", "{{.ID}}",
+    ])
+    require(not users, "raster_postgres_volume_shared")
+    receipt["state"] = "volume_remove_intent"
+    owner.save()
+    removed = command(["docker", "volume", "rm", volume["id"]])
+    require(removed == volume["id"], "raster_postgres_volume_remove_unconfirmed")
+    receipt.update(state="volume_remove_acknowledged", volume_removed=removed)
+    owner.save()
+    require(owner.inspect(volume) is None, "raster_postgres_volume_still_present")
+    volume["state"] = "absent"
+    receipt["state"] = "retired"
+    owner.save()
