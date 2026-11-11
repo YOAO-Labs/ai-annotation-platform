@@ -25,14 +25,18 @@ function startOwner() {
   const closed = Promise.withResolvers();
   let failure;
   let failureKind;
+  let closing = false;
+  const correlatedFailure = (error, operationId) => {
+    const rejected = new Error(error.message, { cause: error });
+    rejected.operationId = operationId;
+    return rejected;
+  };
   const fail = (error) => {
     if (failure) return;
     failure = error;
     for (const request of pending) {
       clearTimeout(request.timer);
-      const rejected = new Error(error.message, { cause: error });
-      rejected.operationId = request.operationId;
-      request.reject(rejected);
+      request.reject(correlatedFailure(error, request.operationId));
     }
     pending.length = 0;
     if (socketPath) child.destroy();
@@ -64,14 +68,27 @@ function startOwner() {
     }
   });
   child.on("error", (error) => {
-    fail(new Error(`Fixture setup failed: ${error.code}`));
+    fail(new Error(`Fixture setup failed: ${error.code}`, { cause: error }));
   });
   input.on("error", (error) => {
-    fail(new Error(`Fixture setup failed: ${error.code}`));
+    fail(new Error(`Fixture setup failed: ${error.code}`, { cause: error }));
   });
-  child.once("close", (code) => {
-    if ((socketPath ? code : code !== 0) || pending.length) {
-      fail(new Error(`Fixture setup failed: ${failureKind ?? `process exit ${code}`}`));
+  output.once("end", () => {
+    if (!closing || pending.length) {
+      fail(new Error("Fixture owner output ended"));
+    }
+  });
+  if (!socketPath) {
+    child.once("exit", (code, signal) => {
+      if (code !== 0 || !closing || pending.length) {
+        const reason = failureKind ?? (signal ? `process signal ${signal}` : `process exit ${code}`);
+        fail(new Error(`Fixture setup failed: ${reason}`));
+      }
+    });
+  }
+  child.once("close", () => {
+    if (!failure && (!closing || pending.length)) {
+      fail(new Error(socketPath ? "Fixture owner socket closed" : "Fixture owner process closed"));
     }
     closed.resolve();
   });
@@ -79,7 +96,10 @@ function startOwner() {
     input.write(`${JSON.stringify({ operation: "bind_fixture_suite", suite_id: suiteId })}\n`);
   }
   function exchange(envelope, timeout) {
-    if (failure) return Promise.reject(failure);
+    if (!failure && (input.writableEnded || input.destroyed || output.readableEnded)) {
+      fail(new Error("Fixture owner transport ended"));
+    }
+    if (failure) return Promise.reject(correlatedFailure(failure, envelope.operation_id));
     const { promise, resolve, reject } = Promise.withResolvers();
     const timer =
       timeout > 0
@@ -161,6 +181,7 @@ function startOwner() {
     },
     exchange,
     async close() {
+      closing = true;
       input.end();
       await closed.promise;
       if (failure) throw failure;
