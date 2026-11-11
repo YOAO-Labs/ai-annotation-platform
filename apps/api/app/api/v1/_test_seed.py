@@ -5585,6 +5585,7 @@ async def prepare_raster_images(
         await db.commit()
 
         pending = []
+        policy = image_policy()
         for task_id, actor_id, item_id, dataset_id in targets:
             intent = FixtureNativeMediaWorkIntent(
                 operation_id=uuid4(),
@@ -5603,8 +5604,7 @@ async def prepare_raster_images(
                 )
                 purpose = (
                     "pyramid"
-                    if before.thumbnail_current
-                    and before.thumbnail_path.startswith("image-pyramids/")
+                    if policy.pyramid_eligible(before.width, before.height)
                     else "thumbnail"
                 )
                 accepted = await owner.call(
@@ -5615,7 +5615,7 @@ async def prepare_raster_images(
                         task_id=task_id,
                         purpose=purpose,
                         expected_source_snapshot=before.source_snapshot,
-                        policy=image_policy(),
+                        policy=policy,
                     ),
                 )
             source = accepted.source
