@@ -19,7 +19,6 @@ from app.db.models.project import Project
 from app.db.models.task import Task
 from app.db.models.task_batch import TaskBatch
 from app.db.models.dataset import Dataset, DatasetItem, ProjectDataset
-from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.annotation_feedback import AnnotationFeedback
 from app.db.models.notification import Notification
 from app.services.screenshot_seed_spec import PROJECT_SPECS, SEED_MANAGED_BY
@@ -151,6 +150,12 @@ async def recording_graph(engine):
         originals = {}
         failure = None
         try:
+            response = await owner.post(
+                "/api/v1/__test/seed/screenshot-recording-backend",
+                json={"run_id": str(run_id)},
+            )
+            assert response.status_code == 200, response.text
+            ids["backend"] = uuid.UUID(response.json()["registry_id"])
             async with async_sessionmaker(owner_engine, expire_on_commit=False)() as db:
                 admission = await ownership.admit(db, run_id, "recording_fixture")
                 await db.commit()
@@ -191,23 +196,6 @@ async def recording_graph(engine):
                                 ids[name] for name in ("owner", "recorder", "annotator")
                             ],
                         },
-                    )
-                    db.add(
-                        MLBackendRegistry(
-                            id=ids["backend"],
-                            name="RapidOCR isolated recording fixture",
-                            url=f"http://recording-{run_id.hex}.invalid:8765",
-                            state="connected",
-                        )
-                    )
-                    await db.flush()
-                    await ownership.reserve(
-                        db,
-                        run_id,
-                        "registry",
-                        ids["backend"],
-                        logical_key="recording-ocr",
-                        published=True,
                     )
                     await db.commit()
                     for prefix, key in (("image", "image_demo"), ("ocr", "ocr_demo")):

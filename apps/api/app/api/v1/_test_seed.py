@@ -2357,6 +2357,34 @@ async def _prepare_fixture_image_pyramid(
     await db.commit()
 
 
+async def _create_fixture_backend(db, providers, run_id, *, name, logical_key):
+    """Publish and reconcile a provider owned by this fixture authority."""
+    from app.services import fixture_run_ownership as ownership
+    from app.services.ml_backend import MLBackendService
+
+    backend_service = MLBackendService(db)
+    provider = await providers.start(run_id)
+    backend = await backend_service.create_registry(
+        name=name,
+        url=provider.url,
+        is_interactive=True,
+        auth_method="token",
+        auth_token=provider.token,
+        extra_params={"e2e_mock": True},
+    )
+    await provider.control("registry", str(backend.id))
+    provider.registry_id = backend.id
+    await ownership.reserve(
+        db, run_id, "registry", backend.id, logical_key=logical_key, published=True
+    )
+    await db.commit()
+    if not await backend_service.check_health(backend.id):
+        raise RuntimeError("Fixture provider health observation failed")
+    await db.commit()
+    await _reconcile_fixture_backend(run_id, backend.id)
+    return backend
+
+
 async def _build_image_workbench_fixture(
     db: AsyncSession, ids: _ImageWorkbenchFixture
 ) -> SeedOwned:
@@ -2519,31 +2547,13 @@ async def _build_image_workbench_fixture(
 
     inference_data = InferenceTopologyData(db)
     backend_service = MLBackendService(db)
-    provider = await ids.providers.start(ids.run_id)
-    mock_backend = await backend_service.create_registry(
-        name=ids.registry_name,
-        url=provider.url,
-        is_interactive=True,
-        auth_method="token",
-        auth_token=provider.token,
-        extra_params={"e2e_mock": True},
-    )
-    await provider.control("registry", str(mock_backend.id))
-    provider.registry_id = mock_backend.id
-    await ownership.reserve(
+    mock_backend = await _create_fixture_backend(
         db,
+        ids.providers,
         ids.run_id,
-        "registry",
-        mock_backend.id,
+        name=ids.registry_name,
         logical_key="workbench",
-        published=True,
     )
-    # Both independent authorities must see the published Registry.
-    await db.commit()
-    if not await backend_service.check_health(mock_backend.id):
-        raise RuntimeError("Fixture provider health observation failed")
-    await db.commit()
-    await _reconcile_fixture_backend(ids.run_id, mock_backend.id)
     await backend_service.set_enabled(project.id, mock_backend.id, True)
     mock_pool = await inference_data.pool_for_registry(mock_backend.id)
     if mock_pool is None:
@@ -2679,6 +2689,37 @@ async def _reconcile_fixture_backend(run_id: UUID, registry_id: UUID) -> None:
     )
     if result.phase != "completed":
         raise HTTPException(409, detail={"code": "fixture_backend_not_quiescent"})
+
+
+@router.post("/seed/screenshot-recording-backend", include_in_schema=False)
+async def seed_screenshot_recording_backend(
+    payload: SeedScreenshotCleanupRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Create the recording graph's provider under its exact screenshot root."""
+    from app.services import fixture_run_ownership as ownership
+
+    run, _ = await ownership.lock_original_scope(db, payload.run_id)
+    if run.family != "screenshot" or run.parent_run_id is not None:
+        raise HTTPException(404, detail={"code": "fixture_run_not_found"})
+    providers = request.app.state.fixture_backends
+    if payload.run_id in providers.runs:
+        raise HTTPException(409, detail={"code": "fixture_backend_scope_changed"})
+    admission = await ownership.admit(db, payload.run_id, "recording_backend")
+    await db.commit()
+    # An unsuccessful creation retains its admission and provider for recovery;
+    # only the completed setup can be handed to normal exact cleanup.
+    backend = await _create_fixture_backend(
+        db,
+        providers,
+        payload.run_id,
+        name="RapidOCR isolated recording fixture",
+        logical_key="recording-ocr",
+    )
+    await ownership.settle(db, payload.run_id, admission)
+    await db.commit()
+    return {"registry_id": str(backend.id)}
 
 
 @router.post(
