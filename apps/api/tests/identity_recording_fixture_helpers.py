@@ -205,6 +205,7 @@ async def recording_graph(engine):
                             if prefix == "image"
                             else spec.tasks[0]
                         )
+                        sequence_order = spec.tasks.index(task_spec)
                         relative = task_spec.file_path.removeprefix(spec.storage_prefix)
                         payload = sources[prefix].read_bytes()
                         with Image.open(sources[prefix]) as image:
@@ -306,7 +307,11 @@ async def recording_graph(engine):
                             project_id=project.id,
                             dataset_item_id=item.id,
                             batch_id=ids["batch"] if prefix == "image" else None,
-                            display_id="T-" + ids[prefix + "_task"].hex[:12],
+                            display_id=(
+                                f"T-SS-{project.display_id.removeprefix('P-')}-"
+                                f"{sequence_order + 1:03d}"
+                            ),
+                            sequence_order=sequence_order,
                             file_name=item.file_name,
                             file_path=item.file_path,
                             file_type="image",
@@ -332,7 +337,7 @@ async def recording_graph(engine):
                             logical_key=key + "/" + task_spec.key,
                             published=True,
                         )
-                        originals[prefix] = (metadata, task.file_path)
+                        originals[prefix] = (metadata, task.file_path, task.display_id)
                         await db.commit()
                     for reason in (REASON_TEXT, "unrelated recording feedback"):
                         db.add(
@@ -379,7 +384,7 @@ async def recording_graph(engine):
                 os.environ["SCREENSHOT_FIXTURE_RUN_ID"] = previous_run
             try:
                 async with owner_engine.begin() as db:
-                    for prefix, (metadata, path) in originals.items():
+                    for prefix, (metadata, path, display_id) in originals.items():
                         await db.execute(
                             text(
                                 "UPDATE datasets SET metadata=CAST(:metadata AS jsonb) WHERE id=:id"
@@ -390,8 +395,14 @@ async def recording_graph(engine):
                             },
                         )
                         await db.execute(
-                            text("UPDATE tasks SET file_path=:path WHERE id=:id"),
-                            {"path": path, "id": ids[prefix + "_task"]},
+                            text(
+                                "UPDATE tasks SET file_path=:path, display_id=:display_id WHERE id=:id"
+                            ),
+                            {
+                                "path": path,
+                                "display_id": display_id,
+                                "id": ids[prefix + "_task"],
+                            },
                         )
                 response = await owner.post(
                     "/api/v1/__test/seed/screenshot-cleanup",
@@ -475,7 +486,7 @@ async def recording_snapshot(engine, ids, *, with_aliases=False):
             (
                 await db.execute(
                     text(
-                        "SELECT id,status,reviewer_id,assignee_id,total_predictions,reviewed_at,"
+                        "SELECT id,display_id,sequence_order,status,reviewer_id,assignee_id,total_predictions,reviewed_at,"
                         "reject_reason_type,reject_reason,reviewer_claimed_at,review_round_id,"
                         "annotation_contributor_ids,review_contributor_ids,review_submitter_id "
                         "FROM tasks WHERE project_id=ANY(:projects) OR id=ANY(:tasks) ORDER BY id"

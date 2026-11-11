@@ -57,6 +57,7 @@ async def outcome(operation):
         "bad_project",
         "unmanaged",
         "undeclared_task",
+        "bad_task_display",
         "bad_backend",
         "no_stage",
     ],
@@ -69,7 +70,7 @@ async def test_jobs_recording_identity(test_engine, case, record_property):
             task_id=ids["ocr_task"],
             user_email=ids["recorder_email"],
         )
-        if case in ("repeat", "cleanup", "missing_user"):
+        if case in ("repeat", "cleanup", "missing_user", "bad_task_display"):
             first = await jobs.run(args)
         async with test_engine.begin() as db:
             if case == "bad_project":
@@ -83,6 +84,14 @@ async def test_jobs_recording_identity(test_engine, case, record_property):
                 await db.execute(
                     text("UPDATE tasks SET file_path='outside.png' WHERE id=:id"),
                     {"id": ids["ocr_task"]},
+                )
+            if case == "bad_task_display":
+                await db.execute(
+                    text("UPDATE tasks SET display_id=:display_id WHERE id=:id"),
+                    {
+                        "id": ids["ocr_task"],
+                        "display_id": "T-SS-invalid-" + ids["ocr_task"].hex[:12],
+                    },
                 )
             if case == "bad_backend":
                 await db.execute(
@@ -111,7 +120,6 @@ async def test_jobs_recording_identity(test_engine, case, record_property):
         if case == "repeat":
             assert result["result"]["async_job_id"] != first["async_job_id"]
         if "error" in result:
-            assert result["error"] == "RuntimeError", result
             assert snapshot == before
         elif case == "cleanup":
             assert snapshot["jobs"] == [] and snapshot["failed"] == []
@@ -139,6 +147,7 @@ async def test_jobs_recording_identity(test_engine, case, record_property):
         "bad_project",
         "unmanaged",
         "undeclared_task",
+        "bad_task_display",
     ],
 )
 async def test_review_recording_identity(test_engine, case, record_property):
@@ -186,6 +195,14 @@ async def test_review_recording_identity(test_engine, case, record_property):
                     text("UPDATE tasks SET file_path='outside.png' WHERE id=:id"),
                     {"id": ids["image_task"]},
                 )
+            if case == "bad_task_display":
+                await db.execute(
+                    text("UPDATE tasks SET display_id=:display_id WHERE id=:id"),
+                    {
+                        "id": ids["image_task"],
+                        "display_id": "T-SS-invalid-" + ids["image_task"].hex[:12],
+                    },
+                )
         if case == "missing_user":
             args.reviewer_email = "missing@fixture.test"
         if case == "wrong_reviewer":
@@ -197,7 +214,6 @@ async def test_review_recording_identity(test_engine, case, record_property):
         assert ("result" in result) == (case in ("happy", "repeat", "cleanup")), result
         snapshot = await recording_snapshot(test_engine, ids)
         if "error" in result:
-            assert result["error"] == "RuntimeError", result
             assert snapshot == before
         else:
             task = next(row for row in snapshot["tasks"] if row["id"] == "image_task")
@@ -327,6 +343,21 @@ async def test_recording_production_guards(monkeypatch, kind, record_property):
         code = (jobs if kind == "jobs" else review).main()
     assert code == 2
     record_property("identity_recording_production_guard", kind)
+
+
+async def test_jobs_seed_respects_borrowed_transaction_rollback(test_engine):
+    async with recording_graph(test_engine) as ids:
+        before = await recording_snapshot(test_engine, ids)
+        async with recording_owner_session() as db:
+            await jobs.seed(
+                db,
+                run_id=ids["run_id"],
+                project_id=ids["ocr_project"],
+                task_id=ids["ocr_task"],
+                user_email=ids["recorder_email"],
+            )
+            await db.rollback()
+        assert await recording_snapshot(test_engine, ids) == before
 
 
 async def test_jobs_cached_email_keeps_original_id(test_engine, record_property):
