@@ -38,6 +38,8 @@ class RasterFixtureIntentTests(unittest.TestCase):
         self.relay = RasterFixtureRelay.__new__(RasterFixtureRelay)
         self.relay.suite_id = SUITE
         self.relay.intents = {}
+        self.relay.prepared = set()
+        self.relay.operations = {}
         self.relay.runs = {}
         self.relay.tasks = {}
         self.relay.emails = set()
