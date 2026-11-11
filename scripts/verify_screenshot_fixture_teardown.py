@@ -10,13 +10,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import contextmanager
+from contextlib import closing, contextmanager
 import fcntl
 import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import signal
 import socket
@@ -25,6 +24,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+import urllib.parse
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -37,7 +37,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 from fixture_suite_coordinator import _verified_database
-from fixture_store import reader_credentials, verified_store
+from fixture_store import (
+    _canonical_native_output_policy, _client, _native_iam_info, _native_output_paths,
+    _native_output_provider, _root_credentials, reader_credentials, verified_store,
+)
 from linux_pidfd import open_pidfd, pidfd_alive, pidfd_send_signal
 from verify_storage_candidates import Owner
 from worktree_env import state_path
@@ -45,6 +48,7 @@ from tests.test_screenshot_exit_live import _read_originals, _rows_and_versions
 
 CHILDREN = ("celery-media", "celery-pyramid", "media-worker", "image-worker", "proxy")
 IAM = {f"{role}:{kind}" for role in ("writer", "reader", "cleanup") for kind in ("user", "policy")}
+SCENARIO_TIMEOUT_SECONDS = 4 * 60 * 60
 
 CONFIG = r'''import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -57,10 +61,31 @@ export default defineConfig({
   ...base, testDir: here, testMatch: '**/t2.spec.ts', workers: 1, retries: 0,
   timeout: 900_000, globalSetup: path.resolve(here, '../e2e/screenshots/global-setup.ts'),
   globalTeardown: path.join(here, 'teardown.ts'), outputDir: path.join(here, 'results'),
-  reporter: [['list']], webServer: servers,
+  reporter: [['list'], [path.join(here, 'reporter.ts')]], webServer: servers,
   projects: base.projects!.map(p => ({ ...p, testMatch: p.name === 'desktop-light'
     ? ['**/t2.spec.ts'] : ['**/no-such-t2-spec.ts'] })),
 });
+'''
+REPORTER = r'''import { openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
+import path from 'node:path';
+import type { FullResult, Reporter, TestCase, TestResult } from '@playwright/test/reporter';
+function event(value: object) {
+  const filename = path.join(process.env.T2_EVIDENCE!, `${process.env.SCREENSHOT_FIXTURE_RUN_ID}.reporter.jsonl`);
+  const fd = openSync(filename, 'a', 0o600);
+  try {
+    writeSync(fd, JSON.stringify({run: process.env.SCREENSHOT_FIXTURE_RUN_ID, at_ns: process.hrtime.bigint().toString(), ...value}) + '\n');
+    fsyncSync(fd);
+  } finally { closeSync(fd); }
+}
+export default class ProofReporter implements Reporter {
+  onTestBegin(test: TestCase, result: TestResult): void {
+    event({event: 'test_begin', id: test.id, title: test.title, project: test.parent.project()?.name, retry: result.retry});
+  }
+  onTestEnd(test: TestCase, result: TestResult): void {
+    event({event: 'test_end', id: test.id, title: test.title, project: test.parent.project()?.name, retry: result.retry, status: result.status});
+  }
+  onEnd(result: FullResult): void { event({event: 'run_end', status: result.status}); }
+}
 '''
 TEARDOWN = r'''import { openSync, writeSync, fsyncSync, closeSync } from 'node:fs';
 import path from 'node:path';
@@ -182,6 +207,10 @@ class ProofError(RuntimeError):
     pass
 
 
+class ScenarioExpired(BaseException):
+    """Stop the verifier without signalling or cleaning up its owned children."""
+
+
 def require(condition, message):
     if not condition:
         raise ProofError(message)
@@ -252,7 +281,9 @@ class Pin:
 
     def send(self, sig):
         require(self.alive(), "signal target identity changed")
+        sent_ns = time.monotonic_ns()
         pidfd_send_signal(self.fd, sig)
+        return sent_ns
 
     def exited(self):
         require(not pidfd_alive(self.fd), "recorded process has not exited")
@@ -375,35 +406,16 @@ def find_listener(parent, port):
     return result
 
 
-LOGGER = r'''import re, sys
-for raw in sys.stdin.buffer:
-    line = raw.decode('utf-8', errors='replace').strip()
-    if re.fullmatch(r'Owned screenshot API: http://127\.0\.0\.1:[0-9]+; run: [0-9a-f-]{36}', line):
-        print(line, flush=True)
-    for marker in ('T2_B_READY', 'T2_B_reload-1', 'T2_B_reload-2', 'T2_B_CLOSED', 'T2_CAPTURE_ENOSPC'):
-        if marker in line:
-            print(marker, flush=True)
-    if 'ENOSPC' in line:
-        print('ENOSPC', flush=True)
-'''
-
 
 class Child:
     def __init__(self, argv, *, cwd, env, log):
         self.log = log
         output = os.open(log, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
         try:
-            # This reader outlives the verifier on failure, avoiding EPIPE in
-            # retained children while the owner investigates.
-            self.logger = subprocess.Popen(
-                [sys.executable, '-c', LOGGER], stdin=subprocess.PIPE,
-                stdout=output, stderr=subprocess.DEVNULL, start_new_session=True,
-            )
             self.process = subprocess.Popen(
                 argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                stdout=self.logger.stdin, stderr=subprocess.STDOUT, start_new_session=True,
+                stdout=output, stderr=subprocess.STDOUT, start_new_session=True,
             )
-            self.logger.stdin.close()
         finally:
             os.close(output)
         self.pin = Pin(self.process.pid)
@@ -412,9 +424,7 @@ class Child:
         return text in private_read(self.log).decode('utf-8', errors='replace')
 
     def wait(self, timeout=900):
-        result = self.process.wait(timeout=timeout)
-        require(self.logger.wait(timeout=10) == 0, "child output did not settle")
-        return result
+        return self.process.wait(timeout=timeout)
 
 
 @contextmanager
@@ -519,6 +529,26 @@ def catalog_for(temp, evidence, env, run, name):
     return record(filename)
 
 
+def verify_report(evidence, run, mode, sent_ns):
+    events = [json.loads(line) for line in
+              private_read(evidence / (str(run) + '.reporter.jsonl')).splitlines()]
+    require([event['event'] for event in events] == ['test_begin', 'test_end', 'run_end']
+            and all(event['run'] == str(run) for event in events), 'Playwright reporter events changed')
+    begin, end, overall = events
+    require(begin['id'] == end['id'] and begin['title'] == end['title'] == 'real screenshot consumer'
+            and begin['project'] == end['project'] == 'desktop-light'
+            and begin['retry'] == end['retry'] == 0
+            and int(begin['at_ns']) <= sent_ns <= int(end['at_ns']) <= int(overall['at_ns']),
+            'Playwright reporter test or signal ordering changed')
+    expected = 'interrupted' if mode == 'cancel' else 'failed'
+    require(end['status'] == expected and overall['status'] == expected,
+            'Playwright did not report the intended test outcome')
+
+
+def require_live_pins(pins):
+    require(all(pin.alive() for pin in pins.values()), 'retained B native process exited')
+
+
 def target_receipt(owner, run, journal, birth):
     target = owner['fixture_native_outputs'][run.hex]; retirement = target['retirement']
     proof = journal['target_proof']; physical = retirement['physical_receipt']
@@ -547,7 +577,77 @@ def birth_receipt(owner, run):
     return {**birth, 'receipt_sha256': target['receipt_sha256']}
 
 
-async def verify_retired(engine, root, resources, run, initial, pins, versions, birth, principals, temp, evidence, env, label):
+def probe_target_absence(root, identity, run, birth, sibling_bucket):
+    """Recheck the exact birth's bucket and IAM identities without mutation."""
+    manifest = state_path(root, 'e2e', 'fixture-store-owner.json')
+    lock = state_path(root, 'e2e', 'fixture-store.lock')
+    descriptor = os.open(lock, os.O_RDWR | os.O_NOFOLLOW)
+    try:
+        actual, named = os.fstat(descriptor), lock.lstat()
+        require(stat.S_ISREG(actual.st_mode) and actual.st_uid == os.geteuid()
+                and stat.S_IMODE(actual.st_mode) == 0o600 and actual.st_nlink == 1
+                and (actual.st_dev, actual.st_ino) == (named.st_dev, named.st_ino),
+                'store lock changed during physical probe')
+        fcntl.flock(descriptor, fcntl.LOCK_SH)
+        current = lock.lstat()
+        require((actual.st_dev, actual.st_ino, actual.st_nlink) ==
+                (current.st_dev, current.st_ino, current.st_nlink), 'store lock replaced')
+        private_read(manifest)
+        owner = Owner(manifest)
+        store, _ = verified_store(owner, identity)
+        require(_native_output_provider(owner, store) == birth['provider'], 'physical provider changed')
+        entry = owner.data['fixture_native_outputs'][run.hex]
+        require(entry['state'] == 'retired' and entry['run_id'] == str(run)
+                and entry['bucket'] == birth['bucket'] and entry['receipt_sha256'] == birth['receipt_sha256'],
+                'native target binding changed before probe')
+        paths = _native_output_paths(owner, run)
+        retirement = entry['retirement']
+        for name, path in paths.items():
+            require(hashlib.sha256(private_read(path)).hexdigest() == retirement['files'][name],
+                    'native retirement input changed')
+        accounts = json.loads(private_read(paths['seed']))
+        require(set(accounts) == {'writer', 'reader', 'cleanup'}, 'native account set changed')
+        access, secret = _root_credentials(owner)
+        mc_env = {
+            'PATH': os.environ['PATH'],
+            'MC_CONFIG_DIR': str(owner.private / 'mc'),
+            'MC_HOST_fixture': 'http://' + urllib.parse.quote(access, safe='') + ':'
+                + urllib.parse.quote(secret, safe='') + '@'
+                + urllib.parse.urlsplit(store['admin_endpoint']).netloc,
+        }
+        observations = {}
+        for role in ('writer', 'reader', 'cleanup'):
+            account = accounts[role]
+            require(set(account) == {'access_key', 'secret_key'} and
+                    all(isinstance(value, str) and value for value in account.values()),
+                    'native account input invalid')
+            policy_name = entry[role + '_policy']
+            policy = _canonical_native_output_policy(json.loads(private_read(paths[role + '_policy'])))
+            expected = {'identity_sha256': hashlib.sha256(account['access_key'].encode()).hexdigest(),
+                        'policy_name': policy_name, 'policy_sha256': digest(policy)}
+            require(expected == birth['accounts'][role], 'native birth account identity changed')
+            require(_native_iam_info(mc_env, 'user', account['access_key']) is None
+                    and _native_iam_info(mc_env, 'policy', policy_name) is None,
+                    'native IAM identity still present')
+            observations[role] = expected
+        with closing(_client(store['admin_endpoint'], access, secret)) as client:
+            response = client.list_buckets()
+            require(response.get('ResponseMetadata', {}).get('HTTPStatusCode') == 200,
+                    'native bucket listing failed')
+            buckets = {item['Name'] for item in response.get('Buckets', [])}
+            require(birth['bucket'] not in buckets and store['bucket'] in buckets
+                    and (sibling_bucket is None or sibling_bucket in buckets),
+                    'native bucket absence or live sibling bucket unproven')
+        return {'provider': birth['provider'], 'bucket': birth['bucket'],
+                'original_bucket_present': True, 'sibling_bucket': sibling_bucket,
+                'bucket_absent': True, 'iam_absent': dict.fromkeys(IAM, True),
+                'birth_accounts': observations}
+    finally:
+        fcntl.flock(descriptor, fcntl.LOCK_UN)
+        os.close(descriptor)
+
+
+async def verify_retired(engine, root, resources, identity, run, initial, pins, versions, birth, principals, temp, evidence, env, label, sibling_bucket):
     invoke_node(temp / 'closed.mjs', [run], env, WEB, evidence, label + '-closed')
     supervisor, journal, owner = records(root, run)
     require(supervisor['state'] == 'retired' and supervisor['native_run_ids'] == [str(run)]
@@ -567,6 +667,8 @@ async def verify_retired(engine, root, resources, run, initial, pins, versions, 
                 and disposition['acknowledgment'] == ('warm_exit' if name.startswith('celery-') else 'settled'), 'native child disposition changed')
     for pin in pins.values(): pin.exited()
     proof, physical, physical_sha = target_receipt(owner, run, journal, birth)
+    physical_probe = probe_target_absence(root, identity, run, birth, sibling_bucket)
+    save(evidence / (label + '-provider-probe.json'), physical_probe)
     reclaim_receipts = []
     async with engine.connect() as db:
         run_row = (await db.execute(text('SELECT family,parent_run_id,state FROM yoao_fixture_v1.fixture_runs WHERE id=:run'), {'run': run})).one()
@@ -607,8 +709,8 @@ async def verify_retired(engine, root, resources, run, initial, pins, versions, 
                     and v['absence_verified_at'] is not None and v['resource_state'] == 'retired', 'original physical reclaim unproven')
             reclaim_receipts.append(dict(v))
     save(evidence / (label + '-retirement.json'), {'supervisor': supervisor, 'journal': journal,
-         'physical': physical, 'physical_sha256': physical_sha, 'principals': [reader, executor],
-         'reclaims': reclaim_receipts})
+         'physical': physical, 'physical_sha256': physical_sha, 'physical_probe': physical_probe,
+         'principals': [reader, executor], 'reclaims': reclaim_receipts})
 
 
 async def main():
@@ -628,7 +730,7 @@ async def main():
     require(not os.path.lexists(evidence), 'evidence directory must be fresh')
     evidence.mkdir(mode=0o700); private_dir(evidence)
     temp = WEB / ('.t2-proof-' + uuid.uuid4().hex); temp.mkdir(mode=0o700); private_dir(temp)
-    for name, content in {'config.ts': CONFIG, 'teardown.ts': TEARDOWN, 'launcher.mjs': LAUNCHER,
+    for name, content in {'config.ts': CONFIG, 'reporter.ts': REPORTER, 'teardown.ts': TEARDOWN, 'launcher.mjs': LAUNCHER,
                           't2.spec.ts': SPEC, 'catalog.mjs': CATALOG, 'browser.mjs': BROWSER, 'closed.mjs': CLOSED}.items():
         fd = os.open(temp / name, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, 'w') as f: f.write(content); f.flush(); os.fsync(f.fileno())
@@ -666,9 +768,11 @@ async def main():
     wait_for(lambda: browser.has('T2_B_READY'), [sibling.process, vite.process, browser.process], 'B browser readiness')
     playwright = (WEB / 'node_modules/.bin/playwright').resolve(strict=True)
     for index, (run, mode) in enumerate(((failure_run, 'failure'), (cancel_run, 'cancel')), 1):
+        require_live_pins(b_pins)
         b_catalog = catalog_for(temp, evidence, b_env, b, f'b-before-{mode}')
         before = await snapshot(engine, root, resources, b, b_port, store, reader, b_catalog)
         require(before['native'] == b_initial, 'B native identity changed before A')
+        require_live_pins(b_pins)
         require_free(a_port); require_free(a_web)
         a_env = {**env, 'SCREENSHOT_FIXTURE_RUN_ID': str(run), 'PLAYWRIGHT_ISOLATED_API_PORT': str(a_port),
                  'PLAYWRIGHT_ISOLATED_WEB_PORT': str(a_web), 'SCREENSHOT_STATIC_PROFILE': 'non-ml', 'SCREENSHOT_ASSET_OFFLINE': '1'}
@@ -699,10 +803,13 @@ async def main():
             _read_originals(a_versions)
         save(evidence/(mode+'-before.json'), {'b': before, 'a_native': a_initial,
              'a_versions': a_versions, 'a_principals': a_principals})
-        if mode == 'failure': worker.send(signal.SIGUSR1)
-        else: a.pin.send(signal.SIGINT)
-        status = a.wait(); save(evidence/(mode+'-outcome.json'), {'returncode': status, 'signal_sent': 'SIGUSR1 worker' if mode == 'failure' else 'SIGINT playwright'})
+        target, sent_signal = (worker, signal.SIGUSR1) if mode == 'failure' else (a.pin, signal.SIGINT)
+        sent_ns = target.send(sent_signal)
+        save(evidence/(mode+'-signal.json'), {'pid': target.pid, 'start': target.start,
+             'signal': sent_signal.name, 'count': 1, 'sent_ns': sent_ns})
+        status = a.wait(); save(evidence/(mode+'-outcome.json'), {'returncode': status})
         require(status != 0, 'intentional Playwright exit unexpectedly succeeded')
+        verify_report(evidence, run, mode, sent_ns)
         if mode == 'failure':
             require(record(evidence/(str(run)+'.enospc')) == {'run': str(run), 'code': 'ENOSPC'},
                     'real screenshot ENOSPC not observed')
@@ -711,14 +818,17 @@ async def main():
         require(private_read(evidence/(str(run)+'.teardown')).decode().splitlines() == ['entry','returned'], 'global teardown did not enter and return')
         receipt = record(evidence/(str(run)+'.launcher'))
         require(receipt == {'pid': launcher.pid, 'code': 0, 'signal': None}, 'native launcher did not settle normally')
-        launcher.exited(); worker.exited(); chromium.exited()
-        await verify_retired(engine, root, resources, run, a_initial, a_pins, a_versions, a_birth,
-                             a_principals, temp, evidence, a_env, mode)
+        for pin in (a.pin, launcher, worker, chromium, a_vite):
+            pin.exited()
+        require_live_pins(b_pins)
+        await verify_retired(engine, root, resources, identity, run, a_initial, a_pins, a_versions, a_birth,
+                             a_principals, temp, evidence, a_env, mode, b_initial['target']['bucket'])
         require(sibling.pin.alive() and vite.pin.alive() and browser.pin.alive(), 'B consumer or launcher exited')
         save(evidence/f'b-command-{index}.json', f'reload-{index}')
         wait_for(lambda: browser.has(f'T2_B_reload-{index}'), [sibling.process, vite.process, browser.process], 'B browser reload')
         after_catalog = catalog_for(temp, evidence, b_env, b, f'b-after-{mode}')
         after = await snapshot(engine, root, resources, b, b_port, store, reader, after_catalog)
+        require_live_pins(b_pins)
         require(after == before, 'B snapshot changed during A or browser reload')
         save(evidence/(mode+'-after.json'), after)
     # Exact normal B shutdown only after both independent A proofs.
@@ -733,8 +843,8 @@ async def main():
     vite.pin.exited()
     sibling.pin.send(signal.SIGINT); require(sibling.wait() == 0, 'B launcher did not settle normally')
     sibling.pin.exited()
-    await verify_retired(engine, root, resources, b, b_initial, b_pins, b_last['versions'], b_birth,
-                         b_last['principals'], temp, evidence, b_env, 'b-final')
+    await verify_retired(engine, root, resources, identity, b, b_initial, b_pins, b_last['versions'], b_birth,
+                         b_last['principals'], temp, evidence, b_env, 'b-final', None)
     authority = root/'.worktree/e2e/fixture-authority'
     require(not os.path.lexists(authority/'owner.json'), 'shared authority owner remains')
     generation = record(authority/'generation.json')
@@ -742,16 +852,27 @@ async def main():
     for run in (b, failure_run, cancel_run):
         require(record(authority/('suite-'+run.hex)/'generation.json') == generation, 'root closure missing')
     await engine.dispose()
-    save(evidence/'complete.json', {'status': 'passed', 'limitations': ['real capture output failure, not production screenshots.spec.ts scene failure handler', 'active browser consumer, not an in-flight original read']})
     shutil.rmtree(temp)
+    save(evidence/'complete.json', {'status': 'passed', 'limitations': ['real capture output failure, not production screenshots.spec.ts scene failure handler', 'active browser consumer, not an in-flight original read']})
     print('Screenshot failure/cancellation proof completed; private evidence retained.')
 
 
+
+def scenario_expired(_signal, _frame):
+    raise ScenarioExpired()
+
 if __name__ == '__main__':
+    signal.signal(signal.SIGALRM, scenario_expired)
+    signal.setitimer(signal.ITIMER_REAL, SCENARIO_TIMEOUT_SECONDS)
     try:
         asyncio.run(main())
+    except ScenarioExpired:
+        print('Screenshot proof exceeded its wall-clock deadline; resources and evidence retained.', file=sys.stderr)
+        raise SystemExit(1) from None
     except Exception as error:
         # Only our fixed proof messages are safe; driver errors may contain DSNs.
         detail = f': {error}' if isinstance(error, ProofError) else ''
         print(f'Screenshot proof failed ({type(error).__name__}){detail}; resources and evidence retained.', file=sys.stderr)
         raise SystemExit(1) from None
+    finally:
+        signal.setitimer(signal.ITIMER_REAL, 0)
