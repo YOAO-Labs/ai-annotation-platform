@@ -1447,7 +1447,38 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'fixture_media_owner_invalid';
     END IF;
     IF v_kind = 'pyramid_output' THEN
-        v_native := aap_assets_v1._native_pyramid_fixture_scope(NEW.id);
+        -- Inline the exact native attempt proof; the birth trigger must not rely
+        -- on a separately granted helper across fixture role topologies.
+        SELECT pg_catalog.jsonb_build_object(
+            'run_id',birth.run_id,'dataset_id',birth.dataset_id,
+            'item_id',birth.item_id,
+            'task_id',CASE WHEN birth.owner_kind='task' THEN birth.owner_id END,
+            'job_id',attempt.job_id,'lease_token',attempt.lease_token
+        ) INTO v_native
+        FROM aap_assets_v1.image_pyramid_native_attempts AS attempt
+        JOIN public.image_pyramid_outputs AS output
+          ON output.id=attempt.output_id
+        JOIN aap_assets_v1.fixture_native_media_jobs AS birth
+          ON birth.family='image' AND birth.job_id=attempt.job_id
+        JOIN aap_assets_v1.fixture_native_cache_targets AS target
+          ON target.run_id=birth.run_id
+        WHERE attempt.output_id=NEW.id
+          AND birth.job_kind='pyramid'
+          AND birth.dataset_id IS NOT NULL AND birth.item_id IS NOT NULL
+          AND attempt.asset_id=output.asset_id
+          AND attempt.generation=output.generation
+          AND attempt.lease_token=output.lease_token
+          AND EXISTS (
+              SELECT 1 FROM aap_assets_v1.fixture_native_media_claims AS claim
+              WHERE claim.family='image' AND claim.job_id=attempt.job_id
+                AND claim.job_generation=attempt.job_generation
+                AND claim.lease_token=attempt.lease_token
+                AND claim.state='claimed'
+          )
+          AND output.storage_ref ->> 'location_id'=target.location_id::text
+          AND output.storage_ref ->> 'endpoint_url'=target.endpoint
+          AND output.storage_ref ->> 'bucket'=target.bucket
+          AND output.storage_ref ->> 'storage_identity'=target.storage_identity;
         IF v_native IS NOT NULL THEN
             IF v_native ->> 'item_id' IS DISTINCT FROM v_item::text
                OR v_native ->> 'task_id' IS DISTINCT FROM v_task::text THEN
@@ -1606,7 +1637,7 @@ BEGIN
     EXECUTE pg_catalog.format('ALTER TABLE aap_assets_v1.image_pyramid_native_attempts OWNER TO %I',v_owner);
     EXECUTE pg_catalog.format('ALTER TABLE aap_assets_v1.image_pyramid_native_members OWNER TO %I',v_owner);
     EXECUTE pg_catalog.format('ALTER FUNCTION aap_assets_v1.record_fixture_media_birth() OWNER TO %I',v_owner);
-    -- The birth trigger's definer must be able to call its exact scope helper.
+    -- The birth trigger's definer reads the exact attempt and fixture proofs.
     FOR v_grant IN
         SELECT pg_catalog.pg_get_userbyid(proowner) AS rolname
         FROM pg_catalog.pg_proc
@@ -1615,7 +1646,10 @@ BEGIN
         SELECT v_owner::text
     LOOP
         EXECUTE pg_catalog.format(
-            'GRANT EXECUTE ON FUNCTION aap_assets_v1._native_pyramid_fixture_scope(uuid) TO %I',
+            'GRANT SELECT ON aap_assets_v1.image_pyramid_native_attempts,'
+            ' aap_assets_v1.fixture_native_media_jobs,'
+            ' aap_assets_v1.fixture_native_cache_targets,'
+            ' aap_assets_v1.fixture_native_media_claims TO %I',
             v_grant.rolname
         );
     END LOOP;
