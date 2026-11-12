@@ -1162,6 +1162,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 
 用户随后批准本阶段补齐真实推理作业的最小退役前置，以及新建私有夹具导出的创建时短保留期。前者复用现有受管 scope 协议，补齐 Job／执行代次与 scope 准入围栏、真实提供方排空和结果／输入／输出证明；不以固定输出 mock 替代真实录制，也不自动取得 GPU 资格。后者由 Export owner 根据真实运行归属在创建时冻结短期限，普通导出仍为 168 小时，已有交付期限不变；不改历史时间戳、不清空队列、不直接删除独立导出锚点。两项使用独立工作树，主进程持有后续前向迁移顺序及真实组合验收。
 
+2026-11-12 用户恢复阶段 F，并改变调度方式：后续实施不再经 Orca Run 调度，改由 OMP 内置 `task` 子代理在自当前本地 HEAD 派生的独立工作树中执行；主进程继续持有审核、集成、迁移 head、共享 grants／验证器和真实验收。上述“所有修改 worker 使用 Terra／xhigh”的约束随之改为按可用的已批准模型显式指定；Orca Run 的原任务规格和批准门作为历史依据保留，未开放的六个批准门不因调度方式变化而开放。
+
 ### 16.2 T1：补完整资格，不重建结果门
 
 当前 `scripts/test-suites.json` 和 `verify_module_data_boundary.py::_passed_test_count` 已有真实执行归属与严格结果对账，分别不再当作“拟新增清单”和“仅要求至少一项通过”的缺口。本轮重点是阶段 E 四项函数权限场景没有覆盖的 **当前默认 module-data 验证器组合门**。
@@ -1254,7 +1256,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - **T2 组合门的最低剩余范围。** 单个 family 的通过只关闭自己：要打开 T2，还须把两份失败／取消入口真正跑通，并在同一现场交错两个独立运行的 owned、截图与 scale 通道。任何一项使用静态检查、`--help` 烟测或邻居单方面通过都不构成组合门通过。
 - **#151／#152 与单次原件身份 409。** 三项仍按原归属单独跟踪：#152 的三视频／126-output 退出门未通过，精确清理的一组通过不关闭它；#151 的长驻环境延迟与 409 归因也未被任何切片证明关闭。修复只跟随有因果证据且阻塞已批准切片的问题，不增加重试或时限、不删除失败项。
 - **六个后继批准门。** N5-S、N5-W、N6-S、N6-E、J1、J2 从未开放，账本中也没有它们的通过记录；当前 Beta 只做明确单次切换，不新增旧任务续跑兼容层、永久双写或孤立对象自动认领。
-- **暂停中的未提交工作。** 六个工作树保留未提交修改，恢复时须先审查再决定提交或丢弃：`stage-f-raster-retirement-diagnostic`、`stage-f-raster-retirement-guard`、`worktree-agent-stage-f-config-authority`、`worktree-agent-stage-f-integration-074930`、`worktree-agent-stage-f-pyramid-owner-read`（Orca `task_ab07266f75d0` 的 pyramid ownership 收口，含未跟踪的 `0455` 迁移）与 `worktree-agent-stage-f-reader-drain`。它们的运行环境已退役，恢复后需新建。
+- **暂停期间的未提交工作（2026-11-12 已处置）。** 六个保留工作树经审查后处置：`stage-f-raster-retirement-diagnostic`／`-guard` 只含向冻结 `0434` SQL 写入的 `RAISE LOG` 与 stderr 诊断插桩，丢弃；`worktree-agent-stage-f-config-authority`、`-integration-074930`、`-reader-drain` 的提交已在 `feat/backend-opt`（patch-equivalent，或 `e810718d3` 等同名后续修订），未提交新增行均已在主线中或被更新实现取代，丢弃。`worktree-agent-stage-f-pyramid-owner-read` 的 native pyramid output ownership 半成品（含 `bo0455`）原样迁入自 `a7b77fc7c` 派生的 `worktree-agent-stage-f-pyramid-output` 继续实施，尚未合入。另删除 114 个无工作树、已合入（祖先、完整 patch-equivalent 或新增行全部在主线）的阶段 F 历史分支；21 个仍含主线缺失行的历史分支保留待需要时单独审查。各工作树补丁、HEAD、`.worktree/` 状态及两份分支清单保存在 Run 私有目录 `retired-environments/20261112/paused-worktrees/`。
 
 ### 16.8 已关闭切片
 
