@@ -103,6 +103,7 @@ const config = defineConfig({
       url: BASE_URL,
       reuseExistingServer: false,
       timeout: 120_000,
+      gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
     },
   ],
 

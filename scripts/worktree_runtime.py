@@ -326,6 +326,36 @@ def _process_start_ticks(pid: int) -> int:
     return int(raw.rsplit(")", 1)[1].split()[19])
 
 
+def _process_group(pid: int) -> int:
+    raw = Path(f"/proc/{pid}/stat").read_text()
+    return int(raw.rsplit(")", 1)[1].split()[2])
+
+
+def _accepted_descendant_exit(identity: dict) -> str:
+    """Accept only a clean exit or a SIGTERM from a detached, dead group.
+
+    Playwright stops each webServer with SIGTERM to its own detached process
+    group; Node reports that as 143 (or the signal itself). A SIGKILL, another
+    exit status, the supervisor's own group, or a still-live group leader stays
+    a retained failure.
+    """
+    code = identity["exit_code"]
+    if code == 0:
+        return "clean"
+    if code not in (-signal.SIGTERM, 128 + signal.SIGTERM):
+        raise WorktreeError("e2e 后代进程失败；保留消费者记录")
+    pgid = identity.get("pgid")
+    if type(pgid) is not int or pgid <= 0 or pgid == os.getpgid(0):
+        raise WorktreeError("e2e 后代进程失败；保留消费者记录")
+    try:
+        leader = Path(f"/proc/{pgid}/stat").read_text()
+    except FileNotFoundError:
+        return "sigterm"
+    if leader.rsplit(")", 1)[1].split()[0] != "Z":
+        raise WorktreeError("e2e 后代进程仍由同一进程组持有；保留消费者记录")
+    return "sigterm"
+
+
 def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
     """Reap adopted descendants; only the exact verified native owner is exempt."""
     deadline = time.monotonic() + timeout
@@ -350,7 +380,12 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
                     if _process_start_ticks(pid) != ticks:
                         raise WorktreeError("e2e 子进程身份变化")
                     waitid_pidfd(descriptor, os.WEXITED | os.WNOHANG | os.WNOWAIT)
-                    identity = {"pid": pid, "start_ticks": ticks, "state": "observed"}
+                    identity = {
+                        "pid": pid,
+                        "start_ticks": ticks,
+                        "pgid": _process_group(pid),
+                        "state": "observed",
+                    }
                     boundary["adopted"].append(identity)
                     boundary["unidentified"].remove(pid)
                     atomic_json(record_path, record)
@@ -377,8 +412,7 @@ def settle_e2e_descendants(record, record_path, native_owner, *, timeout=12):
                 os.close(descriptor)
                 del tracked[pid]
                 atomic_json(record_path, record)
-                if identity["exit_code"] != 0:
-                    raise WorktreeError("e2e 后代进程失败；保留消费者记录")
+                identity["termination"] = _accepted_descendant_exit(identity)
             if not tracked and not (direct - excluded):
                 if native_owner and native_owner.process_identity_inventory() != native:
                     raise WorktreeError("推理 owner 身份在消费者排空期间变化")
