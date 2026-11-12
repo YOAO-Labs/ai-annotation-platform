@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import io
+import uuid
 from datetime import timedelta
+from types import SimpleNamespace
 
 import pytest
 from PIL import Image
@@ -287,12 +289,12 @@ async def test_reconcile_retains_unpinned_legacy_generation_without_storage_scan
     )
 
 
-async def test_unpinned_legacy_ready_is_stale_without_storage_reads(
+async def test_unpinned_legacy_ready_is_unavailable_without_invalidation(
     db_session, httpx_client, super_admin, monkeypatch, transport
 ):
     user, token = super_admin
     task, item = await make_image_task(db_session, user.id)
-    _, generation, _, _ = await ready_generation(db_session, item, pinned=False)
+    asset, generation, _, _ = await ready_generation(db_session, item, pinned=False)
     monkeypatch.setattr(
         "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
     )
@@ -302,9 +304,45 @@ async def test_unpinned_legacy_ready_is_stale_without_storage_reads(
     )
     response = await httpx_client.get(route, headers=headers)
     assert response.status_code == 200
-    assert response.json()["status"] == "stale"
+    # Missing saved-output ownership is unavailable, never source drift.
+    assert response.json()["status"] == "missing"
+    assert response.json()["retryable"] is True
+    assert "error_code" not in response.json() or response.json()["error_code"] is None
+    await db_session.refresh(asset)
+    await db_session.refresh(generation)
     assert generation.output_id is None
+    assert generation.status == "ready"
+    assert asset.active_generation == generation.generation
     assert not transport.verified and not transport.signed
+
+
+async def test_unpinned_legacy_ready_retry_admits_a_fresh_native_attempt(
+    db_session, httpx_client, super_admin, monkeypatch
+):
+    user, token = super_admin
+    task, item = await make_image_task(db_session, user.id)
+    asset, generation, _, _ = await ready_generation(db_session, item, pinned=False)
+    admitted = []
+
+    async def admit(db, selected_task, authority, *, retry, force=True):
+        admitted.append((selected_task.id, retry, force, authority.mode))
+        return SimpleNamespace(
+            work=SimpleNamespace(status="pending", job_id=uuid.uuid4())
+        )
+
+    monkeypatch.setattr("app.api.v1.tasks.image_pyramid._admit_native_pyramid", admit)
+    response = await httpx_client.post(
+        f"/api/v1/tasks/{task.id}/image-pyramid/retry",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
+    assert admitted == [(task.id, True, True, "http")]
+    await db_session.refresh(asset)
+    await db_session.refresh(generation)
+    # The old unpinned generation is preserved; admission creates a fresh one.
+    assert generation.output_id is None and generation.status == "ready"
+    assert asset.active_generation == generation.generation
 
 
 async def test_retry_is_idempotent_while_generation_is_pending(
@@ -349,9 +387,12 @@ async def test_retry_failed_generation_keeps_cooldown(
     generation.status = "failed"
     generation.updated_at = pyramids.utcnow()
     await db_session.flush()
+
+    async def forbidden(*args, **kwargs):
+        pytest.fail("Cooldown must not admit")
+
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: pytest.fail("Cooldown must not enqueue"),
+        "app.api.v1.tasks.image_pyramid._admit_native_pyramid", forbidden
     )
     response = await httpx_client.post(
         f"/api/v1/tasks/{task.id}/image-pyramid/retry",

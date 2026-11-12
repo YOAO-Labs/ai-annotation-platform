@@ -54,6 +54,30 @@ BEGIN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
     END IF;
     v_original := p_delegation -> 'original';
+    IF (v_original - ARRAY[
+            'schema','owner_kind','content_id','sha256','size_bytes','location_id',
+            'location_revision','maintenance_revision','binding'
+        ]) <> '{}'::jsonb
+       OR NOT (v_original ?& ARRAY[
+            'schema','owner_kind','content_id','sha256','size_bytes','location_id',
+            'location_revision','maintenance_revision','binding'
+        ])
+       OR v_original -> 'schema' IS DISTINCT FROM '1'::jsonb
+       OR v_original ->> 'owner_kind' NOT IN ('dataset_asset','task_original')
+       OR COALESCE(v_original ->> 'content_id','')
+          !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       OR COALESCE(v_original ->> 'sha256','') !~ '^[0-9a-f]{64}$'
+       OR COALESCE(v_original ->> 'binding','') !~ '^[0-9a-f]{64}$'
+       OR COALESCE(v_original ->> 'location_id','')
+          !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+       OR NOT aap_assets_v1._image_exec_integer_valid(
+              v_original -> 'size_bytes',1,2147483647)
+       OR NOT aap_assets_v1._image_exec_integer_valid(
+              v_original -> 'location_revision',1,2147483647)
+       OR NOT aap_assets_v1._image_exec_integer_valid(
+              v_original -> 'maintenance_revision',1,2147483647) THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
+    END IF;
     SELECT operation.action,(operation.intent ->> 'force')::boolean
     INTO v_saved_action,v_saved_force
     FROM public.asset_image_operations AS operation
@@ -70,12 +94,20 @@ BEGIN
         v_reply := aap_assets_v1._image_owner_source_share(p_actor_id,p_task_id,NULL,true);
         IF v_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_reply; END IF;
         v_source := v_reply -> 'data';
-        IF v_source ->> 'source_snapshot' IS DISTINCT FROM v_original ->> 'binding'
-           AND v_source ->> 'source_snapshot' IS NOT NULL THEN
-            -- The recorded original must still be the one this caller observed.
-            IF aap_assets_v1._image_source_data_valid(v_source) IS DISTINCT FROM true THEN
-                RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
-            END IF;
+        IF aap_assets_v1._image_source_data_valid(v_source) IS DISTINCT FROM true THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+        END IF;
+        -- The API-captured original must still describe the observed source.
+        IF (v_source ->> 'content_hash' ~ '^[0-9a-f]{64}$'
+            AND (v_source ->> 'content_hash') IS DISTINCT FROM (v_original ->> 'sha256'))
+           OR (v_source -> 'file_size' <> 'null'::jsonb
+               AND v_source ->> 'file_size' IS NOT NULL
+               AND (v_source ->> 'file_size')::bigint
+                   IS DISTINCT FROM (v_original ->> 'size_bytes')::bigint)
+           OR (v_source #>> '{object_identity,byte_size}' IS NOT NULL
+               AND (v_source #>> '{object_identity,byte_size}')::bigint
+                   IS DISTINCT FROM (v_original ->> 'size_bytes')::bigint) THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'source_changed');
         END IF;
         v_projection := aap_assets_v1._image_pyramid_projection(
             v_source,NULL,COALESCE(p_policy ->> 'profile_version','pyramid-v1')
@@ -147,6 +179,242 @@ SET search_path = pg_catalog, pg_temp AS $function$
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb) FROM PUBLIC;
+-- aap-statement-break
+-- The saved output namespace is a real read scope for the current owner.
+CREATE OR REPLACE FUNCTION aap_assets_v1._image_garbage_prefix_valid(p_prefix text)
+RETURNS boolean LANGUAGE sql IMMUTABLE PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp AS $function$
+    SELECT COALESCE(
+        p_prefix ~ '^image-pyramids/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/(g[1-9][0-9]*/(a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?)?$'
+        OR p_prefix ~ '^image-pyramids/objects/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$'
+        OR p_prefix ~ '^image-assets/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g[1-9][0-9]*/a[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/$',
+        false
+    )
+$function$;
+-- aap-statement-break
+CREATE OR REPLACE FUNCTION aap_assets_v1.read_image_generation(
+    p_actor_id uuid, p_task_id uuid, p_dataset_item_id uuid,
+    p_generation integer, p_profile_version text
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+PARALLEL UNSAFE
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $function$
+DECLARE
+    v_source_reply jsonb;
+    v_source jsonb;
+    v_projection jsonb;
+    v_selected_profile text;
+    v_asset_id uuid;
+    v_active_generation integer;
+    v_last_accessed_at timestamptz;
+    v_generation_policy jsonb;
+    v_policy jsonb;
+    v_accessed_at timestamptz;
+    v_retention_until timestamptz;
+    v_asset_prefix text;
+    v_generation_prefix text;
+    v_attempt_prefix text;
+    v_prefix text;
+    v_prefixes text[];
+    v_garbage public.asset_image_garbage%ROWTYPE;
+    v_garbage_error text;
+    v_touch_access boolean;
+BEGIN
+    IF p_actor_id IS NULL OR ((p_task_id IS NULL) = (p_dataset_item_id IS NULL))
+       OR (p_generation IS NOT NULL AND p_generation < 1)
+       OR (p_profile_version IS NOT NULL
+           AND pg_catalog.char_length(p_profile_version) NOT BETWEEN 1 AND 64) THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'invalid_request');
+    END IF;
+    v_selected_profile := COALESCE(p_profile_version, 'pyramid-v1');
+    v_source_reply := aap_assets_v1._image_owner_source(
+        p_actor_id, p_task_id, p_dataset_item_id, false
+    );
+    IF v_source_reply -> 'ok' IS DISTINCT FROM 'true'::jsonb THEN RETURN v_source_reply; END IF;
+    v_source := v_source_reply -> 'data';
+    IF NOT aap_assets_v1._image_source_data_valid(v_source) THEN
+        RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+    END IF;
+    v_projection := aap_assets_v1._image_pyramid_projection(
+        v_source, p_generation, v_selected_profile
+    );
+    IF v_projection IS NULL THEN
+        RETURN aap_assets_v1._image_reply(
+            NULL, CASE WHEN p_generation IS NOT NULL THEN 'asset_missing' ELSE 'invalid_response' END
+        );
+    END IF;
+    IF p_generation IS NOT NULL
+       AND v_projection ->> 'status' = 'ready'
+       AND v_projection ->> 'generation' = p_generation::text THEN
+        BEGIN
+            v_asset_id := (v_projection ->> 'asset_id')::uuid;
+            SELECT asset.active_generation, generation.last_accessed_at,
+                   generation.policy
+            INTO v_active_generation, v_last_accessed_at, v_generation_policy
+            FROM public.image_pyramid_assets AS asset
+            JOIN public.image_pyramid_generations AS generation
+              ON generation.asset_id = asset.id
+            WHERE asset.id = v_asset_id
+              AND asset.profile_version = v_selected_profile
+              AND generation.generation = p_generation
+              AND generation.status = 'ready'
+              AND generation.source_generation = (v_source ->> 'source_generation')::bigint
+              AND generation.source_snapshot = v_source ->> 'source_snapshot'
+              AND generation.source_identity = aap_assets_v1._image_exec_legacy_identity(
+                    v_source -> 'object_identity'
+              )
+              AND (v_source -> 'width' = 'null'::jsonb
+                   OR generation.width = (v_source ->> 'width')::integer)
+              AND (v_source -> 'height' = 'null'::jsonb
+                   OR generation.height = (v_source ->> 'height')::integer)
+            FOR UPDATE OF asset, generation NOWAIT;
+            IF NOT FOUND THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'asset_missing');
+            END IF;
+
+            v_policy := aap_assets_v1._image_policy(
+                COALESCE(v_generation_policy, '{}'::jsonb)
+            );
+            IF v_policy IS NULL THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+            END IF;
+            v_asset_prefix := 'image-pyramids/' || v_asset_id::text || '/';
+            v_generation_prefix := v_asset_prefix || 'g' || p_generation::text || '/';
+            v_attempt_prefix := pg_catalog.regexp_replace(
+                v_projection ->> 'manifest_key', 'manifest\.json$', ''
+            );
+            IF v_attempt_prefix IS NULL
+               OR NOT (
+                   v_attempt_prefix = v_generation_prefix
+                   OR (pg_catalog.left(v_attempt_prefix, pg_catalog.char_length(v_generation_prefix))
+                           = v_generation_prefix
+                       AND aap_assets_v1._image_garbage_prefix_valid(v_attempt_prefix))
+                   OR (pg_catalog.left(v_attempt_prefix,
+                           pg_catalog.char_length('image-pyramids/objects/'))
+                           = 'image-pyramids/objects/'
+                       AND aap_assets_v1._image_garbage_prefix_valid(v_attempt_prefix))
+               ) THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+            END IF;
+            v_prefixes := ARRAY[v_asset_prefix, v_generation_prefix, v_attempt_prefix];
+            v_touch_access := v_last_accessed_at IS NULL
+                OR v_last_accessed_at < pg_catalog.clock_timestamp() - interval '10 minutes';
+            IF v_touch_access THEN
+                v_accessed_at := pg_catalog.clock_timestamp();
+            ELSE
+                v_accessed_at := v_last_accessed_at;
+            END IF;
+            v_retention_until := v_accessed_at + pg_catalog.make_interval(
+                hours => (v_policy ->> 'gc_grace_hours')::integer
+            );
+            BEGIN
+                FOR v_prefix IN
+                    SELECT DISTINCT candidate.prefix
+                    FROM pg_catalog.unnest(v_prefixes) AS candidate(prefix)
+                    ORDER BY candidate.prefix
+                LOOP
+                    IF NOT pg_catalog.pg_try_advisory_xact_lock(
+                        pg_catalog.hashtextextended('aap-image-garbage:' || v_prefix, 0)
+                    ) THEN
+                        v_garbage_error := 'operation_busy';
+                        RAISE lock_not_available USING MESSAGE = 'image garbage scope is busy';
+                    END IF;
+                END LOOP;
+                FOR v_garbage IN
+                    SELECT garbage.*
+                    FROM public.asset_image_garbage AS garbage
+                    WHERE garbage.prefix = ANY(v_prefixes)
+                    ORDER BY garbage.prefix
+                    FOR UPDATE NOWAIT
+                LOOP
+                    IF v_garbage.completed_at IS NOT NULL
+                       OR v_garbage.last_ack_token IS NOT NULL THEN
+                        v_garbage_error := 'asset_missing';
+                        RAISE lock_not_available USING MESSAGE = 'image generation was collected';
+                    ELSIF v_garbage.lease_token IS NOT NULL THEN
+                        v_garbage_error := 'source_busy';
+                        RAISE lock_not_available USING MESSAGE = 'image generation cleanup is active';
+                    END IF;
+                END LOOP;
+                IF v_touch_access THEN
+                    UPDATE public.image_pyramid_generations AS generation
+                    SET last_accessed_at = v_accessed_at
+                    WHERE generation.asset_id = v_asset_id
+                      AND generation.generation = p_generation;
+                END IF;
+                IF v_active_generation IS DISTINCT FROM p_generation THEN
+                    PERFORM aap_assets_v1._queue_image_garbage(
+                        v_generation_prefix, 'generation_retired', v_retention_until
+                    );
+                END IF;
+                UPDATE public.asset_image_garbage AS garbage
+                SET not_before = GREATEST(garbage.not_before, v_retention_until)
+                WHERE garbage.prefix = ANY(v_prefixes)
+                  AND garbage.completed_at IS NULL
+                  AND garbage.lease_token IS NULL
+                  AND garbage.not_before < v_retention_until;
+            EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+                RETURN aap_assets_v1._image_reply(
+                    NULL, COALESCE(v_garbage_error, 'operation_busy')
+                );
+            END;
+        EXCEPTION WHEN lock_not_available OR serialization_failure OR deadlock_detected THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'operation_busy');
+        WHEN invalid_text_representation OR numeric_value_out_of_range THEN
+            RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
+        END;
+    END IF;
+    RETURN aap_assets_v1._image_reply(
+        pg_catalog.jsonb_build_object('source', v_source, 'pyramid', v_projection), NULL
+    );
+END;
+$function$;
+-- aap-statement-break
+-- Native admission records its API proof once on the fresh generation.  Once
+-- recorded, the input and authority receipts stay immutable.
+CREATE OR REPLACE FUNCTION guard_image_pyramid_inputs()
+RETURNS trigger LANGUAGE plpgsql
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF ROW(NEW.original_ref,NEW.auth_ref) IS DISTINCT FROM ROW(OLD.original_ref,OLD.auth_ref) THEN
+        IF NOT (
+            OLD.original_ref IS NULL AND OLD.auth_ref IS NULL
+            AND OLD.output_id IS NULL
+            AND OLD.status IN ('pending','building')
+            AND NEW.status IN ('pending','building')
+            AND pg_catalog.jsonb_typeof(NEW.original_ref) = 'object'
+            AND pg_catalog.jsonb_typeof(NEW.auth_ref) = 'object'
+            AND OLD.job_id IS NOT NULL
+            AND NEW.job_id IS NOT DISTINCT FROM OLD.job_id
+            AND EXISTS (
+                SELECT 1 FROM public.asset_image_jobs AS job
+                WHERE job.job_id = OLD.job_id
+                  AND job.pyramid_asset_id = OLD.asset_id
+                  AND job.pyramid_generation = OLD.generation
+                  AND job.status IN ('pending','running')
+                  AND job.actor_id = (NEW.auth_ref ->> 'actor_id')::uuid
+            )
+        ) THEN
+            RAISE EXCEPTION 'Pyramid input and authority receipts are immutable'
+                USING ERRCODE='23514', CONSTRAINT='ck_image_pyramid_inputs_immutable';
+        END IF;
+    END IF;
+    RETURN NEW;
+END
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION guard_image_pyramid_inputs() FROM PUBLIC;
+-- aap-statement-break
+-- The read owner accepts the saved-output prefix as a real attempt scope.
+DROP TRIGGER IF EXISTS trg_image_pyramid_inputs ON public.image_pyramid_generations;
+-- aap-statement-break
+CREATE TRIGGER trg_image_pyramid_inputs
+BEFORE UPDATE ON public.image_pyramid_generations
+FOR EACH ROW EXECUTE FUNCTION guard_image_pyramid_inputs();
 -- aap-statement-break
 -- One native lease owns exactly one saved output row.  This binding never
 -- allocates a second physical owner nor replaces image_pyramid_outputs.
@@ -446,7 +714,12 @@ BEGIN
             RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
         END IF;
         IF v_location.id='4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7' THEN
-            v_endpoint := v_location.config ->> 'endpoint';
+            IF pg_catalog.jsonb_typeof(v_location.config -> 'use_ssl') IS DISTINCT FROM 'boolean'
+               OR COALESCE(v_location.config ->> 'endpoint','') = '' THEN
+                RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+            END IF;
+            v_endpoint := CASE WHEN (v_location.config ->> 'use_ssl')::boolean
+                THEN 'https://' ELSE 'http://' END || (v_location.config ->> 'endpoint');
             v_key_prefix := '';
         ELSE
             SELECT * INTO v_connection FROM public.storage_connections
@@ -852,6 +1125,7 @@ DECLARE
     v_member_keys text[] := ARRAY[]::text[];
     v_tile_keys text[] := ARRAY[]::text[];
     v_key text;
+    v_updated bigint;
 BEGIN
     IF p_job_id IS NULL OR p_generation IS NULL OR p_generation<1 OR p_lease_token IS NULL
        OR pg_catalog.jsonb_typeof(p_result) IS DISTINCT FROM 'object'
@@ -1055,6 +1329,20 @@ BEGIN
         RETURN aap_assets_v1._image_reply(NULL, 'invalid_response');
     END IF;
     v_old_active := v_asset.active_generation;
+    IF v_candidate.owner_kind = 'dataset_item' THEN
+        UPDATE public.dataset_items AS item
+        SET width = COALESCE(item.width, v_width),
+            height = COALESCE(item.height, v_height),
+            media_materialized_generation = v_candidate.source_generation,
+            updated_at = pg_catalog.clock_timestamp()
+        WHERE item.id = v_candidate.owner_id
+          AND item.media_source_generation = v_candidate.source_generation
+          AND NOT item.media_source_drifted;
+        GET DIAGNOSTICS v_updated = ROW_COUNT;
+        IF v_updated <> 1 THEN
+            RETURN aap_assets_v1._image_exec_outcome(p_job_id,p_generation,'source_changed');
+        END IF;
+    END IF;
     UPDATE public.image_pyramid_outputs
     SET inventory=v_inventory,state='ready',updated_at=pg_catalog.clock_timestamp()
     WHERE id=v_output.id AND state='building';

@@ -29,6 +29,7 @@ from yoao_assets_images.contract import (
     ImageWorkOutcome,
     OriginalRead,
     ObjectIdentity,
+    PyramidOutputAllocation,
     PyramidWorkSpec,
     ThumbnailWorkSpec,
 )
@@ -186,6 +187,16 @@ class _FakeDatabase:
                 job_id=request.job_id,
                 generation=request.generation,
                 outcome="failed",
+            )
+        if name == "allocate_native_pyramid_output":
+            return PyramidOutputAllocation(
+                output_id=uuid4(),
+                prefix=f"image-pyramids/objects/{uuid4()}/",
+                job_id=request.job_id,
+                job_generation=request.job_generation,
+                lease_token=request.lease_token,
+                asset_id=request.asset_id,
+                generation=request.generation,
             )
         if name == "finish_image_media":
             if self.finish_failures:
@@ -848,6 +859,7 @@ async def test_transient_source_transfer_failure_keeps_accepted_job_retryable():
 
     assert [name for name, _request in database.calls] == [
         "claim_image_media",
+        "allocate_native_pyramid_output",
         "heartbeat_image_media",
     ]
 

@@ -20,6 +20,16 @@ scope; fixture-native executions require the fixture writer and its private
 target. Missing or mismatched output authority fails closed, and fixture source
 reads retain their existing settlement and uncertainty fences.
 
+Native pyramid attempts allocate their saved output and media-cache target at
+claim time, before any member write, and publish only after every reserved
+member returns its actual ETag/VersionId receipt. The retained Celery
+`generate_image_pyramid` callers (ordinary-thumbnail auto-generation, the
+operator backfill script, and fixture-independent execution) are not replaced by
+this path; they allocate through `acquire_generation_lease` and publish through
+`publish_generation`, which require the live lease, current generation and
+`building_generation` fence before setting `output_id`. No retained caller may
+publish `ready` with an unowned output.
+
 `ready_source_reference` is the strict reference path for callers that have
 already admitted and verified output work. Its video and image HTTP routes are
 `/v1/ready-source-reference` and `/v1/images/ready-source-reference`. A stale

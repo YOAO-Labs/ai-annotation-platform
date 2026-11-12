@@ -172,12 +172,12 @@ async def _admit_native_pyramid(
     *,
     retry: bool,
     force: bool = True,
-) -> bool:
+):
     """Admit exactly one native attempt through the current Images owner.
 
     The saved-output allocation happens under the claim lease, so no capacity is
     reserved here.  A failed read-time admission does not turn a GET into an
-    error; the client still observes the real generation state.
+    error; an explicit retry surfaces the owner's failure instead.
     """
     operation_id = uuid.uuid4()
     request = (RetryOwnedPyramidRequest if retry else PrepareOwnedPyramidRequest)(
@@ -191,7 +191,7 @@ async def _admit_native_pyramid(
     )
     try:
         async with image_gateway(db) as images:
-            await images.call(
+            accepted = await images.call(
                 "retry_owned_pyramid" if retry else "prepare_owned_pyramid",
                 request,
             )
@@ -199,9 +199,11 @@ async def _admit_native_pyramid(
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
             operation="admit", outcome=exc.code
         ).inc()
-        return False
+        if retry:
+            raise
+        return None
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="admit", outcome="queued").inc()
-    return True
+    return accepted
 
 
 @router.get(
@@ -687,21 +689,8 @@ async def retry_image_pyramid(
 
     await originals.check(db, authority, lock=True)
     await db.commit()
-    operation_id = uuid.uuid4()
     try:
-        async with image_gateway(db) as images:
-            accepted = await images.call(
-                "retry_owned_pyramid",
-                RetryOwnedPyramidRequest(
-                    operation_id=operation_id,
-                    actor_id=current_user.id,
-                    task_id=task.id,
-                    purpose="pyramid",
-                    policy=image_policy(),
-                    force=True,
-                    delegation=originals.authorization(authority),
-                ),
-            )
+        accepted = await _admit_native_pyramid(db, task, authority, retry=True)
     except ImageFailure as exc:
         raise HTTPException(http_error_status(exc.code), {"reason": exc.code}) from None
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="retry", outcome="queued").inc()
