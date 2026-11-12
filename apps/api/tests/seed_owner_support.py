@@ -334,20 +334,38 @@ class OwnedSuite:
         assert response.status_code == 200, response.text
 
 
+def _default_gateway() -> str:
+    """The IPv4 gateway of the default route on this Linux host."""
+    try:
+        routes = Path("/proc/net/route").read_text().splitlines()[1:]
+    except OSError:
+        return ""
+    for line in routes:
+        fields = line.split()
+        if len(fields) >= 3 and fields[1] == "00000000":
+            raw = int(fields[2], 16)
+            return ".".join(str((raw >> (8 * index)) & 0xFF) for index in range(4))
+    return ""
+
+
 def _fixture_provider_host() -> str:
     """The non-loopback IPv4 the fixture backend must advertise.
 
     The provider binds 0.0.0.0 and refuses loopback because workers may be
     separate processes. A hostname lookup is insufficient here (this host
-    resolves its own name to 127.0.1.1), so select the egress interface
-    address without sending any packet.
+    resolves its own name to 127.0.1.1) and a public probe address may be
+    policy-routed through a local proxy interface, so select the source
+    address of the default-route gateway without sending any packet.
     """
     configured = os.environ.get("PLAYWRIGHT_ML_FIXTURE_HOST", "").strip()
     if configured:
         return configured
+    gateway = _default_gateway()
+    if not gateway:
+        return ""
     probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        probe.connect(("192.0.2.1", 9))
+        probe.connect((gateway, 9))
         address = probe.getsockname()[0]
     except OSError:
         return ""
