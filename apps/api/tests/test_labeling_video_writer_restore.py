@@ -756,10 +756,13 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
         source_before = await _snapshot(source_engine, world["job_id"])
         _assert_restorable_snapshot(source_before)
 
-        # Every revision above 0283 retains evidence and refuses its own
-        # downgrade, so `alembic downgrade bo0282` stops before this frozen
-        # guard. Exercise the exact 0283 guard in a rolled-back transaction so
+        # The alembic CLI can no longer reach bo0282: the retention revisions
+        # above 0283 refuse their own downgrade. Keep that end-to-end refusal,
+        # then exercise the exact 0283 guard in a rolled-back transaction so
         # nonempty writer state is proven unremovable at the current head.
+        downgrade = _alembic(source_engine.url, "downgrade", "bo0282")
+        assert downgrade.returncode != 0
+
         async with source_engine.connect() as connection:
             transaction = await connection.begin()
             try:
@@ -853,10 +856,10 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
             await restored_engine.dispose()
         if source_engine is not None:
             await source_engine.dispose()
-        if "restored_database" in created:
+        if restored_database in created:
             await _drop_owned_clone(
                 admin, test_engine, restored_database, restored_marker
             )
-        if "source_database" in created:
+        if source_database in created:
             await _drop_owned_clone(admin, test_engine, source_database, source_marker)
         await admin.dispose()
