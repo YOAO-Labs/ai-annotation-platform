@@ -8,9 +8,10 @@ import uuid
 from collections.abc import Awaitable
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, NoReturn, TypeVar
 
 from botocore.exceptions import BotoCoreError, ClientError
+from pydantic import ValidationError
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -27,7 +28,11 @@ from yoao_labeling.mask_edit_contract import (
 )
 
 from yoao_assets_mask_content.contract import (
+    GetRequest,
     MaskContentFailure,
+    MaskReference,
+    PutRequest,
+    RleContent,
 )
 
 from app.db.models.dataset import DatasetItem
@@ -47,6 +52,7 @@ from app.services.labeling_core_read_relations import (
     task_row,
 )
 from app.services.labeling_mask_edit import mask_edit_command
+from app.services.mask_content import mask_content_owner, mask_content_owner_selected
 from app.services.mask_gc import (
     begin_mask_content_write,
     lock_mask_write_epochs,
@@ -1173,6 +1179,62 @@ def build_rle_gzip_reference(rle: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _mask_content_failure(exc: MaskContentFailure) -> NoReturn:
+    """Map closed owner codes onto the API's existing Mask content contract."""
+    if exc.code == "object_missing":
+        raise ValueError("stored mask RLE object is missing") from None
+    if exc.code == "object_corrupt":
+        raise ValueError(
+            "stored mask RLE digest mismatch or invalid metadata"
+        ) from None
+    if exc.code in {"invalid_request", "invalid_reference", "resource_limit"}:
+        raise ValueError("mask RLE reference or bounded content is invalid") from None
+    # Availability failures must not enter existing ValueError/content-conflict handlers.
+    raise exc from None
+
+
+def _store_mask_content(
+    rle: dict[str, Any], storage: StorageService, storage_encoding: str
+) -> dict[str, Any]:
+    """Write one canonical object through the explicitly selected byte owner."""
+    # Normalize permitted extra producer metadata before crossing the byte contract.
+    content = RleContent.model_validate(json.loads(canonical_rle_bytes(rle)))
+    try:
+        with mask_content_owner(storage) as owner:
+            result = owner.put(
+                PutRequest(content=content, storage_encoding=storage_encoding)
+            )
+    except MaskContentFailure as exc:
+        _mask_content_failure(exc)
+    reference = result.reference.model_dump(mode="json", exclude_none=True)
+    validate_reference_for_rle(reference, rle)
+    if (
+        storage_encoding == RLE_STORAGE_IDENTITY
+        and reference.get("storage_encoding") == RLE_STORAGE_GZIP
+    ):
+        raise ValueError("mask content owner changed requested storage encoding")
+    return reference
+
+
+def _load_mask_content(
+    reference: dict[str, Any], storage: StorageService
+) -> dict[str, Any]:
+    """Read one portable reference only from the explicitly selected owner."""
+    # Reject a reference outside the fixed namespace before any owner request.
+    try:
+        request = GetRequest(reference=MaskReference.model_validate(reference))
+    except ValidationError:
+        raise ValueError("invalid mask reference") from None
+    try:
+        with mask_content_owner(storage) as owner:
+            result = owner.get(request)
+    except MaskContentFailure as exc:
+        _mask_content_failure(exc)
+    content = result.content.model_dump(mode="json")
+    validate_reference_for_rle(reference, content)
+    return content
+
+
 async def _run_content_io(call, *args, **kwargs):
     """A cancelled await must not release its caller's locks before thread exit."""
     task = asyncio.create_task(asyncio.to_thread(call, *args, **kwargs))
@@ -1232,6 +1294,14 @@ def raster_mask_storage_contract_error(exc):
 
 
 async def _store_owned(rle, *, compressed=False, db=None, storage=storage_service):
+    if mask_content_owner_selected():
+        # A selected owner is authoritative: no saved-ownership fallback.
+        return await _run_content_io(
+            _store_mask_content,
+            rle,
+            storage,
+            RLE_STORAGE_GZIP if compressed else RLE_STORAGE_IDENTITY,
+        )
     from app.services import raster_mask_objects
     from app.services.content_snapshot import ContentError
     from app.services.raster_object_storage import RasterObjectStorageError
@@ -1329,7 +1399,13 @@ def decode_rle_bytes(reference: dict[str, Any], raw: bytes) -> dict[str, Any]:
 async def load_coco_rle(
     reference: dict[str, Any], *, storage: StorageService = storage_service, db=None
 ) -> dict[str, Any]:
-    """Resolve a unique ready owner before reading and validating saved bytes."""
+    """Read through the selected owner; unselected mode uses saved ownership."""
+    if mask_content_owner_selected():
+        # A selected owner is authoritative: no saved-ownership fallback.
+        return await _observe_content_operation(
+            "load",
+            _run_content_io(_load_mask_content, reference, storage),
+        )
     from app.services import raster_mask_objects
 
     return await _observe_content_operation(

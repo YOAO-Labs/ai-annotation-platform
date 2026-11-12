@@ -91,7 +91,7 @@ SDK 每步单次尝试，真实成功响应先独立持久化，再按真实非 
 `annotations_storage` 集中解释新 `schema2` 的封闭十字段引用（`schema / purpose / location_id / config_revision / binding_generation / endpoint_url / bucket / object_key / storage_identity / key_prefix`），受控根连同 `_aap_managed/annotations/` 最多 896 字符／920 个 UTF-8 字节：
 
 1. **独立 Task 原件（`TaskOriginal`）**：最终原件位于 `__aap_task_originals__/<Task UUID>/<Creation UUID>/payload`，与 `ManagedOriginalCreation` 配合隔离客户端直传。
-2. **持久 RLE 光栅掩码（`RasterMaskObject` & `RasterMaskPublication`）**：不依赖 Task、Project 或 User 外键。可移植引用继续使用 `raster-masks/sha256/...json[.gz]`，物理位置固定为 `raster-masks/objects/{uuid}.json[.gz]`，同时保存规范 RLE 与实际存储字节的两份 SHA/大小回执。`purge_unreferenced_raster_masks` 保留 24 小时窗口，首轮只退休并提交，后续轮次才完整核验并删除固定 UUID。
+2. **持久 RLE 光栅掩码（`RasterMaskObject` & `RasterMaskPublication`）**：未选择独立 Mask 字节 owner 时，API 保存归属不依赖 Task、Project 或 User 外键。可移植引用继续使用 `raster-masks/sha256/...json[.gz]`，物理位置固定为 `raster-masks/objects/{uuid}.json[.gz]`，同时保存规范 RLE 与实际存储字节的两份 SHA/大小回执。`purge_unreferenced_raster_masks` 保留 24 小时窗口，首轮只退休并提交，后续轮次才完整核验并删除固定 UUID。显式选择 owner 时，同样的逻辑引用由 owner 持有字节，API 不写保存归属记录，回收改由 Labeling 的 Mask 回收集合执行。
 3. **项目指南图片（`GuideAssetUpload` & `ProjectGuideAsset`）**：`GuideAssetUpload` 保存上传者与原项目快照、SHA-256、大小（1 B 至 5 MiB）与固定 `storage_ref`（`projects/{original_project_uuid}/guide/{upload_uuid}`）；`ProjectGuideAsset` 是当前项目读取权和存活引用的权威。普通图片使用 Blob URL，SVG 用原始字节 `data:image/svg+xml;base64,...` 在不透明源中展示。最后一个引用解除时同事务退休归属，由 `purge_guide_assets` 两阶段清理。
 4. **评论附件（`CommentAttachmentUpload`）**：保存上传者、标注、任务、项目及首次绑定评论的 UUID 快照（无业务外键），最大 20 MiB，键为 `comment-attachments/{annotation_uuid}/{upload_uuid}`，固定 2160 小时（90 天）期限及软删 7 天宽限。
 

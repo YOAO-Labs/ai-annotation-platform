@@ -1866,11 +1866,11 @@ Media 控制增加 `input`、`prepare`、`reference` 三项私有 HTTP 操作，
 
 ## Mask 内容字节服务
 
-`apps/assets-mask-content` 提供 `aap-assets-mask-content/v1` 与独立运行工件。内容进程接受 `put/get`，清理进程提供兼容的 `list/delete` 及持久回收的 `scan/execute/status`；两者使用各自的 token 与 S3 身份，固定到既有 Mask 桶的内容与日志前缀，不持有数据库、Celery 或 Redis 凭据。API 的 Mask 内容入口、导入、AI 采纳、修复、QC、追踪及导出继续使用既有包装函数，字节操作统一通过 owner。
+`apps/assets-mask-content` 提供 `aap-assets-mask-content/v1` 与独立运行工件。内容进程接受 `put/get`，清理进程提供兼容的 `list/delete` 及持久回收的 `scan/execute/status`；两者使用各自的 token 与 S3 身份，固定到既有 Mask 桶的内容与日志前缀，不持有数据库、Celery 或 Redis 凭据。API 的 Mask 内容入口、导入、AI 采纳、修复、QC、追踪及导出继续使用既有包装函数；显式选择 owner 时，持久 RLE 字节只经该 owner 存取可移植逻辑键，不回退到 API 自身对象存储。
 
-内容地址、未压缩 SHA/长度以及旧 JSON/gzip 引用保持兼容。写入使用条件创建并验证已存在内容，读取复核引用和实际字节。显式远程配置不会回退到 API 的对象存储身份；未配置的开发模式装配同一实现。
+内容地址、未压缩 SHA/长度以及旧 JSON/gzip 引用保持兼容。写入使用条件创建并验证已存在内容，读取复核引用和实际字节。显式远程配置不会回退到 API 的对象存储身份；未选择 owner 时，持久 RLE 沿用 API 的保存归属（`raster-masks/objects/{uuid}`、发布记录与受保护清理）。切换模式不迁移已有 Mask：新写入按当前选择落位，已有内容不会在两种字节归属之间转换。
 
-Labeling 继续拥有任务权限、业务尺寸与帧校验、上传配额／预约、引用连接及完整回收根集。业务回收统一使用持久每键代次、删除意图与精确终态回执，不借用业务事务跨网络删除；近期同内容重传会续期预约并受生产宽限期保护。字节服务只比较对象事实，不读取业务表。当前逻辑键的删除与历史 S3 版本的物理回收仍是不同责任。
+Labeling 继续拥有任务权限、业务尺寸与帧校验、上传配额／预约、引用连接及完整回收根集。业务回收统一使用持久每键代次、删除意图与精确终态回执，不借用业务事务跨网络删除；近期同内容重传会续期预约并受生产宽限期保护。选择 owner 时，回收由 Labeling 的 Mask 回收集合按 `LABELING_MASK_GC_URL` 选择执行；API 自身的保存归属清理只处理其登记记录，不扫描 owner 的逻辑键前缀。字节服务只比较对象事实，不读取业务表。当前逻辑键的删除与历史 S3 版本的物理回收仍是不同责任。
 
 Python 实现复用现有编解码与 S3 栈，Node 测试提供方验证实际 Python 客户端能够通过相同 wire 合同更换实现语言；该 peer 是合同夹具，不代表第二语言持久运行时的生产资格。完整 Labeling 预约、写入与 GC 协调协议、一般 Blob 和其余模块仍须推进。协议与配置见 [Mask 字节接口](/api/guides/mask-content)及 [ADR-0111](/dev/adr/0111-independent-mask-content)。
 

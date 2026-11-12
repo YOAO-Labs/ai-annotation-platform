@@ -309,3 +309,12 @@ API/worker 各自加载根映射；Celery `worker_direct` 加实际 hostname 校
 ### 图片冻结输入与交付
 
 异步图片与视频导出通过 `ExportMediaBundle` 冻结输入快照、原件身份与固定 168 小时交付期限。详见 [原件验证读取、缓存与保留回收架构 · 图片冻结输入与交付](./original-access-and-retention#图片冻结输入与交付)。
+
+## 持久 RLE 的独立归属与发布保护
+
+持久 RLE 的字节归属由 `ASSETS_MASK_CONTENT_URL`（以及清理操作使用的 `ASSETS_MASK_CLEANUP_URL`）显式选择，判断方式与 `services/mask_content.py::mask_content_owner` 一致：
+
+- **未选择 owner**：API 保存归属继续生效。可移植引用仍是 `raster-masks/sha256/...json[.gz]`，物理对象固定为 `raster-masks/objects/{uuid}.json[.gz]`；`RasterMaskObject` / `RasterMaskPublication` 保存两份内容回执、发布保护与受保护回收，`purge_unreferenced_raster_masks` 只处理这些登记记录。
+- **选择 owner**：持久 RLE 只经该 owner 在可移植逻辑键 `raster-masks/sha256/...json[.gz]` 上存取，不写 `raster-masks/objects/`，也不回退到 API 的对象存储身份。回收由 Labeling 的 Mask 回收集合按 `LABELING_MASK_GC_URL` 选择；API 保存归属清理不会作用于 owner 内容。
+
+两种模式的引用、Labeling 权限检查、业务尺寸／帧校验、上传预约、引用连接与每键代次保持一致。切换模式不迁移已有 Mask，也不做双写：切换前写入的字节留在原归属，切换后的新写入按当前选择落位。部署与配置见 [Mask 内容字节服务](./module-deployment#mask-内容字节服务)，协议见 [Mask 字节接口](/api/guides/mask-content)。

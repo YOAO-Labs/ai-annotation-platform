@@ -2578,7 +2578,7 @@ SQL 回滚不会撤销对象存储 I/O。图片上传和 nuScenes 文件写入/�
 
 `apps/assets-mask-content` 提供 `aap-assets-mask-content/v1`，仅处理现有内容地址 RLE 对象的字节。`content` 进程只提供 `put/get`；`cleanup` 进程只提供分页 `list` 与带 ETag、修改时间围栏的 `delete`。两个进程没有数据库、Celery 或 Redis 凭据。任务权限、图像／视频限制、上传预约和引用可达性继续由 Labeling 判断。
 
-API 与需要读写 Mask 的 worker 配置 `ASSETS_MASK_CONTENT_URL`、`ASSETS_MASK_CONTENT_TOKEN`；持久回收的字节端另配 `ASSETS_MASK_CLEANUP_URL`、`ASSETS_MASK_CLEANUP_TOKEN`。全部地址留空时使用同一实现的本地装配；配置任何远程地址后，缺少所选角色的地址／token 或远程失败都会明确报错，不会改用 API 的 S3 凭据。
+API 与需要读写 Mask 的 worker 配置 `ASSETS_MASK_CONTENT_URL`、`ASSETS_MASK_CONTENT_TOKEN`；持久回收的字节端另配 `ASSETS_MASK_CLEANUP_URL`、`ASSETS_MASK_CLEANUP_TOKEN`。显式设置任一 URL 即选择 owner：API 的持久 RLE 只在 owner 的可移植逻辑键上存取，缺少所选角色的地址／token 或远程失败都会明确报错，不会改用 API 的 S3 凭据。全部地址留空时，API 的持久 RLE 使用自身保存归属（`raster-masks/objects/{uuid}`）；切换模式不迁移已有 Mask。
 
 业务回收统一使用 Labeling 持久协调器，通过字节端的 `scan/execute/status` 协议恢复。HTTP 超时或断连后，远端删除可能继续执行；原生每键围栏会一直保留，直到当前代次收到精确终态回执。业务回收不调用旧的条件 `delete` 接口。
 
