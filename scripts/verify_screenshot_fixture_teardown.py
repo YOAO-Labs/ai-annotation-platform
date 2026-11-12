@@ -1283,7 +1283,8 @@ async def main():
         [sibling.process, vite.process, browser.process],
         "B browser readiness",
     )
-    playwright = (WEB / "node_modules/.bin/playwright").resolve(strict=True)
+    # The .bin entry is a POSIX shell wrapper; node must run the test CLI.
+    playwright = (WEB / "node_modules/@playwright/test/cli.js").resolve(strict=True)
     for index, (run, mode) in enumerate(
         ((failure_run, "failure"), (cancel_run, "cancel")), 1
     ):
