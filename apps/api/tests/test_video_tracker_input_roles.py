@@ -142,14 +142,16 @@ async def test_tracker_owners_keep_private_rows_and_cross_owner_reads_narrow(
 
 
 async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_session):
-    # Native video publication owns status/channel facts; Celery identifiers stay private.
+    # bo0350/bo0352 route video-control reads and writes through Labeling-owned
+    # native functions and the owner-owned view, so the owner needs these
+    # columns; other module owners must stay outside the Celery identifiers.
     for column, privilege, expected in (
         ("id", "UPDATE", True),
         ("status", "SELECT", True),
         ("status", "UPDATE", True),
         ("event_channel", "SELECT", True),
-        ("celery_task_id", "SELECT", False),
-        ("celery_task_id", "UPDATE", False),
+        ("celery_task_id", "SELECT", True),
+        ("celery_task_id", "UPDATE", True),
         ("created_by", "UPDATE", False),
     ):
         assert (
@@ -166,6 +168,15 @@ async def test_labeling_table_grants_are_scoped_to_its_native_receipts(db_sessio
             )
             is expected
         ), (column, privilege)
+    for role in ("assets_code", "jobs_code", "workspace_code"):
+        for privilege in ("SELECT", "UPDATE"):
+            assert not await db_session.scalar(
+                text(
+                    "SELECT pg_catalog.has_column_privilege("
+                    ":role,'public.video_tracker_jobs','celery_task_id',:privilege)"
+                ),
+                {"role": role, "privilege": privilege},
+            ), (role, privilege)
     grants = (
         ("video_tracker_input_scopes", "SELECT,INSERT,UPDATE"),
         ("annotation_video_tracker_input_sources", "SELECT,INSERT"),

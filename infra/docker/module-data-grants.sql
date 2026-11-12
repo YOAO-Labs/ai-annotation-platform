@@ -648,7 +648,7 @@ GRANT INSERT (sequence_order, created_at, updated_at, assignee_id, assigned_at, 
 GRANT UPDATE (dataset_item_id, file_name, file_path, file_type, created_at) ON public.tasks TO :"labeling_owner";
 GRANT INSERT (total_tasks) ON public.task_batches TO :"labeling_owner";
 GRANT INSERT (created_at, updated_at) ON public.annotations TO :"labeling_owner";
-GRANT INSERT (staged_result, started_at, completed_at, error_message, created_at, updated_at) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT INSERT (staged_result, celery_task_id, started_at, completed_at, error_message, created_at, updated_at) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT INSERT (created_at) ON public.task_dataset_item_links TO :"labeling_owner";
 GRANT UPDATE (anchor_position) ON public.annotation_feedbacks TO :"labeling_owner";
 GRANT INSERT (dataset_item_id, end_frame, id, segment_index, start_frame, status) ON public.video_segments TO :"labeling_owner";
@@ -658,7 +658,7 @@ GRANT INSERT (code, frame_end, frame_start, id, left_annotation_id, metric, righ
 GRANT INSERT (async_job_id, id, input_digest, input_snapshot, left_segment_id, metrics, pairs, progress_pct, requested_by_id, right_segment_id, sampling_digest, status, task_id) ON public.video_track_quality_runs TO :"labeling_owner";
 GRANT UPDATE (accepted_at, accepted_by_id, completed_at, error_message, metrics, pairs, progress_pct, stale_at, started_at, status, updated_at) ON public.video_track_quality_runs TO :"labeling_owner";
 GRANT INSERT (annotation_id, correction_frame, created_by, dataset_item_id, direction, event_channel, from_frame, id, job_kind, model_key, prompt, revision, segment_id, status, target_class_name, target_tool_unit_id, task_id, to_frame, track_id_snapshot) ON public.video_tracker_jobs TO :"labeling_owner";
-GRANT UPDATE (cancel_requested_at, event_channel, prompt, revision, started_at) ON public.video_tracker_jobs TO :"labeling_owner";
+GRANT UPDATE (cancel_requested_at, celery_task_id, event_channel, prompt, revision, started_at) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.workspace_project_query_dataset_ids(uuid) TO :"labeling_owner";
 
 -- Fixed owner snapshots for the remaining Labeling operation families.
@@ -666,7 +666,7 @@ GRANT SELECT (
     id, dataset_item_id, segment_index, start_frame, end_frame, assignee_id, status, locked_by, locked_at, lock_expires_at, created_at, updated_at
 ) ON public.video_segments TO :"labeling_owner";
 GRANT SELECT (
-    id, task_id, dataset_item_id, annotation_id, segment_id, target_class_name, target_tool_unit_id, created_by, status, job_kind, track_id_snapshot, correction_frame, model_key, direction, from_frame, to_frame, prompt, staged_result, revision, event_channel, cancel_requested_at, started_at, completed_at, error_message, created_at, updated_at
+    id, task_id, dataset_item_id, annotation_id, segment_id, target_class_name, target_tool_unit_id, created_by, status, job_kind, track_id_snapshot, correction_frame, model_key, direction, from_frame, to_frame, prompt, staged_result, revision, event_channel, celery_task_id, cancel_requested_at, started_at, completed_at, error_message, created_at, updated_at
 ) ON public.video_tracker_jobs TO :"labeling_owner";
 GRANT SELECT (
     id, project_id, task_id, annotation_id, qc_issue_id, source_job_id, reviewer_id, source_annotation_version, result_annotation_version, source_job_revision, frame_start, frame_end, region_mask_ref, region_digest, candidate_digest, decision, created_at
