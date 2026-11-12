@@ -411,7 +411,9 @@ class ManagedStorage:
                     sha256=sha256,
                     size_bytes=size_bytes,
                     max_bytes=max(size_bytes, 1),
-                    timeout_seconds=self._timeout if timeout_seconds is None else timeout_seconds,
+                    timeout_seconds=self._timeout
+                    if timeout_seconds is None
+                    else timeout_seconds,
                 )
             except managed_original.WriterError as exc:
                 raise _map_writer_error(exc) from None
@@ -514,7 +516,7 @@ def _close_client(client: Any) -> None:
 
 
 def _map_writer_error(exc: managed_original.WriterError) -> ManagedStorageError:
-    if exc.outcome == "conflict":
+    if exc.code == "creation_source_changed" or exc.outcome == "conflict":
         return ManagedStorageError("source_changed")
     if exc.outcome == "unknown":
         return ManagedStorageError("storage_write_failed", uncertain=True)

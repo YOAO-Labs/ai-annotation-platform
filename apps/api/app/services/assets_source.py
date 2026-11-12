@@ -353,6 +353,14 @@ class _LocalStoragePort:
         except (BotoCoreError, OSError) as exc:
             raise SourceFailure("storage_unavailable") from exc
 
+    @staticmethod
+    def _source_failure(exc) -> SourceFailure:
+        # Managed-storage outcomes use their own taxonomy; only a proven source
+        # change is a user-visible conflict, everything else is unavailable.
+        return SourceFailure(
+            "source_changed" if exc.code == "source_changed" else "storage_unavailable"
+        )
+
     async def publish_managed_upload(
         self,
         target,
@@ -387,7 +395,7 @@ class _LocalStoragePort:
                 on_written=on_written,
             )
         except ManagedStorageError as exc:
-            raise SourceFailure(exc.code) from None
+            raise self._source_failure(exc) from None
 
     async def verify_managed_original(
         self, target, *, sha256: str, size_bytes: int, image: bool = False
@@ -401,7 +409,7 @@ class _LocalStoragePort:
                 target, sha256=sha256, size_bytes=size_bytes, image=image
             )
         except ManagedStorageError as exc:
-            raise SourceFailure(exc.code) from None
+            raise self._source_failure(exc) from None
 
 
 class _LegacyUploadData:

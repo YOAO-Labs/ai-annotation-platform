@@ -883,14 +883,23 @@ async def _outbox_row(test_engine, operation_id: uuid.UUID) -> dict | None:
         return dict(row) if row else None
 
 
-async def _pending_count(test_engine, bucket: str) -> int:
+async def _pending_count(test_engine, bucket: str, prefixes=None) -> int:
     async with test_engine.connect() as owner:
+        if prefixes is None:
+            return await owner.scalar(
+                text(
+                    "SELECT count(*) FROM public.asset_storage_deletions "
+                    "WHERE bucket=:bucket AND completed_at IS NULL"
+                ),
+                {"bucket": bucket},
+            )
         return await owner.scalar(
             text(
                 "SELECT count(*) FROM public.asset_storage_deletions "
-                "WHERE bucket=:bucket AND completed_at IS NULL"
+                "WHERE bucket=:bucket AND completed_at IS NULL "
+                "AND prefix = ANY(:prefixes)"
             ),
-            {"bucket": bucket},
+            {"bucket": bucket, "prefixes": list(prefixes)},
         )
 
 
@@ -1199,8 +1208,9 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
     tmpdir = Path(_required_env("TMPDIR")).resolve()
 
     try:
-        if await _pending_count(test_engine, media_bucket) != 0:
-            pytest.fail("owned cleanup bucket already has pending work")
+        # Foreign suites legitimately leave committed deletions in this bucket;
+        # the worker claims per bucket, so scope the emptiness guard to the
+        # prefixes this test owns below.
         _build_worker_image(image_tag, image_identity)
         image_built = True
         image = _inspect_docker(image_tag)
@@ -1214,6 +1224,15 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
         fixture = await _seed_dataset_case(test_engine, lease_seconds=20)
         target_prefix = fixture["target_prefix"]
         sibling_prefix = fixture["sibling_prefix"]
+        if (
+            await _pending_count(
+                test_engine,
+                media_bucket,
+                (target_prefix, sibling_prefix, fixture["task_prefix"]),
+            )
+            != 0
+        ):
+            pytest.fail("owned cleanup prefixes already have pending work")
         keys = _put_objects(
             owner_client,
             media_bucket,

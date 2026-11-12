@@ -193,6 +193,8 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
         DatasetUploadIntent, item_id, populate_existing=True
     )
     initial_publication = reserved.publication_id
+    initial_path = reserved.file_path
+    assert initial_path is not None
     original_get = storage_service.client.get_object
     original, changed = _image("red"), _image("blue")
 
@@ -205,7 +207,6 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
             and kwargs.get("Key") == stage
             and "Range" not in kwargs
         ):
-            final_keys.append(kwargs["Key"])
             storage_service.client.put_object(
                 Bucket=storage_service.import_bucket,
                 Key=stage,
@@ -227,7 +228,9 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
             DatasetUploadIntent, item_id, populate_existing=True
         )
         assert (
-            intent.state == "pending" and intent.publication_id == initial_publication
+            intent.state == "pending"
+            and intent.publication_id == initial_publication
+            and intent.file_path == initial_path
         )
         monkeypatch.setattr(storage_service.client, "get_object", original_get)
         completed = await httpx_client.post(path, headers=headers)
@@ -235,7 +238,9 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
         final = await db_session.scalar(
             select(DatasetItem.file_path).where(DatasetItem.id == item_id)
         )
-        assert final != final_keys[0]
+        # The fixed publication identity keeps the same immutable destination
+        # for the retried attempt.
+        assert final == initial_path
         final_keys.append(final)
     finally:
         for key in final_keys:
