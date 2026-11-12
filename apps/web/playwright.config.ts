@@ -210,6 +210,9 @@ export default defineConfig({
           url: `http://127.0.0.1:${isolatedWebPort}`,
           reuseExistingServer: false,
           timeout: 120_000,
+          // Node reports SIGTERM as 143; a hard kill would leak the Vite
+          // process group into the exec descendant boundary.
+          gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
         },
       ]
     : isCI
