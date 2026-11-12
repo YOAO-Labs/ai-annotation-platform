@@ -1475,7 +1475,12 @@ async def main():
     vite.pin.send(signal.SIGTERM)
     vite_status = vite.wait()
     save(evidence / "b-vite-outcome.json", {"returncode": vite_status})
-    require(vite_status in (0, -signal.SIGTERM), "B web server did not settle normally")
+    # Node exits 143 (128+SIGTERM) when its default SIGTERM handling fires;
+    # the negative form covers a runtime that reports the signal instead.
+    require(
+        vite_status in (0, -signal.SIGTERM, 128 + signal.SIGTERM),
+        "B web server did not settle normally",
+    )
     vite.pin.exited()
     sibling.pin.send(signal.SIGINT)
     require(sibling.wait() == 0, "B launcher did not settle normally")
