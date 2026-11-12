@@ -1447,38 +1447,34 @@ BEGIN
         RAISE EXCEPTION USING ERRCODE = '23514', MESSAGE = 'fixture_media_owner_invalid';
     END IF;
     IF v_kind = 'pyramid_output' THEN
-        -- Inline the exact native attempt proof; the birth trigger must not rely
-        -- on a separately granted helper across fixture role topologies.
+        -- Prove the exact native attempt from the fixture claim and the
+        -- generation binding, using only the birth trigger's existing owner.
         SELECT pg_catalog.jsonb_build_object(
             'run_id',birth.run_id,'dataset_id',birth.dataset_id,
             'item_id',birth.item_id,
             'task_id',CASE WHEN birth.owner_kind='task' THEN birth.owner_id END,
-            'job_id',attempt.job_id,'lease_token',attempt.lease_token
+            'job_id',claim.job_id,'lease_token',claim.lease_token
         ) INTO v_native
-        FROM aap_assets_v1.image_pyramid_native_attempts AS attempt
-        JOIN public.image_pyramid_outputs AS output
-          ON output.id=attempt.output_id
+        FROM aap_assets_v1.fixture_native_media_claims AS claim
         JOIN aap_assets_v1.fixture_native_media_jobs AS birth
-          ON birth.family='image' AND birth.job_id=attempt.job_id
+          ON birth.family='image' AND birth.job_id=claim.job_id
         JOIN aap_assets_v1.fixture_native_cache_targets AS target
           ON target.run_id=birth.run_id
-        WHERE attempt.output_id=NEW.id
+        WHERE claim.family='image' AND claim.state='claimed'
+          AND claim.lease_token=NEW.lease_token
           AND birth.job_kind='pyramid'
           AND birth.dataset_id IS NOT NULL AND birth.item_id IS NOT NULL
-          AND attempt.asset_id=output.asset_id
-          AND attempt.generation=output.generation
-          AND attempt.lease_token=output.lease_token
+          AND target.location_id::text=NEW.storage_ref ->> 'location_id'
+          AND target.endpoint=NEW.storage_ref ->> 'endpoint_url'
+          AND target.bucket=NEW.storage_ref ->> 'bucket'
+          AND target.storage_identity=NEW.storage_ref ->> 'storage_identity'
           AND EXISTS (
-              SELECT 1 FROM aap_assets_v1.fixture_native_media_claims AS claim
-              WHERE claim.family='image' AND claim.job_id=attempt.job_id
-                AND claim.job_generation=attempt.job_generation
-                AND claim.lease_token=attempt.lease_token
-                AND claim.state='claimed'
-          )
-          AND output.storage_ref ->> 'location_id'=target.location_id::text
-          AND output.storage_ref ->> 'endpoint_url'=target.endpoint
-          AND output.storage_ref ->> 'bucket'=target.bucket
-          AND output.storage_ref ->> 'storage_identity'=target.storage_identity;
+              SELECT 1 FROM aap_assets_v1.fixture_native_pyramid_generations AS binding
+              WHERE binding.asset_id=NEW.asset_id
+                AND binding.generation=NEW.generation
+                AND binding.job_id=claim.job_id
+                AND binding.job_generation=claim.job_generation
+          );
         IF v_native IS NOT NULL THEN
             IF v_native ->> 'item_id' IS DISTINCT FROM v_item::text
                OR v_native ->> 'task_id' IS DISTINCT FROM v_task::text THEN
@@ -1637,22 +1633,6 @@ BEGIN
     EXECUTE pg_catalog.format('ALTER TABLE aap_assets_v1.image_pyramid_native_attempts OWNER TO %I',v_owner);
     EXECUTE pg_catalog.format('ALTER TABLE aap_assets_v1.image_pyramid_native_members OWNER TO %I',v_owner);
     EXECUTE pg_catalog.format('ALTER FUNCTION aap_assets_v1.record_fixture_media_birth() OWNER TO %I',v_owner);
-    -- The birth trigger's definer reads the exact attempt and fixture proofs.
-    FOR v_grant IN
-        SELECT pg_catalog.pg_get_userbyid(proowner) AS rolname
-        FROM pg_catalog.pg_proc
-        WHERE oid='aap_assets_v1.record_fixture_media_birth()'::regprocedure
-        UNION
-        SELECT v_owner::text
-    LOOP
-        EXECUTE pg_catalog.format(
-            'GRANT SELECT ON aap_assets_v1.image_pyramid_native_attempts,'
-            ' aap_assets_v1.fixture_native_media_jobs,'
-            ' aap_assets_v1.fixture_native_cache_targets,'
-            ' aap_assets_v1.fixture_native_media_claims TO %I',
-            v_grant.rolname
-        );
-    END LOOP;
     IF NOT v_create THEN
         EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA aap_assets_v1 FROM %I',v_owner);
     END IF;
