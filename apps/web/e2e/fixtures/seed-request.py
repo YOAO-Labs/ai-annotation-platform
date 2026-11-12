@@ -783,7 +783,8 @@ async def serve_authority(ready_fd):
         ):
             raise SeedSetupRefused("Invalid screenshot native topology")
         if api_port is not None and any(
-            entry["control"].journal.get("api", {}).get("port") == api_port
+            entry["control"].journal.get("state") != "retired"
+            and entry["control"].journal.get("api", {}).get("port") == api_port
             for entry in screenshot_roots.values()
         ):
             raise SeedSetupRefused("Screenshot native API port reused")
