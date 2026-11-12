@@ -74,6 +74,7 @@ def jobs_fixture_dataset_guard_sql():
             "0437_fixture_reclaim_job_scope.sql",
             "0443_fixture_dataset_retired_jobs.sql",
             "0444_image_export_dataset_scope.sql",
+            "0456_prediction_dataset_scope.sql",
         )
     )
 
@@ -119,6 +120,12 @@ def jobs_fixture_guard_schema():
                 "volatility": "volatile",
                 "parallel": "unsafe",
             },
+            "aap_assets_v1.fixture_task_dataset_scope": {
+                "arguments": "uuid, jsonb",
+                "returns": "uuid[]",
+                "volatility": "stable",
+                "parallel": "unsafe",
+            },
             "aap_jobs_v1.create_filter_fixture_jobs": {
                 "arguments": "uuid, uuid, uuid, uuid, uuid, uuid, text, text",
                 "returns": "bigint",
@@ -138,7 +145,7 @@ def jobs_fixture_guard_schema():
                 "parallel": "unsafe",
             },
         },
-        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; immutable image export bindings retain their exact Dataset sets across Job deletion; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required",
+        "x-scope": "exact sealed fixture runs own project and typed dataset Jobs; immutable image export bindings retain their exact Dataset sets across Job deletion; born prediction Job bindings freeze the exact Task/Dataset scope at Job birth; unproved unknown scopes block cleanup; no-dispatch presentation receipts or matching execution-owner retirement proofs are required",
         "x-empty-scope": "guard succeeds and deletion returns zero",
         "x-security": {
             "database": "actual database name must end in _test or _e2e",
