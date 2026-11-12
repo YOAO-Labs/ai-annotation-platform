@@ -804,8 +804,22 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
                         await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
                 assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
             await savepoint.rollback()
+    own_association = ProjectDataset(project_id=project.id, dataset_id=datasets[0].id)
+    db_session.add(own_association)
+    await db_session.flush()
     job = uuid.uuid4()
-    await db_session.execute(insert, backfill_values(datasets[0].id, job))
+    own_payload = _creation_payload(
+        job, owner.id, datasets[0].id, project.id, own_association.id
+    )
+    await db_session.execute(
+        task_insert,
+        {
+            "id": job,
+            "project_id": project.id,
+            "user_id": owner.id,
+            "payload": json.dumps(own_payload),
+        },
+    )
     # Once this run is sealed both unknown families must be denied admission.
     assert await ownership.seal(db_session, first, family="scale") == ()
     for statement, params in unknown_jobs:
