@@ -38,6 +38,10 @@ from worktree_env import application_environment, atomic_json, state_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+# The fixture owner helpers import ``app.*`` lazily. Playwright starts this
+# supervisor from apps/api with the script directory on sys.path, so the
+# checkout's API package must be importable here as well.
+sys.path.insert(0, str(ROOT / "apps/api"))
 
 
 def _require(condition, code):
@@ -146,7 +150,6 @@ def _control_child(listener_fd, stopped_fd):
 
 
 def _proxy_child(listener_fd, stopped_fd):
-    sys.path.insert(0, str(ROOT / "apps/api"))
     from app.services.fixture_native_output_proxy import create_app
 
     _serve_child(create_app(), listener_fd, stopped_fd)
