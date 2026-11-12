@@ -401,6 +401,11 @@ def _worker_environment(test_engine, media, execution_url, execution_token, brok
         "preannotation_result_client",
         test_engine,
     )
+    publication = _guard_role_url(
+        "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+        "jobs_publication_client",
+        test_engine,
+    )
     # app.config normally reads the checkout's absolute .env. Override its
     # credential/role fields rather than exposing owner or storage credentials
     # to the ordinary worker, then provide only its actual narrow authorities.
@@ -433,6 +438,8 @@ def _worker_environment(test_engine, media, execution_url, execution_token, brok
         ),
         MIGRATION_DATABASE_URL="",
         PREANNOTATION_RESULTS_DATABASE_URL=_runtime_database_url(result),
+        JOBS_PUBLICATION_DATABASE_URL=_runtime_database_url(publication),
+        JOBS_PUBLICATION_DATABASE_URL_FILE="",
         REDIS_URL=broker,
         CELERY_BROKER_URL=broker,
         ASSETS_MEDIA_URL=str(media.control_client.base_url).rstrip("/"),
@@ -679,6 +686,17 @@ async def test_held_inference_blocks_exact_retirement_until_physical_settlement(
         test_engine.url.port,
         test_engine.url.database,
     )
+    publication = _guard_role_url(
+        "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+        "jobs_publication_client",
+        test_engine,
+    )
+    # The in-process product API reads these settings per request; the
+    # verifier supplies the narrow role URL under its own prefix.
+    monkeypatch.setattr(
+        settings, "jobs_publication_database_url", _runtime_database_url(publication)
+    )
+    monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
     for name, role in (
         ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"),
         (
