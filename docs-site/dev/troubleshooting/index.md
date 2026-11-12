@@ -23,6 +23,7 @@ last_reviewed: 2026-10-19
 | 容器内 `parents[3]` 越界 / `.env` 路径报错                         | [环境变量与 config 路径](./env-and-config-paths)          |
 | GitHub Actions `services:` 启动 MinIO 失败 / FastAPI lifespan 卡死 | [CI 服务依赖踩坑](./ci-flaky-services)                    |
 | Raster Mask WebGPU 未命中 / adapter unavailable / 回退 CPU         | [Raster Mask WebGPU 故障排查](./raster-mask-webgpu)       |
+| 本地验收进程身份错乱 / 队列假空 / 网络断流 / Uvicorn `-15`         | [本地验收运行时踩坑](./local-acceptance-runtime)          |
 
 ## 写一篇新踩坑文档
 

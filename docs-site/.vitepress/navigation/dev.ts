@@ -203,6 +203,10 @@ export function createDevSidebar(
         { text: "React useState TDZ", link: "/dev/troubleshooting/react-tdz-trap" },
         { text: "环境变量与 config 路径", link: "/dev/troubleshooting/env-and-config-paths" },
         { text: "CI 服务依赖踩坑", link: "/dev/troubleshooting/ci-flaky-services" },
+        {
+          text: "本地验收运行时",
+          link: "/dev/troubleshooting/local-acceptance-runtime",
+        },
       ],
     },
     {
