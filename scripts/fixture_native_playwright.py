@@ -250,7 +250,20 @@ async def _prepare(environment, suite_id, raster_owner=None, *, root_family="own
     )
 
 
-async def _suite_settled(environment, suite_id, root_family, directory=None):
+def _native_run_evidence_settled(execution, reader, directory_present):
+    """Reconcile the durable native identities with the run receipt directory."""
+    if execution is None and reader is None:
+        return not directory_present
+    return (
+        directory_present
+        and isinstance(execution, dict)
+        and execution.get("state") == "retired"
+        and isinstance(reader, dict)
+        and reader.get("state") == "retired"
+    )
+
+
+async def _suite_settled(environment, suite_id, root_family, directory):
     owner_url, _, _ = await _verified_database(environment)
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     try:
@@ -282,12 +295,6 @@ async def _suite_settled(environment, suite_id, root_family, directory=None):
             settled = []
             for row in native_rows:
                 _require(row.state == "retired", "fixture_native_run_unsettled")
-                if root_family != "screenshot" and (
-                    directory is None
-                    or not (directory / f"native-run-{row.id.hex}").is_dir()
-                ):
-                    # The run registered no native producer/reader/target.
-                    continue
                 execution = await connection.scalar(
                     text("SELECT aap_jobs_v1.fixture_media_executor_identity(:run)"),
                     {"run": row.id},
@@ -296,13 +303,14 @@ async def _suite_settled(environment, suite_id, root_family, directory=None):
                     text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"),
                     {"run": row.id},
                 )
+                directory_present = (directory / f"native-run-{row.id.hex}").is_dir()
                 _require(
-                    isinstance(execution, dict)
-                    and execution.get("state") == "retired"
-                    and isinstance(reader, dict)
-                    and reader.get("state") == "retired",
+                    _native_run_evidence_settled(execution, reader, directory_present),
                     "fixture_native_run_unsettled",
                 )
+                if execution is None and reader is None:
+                    # The owner's durable records prove no native participants.
+                    continue
                 settled.append(row)
             return sorted(str(row.id) for row in settled)
     finally:

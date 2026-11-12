@@ -1719,11 +1719,9 @@ async def _retire_fixture_execution_work(
 
 def _native_run_owned(native_runtime, run_id: UUID) -> bool:
     """Whether this exact run registered native participants under its suite."""
-    if native_runtime is None:
-        return False
-    if run_id in native_runtime.runs or run_id in native_runtime.retired_runs:
-        return True
-    return (native_runtime.directory / f"native-run-{run_id.hex}").is_dir()
+    return native_runtime is not None and (
+        run_id in native_runtime.runs or run_id in native_runtime.retired_runs
+    )
 
 
 async def _cleanup_owned_e2e_fixtures(
