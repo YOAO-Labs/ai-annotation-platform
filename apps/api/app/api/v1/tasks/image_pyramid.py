@@ -7,6 +7,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from yoao_assets_images.contract import (
+    ImageFailure,
+    PrepareOwnedPyramidRequest,
+    RetryOwnedPyramidRequest,
+    http_error_status,
+)
 
 from app.api.v1.tasks._shared import (
     _load_task_or_404,
@@ -48,11 +54,11 @@ from app.services import (
     image_pyramid_objects as objects,
 )
 from app.services import image_pyramid_storage as physical, storage_access
+from app.services.assets_images import image_gateway, image_policy
 from app.services.content_snapshot import ContentError
 from app.services.storage import storage_service
 from functools import wraps
 from sqlalchemy.exc import DBAPIError
-from app.workers.image_pyramid import enqueue_image_pyramid
 
 router = APIRouter()
 
@@ -159,6 +165,47 @@ def _status_response(
     )
 
 
+async def _admit_native_pyramid(
+    db: AsyncSession,
+    task,
+    authority,
+    *,
+    retry: bool,
+    force: bool = True,
+):
+    """Admit exactly one native attempt through the current Images owner.
+
+    The saved-output allocation happens under the claim lease, so no capacity is
+    reserved here.  A failed read-time admission does not turn a GET into an
+    error; an explicit retry surfaces the owner's failure instead.
+    """
+    operation_id = uuid.uuid4()
+    request = (RetryOwnedPyramidRequest if retry else PrepareOwnedPyramidRequest)(
+        operation_id=operation_id,
+        actor_id=authority.actor_id,
+        task_id=task.id,
+        purpose="pyramid",
+        policy=image_policy(),
+        force=force,
+        delegation=originals.authorization(authority),
+    )
+    try:
+        async with image_gateway(db) as images:
+            accepted = await images.call(
+                "retry_owned_pyramid" if retry else "prepare_owned_pyramid",
+                request,
+            )
+    except ImageFailure as exc:
+        IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+            operation="admit", outcome=exc.code
+        ).inc()
+        if retry:
+            raise
+        return None
+    IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="admit", outcome="queued").inc()
+    return accepted
+
+
 @router.get(
     "/{task_id}/image-pyramid",
     response_model=ImagePyramidResponse,
@@ -244,16 +291,12 @@ async def get_image_pyramid(
             error_code=error_code,
         )
 
-    if not source_matches_generation(owner, generation) or generation.output_id is None:
+    if not source_matches_generation(owner, generation):
         await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         if settings.image_pyramid_auto_generate:
-            await enqueue_image_pyramid(
-                db, "task",
-                task.id,
-                force=True,
-                delegation=originals.authorization(authority),
-            )
+            await db.commit()
+            await _admit_native_pyramid(db, task, authority, retry=False)
         IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
             operation="manifest", outcome="stale"
         ).inc()
@@ -264,6 +307,24 @@ async def get_image_pyramid(
             generation=generation,
             retryable=True,
             error_code="source_changed",
+        )
+
+    if generation.output_id is None:
+        # A ready generation without saved-output ownership is unavailable.
+        # Never rewrite it as source drift, adopt it or delete its facts; the
+        # current owner may create a fresh recorded generation instead.
+        if settings.image_pyramid_auto_generate:
+            await db.commit()
+            await _admit_native_pyramid(db, task, authority, retry=False)
+        IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+            operation="manifest", outcome="unavailable"
+        ).inc()
+        return _status_response(
+            task_id=task.id,
+            status_value="missing",
+            required=required,
+            generation=generation,
+            retryable=True,
         )
 
     await db.commit()
@@ -301,12 +362,7 @@ async def get_image_pyramid(
         if settings.image_pyramid_auto_generate:
             await originals.check(db, authority, lock=True)
             await db.commit()
-            await enqueue_image_pyramid(
-                db, "task",
-                task.id,
-                force=True,
-                delegation=originals.authorization(authority),
-            )
+            await _admit_native_pyramid(db, task, authority, retry=False)
         return _status_response(
             task_id=task.id,
             status_value="inconsistent",
@@ -397,13 +453,18 @@ async def create_image_pyramid_asset_urls(
             operation="asset_urls", outcome="not_ready"
         ).inc()
         raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
-    if not source_matches_generation(owner, generation) or generation.output_id is None:
+    if not source_matches_generation(owner, generation):
         await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         raise HTTPException(
             status_code=409,
             detail={"reason": "stale_generation", "active_generation": None},
         )
+    if generation.output_id is None:
+        IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+            operation="asset_urls", outcome="unavailable"
+        ).inc()
+        raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
 
     await db.commit()
     try:
@@ -597,7 +658,10 @@ async def retry_image_pyramid(
             and generation.output_id is not None
         ):
             raise HTTPException(status_code=409, detail={"reason": "already_ready"})
-        if asset is not None:
+        if generation.output_id is None:
+            # Missing ownership evidence is not evidence that the source changed.
+            invalidated_stale = True
+        elif asset is not None:
             await _invalidate_ready(db, asset, generation, "source_changed")
             invalidated_stale = True
 
@@ -625,12 +689,13 @@ async def retry_image_pyramid(
 
     await originals.check(db, authority, lock=True)
     await db.commit()
-    celery_task_id = await enqueue_image_pyramid(
-        db, "task", task.id, force=True, delegation=originals.authorization(authority)
-    )
+    try:
+        accepted = await _admit_native_pyramid(db, task, authority, retry=True)
+    except ImageFailure as exc:
+        raise HTTPException(http_error_status(exc.code), {"reason": exc.code}) from None
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="retry", outcome="queued").inc()
     return ImagePyramidRetryResponse(
         task_id=task.id,
-        status="queued",
-        celery_task_id=celery_task_id,
+        status="building" if accepted.work.status == "running" else "queued",
+        job_id=accepted.work.job_id,
     )

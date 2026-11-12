@@ -772,6 +772,29 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)",
         )
     },
+    **{
+        signature: "0455_images_output_ownership.sql"
+        for signature in (
+            "aap_assets_v1._accept_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb,text)",
+            "aap_assets_v1.prepare_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+            "aap_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+            "aap_assets_v1.guard_image_pyramid_native_attempt()",
+            "aap_assets_v1.guard_image_pyramid_native_member()",
+            "guard_image_pyramid_inputs()",
+            "aap_assets_v1._image_garbage_prefix_valid(text)",
+            "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
+            "aap_assets_v1._native_pyramid_attempt(uuid,boolean)",
+            "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
+            "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
+            "aap_assets_v1.submit_native_pyramid_member(uuid)",
+            "aap_assets_v1._native_pyramid_fixture_scope(uuid)",
+            "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
+            "aap_assets_v1.verify_native_pyramid_member(uuid)",
+            "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
+            "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
+            "aap_assets_v1.record_fixture_media_birth()",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "audit_append_client"
 AUDIT_QUERY_ROLE = "audit_query_client"
@@ -1803,6 +1826,7 @@ SQL_ARTIFACTS = (
     "0450_video_candidate_status_restore.sql",
     *ASSETS_SOURCE_SQL_ARTIFACTS,
     "0454_identity_first_seed_account.sql",
+    "0455_images_output_ownership.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -2010,6 +2034,7 @@ SCHEMA_ARTIFACTS = (
     "0349_labeling_scene_read.schema.json",
     "0366_audit_fixture_cleanup.schema.json",
     "0454_identity_first_seed_account.schema.json",
+    "0455_images_output_ownership.schema.json",
     *ASSETS_SOURCE_SCHEMA_ARTIFACTS,
 )
 TEST_FILES = (

@@ -41,6 +41,11 @@ _IMAGE_PYRAMID_ATTEMPT_KEY = re.compile(
     r"manifest\.json|overview\.webp|tiles/(?:0|[1-9][0-9]*)/"
     r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
 )
+_PYRAMID_OUTPUT_KEY = re.compile(
+    rf"^image-pyramids/objects/{_UUID}/(?:"
+    r"manifest\.json|overview\.webp|tiles/(?:0|[1-9][0-9]*)/"
+    r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
+)
 _IMAGE_GENERATION_KEY = re.compile(
     rf"^image-pyramids/(?P<asset>{_UUID})/g(?P<generation>[1-9][0-9]*)/"
     rf"(?:{_ATTEMPT}/)?(?:manifest\.json|overview\.webp|tiles/"
@@ -57,7 +62,6 @@ def _mark_fixture_upload_uncertain(failure):
     if fixture_original_active():
         failure.storage_operation_unsettled = True
     return failure
-
 
 
 def _has_sigv4_query(url: httpx.URL) -> bool:
@@ -293,7 +297,8 @@ class S3ImageStorage:
         try:
             fixture_url = (
                 await self._fixture_cache_resolver.url(key, 300)
-                if self._fixture_cache_resolver is not None else None
+                if self._fixture_cache_resolver is not None
+                else None
             )
             if fixture_url is not None:
                 response = await self._fixture_cache_resolver.http.head(fixture_url)
@@ -321,7 +326,8 @@ class S3ImageStorage:
         client = self._get_http_client()
         fixture_url = (
             await self._fixture_cache_resolver.url(key, 300)
-            if self._fixture_cache_resolver is not None else None
+            if self._fixture_cache_resolver is not None
+            else None
         )
         url = fixture_url or self._presigned_http_url(
             "get_object", {"Bucket": self.config.cache_bucket, "Key": key}
@@ -423,11 +429,160 @@ class S3ImageStorage:
                     raise failure from close_error
                 if failure is not None:
                     combined = BaseExceptionGroup(
-                        "Image upload and stream close both failed", [failure, close_error]
+                        "Image upload and stream close both failed",
+                        [failure, close_error],
                     )
                     _mark_fixture_upload_uncertain(combined)
                     raise combined from None
                 raise
+
+    async def upload_pyramid_member(
+        self, path: Path, key: str, digest: str, size: int
+    ) -> ObjectIdentity:
+        """Write one reserved saved-output member and return its actual receipt.
+
+        The caller already froze the key, digest and size in its member
+        reservation.  This method performs exactly one conditional PUT and
+        proves the returned identity by HEAD before any receipt is recorded.
+        """
+        if (
+            not isinstance(key, str)
+            or _PYRAMID_OUTPUT_KEY.fullmatch(key) is None
+            or not isinstance(digest, str)
+            or len(digest) != 64
+            or any(char not in "0123456789abcdef" for char in digest)
+            or type(size) is not int
+            or size <= 0
+        ):
+            raise ImageFailure("invalid_request")
+        path = Path(path)
+        try:
+            info = path.stat(follow_symlinks=False)
+        except OSError:
+            raise ImageFailure("invalid_response") from None
+        if path.is_symlink() or not path.is_file() or info.st_size != size:
+            raise ImageFailure("invalid_response")
+        if _sha256_file(path) != digest:
+            raise ImageFailure("invalid_response")
+        is_manifest = key.endswith("/manifest.json")
+        content_type = "application/json" if is_manifest else "image/webp"
+        from yoao_assets_media_runtime.fixture_native_outputs import current
+
+        writer = current()
+        if writer is not None:
+            return await self._upload_fixture_pyramid_member(
+                writer, path, key, digest, size, content_type
+            )
+        params = {
+            "Bucket": self.config.cache_bucket,
+            "Key": key,
+            "ContentType": content_type,
+            "ContentLength": size,
+            "Metadata": {"sha256": digest},
+        }
+        headers = {
+            "Content-Type": content_type,
+            "Content-Length": str(size),
+            "x-amz-meta-sha256": digest,
+            "If-None-Match": "*",
+        }
+        url = self._presigned_http_url("put_object", params)
+        body = _FileBody(path, size, digest)
+        try:
+            response = await self._get_http_client().put(
+                url, headers=headers, content=body
+            )
+            if not 200 <= response.status_code < 300:
+                if response.status_code == 412:
+                    raise ImageFailure("upload_verification_failed")
+                _raise_http_failure(response, missing_is_object=False)
+            returned_etag = response.headers.get("etag")
+            returned_version = response.headers.get("x-amz-version-id")
+            identity, observed = await self._head_object(
+                self._get_http_client(), self.config.cache_bucket, key
+            )
+            if (
+                identity.byte_size != size
+                or observed.get("x-amz-meta-sha256") != digest
+                or not isinstance(returned_etag, str)
+                or returned_etag.strip().strip('"') != identity.etag
+                or (
+                    returned_version not in (None, "", "null")
+                    and returned_version != identity.version_id
+                )
+            ):
+                raise ImageFailure("upload_verification_failed")
+            return identity
+        except (ImageFailure, asyncio.CancelledError):
+            raise
+        except Exception:
+            raise ImageFailure("storage_unavailable") from None
+        finally:
+            failure = sys.exception()
+            try:
+                await body.aclose()
+            except BaseException:
+                if failure is None:
+                    raise
+
+    async def _upload_fixture_pyramid_member(
+        self, writer, path, key, digest, size, content_type
+    ):
+        from yoao_assets_media_runtime.fixture_native_outputs import verify_object
+        from yoao_assets_media_runtime.storage import _run_blocking
+
+        try:
+            identity = await _run_blocking(
+                self._fixture_member_put, writer, path, key, digest, size, content_type
+            )
+            await _run_blocking(
+                verify_object,
+                writer.client,
+                writer.bucket,
+                key,
+                digest,
+                size,
+                identity.etag,
+                identity.version_id,
+            )
+            return identity
+        except BaseException as exc:
+            exc.storage_operation_unsettled = True
+            raise
+
+    @staticmethod
+    def _fixture_member_put(writer, path, key, digest, size, content_type):
+        with path.open("rb") as source:
+            try:
+                result = writer.client.put_object(
+                    Bucket=writer.bucket,
+                    Key=key,
+                    Body=source,
+                    ContentLength=size,
+                    ContentType=content_type,
+                    Metadata={"sha256": digest},
+                    IfNoneMatch="*",
+                )
+            except Exception as exc:
+                code = str(
+                    getattr(exc, "response", {}).get("Error", {}).get("Code", "")
+                )
+                if code in {"PreconditionFailed", "412"}:
+                    raise ImageFailure("upload_verification_failed") from None
+                raise
+        etag, version = result.get("ETag"), result.get("VersionId")
+        if (
+            result.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+            or not isinstance(etag, str)
+            or not etag
+            or not isinstance(version, str)
+            or not version
+            or version == "null"
+        ):
+            raise ImageFailure("upload_verification_failed")
+        return ObjectIdentity(
+            etag=etag.strip().strip('"'), byte_size=size, version_id=version
+        )
 
     @staticmethod
     def _fixture_put(writer, path, key, digest, size, content_type):
@@ -453,7 +608,9 @@ class S3ImageStorage:
             raise RuntimeError("fixture native cache PUT receipt is invalid")
         return etag, version
 
-    async def _upload_fixture_cache(self, path, key, digest, size, content_type, writer):
+    async def _upload_fixture_cache(
+        self, path, key, digest, size, content_type, writer
+    ):
         from yoao_assets_media_runtime.fixture_native_outputs import verify_object
         from yoao_assets_media_runtime.storage import _run_blocking
         from .original_read import fixture_upload_started
@@ -466,7 +623,14 @@ class S3ImageStorage:
             )
             await writer.advance(intent, "written", etag, version)
             await _run_blocking(
-                verify_object, writer.client, writer.bucket, key, digest, size, etag, version
+                verify_object,
+                writer.client,
+                writer.bucket,
+                key,
+                digest,
+                size,
+                etag,
+                version,
             )
             await writer.advance(intent, "verified", etag, version)
             return Artifact(key=key, byte_size=size, sha256=digest)
@@ -479,7 +643,8 @@ class S3ImageStorage:
         try:
             fixture_url = (
                 await self._fixture_cache_resolver.url(key, expires_in)
-                if self._fixture_cache_resolver is not None else None
+                if self._fixture_cache_resolver is not None
+                else None
             )
             if fixture_url is not None:
                 return fixture_url

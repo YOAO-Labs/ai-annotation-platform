@@ -598,6 +598,16 @@ class RetryImageMediaRequest(ImageAcceptanceRequest):
     pass
 
 
+class PrepareOwnedPyramidRequest(ImageAcceptanceRequest):
+    purpose: Literal["pyramid"] = "pyramid"
+    delegation: JsonObject
+
+
+class RetryOwnedPyramidRequest(ImageAcceptanceRequest):
+    purpose: Literal["pyramid"] = "pyramid"
+    delegation: JsonObject
+
+
 class ImageInvalidation(Value):
     source_snapshot: Digest
     kind: Literal["thumbnail", "overview", "manifest", "tile"]
@@ -1058,6 +1068,58 @@ class ImageWorkOutcome(Value):
     ]
 
 
+class NativePyramidAllocationRequest(Value):
+    job_id: UUID
+    job_generation: Revision
+    lease_token: UUID
+    asset_id: UUID
+    generation: PyramidGeneration
+
+
+class PyramidOutputAllocation(Value):
+    output_id: UUID
+    prefix: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+    job_id: UUID
+    job_generation: Revision
+    lease_token: UUID
+    asset_id: UUID
+    generation: PyramidGeneration
+
+
+class FinishNativePyramidRequest(ImageLeaseRequest):
+    result: PyramidResult
+
+
+class PyramidMemberStatus(Value):
+    output_id: UUID
+    operation_id: UUID
+    relative_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+    sha256: Digest
+    size_bytes: Count
+    state: Literal[
+        "prepared", "submitted", "written", "verified", "not_written", "unknown"
+    ]
+
+
+class PyramidMemberReservation(PyramidMemberStatus):
+    state: Literal[
+        "prepared", "submitted", "written", "verified", "not_written", "unknown"
+    ] = "prepared"
+
+
+class PyramidMemberOperation(Value):
+    operation_id: UUID
+
+
+class PyramidMemberReceipt(PyramidMemberOperation):
+    etag: Annotated[StrictStr, Field(min_length=1, max_length=1024)]
+    version_id: Annotated[StrictStr, Field(max_length=1024)] | None = None
+
+
+class PyramidMemberAbandon(PyramidMemberOperation):
+    state: Literal["not_written", "unknown"]
+
+
 class FailImageMediaRequest(ImageLeaseRequest):
     error_code: ErrorCode
     error_detail: Annotated[StrictStr, Field(max_length=2000)]
@@ -1332,6 +1394,89 @@ OPERATIONS = {
         ("uuid", "uuid", "uuid", "uuid", "text", "text", "jsonb", "boolean"),
         "control",
     ),
+    "prepare_owned_pyramid": NativeOperation(
+        PrepareOwnedPyramidRequest,
+        AcceptedImageWork,
+        (
+            "operation_id",
+            "actor_id",
+            "task_id",
+            "dataset_item_id",
+            "purpose",
+            "expected_source_snapshot",
+            "policy",
+            "force",
+            "delegation",
+        ),
+        ("uuid", "uuid", "uuid", "uuid", "text", "text", "jsonb", "boolean", "jsonb"),
+        "control",
+    ),
+    "retry_owned_pyramid": NativeOperation(
+        RetryOwnedPyramidRequest,
+        AcceptedImageWork,
+        (
+            "operation_id",
+            "actor_id",
+            "task_id",
+            "dataset_item_id",
+            "purpose",
+            "expected_source_snapshot",
+            "policy",
+            "force",
+            "delegation",
+        ),
+        ("uuid", "uuid", "uuid", "uuid", "text", "text", "jsonb", "boolean", "jsonb"),
+        "control",
+    ),
+    "allocate_native_pyramid_output": NativeOperation(
+        NativePyramidAllocationRequest,
+        PyramidOutputAllocation,
+        ("job_id", "job_generation", "lease_token", "asset_id", "generation"),
+        ("uuid", "bigint", "uuid", "uuid", "integer"),
+        "worker",
+    ),
+    "begin_native_pyramid_member": NativeOperation(
+        PyramidMemberReservation,
+        PyramidMemberStatus,
+        ("operation_id", "output_id", "relative_key", "sha256", "size_bytes"),
+        ("uuid", "uuid", "text", "text", "bigint"),
+        "worker",
+    ),
+    "submit_native_pyramid_member": NativeOperation(
+        PyramidMemberOperation,
+        PyramidMemberStatus,
+        ("operation_id",),
+        ("uuid",),
+        "worker",
+    ),
+    "write_native_pyramid_member": NativeOperation(
+        PyramidMemberReceipt,
+        PyramidMemberStatus,
+        ("operation_id", "etag", "version_id"),
+        ("uuid", "text", "text"),
+        "worker",
+    ),
+    "verify_native_pyramid_member": NativeOperation(
+        PyramidMemberOperation,
+        PyramidMemberStatus,
+        ("operation_id",),
+        ("uuid",),
+        "worker",
+    ),
+    "abandon_native_pyramid_member": NativeOperation(
+        PyramidMemberAbandon,
+        PyramidMemberStatus,
+        ("operation_id", "state"),
+        ("uuid", "text"),
+        "worker",
+    ),
+    "finish_native_pyramid_output": NativeOperation(
+        FinishNativePyramidRequest,
+        ImageWorkOutcome,
+        ("job_id", "generation", "lease_token", "result"),
+        ("uuid", "bigint", "uuid", "jsonb"),
+        "worker",
+    ),
     "read_image_generation": NativeOperation(
         ReadImageGenerationRequest,
         ImageGenerationRead,
@@ -1602,6 +1747,21 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             for row in result.items
         ):
             raise ValueError("image summary escaped its requested profile")
+    if isinstance(request, NativePyramidAllocationRequest) and isinstance(
+        result, PyramidOutputAllocation
+    ):
+        if result.asset_id != request.asset_id:
+            raise ValueError("pyramid allocation changed its asset")
+    if isinstance(request, PyramidMemberReservation) and isinstance(
+        result, PyramidMemberStatus
+    ):
+        if (
+            result.output_id != request.output_id
+            or result.relative_key != request.relative_key
+            or result.sha256 != request.sha256
+            or result.size_bytes != request.size_bytes
+        ):
+            raise ValueError("pyramid member changed its reservation")
     for field in ("operation_id", "job_id", "generation", "lease_token", "garbage_id"):
         if (
             hasattr(request, field)
@@ -1789,7 +1949,9 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             raise ValueError("image garbage ack substituted another row")
 
 
-def require_result_scope(claim: ImageClaim, result: ImageWorkResult) -> None:
+def require_result_scope(
+    claim: ImageClaim, result: ImageWorkResult, *, prefix: str | None = None
+) -> None:
     if claim.spec.kind != result.kind:
         raise ValueError("image worker result changed the accepted operation")
     if claim.source is None or claim.source.object_identity is None:
@@ -1812,7 +1974,7 @@ def require_result_scope(claim: ImageClaim, result: ImageWorkResult) -> None:
         or result.manifest.generation != claim.pyramid_generation
     ):
         raise ValueError("pyramid result changed its public generation")
-    expected_prefix = claim.output_prefix
+    expected_prefix = claim.output_prefix if prefix is None else prefix
     if (
         result.manifest_artifact.key != expected_prefix + "manifest.json"
         or result.overview_artifact.key != expected_prefix + "overview.webp"

@@ -1498,6 +1498,717 @@
       "title": "AcceptedImageWork",
       "type": "object"
     },
+    "JsonValue": {},
+    "PrepareOwnedPyramidRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "purpose": {
+          "const": "pyramid",
+          "default": "pyramid",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "delegation": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Delegation",
+          "type": "object"
+        }
+      },
+      "required": ["actor_id", "operation_id", "delegation"],
+      "title": "PrepareOwnedPyramidRequest",
+      "type": "object"
+    },
+    "RetryOwnedPyramidRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Task Id"
+        },
+        "dataset_item_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Dataset Item Id"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "title": "Actor Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "purpose": {
+          "const": "pyramid",
+          "default": "pyramid",
+          "title": "Purpose",
+          "type": "string"
+        },
+        "expected_source_snapshot": {
+          "anyOf": [
+            {
+              "pattern": "^[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Source Snapshot"
+        },
+        "policy": {
+          "$ref": "#/$defs/ImagePolicy"
+        },
+        "force": {
+          "default": false,
+          "title": "Force",
+          "type": "boolean"
+        },
+        "delegation": {
+          "additionalProperties": {
+            "$ref": "#/$defs/JsonValue"
+          },
+          "title": "Delegation",
+          "type": "object"
+        }
+      },
+      "required": ["actor_id", "operation_id", "delegation"],
+      "title": "RetryOwnedPyramidRequest",
+      "type": "object"
+    },
+    "NativePyramidAllocationRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "job_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Job Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        }
+      },
+      "required": ["job_id", "job_generation", "lease_token", "asset_id", "generation"],
+      "title": "NativePyramidAllocationRequest",
+      "type": "object"
+    },
+    "PyramidOutputAllocation": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "format": "uuid",
+          "title": "Output Id",
+          "type": "string"
+        },
+        "prefix": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Prefix",
+          "type": "string"
+        },
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "job_generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Job Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "output_id",
+        "prefix",
+        "job_id",
+        "job_generation",
+        "lease_token",
+        "asset_id",
+        "generation"
+      ],
+      "title": "PyramidOutputAllocation",
+      "type": "object"
+    },
+    "PyramidMemberReservation": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "format": "uuid",
+          "title": "Output Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "relative_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Relative Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "state": {
+          "default": "prepared",
+          "enum": ["prepared", "submitted", "written", "verified", "not_written", "unknown"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["output_id", "operation_id", "relative_key", "sha256", "size_bytes"],
+      "title": "PyramidMemberReservation",
+      "type": "object"
+    },
+    "PyramidMemberStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "output_id": {
+          "format": "uuid",
+          "title": "Output Id",
+          "type": "string"
+        },
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "relative_key": {
+          "maxLength": 1000,
+          "minLength": 1,
+          "title": "Relative Key",
+          "type": "string"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        },
+        "size_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "state": {
+          "enum": ["prepared", "submitted", "written", "verified", "not_written", "unknown"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["output_id", "operation_id", "relative_key", "sha256", "size_bytes", "state"],
+      "title": "PyramidMemberStatus",
+      "type": "object"
+    },
+    "PyramidMemberOperation": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id"],
+      "title": "PyramidMemberOperation",
+      "type": "object"
+    },
+    "PyramidMemberReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "etag": {
+          "maxLength": 1024,
+          "minLength": 1,
+          "title": "Etag",
+          "type": "string"
+        },
+        "version_id": {
+          "anyOf": [
+            {
+              "maxLength": 1024,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Version Id"
+        }
+      },
+      "required": ["operation_id", "etag"],
+      "title": "PyramidMemberReceipt",
+      "type": "object"
+    },
+    "PyramidMemberAbandon": {
+      "additionalProperties": false,
+      "properties": {
+        "operation_id": {
+          "format": "uuid",
+          "title": "Operation Id",
+          "type": "string"
+        },
+        "state": {
+          "enum": ["not_written", "unknown"],
+          "title": "State",
+          "type": "string"
+        }
+      },
+      "required": ["operation_id", "state"],
+      "title": "PyramidMemberAbandon",
+      "type": "object"
+    },
+    "Artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "key": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "title": "Key",
+          "type": "string"
+        },
+        "byte_size": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": ["key", "byte_size", "sha256"],
+      "title": "Artifact",
+      "type": "object"
+    },
+    "ImagePyramidLevel": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Level",
+          "type": "integer"
+        },
+        "scaleFactor": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Scalefactor",
+          "type": "integer"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "columns": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Columns",
+          "type": "integer"
+        },
+        "rows": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Rows",
+          "type": "integer"
+        }
+      },
+      "required": ["level", "scaleFactor", "width", "height", "columns", "rows"],
+      "title": "ImagePyramidLevel",
+      "type": "object"
+    },
+    "ImagePyramidManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "schema": {
+          "const": "aap-image-pyramid/v1",
+          "title": "Schema",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 2147483647,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "sourceFingerprint": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Sourcefingerprint",
+          "type": "string"
+        },
+        "normalizationVersion": {
+          "const": "exif-autorotate-srgb-v1",
+          "title": "Normalizationversion",
+          "type": "string"
+        },
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "tileSize": {
+          "const": 512,
+          "title": "Tilesize",
+          "type": "integer"
+        },
+        "overlap": {
+          "const": 1,
+          "title": "Overlap",
+          "type": "integer"
+        },
+        "format": {
+          "const": "webp",
+          "title": "Format",
+          "type": "string"
+        },
+        "levels": {
+          "items": {
+            "$ref": "#/$defs/ImagePyramidLevel"
+          },
+          "maxItems": 32,
+          "minItems": 1,
+          "title": "Levels",
+          "type": "array"
+        },
+        "overview": {
+          "$ref": "#/$defs/ImagePyramidOverview"
+        }
+      },
+      "required": [
+        "schema",
+        "generation",
+        "sourceFingerprint",
+        "normalizationVersion",
+        "width",
+        "height",
+        "tileSize",
+        "overlap",
+        "format",
+        "levels",
+        "overview"
+      ],
+      "title": "ImagePyramidManifest",
+      "type": "object"
+    },
+    "ImagePyramidOverview": {
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "exclusiveMinimum": 0,
+          "maximum": 2147483647,
+          "title": "Height",
+          "type": "integer"
+        },
+        "contentDigest": {
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "title": "Contentdigest",
+          "type": "string"
+        }
+      },
+      "required": ["width", "height", "contentDigest"],
+      "title": "ImagePyramidOverview",
+      "type": "object"
+    },
+    "ImageTileArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Level",
+          "type": "integer"
+        },
+        "x": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "X",
+          "type": "integer"
+        },
+        "y": {
+          "maximum": 2147483647,
+          "minimum": 0,
+          "title": "Y",
+          "type": "integer"
+        },
+        "artifact": {
+          "$ref": "#/$defs/Artifact"
+        }
+      },
+      "required": ["level", "x", "y", "artifact"],
+      "title": "ImageTileArtifact",
+      "type": "object"
+    },
+    "PyramidResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "pyramid",
+          "default": "pyramid",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_identity": {
+          "$ref": "#/$defs/ObjectIdentity"
+        },
+        "source_sha256": {
+          "pattern": "^[0-9a-f]{64}$",
+          "title": "Source Sha256",
+          "type": "string"
+        },
+        "manifest": {
+          "$ref": "#/$defs/ImagePyramidManifest"
+        },
+        "manifest_artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "overview_artifact": {
+          "$ref": "#/$defs/Artifact"
+        },
+        "tile_artifacts": {
+          "items": {
+            "$ref": "#/$defs/ImageTileArtifact"
+          },
+          "maxItems": 20000,
+          "title": "Tile Artifacts",
+          "type": "array"
+        },
+        "tile_count": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Tile Count",
+          "type": "integer"
+        },
+        "retained_bytes": {
+          "maximum": 9223372036854775807,
+          "minimum": 0,
+          "title": "Retained Bytes",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "source_identity",
+        "source_sha256",
+        "manifest",
+        "manifest_artifact",
+        "overview_artifact",
+        "tile_artifacts",
+        "tile_count",
+        "retained_bytes"
+      ],
+      "title": "PyramidResult",
+      "type": "object"
+    },
+    "FinishNativePyramidRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "title": "Lease Token",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/PyramidResult"
+        }
+      },
+      "required": ["job_id", "generation", "lease_token", "result"],
+      "title": "FinishNativePyramidRequest",
+      "type": "object"
+    },
+    "ImageWorkOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "title": "Job Id",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "title": "Generation",
+          "type": "integer"
+        },
+        "outcome": {
+          "enum": [
+            "published",
+            "replayed",
+            "failed",
+            "lease_lost",
+            "source_changed",
+            "dependency_changed"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        }
+      },
+      "required": ["job_id", "generation", "outcome"],
+      "title": "ImageWorkOutcome",
+      "type": "object"
+    },
     "ReadImageGenerationRequest": {
       "additionalProperties": false,
       "properties": {
@@ -1841,155 +2552,6 @@
       "title": "ImagePyramidGeneration",
       "type": "object"
     },
-    "ImagePyramidLevel": {
-      "additionalProperties": false,
-      "properties": {
-        "level": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "title": "Level",
-          "type": "integer"
-        },
-        "scaleFactor": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Scalefactor",
-          "type": "integer"
-        },
-        "width": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Width",
-          "type": "integer"
-        },
-        "height": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Height",
-          "type": "integer"
-        },
-        "columns": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Columns",
-          "type": "integer"
-        },
-        "rows": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Rows",
-          "type": "integer"
-        }
-      },
-      "required": ["level", "scaleFactor", "width", "height", "columns", "rows"],
-      "title": "ImagePyramidLevel",
-      "type": "object"
-    },
-    "ImagePyramidManifest": {
-      "additionalProperties": false,
-      "properties": {
-        "schema": {
-          "const": "aap-image-pyramid/v1",
-          "title": "Schema",
-          "type": "string"
-        },
-        "generation": {
-          "maximum": 2147483647,
-          "minimum": 1,
-          "title": "Generation",
-          "type": "integer"
-        },
-        "sourceFingerprint": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "title": "Sourcefingerprint",
-          "type": "string"
-        },
-        "normalizationVersion": {
-          "const": "exif-autorotate-srgb-v1",
-          "title": "Normalizationversion",
-          "type": "string"
-        },
-        "width": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Width",
-          "type": "integer"
-        },
-        "height": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Height",
-          "type": "integer"
-        },
-        "tileSize": {
-          "const": 512,
-          "title": "Tilesize",
-          "type": "integer"
-        },
-        "overlap": {
-          "const": 1,
-          "title": "Overlap",
-          "type": "integer"
-        },
-        "format": {
-          "const": "webp",
-          "title": "Format",
-          "type": "string"
-        },
-        "levels": {
-          "items": {
-            "$ref": "#/$defs/ImagePyramidLevel"
-          },
-          "maxItems": 32,
-          "minItems": 1,
-          "title": "Levels",
-          "type": "array"
-        },
-        "overview": {
-          "$ref": "#/$defs/ImagePyramidOverview"
-        }
-      },
-      "required": [
-        "schema",
-        "generation",
-        "sourceFingerprint",
-        "normalizationVersion",
-        "width",
-        "height",
-        "tileSize",
-        "overlap",
-        "format",
-        "levels",
-        "overview"
-      ],
-      "title": "ImagePyramidManifest",
-      "type": "object"
-    },
-    "ImagePyramidOverview": {
-      "additionalProperties": false,
-      "properties": {
-        "width": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Width",
-          "type": "integer"
-        },
-        "height": {
-          "exclusiveMinimum": 0,
-          "maximum": 2147483647,
-          "title": "Height",
-          "type": "integer"
-        },
-        "contentDigest": {
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "title": "Contentdigest",
-          "type": "string"
-        }
-      },
-      "required": ["width", "height", "contentDigest"],
-      "title": "ImagePyramidOverview",
-      "type": "object"
-    },
     "ImageGenerationRead": {
       "additionalProperties": false,
       "properties": {
@@ -2022,7 +2584,6 @@
       "title": "ReadImageWorkRequest",
       "type": "object"
     },
-    "JsonValue": {},
     "ImageWorkStatus": {
       "additionalProperties": false,
       "properties": {
@@ -2951,31 +3512,6 @@
       "title": "ImageLeaseState",
       "type": "object"
     },
-    "Artifact": {
-      "additionalProperties": false,
-      "properties": {
-        "key": {
-          "maxLength": 2048,
-          "minLength": 1,
-          "title": "Key",
-          "type": "string"
-        },
-        "byte_size": {
-          "maximum": 9223372036854775807,
-          "minimum": 0,
-          "title": "Byte Size",
-          "type": "integer"
-        },
-        "sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Sha256",
-          "type": "string"
-        }
-      },
-      "required": ["key", "byte_size", "sha256"],
-      "title": "Artifact",
-      "type": "object"
-    },
     "DimensionsResult": {
       "additionalProperties": false,
       "properties": {
@@ -3016,95 +3552,6 @@
       },
       "required": ["source_identity", "width", "height"],
       "title": "DimensionsResult",
-      "type": "object"
-    },
-    "ImageTileArtifact": {
-      "additionalProperties": false,
-      "properties": {
-        "level": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "title": "Level",
-          "type": "integer"
-        },
-        "x": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "title": "X",
-          "type": "integer"
-        },
-        "y": {
-          "maximum": 2147483647,
-          "minimum": 0,
-          "title": "Y",
-          "type": "integer"
-        },
-        "artifact": {
-          "$ref": "#/$defs/Artifact"
-        }
-      },
-      "required": ["level", "x", "y", "artifact"],
-      "title": "ImageTileArtifact",
-      "type": "object"
-    },
-    "PyramidResult": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "pyramid",
-          "default": "pyramid",
-          "title": "Kind",
-          "type": "string"
-        },
-        "source_identity": {
-          "$ref": "#/$defs/ObjectIdentity"
-        },
-        "source_sha256": {
-          "pattern": "^[0-9a-f]{64}$",
-          "title": "Source Sha256",
-          "type": "string"
-        },
-        "manifest": {
-          "$ref": "#/$defs/ImagePyramidManifest"
-        },
-        "manifest_artifact": {
-          "$ref": "#/$defs/Artifact"
-        },
-        "overview_artifact": {
-          "$ref": "#/$defs/Artifact"
-        },
-        "tile_artifacts": {
-          "items": {
-            "$ref": "#/$defs/ImageTileArtifact"
-          },
-          "maxItems": 20000,
-          "title": "Tile Artifacts",
-          "type": "array"
-        },
-        "tile_count": {
-          "maximum": 9223372036854775807,
-          "minimum": 0,
-          "title": "Tile Count",
-          "type": "integer"
-        },
-        "retained_bytes": {
-          "maximum": 9223372036854775807,
-          "minimum": 0,
-          "title": "Retained Bytes",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "source_identity",
-        "source_sha256",
-        "manifest",
-        "manifest_artifact",
-        "overview_artifact",
-        "tile_artifacts",
-        "tile_count",
-        "retained_bytes"
-      ],
-      "title": "PyramidResult",
       "type": "object"
     },
     "ThumbnailResult": {
@@ -3194,37 +3641,6 @@
       },
       "required": ["job_id", "generation", "lease_token", "result"],
       "title": "FinishImageMediaRequest",
-      "type": "object"
-    },
-    "ImageWorkOutcome": {
-      "additionalProperties": false,
-      "properties": {
-        "job_id": {
-          "format": "uuid",
-          "title": "Job Id",
-          "type": "string"
-        },
-        "generation": {
-          "maximum": 9223372036854775807,
-          "minimum": 1,
-          "title": "Generation",
-          "type": "integer"
-        },
-        "outcome": {
-          "enum": [
-            "published",
-            "replayed",
-            "failed",
-            "lease_lost",
-            "source_changed",
-            "dependency_changed"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        }
-      },
-      "required": ["job_id", "generation", "outcome"],
-      "title": "ImageWorkOutcome",
       "type": "object"
     },
     "FailImageMediaRequest": {
@@ -3958,6 +4374,89 @@
       "request": "PrepareImageMediaRequest",
       "result": "AcceptedImageWork",
       "role": "control"
+    },
+    "prepare_owned_pyramid": {
+      "signature": "aap_assets_v1.prepare_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "purpose",
+        "expected_source_snapshot",
+        "policy",
+        "force",
+        "delegation"
+      ],
+      "request": "PrepareOwnedPyramidRequest",
+      "result": "AcceptedImageWork",
+      "role": "control"
+    },
+    "retry_owned_pyramid": {
+      "signature": "aap_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+      "arguments": [
+        "operation_id",
+        "actor_id",
+        "task_id",
+        "dataset_item_id",
+        "purpose",
+        "expected_source_snapshot",
+        "policy",
+        "force",
+        "delegation"
+      ],
+      "request": "RetryOwnedPyramidRequest",
+      "result": "AcceptedImageWork",
+      "role": "control"
+    },
+    "allocate_native_pyramid_output": {
+      "signature": "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
+      "arguments": ["job_id", "job_generation", "lease_token", "asset_id", "generation"],
+      "request": "NativePyramidAllocationRequest",
+      "result": "PyramidOutputAllocation",
+      "role": "worker"
+    },
+    "begin_native_pyramid_member": {
+      "signature": "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
+      "arguments": ["operation_id", "output_id", "relative_key", "sha256", "size_bytes"],
+      "request": "PyramidMemberReservation",
+      "result": "PyramidMemberStatus",
+      "role": "worker"
+    },
+    "submit_native_pyramid_member": {
+      "signature": "aap_assets_v1.submit_native_pyramid_member(uuid)",
+      "arguments": ["operation_id"],
+      "request": "PyramidMemberOperation",
+      "result": "PyramidMemberStatus",
+      "role": "worker"
+    },
+    "write_native_pyramid_member": {
+      "signature": "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
+      "arguments": ["operation_id", "etag", "version_id"],
+      "request": "PyramidMemberReceipt",
+      "result": "PyramidMemberStatus",
+      "role": "worker"
+    },
+    "verify_native_pyramid_member": {
+      "signature": "aap_assets_v1.verify_native_pyramid_member(uuid)",
+      "arguments": ["operation_id"],
+      "request": "PyramidMemberOperation",
+      "result": "PyramidMemberStatus",
+      "role": "worker"
+    },
+    "abandon_native_pyramid_member": {
+      "signature": "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
+      "arguments": ["operation_id", "state"],
+      "request": "PyramidMemberAbandon",
+      "result": "PyramidMemberStatus",
+      "role": "worker"
+    },
+    "finish_native_pyramid_output": {
+      "signature": "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
+      "arguments": ["job_id", "generation", "lease_token", "result"],
+      "request": "FinishNativePyramidRequest",
+      "result": "ImageWorkOutcome",
+      "role": "worker"
     },
     "read_image_generation": {
       "signature": "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",

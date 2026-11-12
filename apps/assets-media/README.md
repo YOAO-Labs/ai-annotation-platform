@@ -6,10 +6,10 @@ The portable `aap-assets-media/v1`, `aap-assets-images/v1` and
 their native installations are owned by migrations 0219, 0220 and 0221.
 
 Video, image and input HTTP routes share one control process and one function-only
-control LOGIN. The process verifies all 49 control/system functions before
+control LOGIN. The process verifies all 68 control/system functions before
 becoming ready. The video worker LOGIN has 20 functions, including the retained
-video input execution and sweep capabilities. Image execution uses a dedicated polling worker with six image and
-four input functions, its own SQL LOGIN and its own S3 credentials. The image worker uses
+video input execution and sweep capabilities. Image execution uses a dedicated polling worker with 16 image and
+six input functions, its own SQL LOGIN and its own S3 credentials. The image worker uses
 Pillow for small thumbnails and the bounded libvips child process for pyramid
 generation. Neither worker imports the API ORM, Celery or Redis.
 
@@ -19,6 +19,16 @@ ordinary cache. Each output write requires its worker's matching execution
 scope; fixture-native executions require the fixture writer and its private
 target. Missing or mismatched output authority fails closed, and fixture source
 reads retain their existing settlement and uncertainty fences.
+
+Native pyramid attempts allocate their saved output and media-cache target at
+claim time, before any member write, and publish only after every reserved
+member returns its actual ETag/VersionId receipt. The retained Celery
+`generate_image_pyramid` callers (ordinary-thumbnail auto-generation, the
+operator backfill script, and fixture-independent execution) are not replaced by
+this path; they allocate through `acquire_generation_lease` and publish through
+`publish_generation`, which require the live lease, current generation and
+`building_generation` fence before setting `output_id`. No retained caller may
+publish `ready` with an unowned output.
 
 `ready_source_reference` is the strict reference path for callers that have
 already admitted and verified output work. Its video and image HTTP routes are

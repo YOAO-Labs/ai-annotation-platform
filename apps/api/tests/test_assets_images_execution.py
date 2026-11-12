@@ -14,6 +14,9 @@ from app.db.models.asset_image import AssetImageJob
 from app.db.models.dataset import DatasetItem
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
 from app.db.models.task import Task
+from app.services import image_pyramid as pyramids
+from app.services import image_pyramid_originals as originals
+from app.services.dataset_assets import ensure_legacy_bindings
 from tests.factory import create_project
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 
@@ -48,6 +51,37 @@ _HEARTBEAT = text(
 )
 _FINISH = text(
     "SELECT aap_assets_v1.finish_image_media("
+    "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
+    "CAST(:lease_token AS uuid), CAST(:result AS jsonb))"
+)
+_ALLOCATE = text(
+    "SELECT aap_assets_v1.allocate_native_pyramid_output("
+    "CAST(:job_id AS uuid), CAST(:job_generation AS bigint), "
+    "CAST(:lease_token AS uuid), CAST(:asset_id AS uuid), CAST(:generation AS integer))"
+)
+_BEGIN_MEMBER = text(
+    "SELECT aap_assets_v1.begin_native_pyramid_member("
+    "CAST(:operation_id AS uuid), CAST(:output_id AS uuid), :relative_key, "
+    ":sha256, CAST(:size_bytes AS bigint))"
+)
+_SUBMIT_MEMBER = text(
+    "SELECT aap_assets_v1.submit_native_pyramid_member(CAST(:operation_id AS uuid))"
+)
+_WRITE_MEMBER = text(
+    "SELECT aap_assets_v1.write_native_pyramid_member("
+    "CAST(:operation_id AS uuid), :etag, :version_id)"
+)
+_VERIFY_MEMBER = text(
+    "SELECT aap_assets_v1.verify_native_pyramid_member(CAST(:operation_id AS uuid))"
+)
+_OWNED_RETRY = text(
+    "SELECT aap_assets_v1.retry_owned_pyramid("
+    "CAST(:operation_id AS uuid), CAST(:actor_id AS uuid), CAST(:task_id AS uuid), "
+    "CAST(:dataset_item_id AS uuid), :purpose, CAST(:expected_source_snapshot AS text), "
+    "CAST(:policy AS jsonb), CAST(:force AS boolean), CAST(:delegation AS jsonb))"
+)
+_FINISH_NATIVE = text(
+    "SELECT aap_assets_v1.finish_native_pyramid_output("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), CAST(:result AS jsonb))"
 )
@@ -667,6 +701,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     item_id = await _seed_image(
         db_session, actor_id=actor_id, dataset_id=dataset_id, width=1, height=1
     )
+    await ensure_legacy_bindings(db_session)
     source = await _source(db_session, item_id)
     policy = ImagePolicy(
         optional_pixels=1, required_pixels=1, auto_generate_pyramids=True
@@ -729,7 +764,6 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
             db_session, source, _spec("pyramid", source, policy=policy)
         )
     claim = await _claim(db_session, job_id=job_id, kind="pyramid")
-    prefix = claim["output_prefix"]
     asset_id = uuid.UUID(claim["pyramid_asset_id"])
     public_generation = claim["pyramid_generation"]
     heartbeat = _data(
@@ -746,6 +780,37 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert heartbeat["active"] is True
+    allocation = _data(
+        _reply(
+            await db_session.scalar(
+                _ALLOCATE,
+                {
+                    "job_id": job_id,
+                    "job_generation": claim["generation"],
+                    "lease_token": claim["lease_token"],
+                    "asset_id": asset_id,
+                    "generation": public_generation,
+                },
+            )
+        )
+    )
+    output_id = uuid.UUID(allocation["output_id"])
+    prefix = allocation["prefix"]
+    assert prefix == f"image-pyramids/objects/{output_id}/"
+    assert _data(
+        _reply(
+            await db_session.scalar(
+                _ALLOCATE,
+                {
+                    "job_id": job_id,
+                    "job_generation": claim["generation"],
+                    "lease_token": claim["lease_token"],
+                    "asset_id": asset_id,
+                    "generation": public_generation,
+                },
+            )
+        )
+    )["output_id"] == str(output_id)
     manifest = {
         "schema": "aap-image-pyramid/v1",
         "generation": public_generation,
@@ -772,6 +837,54 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
             "contentDigest": "sha256:" + "c" * 64,
         },
     }
+    artifacts = {
+        "manifest.json": {"sha256": "d" * 64, "size_bytes": 10},
+        "overview.webp": {"sha256": "c" * 64, "size_bytes": 11},
+        "tiles/0/0/0.webp": {"sha256": "e" * 64, "size_bytes": 12},
+    }
+    for relative, receipt in artifacts.items():
+        operation_id = uuid.uuid4()
+        reservation = _data(
+            _reply(
+                await db_session.scalar(
+                    _BEGIN_MEMBER,
+                    {
+                        "operation_id": operation_id,
+                        "output_id": output_id,
+                        "relative_key": relative,
+                        "sha256": receipt["sha256"],
+                        "size_bytes": receipt["size_bytes"],
+                    },
+                )
+            )
+        )
+        assert reservation["state"] == "prepared"
+        assert reservation["output_id"] == str(output_id)
+        submitted = _data(
+            _reply(
+                await db_session.scalar(_SUBMIT_MEMBER, {"operation_id": operation_id})
+            )
+        )
+        assert submitted["state"] == "submitted"
+        written = _data(
+            _reply(
+                await db_session.scalar(
+                    _WRITE_MEMBER,
+                    {
+                        "operation_id": operation_id,
+                        "etag": f'"etag-{operation_id.hex[:8]}"',
+                        "version_id": f"version-{operation_id.hex[:8]}",
+                    },
+                )
+            )
+        )
+        assert written["state"] == "written"
+        verified = _data(
+            _reply(
+                await db_session.scalar(_VERIFY_MEMBER, {"operation_id": operation_id})
+            )
+        )
+        assert verified["state"] == "verified"
     result = _worker_result(
         "pyramid",
         source,
@@ -806,7 +919,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     bad["tile_artifacts"][0]["artifact"]["key"] = prefix + "tiles/0/1/0.webp"
     rejected = _reply(
         await db_session.scalar(
-            _FINISH,
+            _FINISH_NATIVE,
             {
                 "job_id": job_id,
                 "generation": claim["generation"],
@@ -822,7 +935,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     published = _data(
         _reply(
             await db_session.scalar(
-                _FINISH,
+                _FINISH_NATIVE,
                 {
                     "job_id": job_id,
                     "generation": claim["generation"],
@@ -842,8 +955,15 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     assert asset.active_generation == public_generation
     assert asset.building_generation is None
     assert generation is not None and generation.status == "ready"
+    assert generation.output_id == output_id
     assert generation.manifest == manifest
     assert generation.retained_bytes == 33
+    assert generation.manifest_key == prefix + "manifest.json"
+    output = await db_session.scalar(
+        text("SELECT state FROM public.image_pyramid_outputs WHERE id=:output_id"),
+        {"output_id": output_id},
+    )
+    assert output == "ready"
     projection = _data(
         _reply(
             await db_session.scalar(
@@ -859,6 +979,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert projection["pyramid"]["status"] == "ready"
+    assert projection["pyramid"]["manifest_key"] == prefix + "manifest.json"
 
     await db_session.execute(
         text("UPDATE public.dataset_items SET width=2,height=1 WHERE id=:item_id"),
@@ -881,8 +1002,6 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert stale_projection["pyramid"]["status"] == "stale"
-    assert stale_projection["pyramid"]["manifest_key"] is None
-    assert stale_projection["pyramid"]["overview_key"] is None
     source = current_source
 
     refresh_id, _ = await _enqueue(
@@ -915,27 +1034,206 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     assert asset.building_generation is None
     assert refresh_generation is not None and refresh_generation.status == "failed"
 
-    orphan = {
-        "asset_id": str(asset_id),
-        "generation": refresh_claim["pyramid_generation"] + 1,
-        "last_modified": (datetime.now(UTC) - timedelta(days=2)).isoformat(),
+
+def _task_delegation(actor_id, task_id, original, *, mode="http", fingerprint="a" * 64):
+    return {
+        "schema": 1,
+        "mode": mode,
+        "owner_kind": "task",
+        "owner_id": str(task_id),
+        "original": original,
+        "task_binding": None,
+        "task_id": str(task_id),
+        "actor_id": str(actor_id),
+        "api_key_id": None,
+        "api_key_fingerprint": fingerprint,
     }
-    reconciled = _data(
+
+
+async def _owned_task(db, actor_id):
+    from tests.image_pyramid_fixtures import make_image_task
+
+    task, item = await make_image_task(db, actor_id)
+    item.media_source_generation = 1
+    item.media_materialized_generation = 1
+    item.media_object_identity = _identity(size=item.file_size)
+    item.media_source_drifted = False
+    await db.flush()
+    owner = await pyramids.owner_for_task(db, task)
+    delegation = _task_delegation(actor_id, task.id, originals.receipt(owner.source))
+    return task, item, owner, delegation
+
+
+async def test_owned_retry_keeps_an_unpinned_ready_generation_and_records_a_fresh_one(
+    db_session,
+):
+    actor_id = await _seed_actor(db_session)
+    task, item, owner, delegation = await _owned_task(db_session, actor_id)
+    from tests.image_pyramid_fixtures import ready_generation
+
+    asset, generation, _, _ = await ready_generation(db_session, item, pinned=False)
+    accepted = _data(
         _reply(
             await db_session.scalar(
-                _RECONCILE,
-                {"candidates": json.dumps([orphan]), "batch_size": 10},
+                _OWNED_RETRY,
+                {
+                    "operation_id": uuid.uuid4(),
+                    "actor_id": actor_id,
+                    "task_id": task.id,
+                    "dataset_item_id": None,
+                    "purpose": "pyramid",
+                    "expected_source_snapshot": None,
+                    "policy": json.dumps(ImagePolicy().model_dump(mode="json")),
+                    "force": True,
+                    "delegation": json.dumps(delegation),
+                },
             )
         )
     )
-    assert reconciled["queued_orphans"] == 1
-    prefix = f"image-pyramids/{asset_id}/g{refresh_claim['pyramid_generation'] + 1}/"
+    assert accepted["work"]["job_id"]
+    await db_session.refresh(generation)
+    await db_session.refresh(asset)
+    assert generation.output_id is None and generation.status == "ready"
+    assert asset.active_generation == 1
+    assert asset.building_generation == 2
+    fresh = await db_session.get(ImagePyramidGeneration, (asset.id, 2))
+    assert fresh is not None and fresh.status == "pending"
+    assert fresh.job_id is not None and fresh.original_ref is not None
+    assert fresh.auth_ref == delegation
+
+
+@pytest.mark.parametrize(
+    "field,value,code",
+    [
+        ("actor_id", str(uuid.uuid4()), "invalid_request"),
+        ("mode", "system", "invalid_request"),
+        ("api_key_fingerprint", "not-a-digest", "invalid_request"),
+        ("task_id", str(uuid.uuid4()), "invalid_request"),
+    ],
+)
+async def test_owned_admission_rejects_an_incomplete_api_proof(
+    db_session, field, value, code
+):
+    actor_id = await _seed_actor(db_session)
+    task, _item, _owner, delegation = await _owned_task(db_session, actor_id)
+    delegation = dict(delegation)
+    delegation[field] = value
+    reply = _reply(
+        await db_session.scalar(
+            _OWNED_RETRY,
+            {
+                "operation_id": uuid.uuid4(),
+                "actor_id": actor_id,
+                "task_id": task.id,
+                "dataset_item_id": None,
+                "purpose": "pyramid",
+                "expected_source_snapshot": None,
+                "policy": json.dumps(ImagePolicy().model_dump(mode="json")),
+                "force": True,
+                "delegation": json.dumps(delegation),
+            },
+        )
+    )
+    assert reply["ok"] is False, reply
+    assert reply["error"]["code"] == code
+
+
+async def test_owned_admission_rejects_a_forged_original_receipt(db_session):
+    actor_id = await _seed_actor(db_session)
+    task, _item, _owner, delegation = await _owned_task(db_session, actor_id)
+    forged = dict(delegation)
+    forged["original"] = {
+        **delegation["original"],
+        "size_bytes": delegation["original"]["size_bytes"] + 1,
+    }
+    reply = _reply(
+        await db_session.scalar(
+            _OWNED_RETRY,
+            {
+                "operation_id": uuid.uuid4(),
+                "actor_id": actor_id,
+                "task_id": task.id,
+                "dataset_item_id": None,
+                "purpose": "pyramid",
+                "expected_source_snapshot": None,
+                "policy": json.dumps(ImagePolicy().model_dump(mode="json")),
+                "force": True,
+                "delegation": json.dumps(forged),
+            },
+        )
+    )
+    assert reply["ok"] is False, reply
+    # A different original cannot be accepted as the current source.
+    assert reply["error"]["code"] in {"invalid_request", "source_changed"}
+
+
+async def test_native_allocation_rejects_another_lease_or_generation(db_session):
+    actor_id = await _seed_actor(db_session)
+    task, item, _owner, _delegation = await _owned_task(db_session, actor_id)
+    await ensure_legacy_bindings(db_session)
+    source = await _source(db_session, item.id)
+    policy = ImagePolicy(
+        optional_pixels=1, required_pixels=1, auto_generate_pyramids=True
+    ).model_dump(mode="json")
+    job_id, _ = await _enqueue(
+        db_session, source, _spec("pyramid", source, policy=policy)
+    )
+    claim = await _claim(db_session, job_id=job_id, kind="pyramid")
+    args = {
+        "job_id": job_id,
+        "job_generation": claim["generation"],
+        "lease_token": claim["lease_token"],
+        "asset_id": uuid.UUID(claim["pyramid_asset_id"]),
+        "generation": claim["pyramid_generation"],
+    }
+    for replacement in (
+        {"lease_token": uuid.uuid4()},
+        {"job_generation": claim["generation"] + 1},
+        {"generation": claim["pyramid_generation"] + 1},
+        {"asset_id": uuid.uuid4()},
+    ):
+        reply = _reply(await db_session.scalar(_ALLOCATE, {**args, **replacement}))
+        assert reply["ok"] is False, reply
+        assert reply["error"]["code"] in {"lease_lost", "invalid_request"}
+
+    allocated = _data(_reply(await db_session.scalar(_ALLOCATE, args)))
+    output_id = uuid.UUID(allocated["output_id"])
+    stale = _reply(
+        await db_session.scalar(
+            _FINISH_NATIVE,
+            {
+                "job_id": job_id,
+                "generation": claim["generation"],
+                "lease_token": uuid.uuid4(),
+                "result": json.dumps({}),
+            },
+        )
+    )
+    assert stale["ok"] is False and stale["error"]["code"] == "invalid_request"
+    # The allocation is the only saved output bound to this lease.
     assert (
         await db_session.scalar(
-            text("SELECT prefix FROM public.asset_image_garbage WHERE prefix=:prefix"),
-            {"prefix": prefix},
+            text(
+                "SELECT count(*) FROM public.image_pyramid_outputs "
+                "WHERE asset_id=:asset AND generation=:generation AND lease_token=:lease"
+            ),
+            {
+                "asset": args["asset_id"],
+                "generation": args["generation"],
+                "lease": claim["lease_token"],
+            },
         )
-        == prefix
+        == 1
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT output_id FROM public.image_pyramid_generations "
+                "WHERE asset_id=:asset AND generation=:generation"
+            ),
+            {"asset": args["asset_id"], "generation": args["generation"]},
+        )
+        == output_id
     )
 
 

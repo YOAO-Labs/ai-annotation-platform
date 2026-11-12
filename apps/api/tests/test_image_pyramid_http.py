@@ -344,18 +344,18 @@ async def test_key_rotated_after_read_context_exit_is_rechecked_before_ready_res
 async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_cooldown(
     committed_pyramid, monkeypatch
 ):
-    state, queued = committed_pyramid, []
+    state, admitted = committed_pyramid, []
     monkeypatch.setattr(
         "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
     )
 
-    async def enqueue(*args, **kwargs):
-        queued.append((args, kwargs))
-        return "metadata-retry"
+    async def admit(*args, **kwargs):
+        admitted.append((args, kwargs))
+        return SimpleNamespace(
+            work=SimpleNamespace(status="pending", job_id=uuid.uuid4())
+        )
 
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid", enqueue
-    )
+    monkeypatch.setattr("app.api.v1.tasks.image_pyramid._admit_native_pyramid", admit)
     async with state.factory() as db:
         generation = await db.get(ImagePyramidGeneration, (state.asset_id, 1))
         generation.overview_width += 1
@@ -385,7 +385,7 @@ async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_c
         )
 
     cooling = await state.client.post(state.route + "/retry", headers=state.headers)
-    assert cooling.status_code == 429 and not queued
+    assert cooling.status_code == 429 and not admitted
     async with state.factory() as db:
         await db.execute(
             update(ImagePyramidGeneration)
@@ -400,3 +400,6 @@ async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_c
     assert retried.status_code == 202 and retried.json()["status"] == "queued", (
         retried.text
     )
+    assert len(admitted) == 1
+    _, kwargs = admitted[0]
+    assert kwargs["retry"] is True

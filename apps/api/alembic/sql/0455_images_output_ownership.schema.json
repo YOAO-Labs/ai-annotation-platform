@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:yoao:images-native-pyramid-output-ownership:v1",
+  "title": "Native image-pyramid saved-output ownership",
+  "native": [
+    "prepare_owned_pyramid(operation_id,actor_id,task_id,dataset_item_id,purpose,expected_source_snapshot,policy,force,delegation)",
+    "retry_owned_pyramid(operation_id,actor_id,task_id,dataset_item_id,purpose,expected_source_snapshot,policy,force,delegation)",
+    "allocate_native_pyramid_output(job_id,job_generation,lease_token,asset_id,generation)",
+    "begin_native_pyramid_member(operation_id,output_id,relative_key,sha256,size_bytes)",
+    "submit_native_pyramid_member(operation_id)",
+    "write_native_pyramid_member(operation_id,etag,version_id)",
+    "verify_native_pyramid_member(operation_id)",
+    "abandon_native_pyramid_member(operation_id,state)",
+    "finish_native_pyramid_output(job_id,generation,lease_token,result)"
+  ],
+  "result": {
+    "allocation": {
+      "output_id": "uuid",
+      "prefix": "image-pyramids/objects/<output-id>/",
+      "job_id": "uuid",
+      "job_generation": "bigint",
+      "lease_token": "uuid",
+      "asset_id": "uuid",
+      "generation": "integer"
+    },
+    "member": {
+      "output_id": "uuid",
+      "operation_id": "uuid",
+      "relative_key": "manifest.json|overview.webp|tiles/<level>/<x>/<y>.webp",
+      "sha256": "hex64",
+      "size_bytes": "bigint",
+      "state": "prepared|submitted|written|verified|not_written|unknown"
+    }
+  },
+  "semantics": "One native lease allocates exactly one durable image_pyramid_outputs row and its saved media-cache target before any physical write; member reservations, actual PUT ETag/VersionId receipts and verified members are the only publication proof; an unreturned submission stays open and terminal; retirement enumerates the recorded output and its exact key/version receipts."
+}
