@@ -6,6 +6,7 @@ import argparse
 import asyncio
 from contextlib import asynccontextmanager
 import fcntl
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -343,6 +344,42 @@ def _verify_child_dispositions(names, children, dispositions):
             == ("warm_exit" if name.startswith("celery-") else "settled"),
             "fixture_native_run_receipt_unsettled",
         )
+
+
+def fixture_provider_host(owner_path):
+    """Advertise the store's verified private bridge gateway to API and workers.
+
+    The managed fixture provider binds 0.0.0.0 and refuses loopback addresses;
+    its own store network is the only bridge this suite owns, so its gateway is
+    the host address reachable from both the API and the worker processes.
+    """
+    from verify_storage_candidates import Owner
+
+    owner = Owner(Path(owner_path))
+    store = owner.data["fixture_store"]
+    network = next(
+        (
+            item
+            for item in owner.data["resources"]
+            if item["kind"] == "network" and item["id"] == store["network_id"]
+        ),
+        None,
+    )
+    _require(network is not None, "fixture_provider_network_missing")
+    observed = owner.verified(network)
+    configs = (observed.get("IPAM") or {}).get("Config") or []
+    _require(
+        isinstance(configs, list)
+        and len(configs) == 1
+        and isinstance(configs[0], dict),
+        "fixture_provider_network_ambiguous",
+    )
+    gateway = ipaddress.ip_address(configs[0]["Gateway"])
+    _require(
+        gateway.version == 4 and not gateway.is_loopback and not gateway.is_unspecified,
+        "fixture_provider_host_invalid",
+    )
+    return str(gateway)
 
 
 def _verify_run_receipts(directory, suite_id, run_ids):

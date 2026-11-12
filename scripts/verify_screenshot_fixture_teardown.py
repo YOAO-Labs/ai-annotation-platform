@@ -52,6 +52,7 @@ from fixture_store import (  # noqa: E402
 from linux_pidfd import open_pidfd, pidfd_alive, pidfd_send_signal  # noqa: E402
 from verify_storage_candidates import Owner  # noqa: E402
 from worktree_env import state_path  # noqa: E402
+from fixture_native_playwright import fixture_provider_host  # noqa: E402
 from tests.test_screenshot_exit_live import _read_originals, _rows_and_versions  # noqa: E402
 
 CHILDREN = ("celery-media", "celery-pyramid", "media-worker", "image-worker", "proxy")
@@ -1165,6 +1166,10 @@ async def main():
             f.flush()
             os.fsync(f.fileno())
     store, reader = load_store(root, resources, identity)
+    os.environ.setdefault(
+        "PLAYWRIGHT_ML_FIXTURE_HOST",
+        fixture_provider_host(state_path(root, "e2e", "fixture-store-owner.json")),
+    )
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     b, failure_run, cancel_run = (uuid.uuid4() for _ in range(3))
     b_port, a_port, a_web, b_web = free_ports(4)
