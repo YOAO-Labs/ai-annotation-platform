@@ -484,7 +484,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
     "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0446_fixture_media_dataset_guards.sql",
     "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
-    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0444_image_export_dataset_scope.sql",
+    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0456_prediction_dataset_scope.sql",
+    "aap_jobs_v1.record_fixture_prediction_job_birth()": "0456_prediction_dataset_scope.sql",
+    "aap_jobs_v1.guard_fixture_prediction_job_datasets()": "0456_prediction_dataset_scope.sql",
+    "aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)": "0456_prediction_dataset_scope.sql",
     "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
     "yoao_fixture_v1.guard_jobs_anchor()": "0436_fixture_jobs_join.sql",
     "yoao_fixture_v1.guard_dataset_job_anchor()": "0446_fixture_media_dataset_guards.sql",
@@ -546,7 +549,6 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid)",
             "aap_jobs_v1.finish_prediction_mask_producer(uuid)",
             "aap_jobs_v1.prediction_mask_object_retained(uuid)",
-            "aap_jobs_v1.record_fixture_prediction_job_birth()",
             "aap_jobs_v1.prediction_fixture_open(uuid)",
             "aap_jobs_v1.preserve_fixture_prediction_dispatches()",
             "aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid)",
@@ -1827,6 +1829,7 @@ SQL_ARTIFACTS = (
     *ASSETS_SOURCE_SQL_ARTIFACTS,
     "0454_identity_first_seed_account.sql",
     "0455_images_output_ownership.sql",
+    "0456_prediction_dataset_scope.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",

@@ -925,6 +925,306 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
     )
 
 
+async def _prediction_scope_fixture(db_session):
+    from types import SimpleNamespace
+
+    from app.db.models.dataset import Dataset, DatasetItem
+    from app.db.models.task import Task
+    from tests.factory import create_project, create_user
+
+    run_id = uuid.uuid4()
+    owner = await create_user(
+        db_session, "super_admin", f"{run_id}@prediction-scope.test", "Owner"
+    )
+    project = await create_project(
+        db_session, owner_id=owner.id, name="prediction-scope"
+    )
+    dataset = Dataset(
+        display_id=f"D-{uuid.uuid4().hex[:12]}",
+        name="prediction-scope",
+        created_by=owner.id,
+    )
+    unrelated = Dataset(
+        display_id=f"D-{uuid.uuid4().hex[:12]}",
+        name="prediction-scope-unrelated",
+        created_by=owner.id,
+    )
+    db_session.add_all([FixtureRun(id=run_id, family="scale"), dataset, unrelated])
+    await db_session.flush()
+    item = DatasetItem(
+        dataset_id=dataset.id,
+        file_name="scope.png",
+        file_path="prediction-scope/scope.png",
+        file_type="image",
+    )
+    db_session.add(item)
+    await db_session.flush()
+    task = Task(
+        project_id=project.id,
+        dataset_item_id=item.id,
+        display_id=f"task-{uuid.uuid4().hex[:15]}",
+        file_name=item.file_name,
+        file_path=item.file_path,
+        file_type="image",
+    )
+    db_session.add(task)
+    await db_session.flush()
+    await ownership.reserve(
+        db_session,
+        run_id,
+        "project",
+        project.id,
+        logical_key="project",
+        published=True,
+    )
+    return SimpleNamespace(
+        run=run_id,
+        owner=owner,
+        project=project,
+        dataset=dataset,
+        unrelated=unrelated,
+        task=task,
+    )
+
+
+async def test_batch_predict_scope_binds_born_datasets_and_rejects_unproven(
+    db_session, monkeypatch
+):
+    import json
+    from sqlalchemy import text
+    from app.db.models.dataset import ProjectDataset
+    from tests.factory import create_project
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    fixture = await _prediction_scope_fixture(db_session)
+    insert = text(
+        "INSERT INTO public.async_jobs "
+        "(id,kind,project_id,user_id,status,progress_pct,payload,result) "
+        "VALUES (:id,'batch_predict',:project,:actor,'pending',0,"
+        "CAST(:payload AS jsonb),CAST('{}' AS jsonb))"
+    )
+    scope = text(
+        "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+        "id,kind,payload,project_id,user_id) "
+        "FROM public.async_jobs WHERE id=:id"
+    )
+    scoped_payload = {
+        "execution_scope": "workbench",
+        "task_ids": [str(fixture.task.id)],
+    }
+    job = uuid.uuid4()
+    await db_session.execute(
+        insert,
+        {
+            "id": job,
+            "project": fixture.project.id,
+            "actor": fixture.owner.id,
+            "payload": json.dumps(scoped_payload),
+        },
+    )
+    born = {"kind": "datasets", "dataset_ids": [str(fixture.dataset.id)]}
+    assert await db_session.scalar(scope, {"id": job}) == born
+    with pytest.raises(HTTPException) as blocked:
+        async with db_session.begin_nested():
+            await ownership.guard_dataset_jobs(db_session, [fixture.dataset.id])
+    assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
+    # An unrelated Dataset is outside the born scope.
+    await ownership.guard_dataset_jobs(db_session, [fixture.unrelated.id])
+
+    # The born binding is authoritative: a Dataset linked later neither enters
+    # the frozen set nor rewrites it, and direct rewrites are refused.
+    db_session.add(
+        ProjectDataset(project_id=fixture.project.id, dataset_id=fixture.unrelated.id)
+    )
+    await db_session.flush()
+    assert await db_session.scalar(scope, {"id": job}) == born
+    await ownership.guard_dataset_jobs(db_session, [fixture.unrelated.id])
+    for statement, params in (
+        (
+            text(
+                "UPDATE aap_jobs_v1.fixture_prediction_job_datasets "
+                "SET dataset_ids=CAST(:ids AS uuid[]) WHERE job_id=:job"
+            ),
+            {"ids": [fixture.unrelated.id], "job": job},
+        ),
+        (
+            text(
+                "DELETE FROM aap_jobs_v1.fixture_prediction_job_datasets "
+                "WHERE job_id=:job"
+            ),
+            {"job": job},
+        ),
+    ):
+        with pytest.raises(
+            DBAPIError, match="fixture prediction dataset scope is immutable"
+        ):
+            async with db_session.begin_nested():
+                await db_session.execute(statement, params)
+
+    # Project, actor and Task mismatches stay unknown and still block cleanup.
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            ":id,'batch_predict',(SELECT payload FROM public.async_jobs WHERE id=:id),"
+            ":project,:actor)"
+        ),
+        {
+            "id": job,
+            "project": uuid.uuid4(),
+            "actor": fixture.owner.id,
+        },
+    ) == {"kind": "unknown"}
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            ":id,'batch_predict',(SELECT payload FROM public.async_jobs WHERE id=:id),"
+            ":project,:actor)"
+        ),
+        {
+            "id": job,
+            "project": fixture.project.id,
+            "actor": uuid.uuid4(),
+        },
+    ) == {"kind": "unknown"}
+
+    other_project = await create_project(
+        db_session, owner_id=fixture.owner.id, name="prediction-scope-other"
+    )
+    await ownership.reserve(
+        db_session,
+        fixture.run,
+        "project",
+        other_project.id,
+        logical_key="other",
+        published=True,
+    )
+    plain_project = await create_project(
+        db_session, owner_id=fixture.owner.id, name="prediction-scope-plain"
+    )
+    unproven = (
+        # No Task selection: a project-wide Job cannot prove an exact Dataset set.
+        {
+            "project": fixture.project.id,
+            "actor": fixture.owner.id,
+            "payload": {"execution_scope": "bulk"},
+        },
+        # A Task that belongs to another project.
+        {
+            "project": other_project.id,
+            "actor": fixture.owner.id,
+            "payload": scoped_payload,
+        },
+        # A Task that does not exist.
+        {
+            "project": fixture.project.id,
+            "actor": fixture.owner.id,
+            "payload": {
+                "execution_scope": "workbench",
+                "task_ids": [str(uuid.uuid4())],
+            },
+        },
+        # A project with no born fixture binding.
+        {
+            "project": plain_project.id,
+            "actor": fixture.owner.id,
+            "payload": scoped_payload,
+        },
+    )
+    for values in unproven:
+        unknown_job = uuid.uuid4()
+        async with db_session.begin_nested() as savepoint:
+            await db_session.execute(
+                insert,
+                {
+                    "id": unknown_job,
+                    **values,
+                    "payload": json.dumps(values["payload"]),
+                },
+            )
+            assert await db_session.scalar(scope, {"id": unknown_job}) == {
+                "kind": "unknown"
+            }
+            with pytest.raises(HTTPException) as blocked:
+                async with db_session.begin_nested():
+                    await ownership.guard_dataset_jobs(
+                        db_session, [fixture.unrelated.id]
+                    )
+            assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
+            await savepoint.rollback()
+
+
+async def test_batch_predict_scope_retirement_releases_exact_datasets(
+    db_session, monkeypatch
+):
+    import json
+    from sqlalchemy import text
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    fixture = await _prediction_scope_fixture(db_session)
+    job = uuid.uuid4()
+    await db_session.execute(
+        text(
+            "INSERT INTO public.async_jobs "
+            "(id,kind,project_id,user_id,status,progress_pct,payload,result) "
+            "VALUES (:id,'batch_predict',:project,:actor,'pending',0,"
+            "CAST(:payload AS jsonb),CAST('{}' AS jsonb))"
+        ),
+        {
+            "id": job,
+            "project": fixture.project.id,
+            "actor": fixture.owner.id,
+            "payload": json.dumps(
+                {
+                    "execution_scope": "workbench",
+                    "task_ids": [str(fixture.task.id)],
+                }
+            ),
+        },
+    )
+    with pytest.raises(HTTPException) as blocked:
+        async with db_session.begin_nested():
+            await ownership.guard_dataset_jobs(db_session, [fixture.dataset.id])
+    assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
+
+    await db_session.execute(
+        text("UPDATE public.async_jobs SET status='completed' WHERE id=:id"),
+        {"id": job},
+    )
+    await db_session.execute(
+        text(
+            "INSERT INTO public.batch_result_executions "
+            "(job_id,actor_id,project_id,request_digest,state) "
+            "VALUES (:job,:actor,:project,:digest,'completed')"
+        ),
+        {
+            "job": job,
+            "actor": fixture.owner.id,
+            "project": fixture.project.id,
+            "digest": "a" * 64,
+        },
+    )
+    assert await ownership.seal(db_session, fixture.run, family="scale") == ()
+    assert (
+        await db_session.scalar(
+            text("SELECT aap_jobs_v1.fixture_real_job_retired(:run,:project,:job)"),
+            {"run": fixture.run, "project": fixture.project.id, "job": job},
+        )
+        is True
+    )
+    # Retirement never rewrites the born binding; it releases the exact proof.
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "id,kind,payload,project_id,user_id) "
+            "FROM public.async_jobs WHERE id=:id"
+        ),
+        {"id": job},
+    ) == {"kind": "datasets", "dataset_ids": [str(fixture.dataset.id)]}
+    await ownership.guard_dataset_jobs(db_session, [fixture.dataset.id])
+
+
 async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
     test_engine, monkeypatch
 ):

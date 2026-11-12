@@ -4303,12 +4303,14 @@ GRANT CREATE ON SCHEMA aap_jobs_v1 TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.prediction_mask_producers OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.prediction_mask_producer_objects OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.fixture_prediction_job_births OWNER TO :"jobs_owner";
+ALTER TABLE aap_jobs_v1.fixture_prediction_job_datasets OWNER TO :"jobs_owner";
 ALTER TABLE aap_jobs_v1.fixture_prediction_dispatch_tombstones OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.bind_prediction_mask_object(uuid,uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.finish_prediction_mask_producer(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.prediction_mask_object_retained(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.record_fixture_prediction_job_birth() OWNER TO :"jobs_owner";
+ALTER FUNCTION aap_jobs_v1.guard_fixture_prediction_job_datasets() OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.prediction_fixture_open(uuid) OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.preserve_fixture_prediction_dispatches() OWNER TO :"jobs_owner";
 ALTER FUNCTION aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid) OWNER TO :"jobs_owner";
@@ -4328,6 +4330,9 @@ ALTER FUNCTION aap_assets_v1.guard_fixture_operator_source_receipt() OWNER TO :"
 ALTER FUNCTION aap_assets_v1.require_fixture_operator_manifest() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_fixture_auxiliary_intent() OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[]) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb) OWNER TO :"assets_owner";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_task_dataset_scope(uuid,jsonb)
+    TO :"jobs_owner";
 ALTER FUNCTION aap_assets_v1.fixture_original_readers_empty(uuid) OWNER TO :"assets_owner";
 REVOKE CREATE ON SCHEMA aap_assets_v1 FROM :"assets_owner";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])
