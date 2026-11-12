@@ -769,12 +769,24 @@ async def serve_authority(ready_fd):
                     resources["mode"] not in {"test", "e2e"}
                     or type(api_port) is not int
                     or not 1 <= api_port <= 65535
-                    or str(api_port)
-                    != original_environment.get("PLAYWRIGHT_ISOLATED_API_PORT")
+                    # The first launcher in this authority passes the port it
+                    # was configured with. A concurrent sibling launcher has
+                    # its own isolated port, so only the first run can match
+                    # the authority process environment.
+                    or (
+                        str(api_port)
+                        != original_environment.get("PLAYWRIGHT_ISOLATED_API_PORT")
+                        and not screenshot_roots
+                    )
                 )
             )
         ):
             raise SeedSetupRefused("Invalid screenshot native topology")
+        if api_port is not None and any(
+            entry["control"].journal.get("api", {}).get("port") == api_port
+            for entry in screenshot_roots.values()
+        ):
+            raise SeedSetupRefused("Screenshot native API port reused")
         existing = screenshot_roots.get(run_id)
         if existing is not None:
             control = existing["control"]
