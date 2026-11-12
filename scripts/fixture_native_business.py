@@ -759,6 +759,23 @@ async def verified(environment, *, suite_id: uuid.UUID, raster_owner: Path | Non
             os.close(descriptor)
 
 
+def _business_run_settled(state, run_id, execution, reader, target):
+    """One child's media evidence settles without inventing native participants."""
+    from fixture_native_playwright import _native_run_evidence_settled
+
+    if state != "retired" or not _native_run_evidence_settled(
+        execution, reader, target is not None
+    ):
+        return False
+    if execution is None and reader is None:
+        return True
+    return (
+        isinstance(target, dict)
+        and target.get("run_id") == str(run_id)
+        and target.get("state") == "retired"
+    )
+
+
 async def _require_native_retired(owner_url, suite_id, targets):
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     try:
@@ -779,13 +796,6 @@ async def _require_native_retired(owner_url, suite_id, targets):
                 row for row in rows if row.id != suite_id
             ]
             for row in native_rows:
-                target = targets.get(row.id.hex)
-                _require(
-                    row.state == "retired" and isinstance(target, dict)
-                    and target.get("run_id") == str(row.id)
-                    and target.get("state") == "retired",
-                    "fixture_native_business_run_unsettled",
-                )
                 executor = await connection.scalar(
                     text("SELECT aap_jobs_v1.fixture_media_executor_identity(:run)"),
                     {"run": row.id},
@@ -794,9 +804,14 @@ async def _require_native_retired(owner_url, suite_id, targets):
                     text("SELECT aap_assets_v1.fixture_native_reader_identity(:run)"),
                     {"run": row.id},
                 )
+                target = targets.get(row.id.hex)
+                # A child that registered no native participant never used the
+                # suite's media identities; the same durable-identity rule as
+                # suite settlement decides whether its own evidence is settled.
                 _require(
-                    isinstance(executor, dict) and executor.get("state") == "retired"
-                    and isinstance(reader, dict) and reader.get("state") == "retired",
+                    _business_run_settled(
+                        row.state, row.id, executor, reader, target
+                    ),
                     "fixture_native_business_run_unsettled",
                 )
     finally:

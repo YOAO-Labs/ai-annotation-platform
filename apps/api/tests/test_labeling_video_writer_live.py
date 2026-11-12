@@ -43,6 +43,10 @@ from tests.test_assets_media_live import (
     _start_process,
     _stop_process,
 )
+from tests.test_inference_routing_owner_integration import (
+    _start_model_execution_owner,
+    _stop_process as _stop_execution_owner,
+)
 from tests.test_inference_routing_video import _verify_restricted_routing_dsn
 from tests.test_mask_content_live import (
     _owned_resources,
@@ -478,6 +482,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
         route_runtime = route_server = None
         execution_engine = None
         execution_sessions = None
+        execution_owner = None
         owner = None
         owner_runtime_receipt = None
         observation = AsyncExitStack()
@@ -634,6 +639,21 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                 assert reconciled.state == "committed"
                 assert reconciled.result.phase == "completed"
                 assert peer.controller.phase == "bound"
+
+                (
+                    execution_owner,
+                    execution_url,
+                    execution_token,
+                ) = await _start_model_execution_owner(tmp_path, routing_dsn)
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_url", execution_url
+                )
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_token", execution_token
+                )
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_token_file", ""
+                )
 
                 monkeypatch.setattr(settings, "labeling_video_writer_url", "")
                 monkeypatch.setattr(settings, "labeling_video_writer_database_url", "")
@@ -1054,6 +1074,8 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                         await asyncio.to_thread(verify_mask_reference, reference)
         finally:
             await observation.aclose()
+            if execution_owner is not None:
+                await _stop_execution_owner(execution_owner)
             if listener is not None:
                 listener.close()
             if owner is not None:
