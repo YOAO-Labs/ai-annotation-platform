@@ -696,7 +696,9 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
             "dataset",
             dataset.id,
             logical_key="dataset",
-            published=True,
+            # The published-media proof is exercised separately; this test
+            # owns the unknown/dataset Job fences for an unpublished Dataset.
+            published=run_id == second,
         )
 
     insert = text(
@@ -723,6 +725,16 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
 
     neighbor = uuid.uuid4()
     await db_session.execute(insert, backfill_values(datasets[1].id, neighbor))
+    # An open fixture run's published Dataset cannot be a cleanup target until
+    # its media is sealed (0446); assert the neighbor job's typed scope now.
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "id,kind,payload,project_id,user_id) "
+            "FROM public.async_jobs WHERE id=:id"
+        ),
+        {"id": neighbor},
+    ) == {"kind": "dataset", "dataset_id": str(datasets[1].id)}
     await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
     project = await create_project(db_session, owner_id=owner.id)
     association = ProjectDataset(project_id=project.id, dataset_id=datasets[1].id)
@@ -747,6 +759,14 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
             "payload": json.dumps(task_payload),
         },
     )
+    assert await db_session.scalar(
+        text(
+            "SELECT aap_jobs_v1.fixture_job_dataset_scope("
+            "id,kind,payload,project_id,user_id) "
+            "FROM public.async_jobs WHERE id=:id"
+        ),
+        {"id": task_job},
+    ) == {"kind": "dataset", "dataset_id": str(datasets[1].id)}
     await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
     unknown_jobs = (
         (
@@ -784,22 +804,21 @@ async def test_dataset_job_scope_blocks_unknown_and_retains_only_owned_work(
                         await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
                 assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
             await savepoint.rollback()
-    # Once this run is sealed both unknown families must be denied admission.
-    async with db_session.begin_nested() as savepoint:
-        assert await ownership.seal(db_session, first, family="scale") == ()
-        for statement, params in unknown_jobs:
-            with pytest.raises(
-                DBAPIError, match="fixture_dataset_job_scope_unknown"
-            ) as blocked:
-                async with db_session.begin_nested():
-                    await db_session.execute(statement, params)
-            assert blocked.value.orig.sqlstate == "23514"
-        await savepoint.rollback()
-    await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
-
     job = uuid.uuid4()
     await db_session.execute(insert, backfill_values(datasets[0].id, job))
+    # Once this run is sealed both unknown families must be denied admission.
     assert await ownership.seal(db_session, first, family="scale") == ()
+    for statement, params in unknown_jobs:
+        with pytest.raises(
+            DBAPIError, match="fixture_dataset_job_scope_unknown"
+        ) as blocked:
+            async with db_session.begin_nested():
+                await db_session.execute(statement, params)
+        assert blocked.value.orig.sqlstate == "23514"
+    with pytest.raises(HTTPException) as blocked:
+        async with db_session.begin_nested():
+            await ownership.guard_dataset_jobs(db_session, [datasets[0].id])
+    assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
     reclaim_insert = text(
         "INSERT INTO public.async_jobs "
         "(id, kind, project_id, user_id, status, progress_pct, payload, result) "
