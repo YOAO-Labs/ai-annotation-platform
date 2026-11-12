@@ -211,10 +211,28 @@ def _backend(environment, resources):
         "DATABASE_URL", "MIGRATION_DATABASE_URL", "MINIO_ENDPOINT",
         "MINIO_ACCESS_KEY", "MINIO_SECRET_KEY",
     )
-    _require(all(environment.get(key) for key in fields), "fixture_native_business_configuration_missing")
+    values = {key.lower(): environment[key] for key in fields if environment.get(key)}
+    missing = [key for key in fields if key.lower() not in values]
+    if missing:
+        # The ordinary worktree launcher hands every exec child the isolated
+        # database, endpoint and buckets but never exports the checkout's
+        # MinIO endpoint credentials; the product API and workers load them
+        # from .env themselves. This private supervisor is the only process
+        # that needs them (to create the per-run scoped MinIO accounts), so it
+        # reads the same checkout configuration instead of widening any child
+        # environment or the Playwright/server topology.
+        from app.config import settings as checkout
+
+        _require(
+            missing == ["MINIO_ACCESS_KEY", "MINIO_SECRET_KEY"]
+            and bool(checkout.minio_access_key)
+            and bool(checkout.minio_secret_key),
+            "fixture_native_business_configuration_missing",
+        )
+        values["minio_access_key"] = checkout.minio_access_key
+        values["minio_secret_key"] = checkout.minio_secret_key
     manifest = _private_json(state_path(Path(resources["root"]), resources["mode"], "resources.json"))
     _require(isinstance(manifest.get("minio", {}).get("ssl"), bool), "fixture_native_business_configuration_missing")
-    values = {key.lower(): environment[key] for key in fields}
     values["minio_use_ssl"] = manifest["minio"]["ssl"]
     settings = Settings(_env_file=None, **values)
     return LocalResources(resources, settings, code_root=Path(__file__).resolve().parents[1])
