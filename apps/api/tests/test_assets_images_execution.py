@@ -16,6 +16,7 @@ from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneratio
 from app.db.models.task import Task
 from app.services import image_pyramid as pyramids
 from app.services import image_pyramid_originals as originals
+from app.services.dataset_assets import ensure_legacy_bindings
 from tests.factory import create_project
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 
@@ -700,6 +701,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     item_id = await _seed_image(
         db_session, actor_id=actor_id, dataset_id=dataset_id, width=1, height=1
     )
+    await ensure_legacy_bindings(db_session)
     source = await _source(db_session, item_id)
     policy = ImagePolicy(
         optional_pixels=1, required_pixels=1, auto_generate_pyramids=True
@@ -1168,6 +1170,7 @@ async def test_owned_admission_rejects_a_forged_original_receipt(db_session):
 async def test_native_allocation_rejects_another_lease_or_generation(db_session):
     actor_id = await _seed_actor(db_session)
     task, item, _owner, _delegation = await _owned_task(db_session, actor_id)
+    await ensure_legacy_bindings(db_session)
     source = await _source(db_session, item.id)
     policy = ImagePolicy(
         optional_pixels=1, required_pixels=1, auto_generate_pyramids=True
