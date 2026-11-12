@@ -1717,6 +1717,13 @@ async def _retire_fixture_execution_work(
     return scope
 
 
+def _native_run_owned(native_runtime, run_id: UUID) -> bool:
+    """Whether this exact run registered native participants under its suite."""
+    return native_runtime is not None and (
+        run_id in native_runtime.runs or run_id in native_runtime.retired_runs
+    )
+
+
 async def _cleanup_owned_e2e_fixtures(
     db,
     owned,
@@ -1765,7 +1772,11 @@ async def _cleanup_owned_e2e_fixtures(
             )
         run = await db.get(FixtureRun, run_id, populate_existing=True)
         completed_drains = drained_runs
-        if native_runtime is None:
+        # A supervised suite may own native participants for some child runs
+        # only. A run that never registered a native run has no producer,
+        # reader or target to retire; treat it exactly like the no-native path.
+        native = native_runtime if _native_run_owned(native_runtime, run_id) else None
+        if native is None:
             if (
                 run.state != "retired"
                 and family in {"owned", "screenshot"}
@@ -1792,7 +1803,7 @@ async def _cleanup_owned_e2e_fixtures(
             )
         )
         if run.state == "retired":
-            if native_runtime is not None and run_id not in native_runtime.retired_runs:
+            if native is not None and run_id not in native.retired_runs:
                 raise HTTPException(
                     409, detail={"code": "fixture_native_run_unsettled"}
                 )
@@ -1819,17 +1830,15 @@ async def _cleanup_owned_e2e_fixtures(
                 resource.kind == "item" and resource.dataset_id in scope.dataset_ids
             )
 
-        if native_runtime is not None and run_id not in native_runtime.retired_runs:
+        if native is not None and run_id not in native.retired_runs:
             await db.commit()
-            await native_runtime.stop_producers(run_id)
+            await native.stop_producers(run_id)
             if registry is not None:
                 await registry.revoke_contexts(fixture_context)
-            if not native_runtime.video_scope_prepared(run_id):
-                await _prepare_fixture_native_video_cleanup(
-                    db, scope, native_runtime, run_id
-                )
-            await native_runtime.retire_datasets(db, run_id, scope.dataset_ids)
-            await native_runtime.retire_roles(run_id)
+            if not native.video_scope_prepared(run_id):
+                await _prepare_fixture_native_video_cleanup(db, scope, native, run_id)
+            await native.retire_datasets(db, run_id, scope.dataset_ids)
+            await native.retire_roles(run_id)
         active_window = await db.scalar(
             select(FixtureMaintenanceWindow).where(
                 FixtureMaintenanceWindow.run_id == run_id,
@@ -1927,7 +1936,7 @@ async def _cleanup_owned_e2e_fixtures(
                 await registry.revoke_contexts(fixture_context)
             video_plan = (
                 await _prepare_fixture_video_cleanup(db, scope)
-                if native_runtime is None
+                if native is None
                 else None
             )
             if registry is not None:
@@ -3992,7 +4001,9 @@ async def seed_catalog(
     from app.services.assets_media import MediaGateway
     from yoao_assets_media.client import MediaClient
 
-    native = getattr(request.app.state, "fixture_screenshot_native_roots", {}).get(run_id)
+    native = getattr(request.app.state, "fixture_screenshot_native_roots", {}).get(
+        run_id
+    )
     if (
         native is None
         or native["runtime"] is None

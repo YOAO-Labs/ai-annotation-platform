@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from hashlib import sha256
 import asyncio
 import json
@@ -480,7 +480,20 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
         execution_sessions = None
         owner = None
         owner_runtime_receipt = None
+        observation = AsyncExitStack()
         try:
+            from tests.inference_health_observation_helpers import observation_provider
+
+            health_url, health_token = await observation.enter_async_context(
+                observation_provider(test_engine.url)
+            )
+            monkeypatch.setattr(
+                settings, "inference_health_observation_url", health_url
+            )
+            monkeypatch.setattr(
+                settings, "inference_health_observation_token", health_token
+            )
+            monkeypatch.setattr(settings, "inference_health_observation_token_file", "")
             execution_engine = create_async_engine(legacy_dsn, hide_parameters=True)
             execution_sessions = async_sessionmaker(
                 execution_engine, expire_on_commit=False
@@ -1040,6 +1053,7 @@ async def test_video_job_finalizes_through_real_labeling_writer_owner(
                     for reference in references.values():
                         await asyncio.to_thread(verify_mask_reference, reference)
         finally:
+            await observation.aclose()
             if listener is not None:
                 listener.close()
             if owner is not None:
