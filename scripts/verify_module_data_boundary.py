@@ -5095,7 +5095,10 @@ def _installed_function_body_sha256(
         "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
         "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
     }.get(sql_name, sql_name)
-    if signature == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)":
+    if (
+        signature
+        == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)"
+    ):
         base_sql_name = "0214_dataset_import_core.sql"
     source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
     function_name = re.escape(signature.split("(", 1)[0])
@@ -5114,19 +5117,28 @@ def _installed_function_body_sha256(
         if sql_name == "0450_video_candidate_status_restore.sql":
             tags += ("guard", "candidates")
         if sql_name == "0453_import_original_verification.sql":
-            tags += ("fields_before", "fields_after", "validation_before", "validation_after")
+            tags += (
+                "fields_before",
+                "fields_after",
+                "validation_before",
+                "validation_after",
+            )
         literals = {}
         for tag in tags:
-            matches = re.findall(
-                rf"\${tag}\$(.*?)\${tag}\$", patch_source, re.DOTALL
-            )
+            matches = re.findall(rf"\${tag}\$(.*?)\${tag}\$", patch_source, re.DOTALL)
             if len(matches) != 1:
-                raise RuntimeError(f"frozen SQL patch literal is not unique: {sql_name}")
+                raise RuntimeError(
+                    f"frozen SQL patch literal is not unique: {sql_name}"
+                )
             literals[tag] = matches[0]
         replacements = [(literals["before"], literals["after"])]
         if "fields_before" in literals:
-            replacements.insert(0, (literals["fields_before"], literals["fields_after"]))
-            replacements.insert(1, (literals["validation_before"], literals["validation_after"]))
+            replacements.insert(
+                0, (literals["fields_before"], literals["fields_after"])
+            )
+            replacements.insert(
+                1, (literals["validation_before"], literals["validation_after"])
+            )
         if "guard" in literals:
             replacements.append(
                 (literals["guard"], literals["guard"] + literals["candidates"])
@@ -10882,6 +10894,11 @@ SELECT id FROM removed;
         )
         resource_environment = backend.environment()
         resource_environment["AAP_MODULE_DATA_PG_DATABASE_OID"] = str(database_oid)
+        # Authority-native fixture suites construct their own LocalResources
+        # for the fixture store and require the ordinary MinIO endpoint
+        # credentials in their child environment.
+        resource_environment["MINIO_ACCESS_KEY"] = backend.settings.minio_access_key
+        resource_environment["MINIO_SECRET_KEY"] = backend.settings.minio_secret_key
         resource_environment.update(
             {
                 (
@@ -12461,7 +12478,8 @@ SELECT pg_catalog.jsonb_build_object(
                     cleanup_backend = backend
                     if (
                         container_id
-                        and "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                        and "tests/test_legacy_video_fence_live.py"
+                        in selected_test_paths
                         and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
                     ):
                         # This fixture deliberately disables every ordinary LOGIN.
