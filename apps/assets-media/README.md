@@ -6,7 +6,7 @@ The portable `aap-assets-media/v1`, `aap-assets-images/v1` and
 their native installations are owned by migrations 0219, 0220 and 0221.
 
 Video, image and input HTTP routes share one control process and one function-only
-control LOGIN. The process verifies all 49 control/system functions before
+control LOGIN. The process verifies all 68 control/system functions before
 becoming ready. The video worker LOGIN has 20 functions, including the retained
 video input execution and sweep capabilities. Image execution uses a dedicated polling worker with six image and
 four input functions, its own SQL LOGIN and its own S3 credentials. The image worker uses

@@ -37,6 +37,7 @@ from yoao_assets_images.contract import (
     DimensionsWorkSpec,
     FailImageMediaRequest,
     FinishImageMediaRequest,
+    FinishNativePyramidRequest,
     HeartbeatImageMediaRequest,
     ImageBackfillObservations,
     ImageBackfillProgress,
@@ -51,7 +52,13 @@ from yoao_assets_images.contract import (
     ImageTileArtifact,
     ImageWorkOutcome,
     ImageWorkResult,
+    NativePyramidAllocationRequest,
     ObjectIdentity,
+    PyramidMemberAbandon,
+    PyramidMemberOperation,
+    PyramidMemberReceipt,
+    PyramidMemberReservation,
+    PyramidOutputAllocation,
     PyramidResult,
     PyramidWorkSpec,
     ReconcileImageMediaRequest,
@@ -311,7 +318,10 @@ class ImageExecutor:
     async def execute_once(
         self, *, job_id: UUID | None = None
     ) -> ImageWorkOutcome | None:
-        from yoao_assets_media_runtime.fixture_native_outputs import native_execution, native_job_candidates
+        from yoao_assets_media_runtime.fixture_native_outputs import (
+            native_execution,
+            native_job_candidates,
+        )
 
         if job_id is None:
             candidates = await native_job_candidates(self.database, "image")
@@ -352,6 +362,29 @@ class ImageExecutor:
         claim = claimed.claim
         if claim is None:
             return None
+        allocation = None
+        if isinstance(claim.spec, PyramidWorkSpec):
+            if claim.pyramid_asset_id is None or claim.pyramid_generation is None:
+                raise ImageFailure("invalid_response")
+            allocation = await self.database.call(
+                "allocate_native_pyramid_output",
+                NativePyramidAllocationRequest(
+                    job_id=claim.job_id,
+                    job_generation=claim.generation,
+                    lease_token=claim.lease_token,
+                    asset_id=claim.pyramid_asset_id,
+                    generation=claim.pyramid_generation,
+                ),
+            )
+            if (
+                not isinstance(allocation, PyramidOutputAllocation)
+                or allocation.job_id != claim.job_id
+                or allocation.job_generation != claim.generation
+                or allocation.lease_token != claim.lease_token
+                or allocation.generation != claim.pyramid_generation
+                or not allocation.prefix.endswith("/")
+            ):
+                raise ImageFailure("invalid_response")
         policy = claim.spec.policy
         heartbeat = _LeaseHeartbeat(
             self.database,
@@ -363,7 +396,7 @@ class ImageExecutor:
         try:
             if isinstance(claim.spec, ImageBackfillSpec):
                 return await self._advance_backfill(claim, heartbeat)
-            return await self._execute_source_claim(claim, heartbeat)
+            return await self._execute_source_claim(claim, heartbeat, allocation)
         except FixtureNativeRunSealed:
             return None
         except ImageFailure as exc:
@@ -425,7 +458,10 @@ class ImageExecutor:
         raise ImageFailure("operation_busy")
 
     async def _execute_source_claim(
-        self, claim: ImageClaim, heartbeat: _LeaseHeartbeat
+        self,
+        claim: ImageClaim,
+        heartbeat: _LeaseHeartbeat,
+        allocation: PyramidOutputAllocation | None = None,
     ) -> ImageWorkOutcome:
         source = claim.source
         if source is None or source.object_identity is None:
@@ -460,21 +496,41 @@ class ImageExecutor:
             ),
         ):
             result = await self._execute_admitted_source_claim(
-                claim, heartbeat, source, source_storage
+                claim, heartbeat, source, source_storage, allocation
             )
             heartbeat.check()
+            native_pyramid = isinstance(result, PyramidResult)
+            if native_pyramid and allocation is None:
+                raise ImageFailure("invalid_response")
             try:
-                require_result_scope(claim, result)
-                finish = FinishImageMediaRequest(
-                    job_id=claim.job_id,
-                    generation=claim.generation,
-                    lease_token=claim.lease_token,
-                    result=result,
+                require_result_scope(
+                    claim,
+                    result,
+                    prefix=None if allocation is None else allocation.prefix,
+                )
+                finish = (
+                    FinishNativePyramidRequest(
+                        job_id=claim.job_id,
+                        generation=claim.generation,
+                        lease_token=claim.lease_token,
+                        result=result,
+                    )
+                    if native_pyramid
+                    else FinishImageMediaRequest(
+                        job_id=claim.job_id,
+                        generation=claim.generation,
+                        lease_token=claim.lease_token,
+                        result=result,
+                    )
                 )
                 _check_finish_request_budget(finish)
             except (TypeError, ValueError):
                 raise ImageFailure("invalid_response") from None
-            outcome = await self._finish_with_retries(finish, heartbeat)
+            outcome = (
+                await self._finish_native_pyramid(finish, heartbeat)
+                if native_pyramid
+                else await self._finish_with_retries(finish, heartbeat)
+            )
             if not isinstance(outcome, ImageWorkOutcome):
                 raise ImageFailure("invalid_response")
             from .original_read import fixture_upload_was_started
@@ -484,7 +540,7 @@ class ImageExecutor:
             return outcome
 
     async def _execute_admitted_source_claim(
-        self, claim, heartbeat, source, source_storage
+        self, claim, heartbeat, source, source_storage, allocation=None
     ) -> ImageWorkResult:
 
         if isinstance(claim.spec, DimensionsWorkSpec):
@@ -597,6 +653,7 @@ class ImageExecutor:
             else:
                 result = await self._pyramid(
                     claim,
+                    allocation,
                     source_path,
                     output_dir,
                     download.sha256,
@@ -819,6 +876,7 @@ class ImageExecutor:
     async def _pyramid(
         self,
         claim: ImageClaim,
+        allocation: PyramidOutputAllocation,
         source_path: Path,
         output_dir: Path,
         source_sha256: str,
@@ -826,8 +884,14 @@ class ImageExecutor:
     ) -> PyramidResult:
         assert isinstance(claim.spec, PyramidWorkSpec)
         assert claim.source is not None
-        assert claim.output_prefix is not None
         assert claim.pyramid_generation is not None
+        if (
+            allocation.output_id is None
+            or allocation.job_id != claim.job_id
+            or allocation.lease_token != claim.lease_token
+            or allocation.generation != claim.pyramid_generation
+        ):
+            raise ImageFailure("lease_lost")
         if not self.srgb_profile.is_file():
             raise ImageFailure("color_profile_unavailable")
         body = await _run_child(
@@ -943,7 +1007,10 @@ class ImageExecutor:
         ):
             raise ImageFailure("resource_limit")
 
-        prefix = claim.output_prefix
+        prefix = allocation.prefix
+        tile_shas: list[str] = []
+        for tile in local_tiles:
+            tile_shas.append(await asyncio.to_thread(_file_sha256, Path(tile["path"])))
         manifest_artifact = Artifact(
             key=prefix + "manifest.json",
             byte_size=manifest_size,
@@ -962,10 +1029,10 @@ class ImageExecutor:
                 artifact=Artifact(
                     key=prefix + f"tiles/{tile['level']}/{tile['x']}/{tile['y']}.webp",
                     byte_size=tile["byte_size"],
-                    sha256="0" * 64,
+                    sha256=tile_shas[index],
                 ),
             )
-            for tile in local_tiles
+            for index, tile in enumerate(local_tiles)
         ]
         estimate = PyramidResult(
             source_identity=claim.source.object_identity,
@@ -978,7 +1045,7 @@ class ImageExecutor:
             retained_bytes=retained_bytes,
         )
         _check_finish_request_budget(
-            FinishImageMediaRequest(
+            FinishNativePyramidRequest(
                 job_id=claim.job_id,
                 generation=claim.generation,
                 lease_token=claim.lease_token,
@@ -994,13 +1061,16 @@ class ImageExecutor:
             heartbeat.check()
             batch = local_tiles[start : start + upload_concurrency]
 
-            async def upload_tile(tile: dict[str, Any]) -> ImageTileArtifact:
-                key = prefix + f"tiles/{tile['level']}/{tile['x']}/{tile['y']}.webp"
-                artifact = await _job_storage_call(
-                    heartbeat, self.storage.upload_cache, tile["path"], key
+            async def upload_tile(tile: dict[str, Any], sha: str) -> ImageTileArtifact:
+                relative = f"tiles/{tile['level']}/{tile['x']}/{tile['y']}.webp"
+                artifact = await self._upload_pyramid_member(
+                    allocation,
+                    Path(tile["path"]),
+                    relative,
+                    sha,
+                    tile["byte_size"],
+                    heartbeat,
                 )
-                if artifact.key != key or artifact.byte_size != tile["byte_size"]:
-                    raise ImageFailure("upload_verification_failed")
                 return ImageTileArtifact(
                     level=tile["level"],
                     x=tile["x"],
@@ -1010,7 +1080,11 @@ class ImageExecutor:
 
             try:
                 rows = await asyncio.gather(
-                    *(upload_tile(tile) for tile in batch), return_exceptions=True
+                    *(
+                        upload_tile(tile, tile_shas[start + index])
+                        for index, tile in enumerate(batch)
+                    ),
+                    return_exceptions=True,
                 )
             except asyncio.CancelledError as exc:
                 from .original_read import fixture_original_active
@@ -1042,20 +1116,24 @@ class ImageExecutor:
                 raise ImageFailure("invalid_response")
             heartbeat.check()
 
-        uploaded_manifest = await _job_storage_call(
-            heartbeat,
-            self.storage.upload_cache,
+        uploaded_manifest = await self._upload_pyramid_member(
+            allocation,
             manifest_path,
-            prefix + "manifest.json",
+            "manifest.json",
+            manifest_artifact.sha256,
+            manifest_size,
+            heartbeat,
         )
         if uploaded_manifest != manifest_artifact:
             raise ImageFailure("upload_verification_failed")
         heartbeat.check()
-        uploaded_overview = await _job_storage_call(
-            heartbeat,
-            self.storage.upload_cache,
+        uploaded_overview = await self._upload_pyramid_member(
+            allocation,
             overview_path,
-            prefix + "overview.webp",
+            "overview.webp",
+            overview_artifact.sha256,
+            overview_size,
+            heartbeat,
         )
         if uploaded_overview != overview_artifact:
             raise ImageFailure("upload_verification_failed")
@@ -1069,6 +1147,119 @@ class ImageExecutor:
             tile_count=expected_tile_count,
             retained_bytes=retained_bytes,
         )
+
+    async def _upload_pyramid_member(
+        self,
+        allocation: PyramidOutputAllocation,
+        path: Path,
+        relative_key: str,
+        sha256: str,
+        size_bytes: int,
+        heartbeat: _LeaseHeartbeat,
+    ) -> Artifact:
+        """Reserve, write and prove exactly one saved-output member."""
+        operation_id = uuid4()
+        key = allocation.prefix + relative_key
+        reservation = PyramidMemberReservation(
+            operation_id=operation_id,
+            output_id=allocation.output_id,
+            relative_key=relative_key,
+            sha256=sha256,
+            size_bytes=size_bytes,
+        )
+        heartbeat.check()
+        await self.database.call("begin_native_pyramid_member", reservation)
+        try:
+            heartbeat.check()
+            await self.database.call(
+                "submit_native_pyramid_member",
+                PyramidMemberOperation(operation_id=operation_id),
+            )
+        except BaseException:
+            await self._abandon_pyramid_member(operation_id, "not_written")
+            raise
+        try:
+            identity = await _job_storage_call(
+                heartbeat,
+                self.storage.upload_pyramid_member,
+                path,
+                key,
+                sha256,
+                size_bytes,
+            )
+        except BaseException as exc:
+            state = (
+                "unknown"
+                if getattr(exc, "storage_operation_unsettled", False)
+                else "not_written"
+            )
+            await self._abandon_pyramid_member(operation_id, state)
+            raise
+        heartbeat.check()
+        try:
+            await self.database.call(
+                "write_native_pyramid_member",
+                PyramidMemberReceipt(
+                    operation_id=operation_id,
+                    etag=identity.etag,
+                    version_id=identity.version_id,
+                ),
+            )
+            await self.database.call(
+                "verify_native_pyramid_member",
+                PyramidMemberOperation(operation_id=operation_id),
+            )
+        except BaseException:
+            # The bytes may already exist; keep the reservation unresolved.
+            raise
+        return Artifact(key=key, byte_size=size_bytes, sha256=sha256)
+
+    async def _abandon_pyramid_member(self, operation_id, state: str) -> None:
+        try:
+            await self.database.call(
+                "abandon_native_pyramid_member",
+                PyramidMemberAbandon(operation_id=operation_id, state=state),
+            )
+        except BaseException:
+            # An unrecorded submission stays open and blocks retirement.
+            return
+
+    async def _finish_native_pyramid(
+        self,
+        request: FinishNativePyramidRequest,
+        heartbeat: _LeaseHeartbeat,
+    ) -> ImageWorkOutcome:
+        last_contention: ImageFailure | None = None
+        for attempt in range(_FINISH_RETRY_LIMIT):
+            try:
+                heartbeat.check()
+            except ImageFailure as exc:
+                if exc.code == "timeout" and last_contention is not None:
+                    raise last_contention
+                raise
+            try:
+                result = await self.database.call(
+                    "finish_native_pyramid_output", request
+                )
+            except ImageFailure as exc:
+                if exc.code not in {"source_busy", "operation_busy"}:
+                    raise
+                last_contention = exc
+                if attempt + 1 == _FINISH_RETRY_LIMIT:
+                    raise
+                base = min(
+                    _FINISH_RETRY_BASE_SECONDS * (2**attempt),
+                    _FINISH_RETRY_MAX_SECONDS,
+                )
+                delay = base + random.uniform(0, base)
+                if time.monotonic() + delay >= heartbeat.deadline:
+                    raise
+                await asyncio.sleep(delay)
+                continue
+            if not isinstance(result, ImageWorkOutcome):
+                raise ImageFailure("invalid_response")
+            return result
+        raise ImageFailure("operation_busy")
 
     async def _upload_result_artifacts(
         self,
@@ -1097,7 +1288,9 @@ class ImageExecutor:
         # The native call first prepares a bounded candidate batch without moving
         # its cursor. S3 observations then happen without transaction-held locks.
         previous_cursor: tuple[str, int] | None = None
-        private_fixture = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
+        private_fixture = bool(
+            os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE")
+        )
         for _ in range(_BACKFILL_CALL_LIMIT):
             heartbeat.check()
             request = AdvanceImageBackfillRequest(
@@ -1121,11 +1314,19 @@ class ImageExecutor:
                 if private_fixture:
                     async with AsyncExitStack() as source_permits:
                         observations = await self._observe_fixture_backfill_candidates(
-                            claim, progress.candidates, progress.batch_token, heartbeat, source_permits
+                            claim,
+                            progress.candidates,
+                            progress.batch_token,
+                            heartbeat,
+                            source_permits,
                         )
-                        request = request.model_copy(update={"observations": observations})
+                        request = request.model_copy(
+                            update={"observations": observations}
+                        )
                         try:
-                            progress = await self.database.call("advance_image_backfill", request)
+                            progress = await self.database.call(
+                                "advance_image_backfill", request
+                            )
                             if not isinstance(progress, ImageBackfillProgress):
                                 raise ImageFailure("invalid_response")
                         except FixtureNativeRunSealed:
@@ -1138,7 +1339,9 @@ class ImageExecutor:
                         claim, progress.candidates, progress.batch_token, heartbeat
                     )
                     request = request.model_copy(update={"observations": observations})
-                    progress = await self.database.call("advance_image_backfill", request)
+                    progress = await self.database.call(
+                        "advance_image_backfill", request
+                    )
                     if not isinstance(progress, ImageBackfillProgress):
                         raise ImageFailure("invalid_response")
                 heartbeat.check()
@@ -1217,17 +1420,24 @@ class ImageExecutor:
                 )
             )
             try:
-                identity = await _job_storage_call(heartbeat, source_storage.head_source, source)
+                identity = await _job_storage_call(
+                    heartbeat, source_storage.head_source, source
+                )
             except ImageFailure as exc:
                 if getattr(exc, "storage_operation_unsettled", False):
                     raise
                 if exc.code not in {"object_missing", "source_changed"}:
                     raise
-                observed.append(ImageBackfillSourceObservation(
-                    owner=source.owner, source_snapshot=source.source_snapshot,
-                    object_identity=None,
-                    error_code="source_missing" if exc.code == "object_missing" else "source_changed",
-                ))
+                observed.append(
+                    ImageBackfillSourceObservation(
+                        owner=source.owner,
+                        source_snapshot=source.source_snapshot,
+                        object_identity=None,
+                        error_code="source_missing"
+                        if exc.code == "object_missing"
+                        else "source_changed",
+                    )
+                )
                 continue
             heartbeat.check()
             if not source.upload_ready:
@@ -1235,15 +1445,16 @@ class ImageExecutor:
             changed = source.source_drifted or (
                 source.file_size is not None and identity.byte_size != source.file_size
             )
-            observed.append(ImageBackfillSourceObservation(
-                owner=source.owner,
-                source_snapshot=source.source_snapshot,
-                object_identity=None if changed else identity,
-                error_code="source_changed" if changed else None,
-            ))
+            observed.append(
+                ImageBackfillSourceObservation(
+                    owner=source.owner,
+                    source_snapshot=source.source_snapshot,
+                    object_identity=None if changed else identity,
+                    error_code="source_changed" if changed else None,
+                )
+            )
         heartbeat.check()
         return ImageBackfillObservations(batch_token=batch_token, items=observed)
-
 
     async def _observe_backfill_candidates(
         self,
@@ -1554,6 +1765,14 @@ def _is_sha256_prefixed(value: Any) -> bool:
     )
 
 
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        while chunk := stream.read(1024 * 1024):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _regular_file_size(path: Path) -> int:
     try:
         info = path.stat(follow_symlinks=False)
@@ -1629,9 +1848,7 @@ def _validate_child_tiles(
     return result
 
 
-def _directory_size(
-    directory: Path, limit: int, *, child_running: bool = False
-) -> int:
+def _directory_size(directory: Path, limit: int, *, child_running: bool = False) -> int:
     total = 0
     try:
         for current, directories, files in os.walk(directory, followlinks=False):
@@ -1705,7 +1922,9 @@ async def _run_worker(
         try:
             inputs = None
             if private:
-                from yoao_assets_media_runtime.fixture_native_outputs import native_producer_ready
+                from yoao_assets_media_runtime.fixture_native_outputs import (
+                    native_producer_ready,
+                )
 
                 await native_producer_ready(database, "image")
             else:
@@ -1748,10 +1967,13 @@ async def _run_worker(
                         if not private and job_id is None
                         else None
                     )
-                    if inputs is not None and (inputs.unsettled_claim or (
-                        input_work is not None
-                        and input_work.status not in {"ready", "failed"}
-                    )):
+                    if inputs is not None and (
+                        inputs.unsettled_claim
+                        or (
+                            input_work is not None
+                            and input_work.status not in {"ready", "failed"}
+                        )
+                    ):
                         unsettled = True
                         if strict:
                             raise RuntimeError("Assets image input claim is unsettled")

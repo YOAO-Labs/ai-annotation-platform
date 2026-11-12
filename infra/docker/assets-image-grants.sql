@@ -131,7 +131,14 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.finish_image_media(uuid,bigint,uuid,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)')::oid,
-        pg_catalog.to_regprocedure('aap_assets_v1.reconcile_image_media(jsonb,integer)')::oid
+        pg_catalog.to_regprocedure('aap_assets_v1.reconcile_image_media(jsonb,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.submit_native_pyramid_member(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.write_native_pyramid_member(uuid,text,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.verify_native_pyramid_member(uuid)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.abandon_native_pyramid_member(uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)')::oid
     ];
     accepted_input_worker_functions oid[] := ARRAY[
         pg_catalog.to_regprocedure('aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)')::oid,

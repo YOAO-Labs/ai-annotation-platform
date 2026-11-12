@@ -51,6 +51,31 @@ _FINISH = text(
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
     "CAST(:lease_token AS uuid), CAST(:result AS jsonb))"
 )
+_ALLOCATE = text(
+    "SELECT aap_assets_v1.allocate_native_pyramid_output("
+    "CAST(:job_id AS uuid), CAST(:job_generation AS bigint), "
+    "CAST(:lease_token AS uuid), CAST(:asset_id AS uuid), CAST(:generation AS integer))"
+)
+_BEGIN_MEMBER = text(
+    "SELECT aap_assets_v1.begin_native_pyramid_member("
+    "CAST(:operation_id AS uuid), CAST(:output_id AS uuid), :relative_key, "
+    ":sha256, CAST(:size_bytes AS bigint))"
+)
+_SUBMIT_MEMBER = text(
+    "SELECT aap_assets_v1.submit_native_pyramid_member(CAST(:operation_id AS uuid))"
+)
+_WRITE_MEMBER = text(
+    "SELECT aap_assets_v1.write_native_pyramid_member("
+    "CAST(:operation_id AS uuid), :etag, :version_id)"
+)
+_VERIFY_MEMBER = text(
+    "SELECT aap_assets_v1.verify_native_pyramid_member(CAST(:operation_id AS uuid))"
+)
+_FINISH_NATIVE = text(
+    "SELECT aap_assets_v1.finish_native_pyramid_output("
+    "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
+    "CAST(:lease_token AS uuid), CAST(:result AS jsonb))"
+)
 _FAIL = text(
     "SELECT aap_assets_v1.fail_image_media("
     "CAST(:job_id AS uuid), CAST(:generation AS bigint), "
@@ -729,7 +754,6 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
             db_session, source, _spec("pyramid", source, policy=policy)
         )
     claim = await _claim(db_session, job_id=job_id, kind="pyramid")
-    prefix = claim["output_prefix"]
     asset_id = uuid.UUID(claim["pyramid_asset_id"])
     public_generation = claim["pyramid_generation"]
     heartbeat = _data(
@@ -746,6 +770,37 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert heartbeat["active"] is True
+    allocation = _data(
+        _reply(
+            await db_session.scalar(
+                _ALLOCATE,
+                {
+                    "job_id": job_id,
+                    "job_generation": claim["generation"],
+                    "lease_token": claim["lease_token"],
+                    "asset_id": asset_id,
+                    "generation": public_generation,
+                },
+            )
+        )
+    )
+    output_id = uuid.UUID(allocation["output_id"])
+    prefix = allocation["prefix"]
+    assert prefix == f"image-pyramids/objects/{output_id}/"
+    assert _data(
+        _reply(
+            await db_session.scalar(
+                _ALLOCATE,
+                {
+                    "job_id": job_id,
+                    "job_generation": claim["generation"],
+                    "lease_token": claim["lease_token"],
+                    "asset_id": asset_id,
+                    "generation": public_generation,
+                },
+            )
+        )
+    )["output_id"] == str(output_id)
     manifest = {
         "schema": "aap-image-pyramid/v1",
         "generation": public_generation,
@@ -772,6 +827,54 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
             "contentDigest": "sha256:" + "c" * 64,
         },
     }
+    artifacts = {
+        "manifest.json": {"sha256": "d" * 64, "size_bytes": 10},
+        "overview.webp": {"sha256": "c" * 64, "size_bytes": 11},
+        "tiles/0/0/0.webp": {"sha256": "e" * 64, "size_bytes": 12},
+    }
+    for relative, receipt in artifacts.items():
+        operation_id = uuid.uuid4()
+        reservation = _data(
+            _reply(
+                await db_session.scalar(
+                    _BEGIN_MEMBER,
+                    {
+                        "operation_id": operation_id,
+                        "output_id": output_id,
+                        "relative_key": relative,
+                        "sha256": receipt["sha256"],
+                        "size_bytes": receipt["size_bytes"],
+                    },
+                )
+            )
+        )
+        assert reservation["state"] == "prepared"
+        assert reservation["output_id"] == str(output_id)
+        submitted = _data(
+            _reply(
+                await db_session.scalar(_SUBMIT_MEMBER, {"operation_id": operation_id})
+            )
+        )
+        assert submitted["state"] == "submitted"
+        written = _data(
+            _reply(
+                await db_session.scalar(
+                    _WRITE_MEMBER,
+                    {
+                        "operation_id": operation_id,
+                        "etag": f'"etag-{operation_id.hex[:8]}"',
+                        "version_id": f"version-{operation_id.hex[:8]}",
+                    },
+                )
+            )
+        )
+        assert written["state"] == "written"
+        verified = _data(
+            _reply(
+                await db_session.scalar(_VERIFY_MEMBER, {"operation_id": operation_id})
+            )
+        )
+        assert verified["state"] == "verified"
     result = _worker_result(
         "pyramid",
         source,
@@ -806,7 +909,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     bad["tile_artifacts"][0]["artifact"]["key"] = prefix + "tiles/0/1/0.webp"
     rejected = _reply(
         await db_session.scalar(
-            _FINISH,
+            _FINISH_NATIVE,
             {
                 "job_id": job_id,
                 "generation": claim["generation"],
@@ -822,7 +925,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     published = _data(
         _reply(
             await db_session.scalar(
-                _FINISH,
+                _FINISH_NATIVE,
                 {
                     "job_id": job_id,
                     "generation": claim["generation"],
@@ -842,8 +945,15 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     assert asset.active_generation == public_generation
     assert asset.building_generation is None
     assert generation is not None and generation.status == "ready"
+    assert generation.output_id == output_id
     assert generation.manifest == manifest
     assert generation.retained_bytes == 33
+    assert generation.manifest_key == prefix + "manifest.json"
+    output = await db_session.scalar(
+        text("SELECT state FROM public.image_pyramid_outputs WHERE id=:output_id"),
+        {"output_id": output_id},
+    )
+    assert output == "ready"
     projection = _data(
         _reply(
             await db_session.scalar(
@@ -859,6 +969,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert projection["pyramid"]["status"] == "ready"
+    assert projection["pyramid"]["manifest_key"] == prefix + "manifest.json"
 
     await db_session.execute(
         text("UPDATE public.dataset_items SET width=2,height=1 WHERE id=:item_id"),
@@ -881,8 +992,6 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     assert stale_projection["pyramid"]["status"] == "stale"
-    assert stale_projection["pyramid"]["manifest_key"] is None
-    assert stale_projection["pyramid"]["overview_key"] is None
     source = current_source
 
     refresh_id, _ = await _enqueue(
@@ -914,29 +1023,6 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
     assert asset.active_generation == public_generation
     assert asset.building_generation is None
     assert refresh_generation is not None and refresh_generation.status == "failed"
-
-    orphan = {
-        "asset_id": str(asset_id),
-        "generation": refresh_claim["pyramid_generation"] + 1,
-        "last_modified": (datetime.now(UTC) - timedelta(days=2)).isoformat(),
-    }
-    reconciled = _data(
-        _reply(
-            await db_session.scalar(
-                _RECONCILE,
-                {"candidates": json.dumps([orphan]), "batch_size": 10},
-            )
-        )
-    )
-    assert reconciled["queued_orphans"] == 1
-    prefix = f"image-pyramids/{asset_id}/g{refresh_claim['pyramid_generation'] + 1}/"
-    assert (
-        await db_session.scalar(
-            text("SELECT prefix FROM public.asset_image_garbage WHERE prefix=:prefix"),
-            {"prefix": prefix},
-        )
-        == prefix
-    )
 
 
 async def test_expired_image_lease_requeues_then_fails_after_three_attempts(db_session):

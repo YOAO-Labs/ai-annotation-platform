@@ -165,6 +165,8 @@ class ImageControl:
             return await self.prepare_image_media(request)
         if operation == "retry_image_media":
             return await self.retry_image_media(request)
+        if operation in {"prepare_owned_pyramid", "retry_owned_pyramid"}:
+            return await self._accept_owned_pyramid(operation, request)
         if operation == "schedule_image_media":
             return await self.schedule_image_media(request)
         native_request = request
@@ -455,6 +457,21 @@ class ImageControl:
             f"aap-assets-images/v1:{purpose}:{source.owner.kind}:{source.owner.id}:"
             f"{source.source_snapshot}:{target_digest}:{receipt_scope}",
         )
+
+    async def _accept_owned_pyramid(
+        self,
+        operation: str,
+        request: c.PrepareOwnedPyramidRequest | c.RetryOwnedPyramidRequest,
+    ) -> c.AcceptedImageWork:
+        if request.policy != self.policy:
+            raise c.ImageFailure("invalid_request")
+        source = await self._observe_actor(
+            request, expected_source_snapshot=request.expected_source_snapshot
+        )
+        admission = request.model_copy(
+            update={"expected_source_snapshot": source.source_snapshot}
+        )
+        return await self._native_call(operation, admission)
 
     async def prepare_image_media(
         self, request: c.PrepareImageMediaRequest

@@ -771,6 +771,26 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)",
         )
     },
+    **{
+        signature: "0455_images_output_ownership.sql"
+        for signature in (
+            "aap_assets_v1._accept_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb,text)",
+            "aap_assets_v1.prepare_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+            "aap_assets_v1.retry_owned_pyramid(uuid,uuid,uuid,uuid,text,text,jsonb,boolean,jsonb)",
+            "aap_assets_v1.guard_image_pyramid_native_attempt()",
+            "aap_assets_v1.guard_image_pyramid_native_member()",
+            "aap_assets_v1._native_pyramid_attempt(uuid,boolean)",
+            "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
+            "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
+            "aap_assets_v1.submit_native_pyramid_member(uuid)",
+            "aap_assets_v1._native_pyramid_fixture_scope(uuid)",
+            "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
+            "aap_assets_v1.verify_native_pyramid_member(uuid)",
+            "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
+            "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
+            "aap_assets_v1.record_fixture_media_birth()",
+        )
+    },
 }
 AUDIT_APPEND_ROLE = "audit_append_client"
 AUDIT_QUERY_ROLE = "audit_query_client"
@@ -1802,6 +1822,7 @@ SQL_ARTIFACTS = (
     "0450_video_candidate_status_restore.sql",
     *ASSETS_SOURCE_SQL_ARTIFACTS,
     "0454_identity_first_seed_account.sql",
+    "0455_images_output_ownership.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -2009,6 +2030,7 @@ SCHEMA_ARTIFACTS = (
     "0349_labeling_scene_read.schema.json",
     "0366_audit_fixture_cleanup.schema.json",
     "0454_identity_first_seed_account.schema.json",
+    "0455_images_output_ownership.schema.json",
     *ASSETS_SOURCE_SCHEMA_ARTIFACTS,
 )
 TEST_FILES = (
@@ -5095,7 +5117,10 @@ def _installed_function_body_sha256(
         "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
         "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
     }.get(sql_name, sql_name)
-    if signature == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)":
+    if (
+        signature
+        == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)"
+    ):
         base_sql_name = "0214_dataset_import_core.sql"
     source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
     function_name = re.escape(signature.split("(", 1)[0])
@@ -5114,19 +5139,28 @@ def _installed_function_body_sha256(
         if sql_name == "0450_video_candidate_status_restore.sql":
             tags += ("guard", "candidates")
         if sql_name == "0453_import_original_verification.sql":
-            tags += ("fields_before", "fields_after", "validation_before", "validation_after")
+            tags += (
+                "fields_before",
+                "fields_after",
+                "validation_before",
+                "validation_after",
+            )
         literals = {}
         for tag in tags:
-            matches = re.findall(
-                rf"\${tag}\$(.*?)\${tag}\$", patch_source, re.DOTALL
-            )
+            matches = re.findall(rf"\${tag}\$(.*?)\${tag}\$", patch_source, re.DOTALL)
             if len(matches) != 1:
-                raise RuntimeError(f"frozen SQL patch literal is not unique: {sql_name}")
+                raise RuntimeError(
+                    f"frozen SQL patch literal is not unique: {sql_name}"
+                )
             literals[tag] = matches[0]
         replacements = [(literals["before"], literals["after"])]
         if "fields_before" in literals:
-            replacements.insert(0, (literals["fields_before"], literals["fields_after"]))
-            replacements.insert(1, (literals["validation_before"], literals["validation_after"]))
+            replacements.insert(
+                0, (literals["fields_before"], literals["fields_after"])
+            )
+            replacements.insert(
+                1, (literals["validation_before"], literals["validation_after"])
+            )
         if "guard" in literals:
             replacements.append(
                 (literals["guard"], literals["guard"] + literals["candidates"])
@@ -12461,7 +12495,8 @@ SELECT pg_catalog.jsonb_build_object(
                     cleanup_backend = backend
                     if (
                         container_id
-                        and "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                        and "tests/test_legacy_video_fence_live.py"
+                        in selected_test_paths
                         and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
                     ):
                         # This fixture deliberately disables every ordinary LOGIN.
