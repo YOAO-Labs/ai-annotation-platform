@@ -1606,6 +1606,19 @@ BEGIN
     EXECUTE pg_catalog.format('ALTER TABLE aap_assets_v1.image_pyramid_native_attempts OWNER TO %I',v_owner);
     EXECUTE pg_catalog.format('ALTER TABLE aap_assets_v1.image_pyramid_native_members OWNER TO %I',v_owner);
     EXECUTE pg_catalog.format('ALTER FUNCTION aap_assets_v1.record_fixture_media_birth() OWNER TO %I',v_owner);
+    -- The birth trigger's definer must be able to call its exact scope helper.
+    FOR v_grant IN
+        SELECT pg_catalog.pg_get_userbyid(proowner) AS rolname
+        FROM pg_catalog.pg_proc
+        WHERE oid='aap_assets_v1.record_fixture_media_birth()'::regprocedure
+        UNION
+        SELECT v_owner::text
+    LOOP
+        EXECUTE pg_catalog.format(
+            'GRANT EXECUTE ON FUNCTION aap_assets_v1._native_pyramid_fixture_scope(uuid) TO %I',
+            v_grant.rolname
+        );
+    END LOOP;
     IF NOT v_create THEN
         EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA aap_assets_v1 FROM %I',v_owner);
     END IF;
