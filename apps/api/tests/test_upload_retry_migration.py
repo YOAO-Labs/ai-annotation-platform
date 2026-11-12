@@ -43,7 +43,7 @@ def _config(url: str) -> Config:
     return config
 
 
-async def _state(url: str) -> tuple[str, str, set[str], set[str]]:
+async def _state(url: str) -> tuple[str, str, str, set[str], set[str]]:
     engine = create_async_engine(url)
     try:
         async with engine.connect() as connection:
@@ -72,11 +72,18 @@ async def _state(url: str) -> tuple[str, str, set[str], set[str]]:
                     )
                 )
             )
+            acl = await connection.scalar(
+                text(
+                    "SELECT proacl::text FROM pg_proc "
+                    "WHERE oid=CAST(:signature AS regprocedure)"
+                ),
+                {"signature": "aap_assets_v1.begin_operator_auxiliary(jsonb)"},
+            )
     finally:
         await engine.dispose()
     match = _FUNCTION_BODY.search(definition)
     assert match is not None
-    return version, match.group("body"), indexes, constraints
+    return version, match.group("body"), acl, indexes, constraints
 
 
 async def _insert_retry_rows(url: str) -> uuid.UUID:
@@ -165,7 +172,7 @@ async def test_upload_retry_migration_roundtrip_and_refusal(test_engine):
         assert old_body != new_body
 
         await asyncio.to_thread(command.upgrade, config, "bo0456")
-        version, body, indexes, constraints = await _state(url)
+        version, body, original_acl, indexes, constraints = await _state(url)
         assert version == "bo0456"
         assert body == old_body
         assert "uq_managed_creation_reserved_key" in constraints
@@ -173,18 +180,20 @@ async def test_upload_retry_migration_roundtrip_and_refusal(test_engine):
         assert "uq_managed_creation_reserved_key_active" not in indexes
 
         await asyncio.to_thread(command.upgrade, config, "head")
-        version, body, indexes, constraints = await _state(url)
+        version, body, acl, indexes, constraints = await _state(url)
         assert version == "bo0458"
         assert body == new_body
+        assert acl == original_acl
         assert "uq_managed_creation_reserved_key_active" in indexes
         assert "uq_managed_creation_staging_key_active" in indexes
         assert "uq_managed_creation_reserved_key" not in constraints
         assert "managed_original_creations_staging_key_key" not in constraints
 
         await asyncio.to_thread(command.downgrade, config, "bo0456")
-        version, body, indexes, constraints = await _state(url)
+        version, body, acl, indexes, constraints = await _state(url)
         assert version == "bo0456"
         assert body == old_body
+        assert acl == original_acl
         assert "uq_managed_creation_reserved_key_active" not in indexes
         assert "uq_managed_creation_staging_key_active" not in indexes
         assert "uq_managed_creation_reserved_key" in constraints
