@@ -158,8 +158,9 @@ main()
     original_popen = subprocess.Popen
 
     def start(command, **kwargs):
-        assert command[1:] == ["-m", "yoao_assets_mask_content_runtime"]
-        return original_popen([command[0], "-c", bootstrap], **kwargs)
+        if command[1:] == ["-m", "yoao_assets_mask_content_runtime"]:
+            return original_popen([command[0], "-c", bootstrap], **kwargs)
+        return original_popen(command, **kwargs)
 
     with monkeypatch.context() as context:
         context.setattr(subprocess, "Popen", start)
@@ -231,6 +232,12 @@ async def test_late_http_delete_keeps_durable_fence_until_exact_receipt(
         client = MaskGcClient(origin, token, timeout_seconds=0.1)
         stats = await run_cycle(data, client, worker_id=worker, delete_limit=1)
         assert stats.indeterminate == 1 and stats.durable_uncertainties == 1
+        # The client timeout ends the HTTP call before the runtime's S3 work
+        # returns; wait for the in-flight owned delete instead of racing it.
+        for _ in range(200):
+            if entered.exists():
+                break
+            await asyncio.sleep(0.02)
         assert entered.exists()
         assert not _object_exists(owner, bucket, candidate.object_key)
         async with maker.begin() as db:

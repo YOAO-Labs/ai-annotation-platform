@@ -1244,6 +1244,16 @@ async def test_expired_image_lease_requeues_then_fails_after_three_attempts(db_s
     source = await _source(db_session, item_id)
     job_id, _ = await _enqueue(db_session, source, _spec("dimensions", source))
     claim = await _claim(db_session, job_id=job_id, kind="dimensions")
+    # reconcile_image_media sweeps every expired Job in the database. Park
+    # foreign committed leases for this rolled-back test so only its Job expires.
+    await db_session.execute(
+        text(
+            "UPDATE public.asset_image_jobs SET lease_expires_at="
+            "pg_catalog.clock_timestamp()+interval '1 hour' "
+            "WHERE status='running' "
+            "AND lease_expires_at <= pg_catalog.clock_timestamp()"
+        )
+    )
     await db_session.execute(
         text(
             "UPDATE public.asset_image_jobs SET lease_expires_at=clock_timestamp()-interval '1 second' "

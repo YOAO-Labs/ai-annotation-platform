@@ -1348,9 +1348,9 @@ async def test_backfill_pages_keep_source_snapshot_separate_from_materialization
     )
     cutoff = datetime.now(UTC) + timedelta(days=1)
     selection = {
-        "dataset_id": None,
+        "dataset_id": str(dataset_id),
         "dataset_item_ids": [],
-        "all_items": True,
+        "all_items": False,
         "only_missing": True,
         "accepted_before": None,
     }

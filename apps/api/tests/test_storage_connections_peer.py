@@ -31,6 +31,7 @@ pytestmark = [
 _SOURCE_URL = "AAP_MODULE_DATA_ASSET_SOURCE_URL"
 _CONTAINER_ID = "AAP_MODULE_DATA_PG_CONTAINER_ID"
 _EXPECTED_SOURCE_CAPABILITIES = {
+    # bo0453 adds Source-owned Dataset import original verification receipts.
     "begin_operator_auxiliary",
     "open_operator_storage_operation",
     "record_operator_original_prepared",
@@ -54,6 +55,11 @@ _EXPECTED_SOURCE_CAPABILITIES = {
     "complete_dataset_ingest_batch",
     "read_dataset_ingest_layout",
     "finish_dataset_ingest",
+    "begin_import_original_verification",
+    "record_import_original_read",
+    "finish_import_original_verification",
+    "recover_import_original_verification",
+    "status_import_original_verification",
     "resolve_internal_image_source",
     "schedule_image_media",
     "read_legacy_dataset_upload",
