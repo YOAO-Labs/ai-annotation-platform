@@ -43,7 +43,12 @@ ROOT = Path(__file__).resolve().parents[1]
 WEB = ROOT / "apps" / "web"
 sys.path.insert(0, str(ROOT / "apps" / "api"))
 
-from fixture_native_playwright import _private, _start_ticks, _verify_run_receipts  # noqa: E402
+from fixture_native_playwright import (  # noqa: E402
+    _private,
+    _start_ticks,
+    _verify_run_receipts,
+    fixture_provider_host,
+)
 from fixture_store import (  # noqa: E402
     _canonical_native_output_policy,
     _client,
@@ -1176,6 +1181,9 @@ async def main():
     require(
         owner.data["fixture_store"]["database"] == identity,
         "fixture_store_database_changed",
+    )
+    os.environ.setdefault(
+        "PLAYWRIGHT_ML_FIXTURE_HOST", fixture_provider_host(owner_path)
     )
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     sources = source_files(uuid.uuid4().hex)

@@ -52,6 +52,7 @@ from fixture_store import (  # noqa: E402
 from linux_pidfd import open_pidfd, pidfd_alive, pidfd_send_signal  # noqa: E402
 from verify_storage_candidates import Owner  # noqa: E402
 from worktree_env import state_path  # noqa: E402
+from fixture_native_playwright import fixture_provider_host  # noqa: E402
 from tests.test_screenshot_exit_live import _read_originals, _rows_and_versions  # noqa: E402
 
 CHILDREN = ("celery-media", "celery-pyramid", "media-worker", "image-worker", "proxy")
@@ -345,11 +346,15 @@ def find_child(parent, needle, *, browser=False):
         try:
             args = cmdline(pid)
             if browser:
+                # Chromium rewrites its /proc cmdline as one space-joined
+                # string, so split the joined form before matching the
+                # executable and the renderer/zygote --type= markers.
+                tokens = b" ".join(args).split()
                 match = bool(
-                    args
-                    and args[0].rsplit(b"/", 1)[-1]
+                    tokens
+                    and tokens[0].rsplit(b"/", 1)[-1]
                     in (b"chrome", b"chromium", b"chrome-headless-shell")
-                    and not any(arg.startswith(b"--type=") for arg in args)
+                    and not any(token.startswith(b"--type=") for token in tokens)
                 )
             else:
                 match = any(needle in arg for arg in args)
@@ -1165,6 +1170,10 @@ async def main():
             f.flush()
             os.fsync(f.fileno())
     store, reader = load_store(root, resources, identity)
+    os.environ.setdefault(
+        "PLAYWRIGHT_ML_FIXTURE_HOST",
+        fixture_provider_host(state_path(root, "e2e", "fixture-store-owner.json")),
+    )
     engine = create_async_engine(owner_url, poolclass=NullPool, hide_parameters=True)
     b, failure_run, cancel_run = (uuid.uuid4() for _ in range(3))
     b_port, a_port, a_web, b_web = free_ports(4)
@@ -1278,7 +1287,8 @@ async def main():
         [sibling.process, vite.process, browser.process],
         "B browser readiness",
     )
-    playwright = (WEB / "node_modules/.bin/playwright").resolve(strict=True)
+    # The .bin entry is a POSIX shell wrapper; node must run the test CLI.
+    playwright = (WEB / "node_modules/@playwright/test/cli.js").resolve(strict=True)
     for index, (run, mode) in enumerate(
         ((failure_run, "failure"), (cancel_run, "cancel")), 1
     ):
@@ -1465,7 +1475,12 @@ async def main():
     vite.pin.send(signal.SIGTERM)
     vite_status = vite.wait()
     save(evidence / "b-vite-outcome.json", {"returncode": vite_status})
-    require(vite_status in (0, -signal.SIGTERM), "B web server did not settle normally")
+    # Node exits 143 (128+SIGTERM) when its default SIGTERM handling fires;
+    # the negative form covers a runtime that reports the signal instead.
+    require(
+        vite_status in (0, -signal.SIGTERM, 128 + signal.SIGTERM),
+        "B web server did not settle normally",
+    )
     vite.pin.exited()
     sibling.pin.send(signal.SIGINT)
     require(sibling.wait() == 0, "B launcher did not settle normally")
