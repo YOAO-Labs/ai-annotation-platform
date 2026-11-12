@@ -131,6 +131,19 @@ class OriginalSource:
     location_facts: LocationFacts | None
     read_route: ReadRoute | None = None
 
+def media_permit_purpose(source, family):
+    """Bind a physical reader to its canonical content rather than a shared bucket."""
+    if (
+        not isinstance(source, OriginalSource)
+        or source.owner_kind not in {"dataset_asset", "task_original"}
+        or not isinstance(source.content_id, uuid.UUID)
+        or family not in {"image", "video"}
+    ):
+        raise ContentError("content_binding_changed", 409)
+    kind = "a" if source.owner_kind == "dataset_asset" else "t"
+    return f"media_{family}_{kind}_{source.content_id.hex}"
+
+
 
 @asynccontextmanager
 async def _reads(db, lock):

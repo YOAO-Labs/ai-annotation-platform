@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
 from yoao_inference_contract.health_observation import (
@@ -64,6 +65,13 @@ class BackendHealthObservationPostgresData:
         self.dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
         self.connect_timeout = numeric_connect_timeout
         self.command_timeout = numeric_command_timeout
+        try:
+            login = urlsplit(dsn).username
+            self.expected_login = unquote(login) if login else ""
+        except ValueError:
+            raise BackendHealthObservationUnavailable() from None
+        if not self.expected_login:
+            raise BackendHealthObservationUnavailable()
 
     async def _close_connection(self, connection, *, primary_failure: bool) -> None:
         try:
@@ -107,6 +115,7 @@ class BackendHealthObservationPostgresData:
         try:
             connection = await asyncpg.connect(
                 self.dsn,
+                user=self.expected_login,
                 timeout=self.connect_timeout,
                 command_timeout=self.command_timeout,
                 server_settings={
@@ -118,6 +127,7 @@ class BackendHealthObservationPostgresData:
                 connection,
                 schema=_SCHEMA,
                 functions=_FUNCTIONS,
+                role=self.expected_login,
             )
             policy = await connection.fetchval(_POLICY_SQL)
             if not health_observation_policy_ready(policy):

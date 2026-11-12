@@ -50,6 +50,7 @@ def _positive_int(env: Mapping[str, str], name: str, default: int, maximum: int)
 @dataclass(frozen=True, slots=True)
 class JobsDispatchRelaySettings:
     database_url: str = field(repr=False)
+    publication_database_url: str = field(repr=False)
     queue_url: str = field(repr=False)
     queue_token: str = field(repr=False)
     batch_size: int = 100
@@ -57,16 +58,28 @@ class JobsDispatchRelaySettings:
     poll_seconds: int = 1
 
     def __post_init__(self) -> None:
-        if not self.database_url or not self.queue_url or not self.queue_token:
+        if not (
+            self.database_url
+            and self.publication_database_url
+            and self.queue_url
+            and self.queue_token
+        ):
             raise ValueError("Jobs dispatch relay settings are incomplete")
         try:
             database = urlsplit(self.database_url)
+            publication_database = urlsplit(self.publication_database_url)
+            publication_database.port
             queue = urlsplit(self.queue_url)
             token_bytes = self.queue_token.encode("ascii")
             queue.port
         except (AttributeError, UnicodeError, ValueError):
             raise ValueError("Jobs dispatch relay settings are invalid") from None
-        if database.scheme not in {"postgres", "postgresql"}:
+        if (
+            database.scheme not in {"postgres", "postgresql"}
+            or not database.hostname
+            or publication_database.scheme not in {"postgres", "postgresql"}
+            or not publication_database.hostname
+        ):
             raise ValueError("Jobs dispatch relay database URL is invalid")
         if (
             queue.scheme not in {"http", "https"}
@@ -95,6 +108,7 @@ class JobsDispatchRelaySettings:
             raise ValueError("Jobs dispatch relay requires explicit enablement")
         return cls(
             database_url=_secret(values, "JOBS_DISPATCH_RELAY_DATABASE_URL"),
+            publication_database_url=_secret(values, "JOBS_PUBLICATION_DATABASE_URL"),
             queue_url=values.get("JOBS_QUEUE_URL", ""),
             queue_token=_secret(values, "JOBS_QUEUE_TOKEN"),
             batch_size=_positive_int(
@@ -120,6 +134,7 @@ class JobsDispatchRelay:
         self,
         ledger: JobsDispatchDataClient,
         publisher: QueueEnvelopePublisher,
+        publication_database_url: str,
         *,
         batch_size: int = 100,
         lease_seconds: int = 30,
@@ -127,11 +142,12 @@ class JobsDispatchRelay:
         self._ledger = ledger
         self._publisher = publisher
         self._batch_size = batch_size
+        self._publication_database_url = publication_database_url
         self._lease_seconds = lease_seconds
 
     async def run_once(self) -> int:
         from .dispatch_contract import JobsDispatchRejected
-        from .queue_contract import JobsQueueUnavailable
+        from .queue_contract import JobsQueueNotSent, JobsQueueUnavailable
 
         accepted_count = 0
         for _ in range(self._batch_size):
@@ -142,10 +158,36 @@ class JobsDispatchRelay:
                 break
             lease = leases[0]
             accepted = False
+            from .publication_postgres import (
+                PublicationUnavailable,
+                publication_session,
+                refuse_publication,
+                settle_publication,
+            )
+
             try:
-                accepted_id = await self._publisher.publish_envelope(lease.envelope)
-                accepted = accepted_id == lease.execution_id
-            except JobsQueueUnavailable:
+                async with publication_session(
+                    self._publication_database_url, lease
+                ) as (connection, arguments, needs_publish):
+                    if needs_publish:
+                        try:
+                            accepted_id = await self._publisher.publish_envelope(lease.envelope)
+                        except JobsQueueNotSent as exc:
+                            try:
+                                await refuse_publication(connection, arguments)
+                            except Exception as recording:
+                                raise ExceptionGroup(
+                                    "Jobs pre-request refusal and owner recording failed",
+                                    [exc, recording],
+                                ) from None
+                            raise
+                        accepted = accepted_id == lease.execution_id
+                        if not accepted:
+                            raise JobsQueueUnavailable()
+                        await settle_publication(connection, arguments)
+                    else:
+                        accepted = True
+            except (JobsQueueUnavailable, PublicationUnavailable):
                 pass
             try:
                 await self._ledger.finish(lease, accepted=accepted)
@@ -176,6 +218,7 @@ async def run_forever(
         provider.client,
         publisher,
         batch_size=settings.batch_size,
+        publication_database_url=settings.publication_database_url,
         lease_seconds=settings.lease_seconds,
     )
     try:

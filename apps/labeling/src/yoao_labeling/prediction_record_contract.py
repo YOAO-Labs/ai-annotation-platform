@@ -303,9 +303,9 @@ def prediction_record_schema() -> dict[str, object]:
 
 def prediction_record_command_json(command: PredictionRecordCommand) -> str:
     validated = decode_prediction_record_command(
-        command.model_dump_json(by_alias=True, exclude_unset=True)
+        command.model_dump_json(by_alias=True)
     )
-    return validated.model_dump_json(by_alias=True, exclude_unset=True)
+    return validated.model_dump_json(by_alias=True)
 
 
 __all__ = [

@@ -312,9 +312,13 @@ async def test_unknown_late_physical_close_marks_interruption(monkeypatch):
         await asyncio.sleep(0)
         assert not task.done()
         release.set()
-        with pytest.raises(asyncio.CancelledError) as raised:
+        with pytest.raises(BaseExceptionGroup) as raised:
             await task
-        assert raised.value.storage_operation_unsettled
+        assert any(
+            isinstance(child, asyncio.CancelledError)
+            for child in raised.value.exceptions
+        )
+        assert storage_access.failure_unsettled(raised.value)
     finally:
         release.set()
 

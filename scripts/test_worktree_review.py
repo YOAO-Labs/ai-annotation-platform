@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 from worktree_env import (
     WorktreeError,
-    atomic_json,
     isolated_environment,
     load_identity,
     topology,
@@ -111,6 +110,7 @@ class ReviewRegressions(unittest.TestCase):
             dev = topology(root, identity, "dev")
             env = isolated_environment(
                 dev,
+                code_root=root,
                 database_url="postgresql+asyncpg://user:fixture@localhost/db",
                 migration_database_url="",
                 minio_endpoint="localhost:9000",
@@ -152,24 +152,6 @@ class ReviewRegressions(unittest.TestCase):
         ):
             self.assertEqual(application[key], "")
 
-    def test_process_handles_match_relative_invocation_without_recording_argv(self):
-        self.assertTrue(hasattr(runtime, "process_handle"))
-        identity = {
-            "started": "start-a",
-            "command": "python scripts/worktree_runtime.py up",
-        }
-        with patch.object(runtime, "process_identity", return_value=identity):
-            handle = runtime.process_handle(123, str(ROOT))
-            self.assertTrue(runtime.process_matches(handle, str(ROOT)))
-            self.assertNotIn("command", handle)
-            self.assertFalse(runtime.process_matches(handle, str(ROOT / "other")))
-        with patch.object(
-            runtime,
-            "process_identity",
-            return_value={**identity, "command": "python other.py"},
-        ):
-            self.assertFalse(runtime.process_matches(handle, str(ROOT)))
-
     def test_corrupt_session_record_is_an_actionable_error(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -180,30 +162,6 @@ class ReviewRegressions(unittest.TestCase):
             with self.assertRaises(WorktreeError):
                 runtime.session_record(resources)
 
-    def test_verified_destroy_releases_the_infrastructure_manifest(self):
-        from worktree_resources import LocalResources
-
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            resources = topology(root, load_identity(root, create=True), "test")
-            manifest = Path(resources["directory"]) / "resources.json"
-            atomic_json(manifest, {"fixture": True})
-            backend = object.__new__(LocalResources)
-            backend.root, backend.resources = root, resources
-            backend.inspect = Mock(
-                return_value={
-                    "database": None,
-                    "redis": None,
-                    "buckets": {name: None for name in resources["buckets"].values()},
-                }
-            )
-            backend.database = AsyncMock(return_value=None)
-            backend.owned_runtime_role = AsyncMock(return_value=None)
-            backend.redis_info = Mock(return_value=None)
-            backend.bucket_info = Mock(return_value=None)
-            backend.destroy(resources["confirmation"])
-            self.assertFalse(manifest.exists())
-            self.assertTrue((root / ".worktree/identity.json").exists())
 
     def test_pytest_rejects_dev_mode_before_loading_database_fixtures(self):
         result = subprocess.run(

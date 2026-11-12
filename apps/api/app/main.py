@@ -65,6 +65,11 @@ if settings.sentry_dsn:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    from yoao_assets_media_runtime.additional_original import (
+        load_additional_original_config,
+    )
+
+    load_additional_original_config()
     if (
         settings.environment == "production"
         and settings.secret_key == "dev-secret-change-in-production"

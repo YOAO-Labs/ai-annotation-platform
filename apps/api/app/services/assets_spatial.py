@@ -185,13 +185,175 @@ class AssetsSpatialGateway:
         from yoao_assets_catalog.object_signer import SpatialCalibrationSourceReader
         from yoao_assets_catalog.spatial_workflow import SpatialWorkflow
 
+        source_reader = SpatialCalibrationSourceReader(
+            storage_service.spatial_source_client,
+            storage_service.datasets_bucket,
+        )
         return SpatialWorkflow(
             native=SameSessionAssetsSpatialGateway(self.db),
-            source_reader=SpatialCalibrationSourceReader(
-                storage_service.spatial_source_client,
-                storage_service.datasets_bucket,
+            source_reader=source_reader,
+            admitted_calibration_reader=lambda operation, item: (
+                self._read_calibration_source(source_reader, operation, item)
             ),
         )
+
+    async def _read_calibration_source(self, source_reader, preparation_id, item):
+        """Read fixture calibration bytes through the existing exact owner permit."""
+        import asyncio
+        import builtins
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from types import SimpleNamespace
+
+        from yoao_assets_catalog.object_signer import (
+            MAX_CALIBRATION_SOURCE_BYTES,
+            SourceObjectFacts,
+            SourceObjectTooLarge,
+        )
+        from yoao_assets_catalog.spatial_workflow import CalibrationSourceOwnershipError
+        from yoao_assets_images.contract import OriginalRead
+        from yoao_assets_images_runtime.original_read import admitted_original
+        from app.services import storage_access
+        from app.services.assets_images import image_storage
+
+        try:
+            fixture = await self.db.scalar(
+                text(
+                    "SELECT aap_assets_v1.is_fixture_spatial_dataset(CAST(:dataset AS uuid))"
+                ),
+                {"dataset": item.dataset_id},
+            )
+        except Exception as exc:
+            raise CalibrationSourceOwnershipError(
+                "calibration source owner unavailable"
+            ) from exc
+        if fixture is False:
+            return await asyncio.to_thread(
+                source_reader.read_calibration_source,
+                item.file_path,
+                expected_size=item.file_size,
+            )
+        if fixture is not True:
+            raise CalibrationSourceOwnershipError("calibration source owner is invalid")
+
+        class SpatialReadDatabase:
+            permit = None
+
+            async def call(inner, operation, request):
+                async with AsyncSession(
+                    bind=storage_access.engine(self.db), expire_on_commit=False
+                ) as current:
+                    if operation == "begin":
+                        raw = await current.scalar(
+                            text(
+                                "SELECT aap_assets_v1.begin_spatial_calibration_original("
+                                "CAST(:preparation AS uuid), CAST(:item AS uuid), CAST(:key AS text))"
+                            ),
+                            {
+                                "preparation": preparation_id,
+                                "item": item.id,
+                                "key": item.file_path,
+                            },
+                        )
+                        await current.commit()
+                        inner.permit = OriginalRead.model_validate(raw)
+                        return inner.permit
+                    result = await current.scalar(
+                        text(
+                            "SELECT aap_assets_v1.finish_spatial_calibration_original("
+                            "CAST(:creation AS uuid), CAST(:operation AS uuid))"
+                        ),
+                        {
+                            "creation": request.creation_id,
+                            "operation": request.operation_id,
+                        },
+                    )
+                    if result is not True:
+                        raise RuntimeError("spatial calibration permit did not settle")
+                    await current.commit()
+                    return result
+
+        database = SpatialReadDatabase()
+        try:
+            storage = image_storage(control=True)
+        except Exception as exc:
+            raise CalibrationSourceOwnershipError(
+                "calibration source transport unavailable"
+            ) from exc
+        failure = None
+        closed = False
+        try:
+            async with admitted_original(
+                database, storage, "begin", None, "finish"
+            ) as bound:
+                read_failure = None
+                try:
+                    permit = database.permit
+                    if permit.ownership != "fixture":
+                        raise CalibrationSourceOwnershipError(
+                            "fixture calibration is not owned"
+                        )
+                    target = storage._additional_original
+                    if target is None or not target.matches(permit):
+                        raise CalibrationSourceOwnershipError(
+                            "fixture calibration requires its configured read-only target"
+                        )
+                    if permit.size_bytes > MAX_CALIBRATION_SOURCE_BYTES:
+                        raise SourceObjectTooLarge(
+                            "Calibration source exceeds its byte limit"
+                        )
+                    source = SimpleNamespace(
+                        file_path=item.file_path,
+                        file_size=item.file_size,
+                        bucket_kind="datasets",
+                        content_hash=item.content_hash,
+                        object_identity=None,
+                    )
+                    source.object_identity = await bound.head_source(source)
+                    with TemporaryDirectory(
+                        prefix="aap-spatial-calibration-"
+                    ) as directory:
+                        destination = Path(directory) / "source"
+                        await bound.download_source(source, destination)
+                        body = destination.read_bytes()
+                    return SourceObjectFacts(
+                        etag=source.object_identity.etag, size=len(body)
+                    ), body
+                except BaseException as exc:
+                    read_failure = exc
+                    raise
+                finally:
+                    closed = True
+                    try:
+                        await storage.close()
+                    except BaseException as close_error:
+                        close_error.storage_operation_unsettled = True
+                        if read_failure is not None:
+                            combined = builtins.BaseExceptionGroup(
+                                "Spatial calibration read and storage close failed",
+                                [read_failure, close_error],
+                            )
+                            combined.storage_operation_unsettled = True
+                            raise combined from None
+                        raise
+        except BaseException as exc:
+            failure = exc
+            if isinstance(exc, (KeyboardInterrupt, SystemExit, asyncio.CancelledError)):
+                raise
+            raise CalibrationSourceOwnershipError(
+                "fixture calibration original could not be read"
+            ) from exc
+        finally:
+            if not closed:
+                try:
+                    await storage.close()
+                except BaseException as close_error:
+                    if failure is not None:
+                        raise builtins.BaseExceptionGroup(
+                            "Spatial calibration admission and storage close failed",
+                            [failure, close_error],
+                        ) from None
+                    raise
 
     async def _call(
         self,

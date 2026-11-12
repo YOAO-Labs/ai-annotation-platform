@@ -205,6 +205,8 @@ nuScenes 脚本会把 `sample_data` 中的相机像素宽高一并持久化，�
 
 用配套脚本 [`apps/api/scripts/import_nuscenes_scene.py`](https://github.com/yyq19990828/ai-annotation-platform/blob/main/apps/api/scripts/import_nuscenes_scene.py) 离线转换 + 直接入库。脚本**为每个传入的 scene 各建一个 scene**,sample 顺序赋 `frame_index`:
 
+首次使用该脚本前，管理员须独立准备并版本化平台的受管原件 bucket；导入进程使用受限身份，不能创建 bucket 或修复漂移的目标。步骤见[可信导入器部署](/api/guides/module-data#可信导入器数据集与素材登记)。
+
 > ⚠️ **`--scene-tokens` 的命名有误导**:它接受的是 nuScenes `scene.json` 的 **`name` 字段**(如 `scene-0061`),**不是** scene 的 UUID token(那种形如 `cc8c0bf57f984915a77078b10eb33198` 的 40 位十六进制串)。脚本内部用 `{s["name"]: s}` 按 name 查表,匹配不到就报错。落库时:`scenes.name` = 你传入的 name(如 `scene-0061`),而真正的 UUID token 另存到该 scene 的 `source_metadata.scene_token`。所以传 UUID token 会匹配失败——请填 `scene-XXXX` 形式的 name。
 
 ```bash

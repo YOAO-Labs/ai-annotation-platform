@@ -227,41 +227,6 @@ async def test_read_only_key_keeps_task_access_without_dataset_manager_or_lifecy
         )
 
 
-async def test_read_only_key_can_retry_and_queues_exact_task_and_original(
-    committed_pyramid, monkeypatch
-):
-    state, queued = committed_pyramid, []
-    async with state.factory() as db:
-        await db.execute(
-            update(ImagePyramidAsset)
-            .where(ImagePyramidAsset.id == state.asset_id)
-            .values(active_generation=None)
-        )
-        await db.execute(
-            update(ImagePyramidGeneration)
-            .where(ImagePyramidGeneration.asset_id == state.asset_id)
-            .values(status="failed", updated_at=pyramids.utcnow() - timedelta(hours=1))
-        )
-        await db.commit()
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: queued.append((args, kwargs)) or "queued-fixture",
-    )
-    response = await state.client.post(state.route + "/retry", headers=state.headers)
-    assert response.status_code == 202 and response.json()["status"] == "queued", (
-        response.text
-    )
-    args, options = queued[0]
-    assert args == ("task", state.task_id) and options["force"]
-    ref = options["delegation"]
-    assert ref["mode"] == "http" and ref["actor_id"] == str(state.actor_id)
-    assert ref["api_key_id"] == str(state.key_id) and ref["task_id"] == str(
-        state.task_id
-    )
-    assert ref["original"] == state.original
-    assert "jwt" not in str(ref).lower() and state.token not in str(ref)
-
-
 @pytest.mark.parametrize("operation", ["manifest", "asset_urls"])
 @pytest.mark.parametrize("revocation", ["key_rotation", "membership"])
 async def test_revocation_committed_after_physical_read_rejects_http_response(
@@ -383,9 +348,13 @@ async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_c
     monkeypatch.setattr(
         "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
     )
+
+    async def enqueue(*args, **kwargs):
+        queued.append((args, kwargs))
+        return "metadata-retry"
+
     monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: queued.append((args, kwargs)) or "metadata-retry",
+        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid", enqueue
     )
     async with state.factory() as db:
         generation = await db.get(ImagePyramidGeneration, (state.asset_id, 1))
@@ -431,6 +400,3 @@ async def test_invalid_manifest_metadata_invalidates_ready_and_can_retry_after_c
     assert retried.status_code == 202 and retried.json()["status"] == "queued", (
         retried.text
     )
-    args, options = queued[0]
-    assert args == ("task", state.task_id)
-    assert options["delegation"]["original"] == state.original

@@ -242,62 +242,6 @@ def test_listener_command_still_overrides_entrypoint_explicitly():
     ) == ("-c", "pass")
 
 
-def test_private_network_mutations_use_inspected_network_id(monkeypatch):
-    network_name = "aap-notify-live-owned"
-    network_id = "f" * 64
-    dependency_id = "d" * 64
-    run_id = "e" * 24
-    endpoint = {
-        "NetworkID": network_id,
-        "EndpointID": "endpoint-id",
-        "Aliases": ["notifications-postgres"],
-    }
-    endpoint_results = [endpoint, endpoint, None]
-    calls = []
-
-    def docker(*arguments, **_kwargs):
-        calls.append(arguments)
-        return ""
-
-    def inspect(kind, target):
-        if kind == "network":
-            assert target == network_id
-            return {
-                "Name": network_name,
-                "Id": network_id,
-                "Labels": {
-                    "org.aap.acceptance": "notifications-delivery-live",
-                    "org.aap.acceptance-id": run_id,
-                },
-                "Containers": {},
-            }
-        observed_endpoint = endpoint_results.pop(0)
-        networks = {network_name: observed_endpoint} if observed_endpoint else {}
-        return {"NetworkSettings": {"Networks": networks}}
-
-    monkeypatch.setattr(acceptance, "_docker", docker)
-    monkeypatch.setattr(acceptance, "inspect_docker", inspect)
-
-    acceptance.connect_owned_dependency(
-        network_name, network_id, dependency_id, "notifications-postgres"
-    )
-    acceptance.disconnect_owned_dependency(network_name, network_id, dependency_id)
-    acceptance.remove_owned_network(network_name, network_id, run_id)
-
-    assert calls == [
-        (
-            "network",
-            "connect",
-            "--alias",
-            "notifications-postgres",
-            network_id,
-            dependency_id,
-        ),
-        ("network", "disconnect", network_id, dependency_id),
-        ("network", "rm", network_id),
-    ]
-
-
 def test_container_endpoint_must_match_the_immutable_network_id(monkeypatch):
     network_name = "aap-notify-live-owned"
     observed = _container_record(

@@ -705,6 +705,29 @@ async def test_physical_timeout_drains_and_preserves_late_unsettled_error():
         assert not pending.done()
     finally:
         release.set()
-        with pytest.raises(TimeoutError) as exc:
+        with pytest.raises(ExceptionGroup) as exc:
             await pending
-    assert exc.value.storage_operation_unsettled
+    assert any(isinstance(child, TimeoutError) for child in exc.value.exceptions)
+    assert storage_access.failure_unsettled(exc.value)
+
+
+async def test_cancelled_physical_read_retains_late_uncertain_cause():
+    entered, release = threading.Event(), threading.Event()
+
+    def native():
+        entered.set()
+        assert release.wait(3)
+        raise storage_access.mark_unsettled(OSError("native close unknown"))
+
+    pending = asyncio.create_task(service.physical(native))
+    await wait_thread(entered)
+    pending.cancel()
+    try:
+        await asyncio.sleep(0)
+        assert not pending.done()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError) as cancelled:
+        await pending
+    assert storage_access.failure_unsettled(cancelled.value)
+    assert isinstance(cancelled.value.__cause__, OSError)

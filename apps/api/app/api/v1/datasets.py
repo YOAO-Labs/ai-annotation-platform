@@ -20,6 +20,7 @@ from fastapi import (
 from starlette.formparsers import MultiPartException, MultiPartParser
 from starlette.datastructures import FormData, UploadFile as StarletteUploadFile
 from starlette.requests import parse_options_header
+from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -117,8 +118,18 @@ async def directory_dataset_write_access(
         dataset_id = uuid.UUID(str(request.path_params["dataset_id"]))
     except ValueError:
         raise HTTPException(422, "Invalid dataset ID") from None
+    # A committed whole-Dataset deletion may have removed the row. Only an
+    # explicitly keyed replay can proceed to the owner's exact receipt check.
+    allow_missing = (
+        request.scope.get("endpoint") is delete_dataset
+        and request.headers.get("Idempotency-Key") is not None
+    )
     request.state.directory_dataset_authority = await capture_dataset_write(
-        db, dataset_id, actor, getattr(request.state, "api_key_id", None)
+        db,
+        dataset_id,
+        actor,
+        getattr(request.state, "api_key_id", None),
+        allow_missing=allow_missing,
     )
 
 
@@ -1012,9 +1023,6 @@ async def _schedule_media_backfill(
     from app.services.reference_access import reject_reference_scope
 
     await reject_reference_scope(db, dataset_id=dataset_id)
-    await AssetsCatalogGateway(db).get(
-        GetDatasetRequest(actor_id=actor.id, dataset_id=dataset_id)
-    )
     key = normalize_idempotency_key(
         str(idempotency_key) if idempotency_key is not None else None
     )
@@ -1077,6 +1085,10 @@ async def _schedule_media_backfill(
             payload=payload,
         )
     execution_id = str(job.id)
+    queue = await db.scalar(
+        text("SELECT aap_jobs_v1.fixture_media_backfill_route(:job_id)"),
+        {"job_id": job.id},
+    )
     dispatch_args = [str(job.id)]
     dispatch_kwargs: dict = {}
     lease = await prepare_job_dispatch(
@@ -1086,7 +1098,7 @@ async def _schedule_media_backfill(
         execution_id=execution_id,
         args=dispatch_args,
         kwargs=dispatch_kwargs,
-        options={"queue": "media"},
+        options={"queue": queue},
     )
     await recheck_directory_write(request, db, dataset_id)
     # The worker must see the durable row before Celery can start. A concurrent
@@ -1100,7 +1112,7 @@ async def _schedule_media_backfill(
             execution_id=execution_id,
             args=dispatch_args,
             kwargs=dispatch_kwargs,
-            options={"queue": "media"},
+            options={"queue": queue},
         ),
     )
     return _media_backfill_response(job)

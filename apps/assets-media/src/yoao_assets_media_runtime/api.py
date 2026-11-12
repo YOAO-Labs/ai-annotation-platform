@@ -124,6 +124,15 @@ def create_app(
             request, c.ReadSourceRequest, control.source_reference, SourceReference
         )
 
+    @app.post("/v1/ready-source-reference")
+    async def ready_source_reference(request: Request):
+        return await invoke(
+            request,
+            c.ReadSourceRequest,
+            control.ready_source_reference,
+            SourceReference,
+        )
+
     @app.post("/v1/raw-source-reference")
     async def raw_source_reference(request: Request):
         return await invoke(

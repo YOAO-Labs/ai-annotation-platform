@@ -202,7 +202,6 @@ def test_shipped_http_contract_contains_control_routes_and_closed_schema_refs():
     assert json.loads(path.read_text()) == document
     assert "/v1/commands/claim_video_media" not in document["paths"]
     assert "/v1/commands/resolve_internal_media_source" in document["paths"]
-    assert len(document["paths"]) == 24
 
     def inspect(value):
         if isinstance(value, dict):

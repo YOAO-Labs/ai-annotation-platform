@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -97,6 +98,125 @@ async def _seed_item(
     )
     await db_session.flush()
     return dataset_id, item_id
+
+
+async def test_raw_media_reference_fences_enrolled_store_before_reservation(
+    db_session, monkeypatch
+):
+    from types import SimpleNamespace
+
+    from yoao_assets_media.contract import MediaFailure, ReadSourceRequest
+    from yoao_assets_media_runtime.control import MediaControl
+    from yoao_assets_media_runtime.storage import S3MediaStorage
+    from app.config import settings
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import fixture_run_ownership
+    from app.services.assets_media import SqlAlchemyMediaDatabase
+    from app.services.managed_original_retirement import managed_storage_identity
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    actor = await _seed_actor(db_session)
+    _, item_id = await _seed_item(
+        db_session, actor_id=actor, file_type="image", name="reserved-alias"
+    )
+    fixture_dataset, run_id = uuid4(), uuid4()
+    key = f"__aap_managed_datasets__/{fixture_dataset}/_objects/{uuid4()}/image.png"
+    item = await db_session.get(DatasetItem, item_id)
+    item.file_path = key
+    db_session.add(
+        FixtureRun(
+            id=run_id,
+            family="owned",
+            original_storage_identity=managed_storage_identity(
+                "http://fixture-store", "fixtures"
+            ),
+            original_store_receipt_sha256="a" * 64,
+        )
+    )
+    await db_session.flush()
+
+    class Signer:
+        def __init__(self):
+            self.meta = SimpleNamespace(endpoint_url="http://fixture-store")
+            self.calls = []
+
+        def generate_presigned_url(self, operation, *, Params, ExpiresIn):
+            self.calls.append((operation, Params, ExpiresIn))
+            return f"http://signed/{Params['Bucket']}/{Params['Key']}"
+
+    signer = Signer()
+
+    def control(bucket):
+        storage = S3MediaStorage(
+            endpoint="http://fixture-store",
+            public_endpoint="http://fixture-store",
+            region="us-east-1",
+            access_key="test",
+            secret_key="test",
+            datasets_bucket=bucket,
+            cache_bucket="cache",
+            client=signer,
+            signer=signer,
+        )
+        return MediaControl(SqlAlchemyMediaDatabase(db_session, commit=False), storage)
+
+    request = ReadSourceRequest(actor_id=actor, dataset_item_id=item_id)
+    with pytest.raises(MediaFailure, match="source_changed"):
+        await control("fixtures").raw_source_reference(request)
+    assert signer.calls == []
+    other = await control("ordinary").raw_source_reference(request)
+    assert other.original_url == f"http://signed/ordinary/{key}"
+
+    root = await db_session.get(FixtureRun, run_id)
+    root.state = "retired"
+    root.sealed_at = root.retired_at = datetime.now(timezone.utc)
+    await db_session.flush()
+    with pytest.raises(MediaFailure, match="source_changed"):
+        await control("fixtures").raw_source_reference(request)
+    assert (
+        await control("ordinary").raw_source_reference(request)
+    ).original_url == other.original_url
+
+    run_id = uuid4()
+    db_session.add(
+        FixtureRun(
+            id=run_id,
+            family="owned",
+            original_storage_identity=managed_storage_identity(
+                "http://fixture-store", "fixtures"
+            ),
+            original_store_receipt_sha256="a" * 64,
+        )
+    )
+    await db_session.flush()
+
+    await fixture_run_ownership.reserve(
+        db_session,
+        run_id,
+        "dataset",
+        fixture_dataset,
+        logical_key="source",
+        storage_identity=managed_storage_identity("http://fixture-store", "fixtures"),
+    )
+    with pytest.raises(DBAPIError, match="fixture_resource_identity_immutable"):
+        async with db_session.begin_nested():
+            await db_session.execute(
+                text(
+                    "UPDATE yoao_fixture_v1.fixture_run_resources "
+                    "SET storage_identity=:identity "
+                    "WHERE run_id=:run AND kind='dataset' AND resource_id=:dataset"
+                ),
+                {
+                    "identity": managed_storage_identity(
+                        "http://fixture-store", "ordinary"
+                    ),
+                    "run": run_id,
+                    "dataset": fixture_dataset,
+                },
+            )
+    with pytest.raises(MediaFailure, match="source_changed"):
+        await control("fixtures").raw_source_reference(request)
 
 
 async def test_media_preferences_preserve_missing_zero_and_current_settings(db_session):

@@ -6,6 +6,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 from typing import Any
 from urllib.parse import urlsplit
+from uuid import UUID
 
 from yoao_inference.registry_ingress import get_or_create_seed
 from yoao_inference_contract.topology import RegistryPublicFacts
@@ -210,29 +211,77 @@ def _format_discovery_failure(
 
 
 async def _live_candidates(db: AsyncSession) -> list[RegistryPublicFacts]:
+    from app.services.inference_backend_control import BackendControlService
     from app.services.inference_topology_data import InferenceTopologyData
 
     rows = await InferenceTopologyData(db).registry_catalog()
-    candidates = [
-        backend
-        for backend in rows
-        if backend.source != "seed" and not _is_owned_stub(backend)
-    ]
-    return await _refresh_candidates(db, candidates)
+    control = BackendControlService(db)
+    candidates = []
+    for backend in rows:
+        if backend.source == "seed" or _is_owned_stub(backend):
+            continue
+        try:
+            healthy, meta = await control.health_meta(backend.id)
+        except Exception as exc:
+            candidates.append(replace(backend, state="error", error_message=str(exc)))
+            continue
+        if (
+            not healthy
+            or not isinstance(meta, Mapping)
+            or meta.get("capabilities")
+            != (backend.health_meta or {}).get("capabilities")
+        ):
+            candidates.append(
+                replace(
+                    backend,
+                    state="error",
+                    error_message="live health evidence is unavailable or stale",
+                )
+            )
+        else:
+            candidates.append(backend)
+    return candidates
 
 
-async def _stub_candidate(db: AsyncSession, stub_url: str) -> list[RegistryPublicFacts]:
+async def _stub_candidate(
+    db: AsyncSession, run_id: UUID, stub_url: str
+) -> list[RegistryPublicFacts]:
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
+
     url = stub_url.rstrip("/")
+    ingress = InferenceRegistryIngressData(db)
+    existing = await ingress.seed_by_url(url)
+    if existing is not None:
+        resource = await db.get(FixtureRunResource, (run_id, "registry", existing.id))
+        if (
+            resource is None
+            or resource.logical_key != "screenshot_stub"
+            or resource.state != "published"
+        ):
+            raise ScreenshotSeedBackendError(
+                f"stub URL {url} belongs to another registry; select a run-owned endpoint"
+            )
     registry = await get_or_create_seed(
-        InferenceRegistryIngressData(db),
+        ingress,
         url,
         STUB_BACKEND_NAME,
         {
             "managed_by": SEED_MANAGED_BY,
             "profile": "screenshots",
             "revision": SEED_REVISION,
+            "run_id": str(run_id),
         },
     )
+    if existing is None:
+        await ownership.reserve(
+            db,
+            run_id,
+            "registry",
+            registry.id,
+            logical_key="screenshot_stub",
+            published=True,
+        )
     from app.services.inference_topology_data import InferenceTopologyData
 
     backend = await InferenceTopologyData(db).registry_facts(registry.id)
@@ -249,12 +298,19 @@ async def _stub_candidate(db: AsyncSession, stub_url: str) -> list[RegistryPubli
 async def reconcile_screenshot_backends(
     db: AsyncSession,
     *,
+    run_id: UUID,
     mode: str,
     stub_url: str | None = None,
     backend_requirements: str | None = None,
 ) -> dict[str, Any]:
     if mode not in {"live", "stub"}:
         raise ScreenshotSeedBackendError(f"unsupported ML backend mode: {mode}")
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
+
+    run, root = await ownership.lock_original_scope(db, run_id)
+    if run.id != root.id or root.family != "screenshot":
+        raise ScreenshotSeedBackendError("an open screenshot root is required")
     required = parse_backend_requirements(backend_requirements)
     candidates = (
         []
@@ -262,7 +318,9 @@ async def reconcile_screenshot_backends(
         else (
             await _live_candidates(db)
             if mode == "live"
-            else await _stub_candidate(db, stub_url or default_screenshot_stub_url())
+            else await _stub_candidate(
+                db, run_id, stub_url or default_screenshot_stub_url()
+            )
         )
     )
 
@@ -290,12 +348,20 @@ async def reconcile_screenshot_backends(
 
     topology_data = InferenceTopologyData(db)
     for logical_key, spec in PROJECT_SPECS.items():
+        project_id = await db.scalar(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "project",
+                FixtureRunResource.logical_key == logical_key,
+                FixtureRunResource.state == "published",
+            )
+        )
         project = await db.scalar(
-            select(seed_projects).where(seed_projects.display_id == spec.display_id)
+            select(seed_projects).where(seed_projects.id == project_id)
         )
         if project is None:
             raise ScreenshotSeedBackendError(
-                f"screenshot project {spec.display_id} is missing"
+                f"screenshot project {logical_key} is missing from its run"
             )
         register_seed_project_projection(db, project.id)
         await topology_data.delete_project_associations(project.id)

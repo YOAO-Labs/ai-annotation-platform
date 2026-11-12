@@ -24,6 +24,7 @@ def _config():
         {
             "ASSETS_SOURCE_DATABASE_URL": "postgresql://assets_source:secret@db.test/aap",
             "ASSETS_SOURCE_TOKEN": "s" * 40,
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": "v" * 40,
             "ASSETS_SOURCE_S3_ENDPOINT": "http://minio.internal:9000",
             "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": "https://storage.example.test",
             "ASSETS_SOURCE_S3_ACCESS_KEY": "source-access",
@@ -232,6 +233,7 @@ async def test_busy_zip_slot_returns_without_consuming_or_spooling_body() -> Non
         {
             "ASSETS_SOURCE_DATABASE_URL": "postgresql://assets_source:secret@db.test/aap",
             "ASSETS_SOURCE_TOKEN": "s" * 40,
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": "v" * 40,
             "ASSETS_SOURCE_S3_ENDPOINT": "http://minio.internal:9000",
             "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": "https://storage.example.test",
             "ASSETS_SOURCE_S3_ACCESS_KEY": "source-access",

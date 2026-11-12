@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import secrets
+import stat
 import subprocess
+import sys
 from urllib.parse import urlsplit
 import uuid
 
@@ -21,13 +25,18 @@ from tests.test_module_data_roles import _role_url
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _worker_queue_name(identity: str, queue_name: str | None = None) -> str:
+def _worker_queue_name(identity: str, queue_name: str | None = None, fixture_run_id=None) -> str:
     if queue_name is None:
+        if fixture_run_id is not None:
+            raise ValueError("A fixture run requires an explicit private queue")
         return f"aap_workspace_worker_{identity}"
-    if queue_name not in {"default", "export", "media"}:
-        raise ValueError(
-            "Only the explicit default and export worker queues are supported"
-        )
+    if queue_name in {"fixture-media", "fixture-pyramid"}:
+        if not isinstance(fixture_run_id, uuid.UUID):
+            raise ValueError("A fixture media queue requires its exact run ID")
+        suffix = "media" if queue_name == "fixture-media" else "pyramid"
+        return f"aap_workspace_worker_{fixture_run_id.hex}_{suffix}"
+    if queue_name not in {"default", "export", "media"} or fixture_run_id is not None:
+        raise ValueError("Unsupported worker queue")
     return queue_name
 
 
@@ -47,12 +56,20 @@ class WorkspaceCeleryWorker:
         object_store_secret_key: str,
         object_store_buckets: dict[str, str] | None = None,
         queue_name: str | None = None,
+        fixture_run_id: uuid.UUID | None = None,
+        export_execution: bool = False,
     ) -> None:
         self.test_engine = test_engine
         self.directory = Path(directory).resolve()
         self.secret_directory = self.directory / "workspace-worker-secrets"
         self.environment_file = self.secret_directory / "worker.env"
         self.result_dsn_file = self.secret_directory / "preannotation-results-dsn"
+        self.export_execution_dsn_file = self.secret_directory / "export-execution-dsn"
+        self.fixture_media_dsn_file = self.secret_directory / "fixture-media-dsn"
+        self.fixture_media_target_file = self.secret_directory / "fixture-media-target"
+        self._fixture_media_target_source: Path | None = None
+        self._fixture_media_target_value: dict | None = None
+        self._fixture_media_control_url: URL | None = None
         self.backend_token = backend_token
         self.object_store_endpoint = self._docker_http_endpoint(object_store_endpoint)
         self.object_store_public_url = object_store_endpoint.rstrip("/")
@@ -75,10 +92,12 @@ class WorkspaceCeleryWorker:
         self.identity = uuid.uuid4().hex[:20]
         self.network_name = f"aap-workspace-worker-{self.identity}"
         self.container_name = self.network_name
-        self.queue = _worker_queue_name(self.identity, queue_name)
+        self.queue = _worker_queue_name(self.identity, queue_name, fixture_run_id)
+        self._fixture_media_run_id = fixture_run_id
         self.node_name = f"{self.network_name}@worker"
         self.container_id: str | None = None
         self.network_id: str | None = None
+        self._fixture_reader_environment: dict[str, str] = {}
         self._docker_environment = self._minimal_docker_environment()
         _verify_postgres(test_engine.url)
         self._redis_owner_url = _verify_redis()
@@ -86,7 +105,6 @@ class WorkspaceCeleryWorker:
         self.redis_container = self._required("AAP_MODULE_DATA_REDIS_CONTAINER_NAME")
         self.image = self._required("AAP_WORKSPACE_MODULE_API_IMAGE")
         self.image_identity = self._required("AAP_WORKSPACE_MODULE_API_IDENTITY")
-        self._image_record = self._verify_image()
         self._database_name = str(test_engine.url.database or "")
         if not self._database_name.endswith("_test"):
             raise RuntimeError("Worker assembly requires the disposable test DB")
@@ -95,46 +113,166 @@ class WorkspaceCeleryWorker:
             "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
             "preannotation_result_client",
         )
+        self._export_execution_database_url = (
+            self._role_dsn(
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "export_execution_client"
+            )
+            if export_execution
+            else None
+        )
         broker_url = make_url(
             os.environ.get("CELERY_BROKER_URL") or self._required("REDIS_URL")
         )
         if not self._same_redis_target(self._redis_owner_url, broker_url):
             raise RuntimeError("Celery broker does not target the verified Redis peer")
         self._redis_url = self._docker_url(self._required("REDIS_URL"), "worker-redis")
+        self._image_record = self._verify_image()
 
     @property
     def api_database_url(self) -> URL:
         return self._api_database_url
 
-    def start(self) -> None:
-        self._prepare_files()
-        self.network_id = self._docker(
-            "network",
-            "create",
-            "--label",
-            "org.aap.acceptance=workspace-worker-assembly",
-            "--label",
-            f"org.aap.acceptance-id={self.identity}",
-            self.network_name,
+    def configure_fixture_media_control(self, value: URL, *, output_file: Path) -> None:
+        if self.container_id is not None or self.network_id is not None:
+            raise RuntimeError("Fixture media control must be configured before worker start")
+        if self._fixture_media_run_id is None or not self._fixture_reader_environment:
+            raise RuntimeError("Fixture media control requires its private run and reader")
+        if (
+            value.drivername != "postgresql+asyncpg"
+            or value.username != f"aap_fixture_media_{self._fixture_media_run_id.hex}"
+            or not value.password
+            or value.host != self._api_database_url.host
+            or (value.port or 5432) != (self._api_database_url.port or 5432)
+            or value.database != self._api_database_url.database
+            or value.query
+        ):
+            raise RuntimeError("Fixture media control differs from the owned database")
+        from yoao_assets_media_runtime.fixture_native_outputs import load_target_file
+
+        target = load_target_file(
+            output_file, value.render_as_string(hide_password=False), "aap_fixture_media_"
         )
+        if target["run_id"] != str(self._fixture_media_run_id):
+            raise RuntimeError("Fixture media output target differs from the owned run")
+        self._fixture_media_target_source = Path(output_file)
+        self._fixture_media_target_value = target
+        self._fixture_media_control_url = value
+
+    async def configure_fixture_original_reader(
+        self, *, media_url: str, media_token: str
+    ):
+        """Use host routing for the verified fixture reader and local Media peer."""
+        if self.container_id is not None or self.network_id is not None:
+            raise RuntimeError("Fixture reader must be configured before worker start")
+        parsed = urlsplit(media_url)
+        if (
+            parsed.scheme not in {"http", "https"}
+            or parsed.hostname not in {"127.0.0.1", "localhost", "::1"}
+            or parsed.port is None
+            or parsed.username
+            or parsed.password
+            or parsed.path not in {"", "/"}
+            or parsed.query
+            or parsed.fragment
+            or len(media_token) < 32
+            or not media_token.isascii()
+            or any(character.isspace() for character in media_token)
+        ):
+            raise ValueError("Worker requires the local authenticated Media peer")
+
+        scripts = str(ROOT / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from fixture_store import reader_credentials, verified_store
+        from fixture_suite_coordinator import (
+            _resource_root,
+            _verified_database,
+            state_path,
+        )
+        from verify_storage_candidates import Owner
+        from yoao_assets_media_runtime.additional_original import (
+            load_additional_original_config,
+        )
+
+        _, resources, identity = await _verified_database()
+        if resources["database"] != self._database_name:
+            raise RuntimeError("Fixture reader database differs from worker")
+        manifest = state_path(
+            _resource_root(resources), resources["mode"], "fixture-store-owner.json"
+        )
+        if manifest.is_symlink() or not manifest.is_file():
+            raise RuntimeError("Fixture reader manifest is unavailable")
+        owner = Owner(manifest)
+        store, _writer = await asyncio.to_thread(verified_store, owner, identity)
+        reader = reader_credentials(owner, store)
+        configured = load_additional_original_config()
+        if (
+            configured is None
+            or configured.endpoint != store["endpoint"]
+            or configured.bucket != store["bucket"]
+            or configured.access_key != reader["access_key"]
+            or configured.secret_key != reader["secret_key"]
+        ):
+            raise RuntimeError("Fixture reader configuration differs from its receipt")
+        self._fixture_reader_environment = {
+            "ASSETS_MEDIA_URL": media_url.rstrip("/"),
+            "ASSETS_MEDIA_TOKEN": media_token,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT": configured.endpoint,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET": configured.bucket,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY": configured.access_key,
+            "AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY": configured.secret_key,
+        }
+        # The immutable fixture endpoint is a host-reachable bridge address.
+        # Joining its network would invalidate the store's one-peer ownership.
+        self.object_store_endpoint = urlsplit(self.object_store_public_url).netloc
+        self._api_database_url = self._api_consumer_url()
+        self._result_database_url = self._role_dsn(
+            "AAP_MODULE_DATA_PREANNOTATION_RESULT_URL",
+            "preannotation_result_client",
+        )
+        if self._export_execution_database_url is not None:
+            self._export_execution_database_url = self._role_dsn(
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL", "export_execution_client"
+            )
+        self._redis_url = self._redis_owner_url.render_as_string(hide_password=False)
+
+    def start(self) -> None:
+        if self._fixture_media_run_id is not None and self._fixture_media_control_url is None:
+            raise RuntimeError("Fixture media worker has no private control identity")
+        self._prepare_files()
         _verify_postgres(self.test_engine.url)
         _verify_redis()
-        self._docker(
-            "network",
-            "connect",
-            "--alias",
-            "worker-postgres",
-            self.network_id,
-            self.postgres_container,
-        )
-        self._docker(
-            "network",
-            "connect",
-            "--alias",
-            "worker-redis",
-            self.network_id,
-            self.redis_container,
-        )
+        if not self._fixture_reader_environment:
+            self.network_id = self._docker(
+                "network",
+                "create",
+                "--label",
+                "org.aap.acceptance=workspace-worker-assembly",
+                "--label",
+                f"org.aap.acceptance-id={self.identity}",
+                self.network_name,
+            )
+            # Keep published dependency sockets on their original gateway.
+            self._docker(
+                "network",
+                "connect",
+                "--gw-priority",
+                "-1",
+                "--alias",
+                "worker-postgres",
+                self.network_id,
+                self.postgres_container,
+            )
+            self._docker(
+                "network",
+                "connect",
+                "--gw-priority",
+                "-1",
+                "--alias",
+                "worker-redis",
+                self.network_id,
+                self.redis_container,
+            )
         self.container_id = self._docker(
             "create",
             "--name",
@@ -146,13 +284,31 @@ class WorkspaceCeleryWorker:
             "--label",
             f"org.aap.source-revision={self._image_record['source_revision']}",
             "--network",
-            self.network_id,
+            "host" if self._fixture_reader_environment else self.network_id,
             "--add-host",
             "host.docker.internal:host-gateway",
             "--env-file",
             str(self.environment_file),
             "--mount",
             f"type=bind,source={self.result_dsn_file},target=/run/secrets/preannotation_results_dsn,readonly",
+            *(
+                [
+                    "--mount",
+                    f"type=bind,source={self.export_execution_dsn_file},target=/run/secrets/export_execution_dsn,readonly",
+                ]
+                if self._export_execution_database_url is not None
+                else []
+            ),
+            *(
+                [
+                    "--mount",
+                    f"type=bind,source={self.fixture_media_dsn_file},target=/run/secrets/fixture_media_dsn,readonly",
+                    "--mount",
+                    f"type=bind,source={self.fixture_media_target_file},target=/run/secrets/fixture_media_target,readonly",
+                ]
+                if self._fixture_media_control_url is not None
+                else []
+            ),
             "--user",
             "10003:10003",
             "--read-only",
@@ -185,7 +341,7 @@ class WorkspaceCeleryWorker:
         )
         self._docker("start", self.container_id)
         self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
 
     def restart(self) -> None:
         if self.container_id is None:
@@ -193,12 +349,12 @@ class WorkspaceCeleryWorker:
         self._verify_container_record(self._inspect(self.container_id))
         self._docker("restart", "--time", "20", self.container_id, timeout=45)
         self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
 
     def kill(self) -> dict:
         """Lose the owned worker process without running application cleanup."""
         before = self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
         self._docker("kill", "--signal", "KILL", self.container_id)
         if self._docker("wait", self.container_id, timeout=20) != "137":
             raise RuntimeError("Owned worker did not exit from SIGKILL")
@@ -257,7 +413,7 @@ class WorkspaceCeleryWorker:
         if type(pid) is not int or pid <= 1:
             raise ValueError("Worker child PID must be an integer greater than one")
         before = self.assert_runtime()
-        self.assert_private_network()
+        self._assert_runtime_network()
         code = (
             "import os,pathlib,signal,sys; "
             "pid=int(sys.argv[1]); path=pathlib.Path('/proc')/str(pid); "
@@ -326,12 +482,7 @@ class WorkspaceCeleryWorker:
             item.split("=", 1) for item in (config.get("Env") or []) if "=" in item
         )
         database_url = make_url(env.get("DATABASE_URL", ""))
-        if (
-            database_url.username != "identity_api_consumer"
-            or database_url.host != "worker-postgres"
-            or database_url.port != 5432
-            or database_url.database != self._database_name
-        ):
+        if database_url != self._api_database_url:
             raise RuntimeError("Worker did not use the restricted API database role")
         if (
             env.get("PREANNOTATION_RESULTS_DATABASE_URL")
@@ -339,6 +490,16 @@ class WorkspaceCeleryWorker:
             != "/run/secrets/preannotation_results_dsn"
         ):
             raise RuntimeError("Worker result owner binding is not function-only")
+        expected_export_secret = (
+            "/run/secrets/export_execution_dsn"
+            if self._export_execution_database_url is not None
+            else ""
+        )
+        if (
+            env.get("EXPORT_EXECUTION_DATABASE_URL")
+            or env.get("EXPORT_EXECUTION_DATABASE_URL_FILE") != expected_export_secret
+        ):
+            raise RuntimeError("Worker export execution owner binding changed")
         workspace_prefixes = (
             "WORKSPACE_MEMBERSHIP",
             "WORKSPACE_OWNER_TRANSFER",
@@ -371,6 +532,27 @@ class WorkspaceCeleryWorker:
             env.get(key) != value for key, value in self.object_store_buckets.items()
         ):
             raise RuntimeError("Worker bucket bindings differ from its owned resources")
+        if self._fixture_reader_environment and (
+            any(
+                env.get(key) != value
+                for key, value in self._fixture_reader_environment.items()
+            )
+            or env.get("CONNECTOR_ENCRYPTION_KEY")
+            or env.get("CONNECTOR_ENCRYPTION_KEY_FILE")
+        ):
+            raise RuntimeError("Worker fixture reader authority changed")
+        expected_media_secret = (
+            "/run/secrets/fixture_media_dsn"
+            if self._fixture_media_control_url is not None else None
+        )
+        if (env.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE") or None) != expected_media_secret:
+            raise RuntimeError("Worker fixture media control selector changed")
+        expected_media_target = (
+            "/run/secrets/fixture_media_target"
+            if self._fixture_media_control_url is not None else None
+        )
+        if (env.get("AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE") or None) != expected_media_target:
+            raise RuntimeError("Worker fixture media target selector changed")
         if env.get("WORKSPACE_INFERENCE_PROBE_URL"):
             raise RuntimeError("Worker unexpectedly selects a Workspace HTTP owner")
         mounts = record.get("Mounts") or []
@@ -382,13 +564,21 @@ class WorkspaceCeleryWorker:
         if secrets != {"/run/secrets/preannotation_results_dsn"}:
             raise RuntimeError("Worker result DSN secret mount is missing")
         bind_mounts = [mount for mount in mounts if mount.get("Type") == "bind"]
-        if (
-            len(bind_mounts) != 1
-            or bind_mounts[0].get("Destination")
-            != "/run/secrets/preannotation_results_dsn"
-            or Path(bind_mounts[0].get("Source", "")).resolve()
-            != self.result_dsn_file.resolve()
-            or bind_mounts[0].get("RW") is not False
+        expected_mounts = {
+            "/run/secrets/preannotation_results_dsn": self.result_dsn_file.resolve(),
+        }
+        if self._export_execution_database_url is not None:
+            expected_mounts["/run/secrets/export_execution_dsn"] = (
+                self.export_execution_dsn_file.resolve()
+            )
+        if self._fixture_media_control_url is not None:
+            expected_mounts["/run/secrets/fixture_media_dsn"] = self.fixture_media_dsn_file.resolve()
+            expected_mounts["/run/secrets/fixture_media_target"] = self.fixture_media_target_file.resolve()
+        if len(bind_mounts) != len(expected_mounts) or any(
+            mount.get("Destination") not in expected_mounts
+            or Path(mount.get("Source", "")).resolve() != expected_mounts[mount.get("Destination")]
+            or mount.get("RW") is not False
+            for mount in bind_mounts
         ):
             raise RuntimeError("Worker has an unexpected bind or source-code mount")
         return {
@@ -396,9 +586,15 @@ class WorkspaceCeleryWorker:
             "image_id": record.get("Image"),
             "restart_count": (record.get("RestartCount") or 0),
             "started_at": (record.get("State") or {}).get("StartedAt"),
-            "database_client_address": record["NetworkSettings"]["Networks"][
-                self.network_name
-            ]["IPAddress"],
+            # Host mode shares the host's address; it cannot identify a worker.
+            "database_client_address": (
+                None
+                if self._fixture_reader_environment
+                else record["NetworkSettings"]["Networks"][self.network_name][
+                    "IPAddress"
+                ]
+            ),
+            "network_mode": host.get("NetworkMode"),
             "running": (record.get("State") or {}).get("Running") is True,
             "user": config.get("User"),
             "read_only": host.get("ReadonlyRootfs"),
@@ -410,6 +606,19 @@ class WorkspaceCeleryWorker:
                 "pids_limit": host.get("PidsLimit"),
             },
         }
+
+    def _assert_runtime_network(self) -> None:
+        if not self._fixture_reader_environment:
+            self.assert_private_network()
+            return
+        if self.network_id is not None or self.container_id is None:
+            raise RuntimeError("Fixture worker must use the verified host route")
+        record = self._inspect(self.container_id)
+        self._verify_container_record(record)
+        if (record.get("HostConfig") or {}).get("NetworkMode") != "host":
+            raise RuntimeError("Fixture worker host route changed")
+        _verify_postgres(self.test_engine.url)
+        _verify_redis()
 
     def assert_private_network(self) -> None:
         if self.network_id is None or self.container_id is None:
@@ -462,12 +671,22 @@ class WorkspaceCeleryWorker:
             self.object_store_secret_key,
             self._api_database_url.password or "",
             self._result_database_url.password or "",
+            self._fixture_media_control_url.password if self._fixture_media_control_url else "",
+            (self._fixture_media_target_value or {}).get("access_key", ""),
+            (self._fixture_media_target_value or {}).get("secret_key", ""),
             make_url(self._required("REDIS_URL")).password or "",
             make_url(
                 os.environ.get("CELERY_BROKER_URL") or self._required("REDIS_URL")
             ).password
             or "",
         ]
+        if self._export_execution_database_url is not None:
+            secrets.append(self._export_execution_database_url.password or "")
+        secrets.extend(
+            value
+            for name, value in self._fixture_reader_environment.items()
+            if re.search(r"(?i)(?:TOKEN|KEY|SECRET|PASSWORD)", name)
+        )
         for name, value_from_environment in getattr(
             self, "_tracker_environment", {}
         ).items():
@@ -504,6 +723,42 @@ class WorkspaceCeleryWorker:
             encoding="utf-8",
         )
         self.result_dsn_file.chmod(0o444)
+        if self._export_execution_database_url is not None:
+            self.export_execution_dsn_file.write_text(
+                self._export_execution_database_url.render_as_string(
+                    hide_password=False
+                ),
+                encoding="utf-8",
+            )
+            self.export_execution_dsn_file.chmod(0o444)
+        if self._fixture_media_control_url is not None:
+            self.fixture_media_dsn_file.write_text(
+                self._fixture_media_control_url.render_as_string(hide_password=False),
+                encoding="utf-8",
+            )
+            self.fixture_media_dsn_file.chmod(0o444)
+            descriptor = os.open(self._fixture_media_target_source, os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(descriptor, "rb") as source:
+                info = os.fstat(source.fileno())
+                if (
+                    not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    or stat.S_IMODE(info.st_mode) != 0o600
+                ):
+                    raise RuntimeError("Worker fixture media target file changed")
+                target_contents = source.read(8193)
+            try:
+                if len(target_contents) > 8192 or json.loads(target_contents) != self._fixture_media_target_value:
+                    raise ValueError("target changed")
+            except (ValueError, UnicodeError, TypeError):
+                raise RuntimeError("Worker fixture media target file changed") from None
+            descriptor = os.open(
+                self.fixture_media_target_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o444
+            )
+            with os.fdopen(descriptor, "wb") as destination:
+                os.fchmod(destination.fileno(), 0o444)
+                destination.write(target_contents)
+                destination.flush()
+                os.fsync(destination.fileno())
         values = {
             "ENVIRONMENT": "development",
             "DEBUG": "false",
@@ -518,6 +773,12 @@ class WorkspaceCeleryWorker:
             "CELERY_BROKER_URL": self._redis_url,
             "PREANNOTATION_RESULTS_DATABASE_URL": "",
             "PREANNOTATION_RESULTS_DATABASE_URL_FILE": "/run/secrets/preannotation_results_dsn",
+            "EXPORT_EXECUTION_DATABASE_URL": "",
+            "EXPORT_EXECUTION_DATABASE_URL_FILE": (
+                "/run/secrets/export_execution_dsn"
+                if self._export_execution_database_url is not None
+                else ""
+            ),
             "IDENTITY_URL": "",
             "IDENTITY_TOKEN": "",
             "MINIO_ENDPOINT": self.object_store_endpoint,
@@ -536,6 +797,7 @@ class WorkspaceCeleryWorker:
             "HOME": "/tmp",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
+            "OPENBLAS_NUM_THREADS": "1",
         }
         for prefix in (
             "WORKSPACE_MEMBERSHIP",
@@ -549,6 +811,10 @@ class WorkspaceCeleryWorker:
             values[f"{prefix}_DATABASE_URL"] = ""
             values[f"{prefix}_DATABASE_URL_FILE"] = ""
         values.update(self.object_store_buckets)
+        values.update(self._fixture_reader_environment)
+        if self._fixture_media_control_url is not None:
+            values["AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"] = "/run/secrets/fixture_media_dsn"
+            values["AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE"] = "/run/secrets/fixture_media_target"
         self._write_env_file(self.environment_file, values)
 
     def _write_env_file(self, path: Path, values: dict[str, str]) -> None:
@@ -604,6 +870,8 @@ class WorkspaceCeleryWorker:
             or container_url.port != host_url.port
         ):
             raise RuntimeError("Verifier API consumer identity does not match test DB")
+        if self._fixture_reader_environment:
+            return host_url
         return container_url.set(
             host="worker-postgres",
             port=5432,
@@ -619,6 +887,8 @@ class WorkspaceCeleryWorker:
         ):
             raise RuntimeError(f"Verifier role URL {variable} does not match test DB")
         _verify_postgres(value)
+        if self._fixture_reader_environment:
+            return value.set(drivername="postgresql")
         return value.set(host="worker-postgres", port=5432, drivername="postgresql")
 
     def _docker_url(self, value: str, host: str) -> str:
@@ -652,15 +922,21 @@ class WorkspaceCeleryWorker:
         if (
             parsed.scheme not in {"http", "https"}
             or not parsed.hostname
-            or parsed.username
-            or parsed.password
+            or parsed.username is not None
+            or parsed.password is not None
             or parsed.path not in {"", "/"}
             or parsed.query
             or parsed.fragment
         ):
             raise ValueError("Verifier supplied an invalid object storage endpoint")
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return f"host.docker.internal{port}"
+        port = parsed.port
+        try:
+            loopback = ipaddress.ip_address(parsed.hostname).is_loopback
+        except ValueError:
+            loopback = parsed.hostname == "localhost"
+        if loopback:
+            return f"host.docker.internal:{port}" if port is not None else "host.docker.internal"
+        return parsed.netloc
 
     def _inspect(self, identity: str, *, required: bool = True) -> dict | None:
         result = subprocess.run(
@@ -708,7 +984,10 @@ class WorkspaceCeleryWorker:
         except subprocess.TimeoutExpired:
             raise RuntimeError("Owned worker Docker operation timed out") from None
         if result.returncode != 0:
-            raise RuntimeError("Owned worker Docker operation failed")
+            detail = self.redact(result.stderr.strip())
+            raise RuntimeError(
+                f"Owned worker Docker operation failed ({result.returncode}): {detail}"
+            )
         return result.stdout.strip()
 
     @staticmethod

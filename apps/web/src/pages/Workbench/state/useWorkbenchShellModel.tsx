@@ -1940,7 +1940,7 @@ export function useWorkbenchShellModel({
   const maskToolActive = isVideoTask
     ? s.videoTool === "mask" || s.videoTool === "mask-track"
     : s.tool === "mask";
-  // 当前工具对应的交互 prompt (非交互工具回落 point, 仅用于 sam/warmup 的后端选取, 不参与门控)。
+  // 非交互工具仅回落点后端读取能力；预热仍要求当前工具为交互工具。
   const activeInteractivePrompt = promptOfTool(activeAiTool);
   const [singleFrameOutputGeometry, setSingleFrameOutputGeometry] = useState<"polygon" | "mask">(
     "mask",
@@ -2416,11 +2416,11 @@ export function useWorkbenchShellModel({
   }, [taskId]);
   const warmupPointBackendId = routing.resolveInteractive("point");
   useEffect(() => {
-    if (stageKind !== "image") return;
-    if (!taskId || !warmupPointBackendId) return;
+    if (stageKind !== "image" || !activeInteractivePrompt) return;
+    if (!taskId || !warmupPointBackendId || interactiveBackendId !== warmupPointBackendId) return;
     sam.warmup();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stageKind, taskId, warmupPointBackendId]);
+  }, [stageKind, taskId, warmupPointBackendId, interactiveBackendId, activeInteractivePrompt]);
   // 工具切换按 prompt 种类变化取消交互会话: AI↔AI (如 point→exemplar) 与 AI↔非AI
   // 切换都会改变 prompt 种类, 一并清掉上一个工具残留的 ghost 点位 overlay / stale mask_input
   // (见 issue 0004; promptOfTool 对非 AI / text 工具返回 null)。同 prompt 种类切换不清 (会话兼容)。

@@ -295,9 +295,13 @@ async def test_screenshot_reconcile_pins_workspace_and_member_state(
     from tests.test_screenshot_seed_catalog import _ready_profile
 
     owner, producer = screenshot_world
+
+    async def digest(_db, item):
+        return hashlib.sha256(item.file_path.encode()).hexdigest()
+
     monkeypatch.setattr(
         "app.services.screenshot_seed_catalog._storage_object_digest",
-        lambda path: hashlib.sha256(path.encode()).hexdigest(),
+        digest,
     )
     async with owner.begin() as db:
         projects, _tasks = await _ready_profile(db)

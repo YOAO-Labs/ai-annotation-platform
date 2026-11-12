@@ -1,5 +1,5 @@
 -- Compose after identity-consumer-grants.sql only for a trusted scale-seed reader.
--- Ordinary API/worker credentials do not receive these two fixed read functions.
+-- Ordinary API/worker credentials do not receive these fixed read functions.
 -- psql -v expected_database=... -v migration_role=... -v identity_owner=...
 --      -v consumer_role=... -f identity-scale-seed-grants.sql
 \set ON_ERROR_STOP on
@@ -50,7 +50,8 @@ BEGIN
     END IF;
     FOREACH v_signature IN ARRAY ARRAY[
         'aap_identity_v1.read_scale_seed_super_admin()',
-        'aap_identity_v1.read_scale_seed_annotator(uuid[])'
+        'aap_identity_v1.read_scale_seed_annotator(uuid[])',
+        'aap_identity_v1.read_first_seed_account()'
     ] LOOP
         IF NOT EXISTS (
             SELECT 1 FROM pg_proc p JOIN pg_roles owner ON owner.oid=p.proowner

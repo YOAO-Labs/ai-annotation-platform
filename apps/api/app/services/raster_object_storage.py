@@ -11,7 +11,6 @@ import hashlib
 import json
 import re
 import time
-import sys
 import uuid
 from urllib.parse import urlsplit
 
@@ -430,16 +429,30 @@ def run_io(target, client, operation, record, *args, **kwargs):
     except Exception as exc:
         storage_access.mark_unsettled(exc)
         raise _unavailable(exc) from None
+    failure = None
     try:
-        return globals()[operation](physical_client, record, *args, **kwargs)
-    finally:
-        try:
-            context.__exit__(*sys.exc_info())
-        except BaseException as exc:
-            storage_access.mark_unsettled(exc)
-            if isinstance(exc, Exception):
-                raise _unavailable(exc) from None
-            raise
+        result = globals()[operation](physical_client, record, *args, **kwargs)
+    except BaseException as exc:
+        failure = exc
+    try:
+        context.__exit__(
+            type(failure) if failure is not None else None,
+            failure,
+            failure.__traceback__ if failure is not None else None,
+        )
+    except BaseException as close_failure:
+        storage_access.mark_unsettled(close_failure)
+        if isinstance(close_failure, Exception):
+            close_failure = _unavailable(close_failure)
+        if failure is not None:
+            combined = BaseExceptionGroup(
+                "Raster physical operation and close failed", [failure, close_failure]
+            )
+            raise storage_access.mark_unsettled(combined) from None
+        raise close_failure
+    if failure is not None:
+        raise failure
+    return result
 
 
 def _budget(deadline):

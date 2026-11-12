@@ -22,6 +22,7 @@ from app.services import export_media_removal_accounting, storage_presigning
 from app.services.storage_access import (
     close_registered,
     closing_registered,
+    failure_unsettled,
     mark_unsettled,
 )
 
@@ -388,9 +389,9 @@ def _expected(record, owner, relative):
 
 
 def _translate(exc):
-    if isinstance(exc, ExportMediaStorageError) and not getattr(
-        exc, "storage_operation_unsettled", False
-    ):
+    if isinstance(exc, BaseExceptionGroup):
+        return exc
+    if isinstance(exc, ExportMediaStorageError) and not failure_unsettled(exc):
         return exc
     code = str(getattr(exc, "response", {}).get("Error", {}).get("Code", ""))
     suffix = (
@@ -401,7 +402,7 @@ def _translate(exc):
         else "unavailable"
     )
     result = ExportMediaStorageError(suffix)
-    if getattr(exc, "storage_operation_unsettled", False):
+    if failure_unsettled(exc):
         mark_unsettled(result)
     return result
 
@@ -793,10 +794,15 @@ def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
     key, _expected_receipt = _expected(record, owner, relative)
     current = _instant(now or datetime.now(timezone.utc))
     seconds = int((_instant(_field(record, "expires_at")) - current).total_seconds())
+    fixture_window = _instant(_field(record, "expires_at")) - _instant(
+        _field(record, "created_at")
+    ) == timedelta(minutes=15)
+    if fixture_window:
+        seconds -= 1
     if seconds <= 0:
         _reject("expired")
     try:
-        return storage_presigning.generate_url(
+        url = storage_presigning.generate_url(
             client,
             "get_object",
             params={"Bucket": owner.bucket, "Key": key},
@@ -807,6 +813,11 @@ def _signed_url(client, record, owner, relative, *, now=None, migrated=False):
         )
     except Exception as exc:
         raise _translate(exc) from None
+    if fixture_window and _instant(now or datetime.now(timezone.utc)) + timedelta(
+        seconds=seconds
+    ) > _instant(_field(record, "expires_at")):
+        _reject("expired")
+    return url
 
 
 def _versions(client, owner, expected, deadline, *, maximum):

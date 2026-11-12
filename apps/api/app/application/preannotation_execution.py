@@ -25,7 +25,7 @@ import time
 import uuid
 import tempfile
 from contextlib import asynccontextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from pathlib import Path
 
 from app.config import settings
@@ -91,11 +91,11 @@ class _CropPublishPort:
         return self.upload(task_id, box_index, jpeg_bytes)
 
 
-def _model_execution_port(db):
+def _model_execution_port(db, *, prediction_execution=None):
     """Use the parent-composed, route/GPU-authorized model execution owner."""
     from app.services.inference_model_execution import model_execution_port
 
-    return model_execution_port(db)
+    return model_execution_port(db, prediction_execution=prediction_execution)
 
 
 class PreannotationInputDeferred(RuntimeError):
@@ -345,31 +345,18 @@ async def _prepare_accepted_input_manifest(
         if _bulk_image_manifest_candidate(request):
             try:
                 project_id = uuid.UUID(request.project_id)
-                job_id = (
-                    uuid.UUID(request.async_job_id)
-                    if request.async_job_id is not None
-                    else None
-                )
+                job_id = uuid.UUID(request.async_job_id)
             except (TypeError, ValueError, AttributeError) as exc:
-                if request.async_job_id is None:
-                    yield None
-                    return
-                raise ValueError("legacy bulk Job identity is malformed") from exc
+                raise ValueError("bulk Job identity is malformed") from exc
             already_claimed = False
             async with SessionLocal() as db:
                 project = await get_workspace_project(
                     db, project_id=project_id, populate_existing=True
                 )
                 if project is not None and project.data_type == "image":
-                    job = (
-                        await async_job_svc.get_job(db, job_id, populate_existing=True)
-                        if job_id is not None
-                        else None
+                    job = await async_job_svc.get_job(
+                        db, job_id, populate_existing=True
                     )
-                    if job_id is None:
-                        raise ValueError(
-                            "bulk image Job has no frozen input manifest identity"
-                        )
                     if job is None:
                         # A stale or foreign durable identity must not mutate a Job.
                         already_claimed = True
@@ -881,30 +868,6 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
     ):
         raise ValueError("accepted image input is outside single-task Workbench scope")
 
-    if request.async_job_id is None:
-        if protocol is not None:
-            raise ValueError("accepted image input has no durable job identity")
-        if candidate and request.task_ids:
-            try:
-                candidate_task_id = uuid.UUID(request.task_ids[0])
-                candidate_project_id = uuid.UUID(request.project_id)
-            except (TypeError, ValueError, AttributeError, IndexError) as exc:
-                raise ValueError("legacy Workbench task identity is malformed") from exc
-            async with SessionLocal() as db:
-                candidate_task = await get_core_row(
-                    db, task_row, candidate_task_id, populate_existing=True
-                )
-                if (
-                    candidate_task is not None
-                    and candidate_task.project_id == candidate_project_id
-                    and candidate_task.file_type == "image"
-                ):
-                    raise ValueError(
-                        "legacy Workbench image job has no accepted input identity"
-                    )
-        yield None
-        return
-
     try:
         job_id = uuid.UUID(request.async_job_id)
         task_id = (
@@ -913,12 +876,7 @@ async def _prepare_accepted_input(request: BatchPredictionRequest, SessionLocal)
         project_id = uuid.UUID(request.project_id)
         actor_id = uuid.UUID(request.user_id) if request.user_id else None
     except (TypeError, ValueError, AttributeError, IndexError) as exc:
-        if protocol is not None:
-            raise ValueError(
-                "accepted image input request identity is malformed"
-            ) from exc
-        yield None
-        return
+        raise ValueError("accepted image input request identity is malformed") from exc
 
     already_claimed = False
     task_is_image = False
@@ -1156,6 +1114,9 @@ async def run_preannotation(
     frame_dispatcher: FramePreannotationDispatcher | None = None,
 ) -> None:
     """Execute a batch prediction with an application-owned database lifecycle."""
+    if request.async_job_id is None:
+        raise ValueError("preannotation requires an admitted Job")
+
     from sqlalchemy.ext.asyncio import (
         AsyncSession,
         async_sessionmaker,
@@ -1199,14 +1160,25 @@ async def run_preannotation(
                             batch_results=batch_results,
                         )
 
+        from app.services import async_job as jobs
+
+        async with session_factory() as db:
+            job = await jobs.get_job(db, uuid.UUID(request.async_job_id))
+            if job is None:
+                return
+            if (
+                job.project_id != uuid.UUID(request.project_id)
+                or job.user_id != uuid.UUID(request.user_id)
+                or job.kind != "batch_predict"
+            ):
+                raise ValueError("preannotation async Job scope is unavailable")
+            if job.status not in {"pending", "running"}:
+                return
+
         if request.execution_unit in {"frame", "video", "scene"}:
             await execute()
             return
-        from app.application.preannotation_results import (
-            batch_result_execution,
-            preannotation_request_digest,
-        )
-        from app.services import async_job as jobs
+        from app.application.preannotation_results import batch_result_execution
 
         executor_session_factory = None
         if (
@@ -1239,60 +1211,6 @@ async def run_preannotation(
                 executor_engine, class_=AsyncSession, expire_on_commit=False
             )
 
-        async with session_factory() as db:
-            if request.async_job_id is None:
-                previous = (
-                    await jobs.find_by_celery_task_id(db, execution_id)
-                    if execution_id is not None
-                    else None
-                )
-                if previous is not None:
-                    if (
-                        previous.kind != "batch_predict"
-                        or previous.project_id != uuid.UUID(request.project_id)
-                        or previous.user_id != uuid.UUID(request.user_id)
-                        or (previous.payload or {}).get("preannotation_request_digest")
-                        not in {None, preannotation_request_digest(request)}
-                    ):
-                        raise ValueError("legacy preannotation execution scope changed")
-                    request = replace(request, async_job_id=str(previous.id))
-                    if previous.status not in {"pending", "running"}:
-                        return
-            if request.async_job_id is None:
-                payload = {
-                    "batch_id": request.batch_id,
-                    "execution_scope": request.execution_scope,
-                    "predict_mode": request.predict_mode,
-                    "preannotation_request_digest": preannotation_request_digest(
-                        request
-                    ),
-                }
-                if request.task_ids is not None:
-                    payload.update(
-                        task_ids=request.task_ids, scope={"task_ids": request.task_ids}
-                    )
-                if request.frozen_model_ref is not None:
-                    payload["frozen_model_ref"] = request.frozen_model_ref
-                job = await jobs.create_job(
-                    db,
-                    kind="batch_predict",
-                    user_id=uuid.UUID(request.user_id),
-                    project_id=uuid.UUID(request.project_id),
-                    payload=payload,
-                    celery_task_id=execution_id,
-                )
-                await db.commit()
-                request = replace(request, async_job_id=str(job.id))
-            else:
-                job = await jobs.get_job(db, uuid.UUID(request.async_job_id))
-                if job is not None and (
-                    job.project_id != uuid.UUID(request.project_id)
-                    or job.user_id != uuid.UUID(request.user_id)
-                    or job.kind != "batch_predict"
-                ):
-                    raise ValueError("preannotation async Job scope is unavailable")
-                if job is not None and job.status not in {"pending", "running"}:
-                    return
         async with batch_result_execution(
             request,
             session_factory,
@@ -2459,15 +2377,7 @@ async def _execute_preannotation(
             aj = locked_job
             precreated_job = locked_job
         elif precreated_job is None:
-            aj = await async_job_svc.create_job(
-                db,
-                kind="batch_predict",
-                user_id=uuid.UUID(user_id) if user_id else None,
-                project_id=uuid.UUID(project_id),
-                payload=job_payload,
-                celery_task_id=celery_task_id,
-            )
-            await async_job_svc.mark_running(db, aj.id, celery_task_id=celery_task_id)
+            raise ValueError("preannotation requires an admitted Job")
         else:
             aj = await db.scalar(
                 job_lock_statement(
@@ -2640,7 +2550,7 @@ async def _execute_preannotation(
         pred_svc = PredictionService(db)
         prediction_writer: ApplyPredictionResultPort = pred_svc
 
-        from app.services.storage import resolve_task_url as _resolve_task_url
+        from app.services.storage import resolve_task_url
 
         if execution_unit != "frame":
             stages = execution_stages()
@@ -2759,7 +2669,12 @@ async def _execute_preannotation(
             )
             return
 
-        model_port = _model_execution_port(db)
+        model_port = _model_execution_port(
+            db,
+            prediction_execution=(
+                batch_results._values() if batch_results is not None else None
+            ),
+        )
         model_ports = (model_port,) * len(stages)
         stage_contexts: list[dict | None] = []
         stage_modes: list[str] = []
@@ -2992,6 +2907,9 @@ async def _execute_preannotation(
                     input_facts["accepted_input"] = input_metadata
                 if manifest_facts is not None:
                     input_facts["accepted_input_manifest"] = manifest_facts
+                legacy_url = (
+                    await resolve_task_url(db, task) if retained is None else None
+                )
                 output = await _run_task_pipeline(
                     task,
                     stages,
@@ -3000,7 +2918,7 @@ async def _execute_preannotation(
                     resolve_url=(
                         (lambda _task: retained.reference.url)
                         if retained is not None
-                        else _resolve_task_url
+                        else (lambda _task: legacy_url)
                     ),
                     upload_crop=crop_uploader,
                     dispatch_boundary=release_inference_locks,
@@ -3010,7 +2928,7 @@ async def _execute_preannotation(
                     ),
                     project_id=project_uuid,
                     owner_prefix=f"batch:{async_job_id}",
-                    route_operation="batch_predict",
+                    route_operation="image_batch_predict",
                     correlation={"job_id": str(async_job_id), "ordinal": ordinal},
                     input_provenance=input_facts or None,
                     execution_snapshot_id=execution_snapshot_id,
@@ -3477,6 +3395,18 @@ async def _execute_preannotation(
                         )
                         return qualified.results
 
+                legacy_url = None
+                if (
+                    video_inputs is None
+                    and reference_inputs is None
+                    and (
+                        prepared_manifest_member is None
+                        or prepared_manifest_member.reference is None
+                    )
+                    and accepted_input is None
+                ):
+                    legacy_url = await resolve_task_url(db, task)
+
                 pipeline_output = await _run_task_pipeline(
                     task,
                     stages,
@@ -3492,7 +3422,7 @@ async def _execute_preannotation(
                         and prepared_manifest_member.reference is not None
                         else (lambda _task: accepted_input.reference.url)
                         if accepted_input is not None
-                        else _resolve_task_url
+                        else (lambda _task: legacy_url)
                     ),
                     upload_crop=(
                         video_inputs.upload_crop

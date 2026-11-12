@@ -23,9 +23,12 @@ from yoao_assets_images.contract import (
     Count,
     Digest,
     ErrorCode as ImageErrorCode,
+    FinishOriginalReadRequest,
+    FinishedOriginalRead,
     ImageOwner,
     ImageSource,
     ObjectIdentity,
+    OriginalRead,
     Revision,
     Value,
     json_bytes,
@@ -310,6 +313,20 @@ class NativeOperation:
 
 
 OPERATIONS = {
+    "begin_accepted_image_original": NativeOperation(
+        InputLeaseRequest,
+        OriginalRead,
+        ("input_id", "generation", "lease_token"),
+        ("uuid", "bigint", "uuid"),
+        "worker",
+    ),
+    "finish_accepted_image_original": NativeOperation(
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "worker",
+    ),
     "find_accepted_image_input": NativeOperation(
         FindInputRequest,
         FoundInput,
@@ -432,6 +449,12 @@ def decode_reply(raw: Any, result_type: type[_Result]) -> _Result:
 
 
 def require_scope(request: BaseModel, result: BaseModel) -> None:
+    if isinstance(request, FinishOriginalReadRequest) and (
+        not isinstance(result, FinishedOriginalRead)
+        or result.creation_id != request.creation_id
+        or result.operation_id != request.operation_id
+    ):
+        raise ValueError("original read finish escaped its operation")
     record = (
         result.input
         if isinstance(result, (FoundInput, InputWork, InputReference))

@@ -17,7 +17,7 @@ test("secondary capsule preserves configuration and real child writes across col
   const data = await seed.owned();
   const token = await seed.accessToken(data.admin_email);
   const taskId = data.task_ids[0];
-  const backend = await startAiRequestBackend({ secondary: true });
+  const backend = startAiRequestBackend(seed, data);
   let detach: (() => Promise<void>) | undefined;
   const errors: string[] = [];
   const apiErrors: Array<{ status: number; path: string }> = [];
@@ -87,34 +87,35 @@ test("secondary capsule preserves configuration and real child writes across col
     await expect(confidence).toHaveValue(String(selectedConfidence));
     await closeContextToolbar(page, "secondary");
     await expect(page.getByTestId("secondary-prompt")).toHaveValue("car");
-    expect(backend.requests).toHaveLength(0);
+    expect(await backend.requests()).toHaveLength(0);
 
     await page.getByTestId("secondary-settings-trigger").hover();
-    backend.hold();
+    await backend.hold();
     const write = page.waitForResponse(
       (response) =>
         response.url().endsWith(`/annotations/${parent.id}/secondary-inference`) &&
         response.request().method() === "POST",
     );
     await page.getByTestId("secondary-run").dblclick();
-    await expect.poll(() => backend.requests.length).toBe(1);
+    await expect.poll(async () => (await backend.requests()).length).toBe(1);
     await expect(page.getByTestId("secondary-run")).toBeDisabled();
     await openContextToolbar(page, "secondary");
     await expect(page.getByTestId("secondary-toolbar").getByTestId("ai-variant-size")).toHaveValue(
       "large",
     );
     await expect(page.getByTestId("secondary-prompt")).toHaveValue("car");
-    backend.release();
+    await backend.release();
     const response = await write;
     expect(response.ok(), await response.text()).toBe(true);
     const result = await response.json();
     expect(result.created_children).toHaveLength(1);
     expect(result.created_children[0].parent_annotation_id).toBe(parent.id);
-    expect(backend.requests[0].context).toMatchObject({
-      model_id: "e2-detect",
+    const calls = await backend.requests();
+    expect(calls[0].context).toMatchObject({
+      model_id: "e2-secondary",
       model_variants: { size: "large" },
     });
-    expect(JSON.stringify(backend.requests[0].context)).toContain(String(selectedConfidence));
+    expect(JSON.stringify(calls[0].context)).toContain(String(selectedConfidence));
     await closeContextToolbar(page, "secondary");
 
     // The same primary inputs remain bounded and actionable in a narrowed canvas.
@@ -171,7 +172,7 @@ test("secondary capsule preserves configuration and real child writes across col
     // Prompt is intentionally session-only, while model parameters persist.
     await expect(page.getByTestId("secondary-prompt")).toHaveValue("");
     await page.getByTestId("secondary-prompt").fill("car");
-    backend.failNext();
+    await backend.failNext();
     const failed = page.waitForResponse(
       (item) => item.url().endsWith("/secondary-inference") && item.status() === 503,
     );
@@ -184,14 +185,10 @@ test("secondary capsule preserves configuration and real child writes across col
     expect(apiErrors).toEqual([
       { status: 503, path: `/api/v1/tasks/${taskId}/annotations/${parent.id}/secondary-inference` },
     ]);
-    expect(backend.requests).toHaveLength(2);
+    expect(await backend.requests()).toHaveLength(2);
   } finally {
-    backend.release();
+    await backend.release();
     await page.goto("about:blank", { timeout: 5_000 }).catch(() => {});
-    try {
-      await detach?.();
-    } finally {
-      await backend.close();
-    }
+    await detach?.();
   }
 });

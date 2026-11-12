@@ -654,6 +654,11 @@ async def test_actual_nuscenes_cli_uses_fenced_workspace_and_identity_capabiliti
     _verify_postgres(test_engine.url)
     await _assert_operational_role(test_engine)
     audit_baseline = await _assert_empty_owned_rows(test_engine)
+    from app.services import managed_original_creation
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async with AsyncSession(test_engine) as owner:
+        await managed_original_creation.bootstrap(owner)
 
     resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]

@@ -1,6 +1,7 @@
 """Real seed HTTP/database flows retain attachment destruction responsibility."""
 
 import asyncio
+from contextlib import closing, contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import io
@@ -8,7 +9,6 @@ import threading
 from types import SimpleNamespace
 import uuid
 
-import httpx
 import pytest
 from sqlalchemy import delete, inspect, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -19,88 +19,76 @@ from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload as Upload
 from app.db.models.project import Project
 from app.db.models.storage_maintenance import StorageOperation
-from app.deps import get_db
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+    owner_fault_http as owner_fault_http,
+)
 from app.services import comment_attachment_storage as storage
 from app.services import comment_attachment_uploads as uploads, storage_access
 from app.services import storage as storage_module
 from tests._owned_s3 import patch_owned_client
 from tests.seed_attachment_support import Objects, build, upload
+from tests.seed_owner_support import (
+    _fixture_versions,
+    _read_versions,
+    fixture_original_reader,
+)
 
 
 @pytest.fixture
-async def context(test_engine, app_module, monkeypatch):
-    """Independent commits are required to observe genuine lock release."""
-    db = async_sessionmaker(test_engine, expire_on_commit=False)()
+async def context(
+    test_engine,
+    monkeypatch,
+    committed_owner,
+    fenced_http,
+    fixture_and_fenced_http,
+    owner_fault_http,
+):
+    """Use private fixture HTTP and restricted product HTTP with fake attachments."""
+    db = committed_owner
     objects = Objects(storage_module.storage_service)
     patch_owned_client(monkeypatch, objects.client)
     monkeypatch.setattr(storage_module, "storage_service", objects)
     monkeypatch.setattr(storage, "storage_service", objects)
     monkeypatch.setattr(uploads, "storage_service", objects)
     monkeypatch.setattr(cleanup, "storage_service", objects)
-    names = []
-    operations = set()
-
-    async def session():
-        yield db
-
-    previous = app_module.dependency_overrides.get(get_db)
-    app_module.dependency_overrides[get_db] = session
-    async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app_module), base_url="http://test"
-    ) as client:
-        value = SimpleNamespace(
-            db=db,
-            http=client,
-            objects=objects,
-            names=names,
-            operations=operations,
-            engine=test_engine,
+    value = SimpleNamespace(
+        db=db,
+        http=fenced_http,
+        owner_http=owner_fault_http,
+        suite=fixture_and_fenced_http.owner_suite,
+        objects=objects,
+        runs=[],
+        operations=set(),
+        engine=test_engine,
+    )
+    try:
+        yield value
+    finally:
+        objects.probe = None
+        await db.rollback()
+        assert (
+            await db.scalar(
+                select(StorageOperation.id)
+                .where(StorageOperation.id.in_(value.operations))
+                .limit(1)
+            )
+            is None
         )
-        try:
-            yield value
-        finally:
-            try:
-                objects.probe = None
-                await db.rollback()
-                # Test-created simulated permits are removed only after each test
-                # has closed its own bodies/tasks in its finally block.
-                async with test_engine.begin() as connection:
-                    if operations:
-                        await connection.execute(
-                            delete(StorageOperation).where(
-                                StorageOperation.id.in_(operations)
-                            )
-                        )
-                for name in reversed(names):
-                    scope = await seed._resolve_fixture_scope(
-                        db, seed._parse_owned_namespace(name)
-                    )
-                    await db.execute(
-                        delete(Upload).where(Upload.project_id.in_(scope.project_ids))
-                    )
-                    await db.commit()
-                    objects.data = {
-                        identity: raw
-                        for identity, raw in objects.data.items()
-                        if not any(
-                            identity[1].startswith(f"comment-attachments/{identifier}/")
-                            for identifier in scope.annotation_ids
-                        )
-                    }
-                    await seed._cleanup_e2e_fixtures(
-                        db, seed._parse_owned_namespace(name)
-                    )
-            finally:
-                await db.close()
-                if previous is None:
-                    app_module.dependency_overrides.pop(get_db, None)
-                else:
-                    app_module.dependency_overrides[get_db] = previous
+        await db.rollback()
+        for run in reversed(value.runs):
+            response = await value.owner_http.post(
+                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
+            )
+            assert response.status_code == 200, response.text
 
 
 async def clean(ctx, world):
-    return await ctx.http.post(
-        "/api/v1/__test/seed/owned-cleanup", json={"namespace": world["namespace"]}
+    return await ctx.owner_http.post(
+        "/api/v1/__test/seed/owned-cleanup", json=world["run"].payload()
     )
 
 
@@ -156,10 +144,12 @@ async def test_terminal_owner_is_explicitly_destroyed_before_fixture_and_rebuild
         == b"generic\x00bytes"
     )
     assert (await clean(ctx, a)).status_code == 200
-    rebuilt = await ctx.http.post(
-        "/api/v1/__test/seed/owned", json={"namespace": a["namespace"]}
+    rebuilt_run = ctx.suite.new_run(a["namespace"])
+    rebuilt = await ctx.suite.owner.post(
+        "/api/v1/__test/seed/owned", json=rebuilt_run.payload()
     )
     assert rebuilt.status_code == 200, rebuilt.text
+    ctx.runs.append(rebuilt_run)
 
 
 async def test_uploader_in_another_scope_is_not_selected(context):
@@ -247,6 +237,13 @@ async def test_any_pending_refuses_with_zero_physical_delete_and_keeps_ready(
     assert ctx.objects.data == before and not ctx.objects.deleted
     assert (await present(ctx, ready)).state == "ready"
     assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
+    # This pending row and its optional bytes were injected by this test.
+    await ctx.db.delete(pending)
+    await ctx.db.commit()
+    ctx.objects.data.pop(
+        (pending.storage_ref["bucket"], pending.storage_ref["object_key"]), None
+    )
+    assert (await clean(ctx, world)).status_code == 200
 
 
 @pytest.mark.parametrize("purpose", ["read", "write", "delete", "seed_delete"])
@@ -324,7 +321,8 @@ async def test_new_owner_during_network_rejects_final_scope_instead_of_escaping(
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
     receipt = storage.snapshot(row)
-    real_storage_cleanup = seed._cleanup_fixture_storage
+    real_delete_objects = cleanup.delete_objects
+    injected_ids = []
 
     async def inject():
         created = datetime.now(timezone.utc)
@@ -348,24 +346,24 @@ async def test_new_owner_during_network_rejects_final_scope_instead_of_escaping(
                 "object_key": storage.key_for(new.annotation_id, new.id),
             }
             other.add(new)
+            injected_ids.append(new.id)
             await other.commit()
 
-    loop = asyncio.get_running_loop()
-    injected = False
-
-    def storage_cleanup(*args):
-        nonlocal injected
-        real_storage_cleanup(*args)
-        if not injected:
-            injected = True
-            asyncio.run_coroutine_threadsafe(inject(), loop).result(timeout=10)
+    async def delete_then_inject(*args):
+        await real_delete_objects(*args)
+        await inject()
 
     with monkeypatch.context() as patch:
-        patch.setattr(seed, "_cleanup_fixture_storage", storage_cleanup)
+        patch.setattr(cleanup, "delete_objects", delete_then_inject)
         response = await clean(ctx, world)
     assert response.status_code == 409
     assert (await present(ctx, row)).state == "retired"
     assert await ctx.db.get(Project, uuid.UUID(world["project_id"])) is not None
+    assert len(injected_ids) == 1
+    late = await ctx.db.get(Upload, injected_ids[0])
+    await ctx.db.delete(late)
+    await ctx.db.commit()
+    assert (await clean(ctx, world)).status_code == 200
 
 
 async def test_neighbour_read_permit_does_not_block_exact_owner_cleanup(context):
@@ -417,9 +415,7 @@ async def test_network_and_rebuild_never_hold_cleanup_business_locks(
     await upload(ctx, world)
     loop = asyncio.get_running_loop()
     probes = []
-    scope = await seed._resolve_fixture_scope(
-        ctx.db, seed._parse_owned_namespace(world["namespace"])
-    )
+    scope = await seed._resolve_fixture_scope(ctx.db, world["run"].scope())
     await ctx.db.commit()
 
     async def observe():
@@ -459,10 +455,12 @@ async def test_network_and_rebuild_never_hold_cleanup_business_locks(
         return await real_builder(db, ids)
 
     monkeypatch.setattr(seed, "_build_image_workbench_fixture", builder)
-    result = await ctx.http.post(
-        "/api/v1/__test/seed/owned", json={"namespace": world["namespace"]}
+    rebuilt_run = ctx.suite.new_run(world["namespace"])
+    result = await ctx.owner_http.post(
+        "/api/v1/__test/seed/owned", json=rebuilt_run.payload()
     )
     assert result.status_code == 200, result.text
+    ctx.runs.append(rebuilt_run)
     assert probes
 
 
@@ -521,9 +519,7 @@ async def test_live_fixture_request_is_awaited_by_the_scope_fence(context, lock_
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
     receipt = storage.snapshot(row)
-    scope = await seed._resolve_fixture_scope(
-        ctx.db, seed._parse_owned_namespace(world["namespace"])
-    )
+    scope = await seed._resolve_fixture_scope(ctx.db, world["run"].scope())
     await ctx.db.commit()
 
     ready, release = asyncio.get_running_loop().create_future(), asyncio.Event()
@@ -560,9 +556,7 @@ async def test_stuck_scope_fence_still_fails_closed_after_bounded_wait(
     world = await build(ctx)
     row, _, _ = await upload(ctx, world)
     receipt = storage.snapshot(row)
-    scope = await seed._resolve_fixture_scope(
-        ctx.db, seed._parse_owned_namespace(world["namespace"])
-    )
+    scope = await seed._resolve_fixture_scope(ctx.db, world["run"].scope())
     await ctx.db.commit()
     monkeypatch.setattr(cleanup, "FENCE_LOCK_TIMEOUT", "200ms")
 
@@ -585,55 +579,88 @@ async def test_stuck_scope_fence_still_fails_closed_after_bounded_wait(
     assert (await clean(ctx, world)).status_code == 200
 
 
-async def test_repeated_cancellation_drains_legacy_delete_before_retry_reuses_keys(
+async def test_repeated_cancellation_drains_exact_original_reclaim_before_rebuild(
     context, monkeypatch
 ):
+    from botocore.exceptions import ClientError
+
+    from app.db.models.fixture_run import FixtureRun
+    from app.db.models.managed_original_reclaim import ManagedOriginalReclaimAttempt
+    from app.services import managed_original_reclaim_io
+
     ctx = context
-    world = await build(ctx)
-    row, _, comment_id = await upload(ctx, world)
-    receipt = storage.snapshot(row)
-    project_id, comment_id = uuid.UUID(world["project_id"]), uuid.UUID(comment_id)
-    prefix = seed._parse_owned_namespace(world["namespace"]).image_key_prefix
-    media = {
-        (ctx.objects.datasets_bucket, f"{prefix}task-{index}.png"): ctx.objects.data[
-            ctx.objects.datasets_bucket, f"{prefix}task-{index}.png"
-        ]
-        for index in range(1, 6)
+    world, neighbour = await build(ctx), await build(ctx)
+    await upload(ctx, world)
+    own_versions = await _fixture_versions(ctx.engine, world["run"])
+    neighbour_versions = await _fixture_versions(ctx.engine, neighbour["run"])
+    with closing(fixture_original_reader()) as reader:
+        before = _read_versions(reader, neighbour_versions)
+    by_locator = {
+        (row["bucket"], row["object_key"], row["version_id"]): row
+        for row in own_versions
     }
     started, release, finished = threading.Event(), threading.Event(), threading.Event()
-    real_delete = ctx.objects.delete_objects
+    selected = {}
+    real_reclaim = managed_original_reclaim_io.run_reclaim
 
-    def blocked_delete(*, Bucket, Delete):  # noqa: N803
-        blocked = Bucket == ctx.objects.datasets_bucket and any(
-            (Bucket, item["Key"]) in media for item in Delete["Objects"]
+    def controlled_reclaim(candidate, *, checkpoint, client_context=None):
+        assert client_context is not None
+
+        @contextmanager
+        def controlled_client():
+            with client_context() as client:
+
+                class Client:
+                    def __getattr__(self, name):
+                        return getattr(client, name)
+
+                    def delete_object(self, **kwargs):
+                        locator = (kwargs["Bucket"], kwargs["Key"], kwargs["VersionId"])
+                        assert locator in by_locator
+                        selected["row"] = by_locator[locator]
+                        started.set()
+                        assert release.wait(10)
+                        try:
+                            return client.delete_object(**kwargs)
+                        finally:
+                            finished.set()
+
+                yield Client()
+
+        return real_reclaim(
+            candidate, checkpoint=checkpoint, client_context=controlled_client
         )
-        if blocked:
-            started.set()
-            assert release.wait(10)
-        try:
-            return real_delete(Bucket=Bucket, Delete=Delete)
-        finally:
-            if blocked:
-                finished.set()
 
     with monkeypatch.context() as patch:
-        patch.setattr(ctx.objects, "delete_objects", blocked_delete)
+        patch.setattr(managed_original_reclaim_io, "run_reclaim", controlled_reclaim)
         task = asyncio.create_task(clean(ctx, world))
         try:
             assert await asyncio.to_thread(started.wait, 10)
             task.cancel()
             await asyncio.sleep(0)
             task.cancel()
-            # A bare to_thread await returns cancellation while this delete is
-            # still blocked. Waiting also lets its real rollback finish.
             _, pending = await asyncio.wait({task}, timeout=1)
             assert task in pending and not finished.is_set()
             async with async_sessionmaker(ctx.engine)() as observer:
-                assert await observer.get(Project, project_id) is not None
-                assert await observer.get(AnnotationComment, comment_id) is not None
-                retained = await observer.get(Upload, receipt.id)
-                assert retained.state == "retired" and storage.same(retained, receipt)
-            assert all(ctx.objects.data[key] == raw for key, raw in media.items())
+                run = await observer.get(FixtureRun, world["run"].run_id)
+                assert run.state == "sealing"
+                attempt = await observer.scalar(
+                    select(ManagedOriginalReclaimAttempt).where(
+                        ManagedOriginalReclaimAttempt.creation_id
+                        == selected["row"]["id"]
+                    )
+                )
+                assert (
+                    attempt.status == "running" and attempt.delete_intent_at is not None
+                )
+                assert attempt.operation_id is not None
+                assert (
+                    await observer.get(StorageOperation, attempt.operation_id)
+                    is not None
+                )
+            with closing(fixture_original_reader()) as reader:
+                _read_versions(reader, [selected["row"]])
+                assert _read_versions(reader, neighbour_versions) == before
         finally:
             release.set()
             task.cancel()
@@ -641,18 +668,28 @@ async def test_repeated_cancellation_drains_legacy_delete_before_retry_reuses_ke
                 await task
         assert finished.is_set()
 
-    # Reusing deterministic keys is safe only after the old physical delete
-    # completed; cancellation retained both the owner and original fixture.
-    assert (await present(ctx, row)).state == "retired"
+    with closing(fixture_original_reader()) as reader:
+        row = selected["row"]
+        with pytest.raises(ClientError) as removed:
+            reader.head_object(
+                Bucket=row["bucket"], Key=row["object_key"], VersionId=row["version_id"]
+            )
+        assert removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+        assert _read_versions(reader, neighbour_versions) == before
     assert (await clean(ctx, world)).status_code == 200
-    rebuilt = await ctx.http.post(
-        "/api/v1/__test/seed/owned", json={"namespace": world["namespace"]}
+    rebuilt_run = ctx.suite.new_run(world["namespace"])
+    rebuilt = await ctx.suite.owner.post(
+        "/api/v1/__test/seed/owned", json=rebuilt_run.payload()
     )
     assert rebuilt.status_code == 200, rebuilt.text
-    deleted = list(ctx.objects.deleted)
-    await asyncio.sleep(0)
-    assert ctx.objects.deleted == deleted
-    assert all(ctx.objects.data[key] == raw for key, raw in media.items())
+    ctx.runs.append(rebuilt_run)
+    rebuilt_versions = await _fixture_versions(ctx.engine, rebuilt_run)
+    assert {row["object_key"] for row in own_versions}.isdisjoint(
+        row["object_key"] for row in rebuilt_versions
+    )
+    with closing(fixture_original_reader()) as reader:
+        _read_versions(reader, rebuilt_versions)
+        assert _read_versions(reader, neighbour_versions) == before
 
 
 async def test_real_open_body_and_unknown_close_keep_durable_read_responsibility(

@@ -295,6 +295,27 @@ async def test_read_update_delete_saved_pipeline_and_rejects_invalid_options(
     assert fetched.status_code == 200, fetched.text
     stored_stages = fetched.json()["stages"]
 
+    invalid_create_name = f"invalid-pipeline-{uuid.uuid4()}"
+    invalid_create = await httpx_client.post(
+        "/api/v1/project-pipelines",
+        json={
+            "name": invalid_create_name,
+            "scope": "private",
+            "project_id": str(project.id),
+            "stages": [stages[0], {**stages[1], "input": {"mode": "full_image"}}],
+        },
+        headers=_auth(token),
+    )
+    assert invalid_create.status_code == 422, invalid_create.text
+    assert (
+        await db_session.scalar(
+            select(ProjectPipeline.id).where(
+                ProjectPipeline.name == invalid_create_name
+            )
+        )
+        is None
+    )
+
     invalid = await httpx_client.put(
         f"/api/v1/project-pipelines/{pipeline_id}",
         json={

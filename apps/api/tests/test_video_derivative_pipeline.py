@@ -1,11 +1,14 @@
 """Publication races, precise packet bounds and a real owned video pipeline."""
 
+import asyncio
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import os
 import re
 import subprocess
+import threading
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 import uuid
@@ -13,7 +16,7 @@ from urllib.parse import urlsplit
 
 from PIL import Image
 import pytest
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import Dataset, DatasetItem, VideoFrameIndex
@@ -131,6 +134,17 @@ async def test_authority_refusal_is_never_transient(monkeypatch):
     with pytest.raises(ContentError, match="access_revoked"):
         await worker.claim_with_retry(object(), uuid.uuid4())
     assert claim.await_count == 1
+
+
+async def test_unsettled_claim_is_not_retried(monkeypatch):
+    failure = storage_access.mark_unsettled(ContentError("content_busy"))
+    claim = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(worker, "_claim", claim)
+    with pytest.raises(ContentError) as rejected:
+        await worker.claim_with_retry(object(), uuid.uuid4())
+    assert rejected.value is failure
+    assert claim.await_count == 1
+
 
 
 async def test_newer_metadata_attempt_prevents_old_publication(world, db_session):
@@ -356,6 +370,47 @@ async def real_video(test_engine, tmp_path, monkeypatch):
         )
 
 
+async def test_real_active_output_claim_survives_expiry(real_video, monkeypatch):
+    context = real_video
+    async with context.factory() as db:
+        output, _ = await core.prepare(db, context.item_id, context.authority, "metadata")
+        identifier = output.id
+        await db.commit()
+
+    entered, release = threading.Event(), threading.Event()
+    build = worker.build
+
+    def held_build(*args, **kwargs):
+        entered.set()
+        if not release.wait(30):
+            raise RuntimeError("video output test gate was not released")
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(worker, "build", held_build)
+    running = asyncio.create_task(worker.run_outputs([str(identifier)]))
+    try:
+        assert await asyncio.to_thread(entered.wait, 30)
+        async with context.factory() as db:
+            output = await db.get(Output, identifier, with_for_update=True)
+            token, expires = output.lease_token, output.lease_expires_at
+            assert token is not None and await objects._in_use(db, identifier)
+            output.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+            await db.commit()
+        async with context.factory() as db:
+            output = await db.get(Output, identifier, with_for_update=True)
+            assert await objects.claim(db, output) is None
+            assert output.state == "building" and output.lease_token == token
+            assert await objects._in_use(db, identifier)
+            output.lease_expires_at = expires
+            await db.commit()
+    finally:
+        release.set()
+        await running
+    async with context.factory() as db:
+        output = await db.get(Output, identifier)
+        assert output.state == "ready", output.error_code
+
+
 async def test_real_registered_original_native_generation_and_complete_readback(
     real_video,
 ):
@@ -411,6 +466,19 @@ async def test_real_registered_original_native_generation_and_complete_readback(
             for identifier in [metadata_id, *prepared]
         ]
     for output in outputs:
+        async with context.factory() as db:
+            native = (
+                await db.execute(
+                    text(
+                        "SELECT path,state,device,inode FROM aap_assets_v1.media_native_stages "
+                        "WHERE output_kind='video_output' AND output_id=:id"
+                    ),
+                    {"id": output.id},
+                )
+            ).one()
+            assert native.state == "settled"
+            assert native.device and native.inode
+            assert not os.path.lexists(native.path)
         assert output.state == "ready", output.error_code
         core.validate_result(output, output.result, output.inventory)
         async with context.factory() as db:

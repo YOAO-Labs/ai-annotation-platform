@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
+import os
 import time
 from uuid import UUID, uuid4
 
@@ -12,7 +13,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from yoao_assets_media import contract as c
 from yoao_assets_media.client import MediaClient
@@ -23,9 +24,12 @@ from app.config import settings
 class SqlAlchemyMediaDatabase:
     """An explicit same-connection binding; the caller may retain its transaction."""
 
-    def __init__(self, db: AsyncSession, *, commit: bool = True):
+    def __init__(
+        self, db: AsyncSession, *, commit: bool = True, source_connection_pinned: bool = False
+    ):
         self.db = db
         self.commit = commit
+        self.source_connection_pinned = source_connection_pinned
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
         definition = c.OPERATIONS.get(operation)
@@ -46,28 +50,49 @@ class SqlAlchemyMediaDatabase:
         )
         try:
             await self.db.flush()
-            async with self.db.begin_nested():
-                raw = (
-                    await self.db.execute(
-                        text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
-                        parameters,
-                    )
-                ).scalar_one()
-                result = validate_native_result(operation, request, raw)
-            if self.commit:
-                await self.db.commit()
-            return result
+            scope = nullcontext()
+            if operation in {"begin_media_original_worker", "claim_video_media", "advance_video_backfill"} and self.commit and os.environ.get(
+                "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+            ):
+                if not self.source_connection_pinned:
+                    raise c.MediaFailure("storage_unavailable")
+                from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+
+                connection = await self.db.connection()
+                raw_connection = await connection.get_raw_connection()
+                if operation == "begin_media_original_worker":
+                    scope = source_admission(raw_connection.driver_connection, "media", request)
+                elif operation == "claim_video_media":
+                    scope = claim_admission(raw_connection.driver_connection, "media", request)
+                else:
+                    scope = scan_admission(raw_connection.driver_connection, "media", request)
+            async with scope:
+                async with self.db.begin_nested():
+                    raw = (
+                        await self.db.execute(
+                            text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
+                            parameters,
+                        )
+                    ).scalar_one()
+                    result = validate_native_result(operation, request, raw)
+                if self.commit:
+                    await self.db.commit()
+                return result
         except c.MediaFailure:
             if self.commit:
                 await self.db.rollback()
             raise
-        except SQLAlchemyError:
+        except SQLAlchemyError as exc:
             if self.commit:
                 await self.db.rollback()
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise c.MediaFailure("storage_unavailable") from None
-        except (ValueError, TypeError, KeyError, AttributeError, RecursionError):
+        except (ValueError, TypeError, KeyError, AttributeError, RecursionError) as exc:
             if self.commit:
                 await self.db.rollback()
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise c.MediaFailure("invalid_response") from None
 
 
@@ -79,12 +104,37 @@ class _IndependentMediaDatabase:
         from app.db.base import async_session
 
         factory = self.session_factory or async_session
+        if operation in {"begin_media_original_worker", "claim_video_media", "advance_video_backfill"} and os.environ.get(
+            "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+        ):
+            async with factory() as template:
+                if not isinstance(template.bind, AsyncEngine):
+                    raise c.MediaFailure("storage_unavailable")
+                async with template.bind.connect() as connection:
+                    async with AsyncSession(bind=connection) as db:
+                        return await SqlAlchemyMediaDatabase(
+                            db, source_connection_pinned=True
+                        ).call(operation, request)
+
         async with factory() as db:
             return await SqlAlchemyMediaDatabase(db).call(operation, request)
+
+    @asynccontextmanager
+    async def fixture_business_connection(self):
+        from app.db.base import async_session
+
+        factory = self.session_factory or async_session
+        async with factory() as db:
+            connection = await db.connection()
+            raw_connection = await connection.get_raw_connection()
+            yield raw_connection.driver_connection
 
 
 def media_storage(*, control: bool = False):
     from yoao_assets_media_runtime.storage import S3MediaStorage
+    from yoao_assets_media_runtime.additional_original import (
+        load_additional_original_config,
+    )
 
     scheme = "https" if settings.minio_use_ssl else "http"
     endpoint = f"{scheme}://{settings.minio_endpoint}"
@@ -101,6 +151,7 @@ def media_storage(*, control: bool = False):
         secret_key=settings.minio_secret_key,
         datasets_bucket=settings.minio_datasets_bucket,
         cache_bucket=settings.minio_media_cache_bucket,
+        additional_original=load_additional_original_config(),
         connect_timeout=2 if control else 10,
         read_timeout=10 if control else 120,
     )
@@ -129,7 +180,7 @@ _WAKEUPS: OrderedDict[tuple[UUID | None, int], float] = OrderedDict()
 
 
 async def _wake(job_id: UUID | None, generation: int):
-    from app.workers.media import execute_video_media
+    from app.workers.assets_media import run_video_media
 
     key = (job_id, generation)
     now = time.monotonic()
@@ -141,7 +192,7 @@ async def _wake(job_id: UUID | None, generation: int):
         _WAKEUPS.popitem(last=False)
     try:
         await asyncio.to_thread(
-            execute_video_media.delay, str(job_id) if job_id is not None else None
+            run_video_media.delay, str(job_id) if job_id is not None else None
         )
     except Exception:
         _WAKEUPS.pop(key, None)
@@ -194,9 +245,29 @@ class MediaGateway:
         await self.close()
 
     async def close(self):
+        failures = []
         if self._executor is not None:
             executor, self._executor = self._executor, None
-            await executor.close()
+            try:
+                await executor.close()
+                close_original = getattr(
+                    executor.storage, "close_additional_original", None
+                )
+                if callable(close_original):
+                    close_original()
+            except BaseException as exc:
+                failures.append(exc)
+        storage = getattr(self.provider, "storage", None)
+        close_original = getattr(storage, "close_additional_original", None)
+        if callable(close_original):
+            try:
+                close_original()
+            except BaseException as exc:
+                failures.append(exc)
+        if len(failures) == 1:
+            raise failures[0]
+        if failures:
+            raise BaseExceptionGroup("Media storage shutdown failed", failures)
 
     async def _execute(self, job_id):
         if not self.local_execution:
@@ -368,6 +439,9 @@ async def media_execution_session(*, session_factory=None):
         yield executor
     finally:
         await executor.close()
+        close_original = getattr(executor.storage, "close_additional_original", None)
+        if callable(close_original):
+            close_original()
 
 
 async def run_media_job(job_id: UUID | None = None, *, session_factory=None) -> bool:
@@ -387,21 +461,32 @@ async def maintain_video_media(*, session_factory=None):
 
 async def probe_video_timetable(source: c.MediaSource, *, sparse_stride: int = 1):
     """Trusted CLI dry-run uses the portable decoder, without publication."""
+    from yoao_assets_media_runtime.original_read import admitted_original
     from yoao_assets_media_runtime.processing import probe_source_timetable
     from app.services.media_probe import configured_probe_client
 
-    if settings.assets_media_url:
-        from yoao_assets_media_runtime.http_source import HttpMediaSourceStorage
-
-        storage = HttpMediaSourceStorage(media_gateway().provider, source)
-    else:
-        storage = media_storage()
-    return await probe_source_timetable(
-        source,
-        storage,
-        sparse_stride=sparse_stride,
-        probe_client=configured_probe_client(),
-    )
+    async with media_gateway() as gateway:
+        source_storage = media_storage()
+        try:
+            async with admitted_original(
+                gateway.provider,
+                source_storage,
+                "begin_media_original_system",
+                c.SystemOriginalReadRequest(
+                    dataset_item_id=source.dataset_item_id,
+                    source_snapshot=source.source_snapshot,
+                    object_key=source.file_path,
+                ),
+                "finish_media_original_system",
+            ) as storage:
+                return await probe_source_timetable(
+                    source,
+                    storage,
+                    sparse_stride=sparse_stride,
+                    probe_client=configured_probe_client(),
+                )
+        finally:
+            source_storage.close_additional_original()
 
 
 def media_http_error(exc: c.MediaFailure) -> HTTPException:

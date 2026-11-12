@@ -1,14 +1,45 @@
+/// <reference lib="es2021.promise" />
+
 import type { FullConfig } from "@playwright/test";
-import { closeFixtureTransport, postFixture } from "./helpers/seed-owner-transport.mjs";
+import {
+  closeFixtureTransport,
+  postFixture,
+  shutdownFixtureTransport,
+} from "./helpers/seed-owner-transport.mjs";
 
 export default async function globalTeardown(_config: FullConfig): Promise<void> {
   const apiBase = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
+  let failure: unknown;
+  let failed = false;
   try {
-    const response = await postFixture(`${apiBase}/api/v1/__test/seed/cleanup`, { timeout: 5_000 });
+    const suiteId = process.env.PLAYWRIGHT_FIXTURE_RUN_ID;
+    if (!suiteId) throw new Error("Fixture suite identity is required for teardown");
+    const response = await postFixture(`${apiBase}/api/v1/__test/seed/cleanup`, {
+      data: { suite_id: suiteId },
+      // Reader waits are bounded by the owner; physical retirement must settle.
+      timeout: 0,
+    });
     if (!response.ok()) {
       throw new Error(`seed/cleanup failed: ${response.status()} ${await response.text()}`);
     }
-  } finally {
-    await closeFixtureTransport();
+    if (process.env.PLAYWRIGHT_RASTER_OFFLINE !== "1") {
+      await shutdownFixtureTransport(suiteId);
+    }
+  } catch (error) {
+    failed = true;
+    failure =
+      error instanceof Error && "operationId" in error && typeof error.operationId === "string"
+        ? new Error(`${error.message} (fixture operation ${error.operationId})`, { cause: error })
+        : error;
   }
+  try {
+    await closeFixtureTransport();
+  } catch (error) {
+    if (failed) {
+      const reason = failure instanceof Error ? failure.message : "Fixture cleanup failed";
+      throw new AggregateError([failure, error], `${reason}; fixture transport shutdown failed`);
+    }
+    throw error;
+  }
+  if (failed) throw failure;
 }

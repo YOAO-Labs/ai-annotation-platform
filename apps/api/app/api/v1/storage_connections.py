@@ -157,7 +157,7 @@ async def get_deployment_sftp_preset(
 async def list_connections(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: IdentityActorFacts = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
     assert_request_scopes(request, "datasets:read")
     connections = await AssetsConnectionsGateway(db).list_connections(user.id)
@@ -205,7 +205,7 @@ async def get_connection(
     conn_id: uuid.UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    user: IdentityActorFacts = Depends(get_current_user),
+    user: IdentityActorFacts = Depends(require_roles(*_MANAGERS)),
 ):
     assert_request_scopes(request, "datasets:read")
     result = await AssetsConnectionsGateway(db).read_connection(

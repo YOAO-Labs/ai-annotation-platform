@@ -204,7 +204,9 @@ async def test_saved_reference_is_separately_immutable_and_part_of_idempotency(
 
 
 @pytest.mark.parametrize("fallback", ["url", "image"])
-def test_rooted_standalone_bypass_refuses_before_physical_client(monkeypatch, fallback):
+async def test_rooted_standalone_bypass_refuses_before_physical_client(
+    monkeypatch, fallback
+):
     from app.services import prediction_context, storage
 
     task = SimpleNamespace(
@@ -221,16 +223,16 @@ def test_rooted_standalone_bypass_refuses_before_physical_client(monkeypatch, fa
 
     monkeypatch.setattr(storage, "StorageService", forbidden)
     monkeypatch.setattr(storage.storage_service, "generate_download_url", forbidden)
-    operation = (
-        storage.resolve_task_url
-        if fallback == "url"
-        else prediction_context.load_task_image
-    )
     with pytest.raises(ContentError, match="location_unavailable"):
-        operation(task)
+        if fallback == "url":
+            await storage.resolve_task_url(None, task)
+        else:
+            prediction_context.load_task_image(task)
 
 
-def test_legacy_a_task_fallback_keeps_existing_signed_key(monkeypatch):
+async def test_legacy_a_task_fallback_keeps_existing_signed_key(
+    monkeypatch, db_session
+):
     from app.services import storage
 
     task = SimpleNamespace(
@@ -243,10 +245,57 @@ def test_legacy_a_task_fallback_keeps_existing_signed_key(monkeypatch):
         "generate_download_url",
         lambda key, **options: calls.append((key, options)) or "saved-url",
     )
-    assert storage.resolve_task_url(task) == "saved-url"
+    assert await storage.resolve_task_url(db_session, task) == "saved-url"
     assert calls == [
         (task.file_path, {"bucket": storage.storage_service.bucket, "audience": "ml"})
     ]
+
+
+async def test_legacy_task_signer_rejects_reserved_fixture_store_but_not_other_store(
+    monkeypatch, db_session
+):
+    from app.db.models.fixture_run import FixtureRun, FixtureRunResource
+    from app.services import storage
+    from app.services.managed_original_retirement import managed_storage_identity
+
+    run_id, dataset_id = uuid.uuid4(), uuid.uuid4()
+    key = f"__aap_managed_datasets__/{dataset_id}/_objects/{uuid.uuid4()}/source.pcd"
+    db_session.add(FixtureRun(id=run_id, family="owned"))
+    await db_session.flush()
+    db_session.add(
+        FixtureRunResource(
+            run_id=run_id,
+            kind="dataset",
+            resource_id=dataset_id,
+            logical_key="source",
+            state="published",
+            storage_identity=managed_storage_identity(
+                "http://fixture-store", "fixtures"
+            ),
+        )
+    )
+    await db_session.flush()
+    monkeypatch.setattr(
+        storage.storage_service,
+        "client",
+        SimpleNamespace(meta=SimpleNamespace(endpoint_url="http://fixture-store")),
+    )
+    monkeypatch.setattr(
+        storage.storage_service,
+        "generate_download_url",
+        lambda source, **options: f"http://signed/{options['bucket']}/{source}",
+    )
+    task = SimpleNamespace(
+        file_path=key, dataset_item_id=uuid.uuid4(), original_id=None
+    )
+    monkeypatch.setattr(storage.storage_service, "datasets_bucket", "fixtures")
+    with pytest.raises(ContentError, match="fixture_original_untracked_url_forbidden"):
+        await storage.resolve_task_url(db_session, task)
+    monkeypatch.setattr(storage.storage_service, "datasets_bucket", "ordinary")
+    assert (
+        await storage.resolve_task_url(db_session, task)
+        == f"http://signed/ordinary/{key}"
+    )
 
 
 async def test_reachable_non_image_secondary_fallback_cannot_read_rooted_task(

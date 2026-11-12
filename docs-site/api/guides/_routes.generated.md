@@ -5,6 +5,12 @@
 
 按模块分组列出 `apps/api/app/api/v1/` 下所有 `@router.*` 装饰的路由。
 
+## `_test_seed_backfill_image.py`
+
+| Method | Path |
+|---|---|
+| POST | `/seed/backfill-image` |
+
 ## `active_learning.py`
 
 | Method | Path |
@@ -1255,4 +1261,4 @@
 
 ---
 
-_共 117 模块 / 753 路由_
+_共 118 模块 / 754 路由_

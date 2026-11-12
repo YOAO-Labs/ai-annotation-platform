@@ -68,7 +68,15 @@ async def _ensure_admin(db) -> uuid.UUID:
     return account_id
 
 
-async def seed_video(db, *, owner_id: uuid.UUID, video: Path) -> dict | None:
+async def seed_video(
+    db,
+    *,
+    owner_id: uuid.UUID,
+    video: Path,
+    fixture_scope: tuple[uuid.UUID, uuid.UUID] | None = None,
+    fixture_project_display_id: str | None = None,
+    fixture_dataset_display_id: str | None = None,
+) -> dict | None:
     """把调用方视频灌入当前栈,建 video-track 项目 + 1 个 Task,owner 为传入用户。
 
     幂等:项目 P-VIDEO-DEV 已存在则直接返回 None(不重复造)。
@@ -92,10 +100,19 @@ async def seed_video(db, *, owner_id: uuid.UUID, video: Path) -> dict | None:
     from app.services import video_derivative_originals as originals
     from app.services.dataset_assets import ensure_legacy_bindings, register_item_asset
 
+    if fixture_scope is not None and (
+        not fixture_project_display_id or not fixture_dataset_display_id
+    ):
+        raise ValueError("fixture video seed requires exact run-local display IDs")
+    project_display_id = fixture_project_display_id or PROJECT_DISPLAY_ID
+    dataset_display_id = fixture_dataset_display_id or DATASET_DISPLAY_ID
+
     existing = await db.scalar(
-        select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
+        select(seed_projects).where(seed_projects.display_id == project_display_id)
     )
     if existing:
+        if fixture_scope is not None:
+            raise ValueError("fixture video project display ID is already in use")
         return None
 
     if not video.exists():
@@ -105,7 +122,7 @@ async def seed_video(db, *, owner_id: uuid.UUID, video: Path) -> dict | None:
     video_meta = probe_video_file(video)
 
     ds = Dataset(
-        display_id=DATASET_DISPLAY_ID,
+        display_id=dataset_display_id,
         name=DATASET_NAME,
         data_type="video",
         description="调用方提供的视频 dev 夹具",
@@ -115,44 +132,88 @@ async def seed_video(db, *, owner_id: uuid.UUID, video: Path) -> dict | None:
     project_id = await create_media_seed_project(
         db,
         kind="video",
-        display_id=PROJECT_DISPLAY_ID,
+        display_id=project_display_id,
         name="行车视频跟踪 (dev)",
         owner_id=owner_id,
         tool_bindings=VIDEO_TOOL_BINDINGS,
     )
+    if fixture_scope is not None:
+        from app.services import fixture_run_ownership as ownership
+
+        await db.flush()
+        await ownership.reserve_original_dataset(
+            db, fixture_scope[0], ds.id, logical_key="video_demo"
+        )
+        await ownership.publish_resource(db, fixture_scope[0], "dataset", ds.id)
+        await ownership.reserve(
+            db,
+            fixture_scope[0],
+            "project",
+            project_id,
+            logical_key="video_demo",
+            published=True,
+        )
+        await db.commit()
 
     # 上传视频到 MinIO datasets 桶。
-    binding = await ensure_legacy_bindings(db)
-    bucket = binding.bucket
-    key = f"{DATASET_FOLDER}/{video.name}"
     payload = video.read_bytes()
-    put_result = storage_service.client.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=payload,
-        ContentType=mimetypes.guess_type(video.name)[0] or "application/octet-stream",
-    )
-
-    item = DatasetItem(
-        dataset_id=ds.id,
-        file_name=video.name,
-        file_path=key,
-        file_type="video",
-        file_size=len(payload),
-        content_hash=hashlib.sha256(payload).hexdigest(),
-        metadata_={},
-    )
-    db.add(item)
-    await db.flush()
-
-    await register_item_asset(
-        db,
-        item,
-        sha256=hashlib.sha256(payload).hexdigest(),
-        size_bytes=len(payload),
-        etag=(put_result.get("ETag") or "").strip('"'),
-        binding=binding,
-    )
+    content_type = mimetypes.guess_type(video.name)[0] or "application/octet-stream"
+    if fixture_scope is None:
+        binding = await ensure_legacy_bindings(db)
+        key = f"{DATASET_FOLDER}/{video.name}"
+        put_result = storage_service.client.put_object(
+            Bucket=binding.bucket,
+            Key=key,
+            Body=payload,
+            ContentType=content_type,
+        )
+        item = DatasetItem(
+            dataset_id=ds.id,
+            file_name=video.name,
+            file_path=key,
+            file_type="video",
+            file_size=len(payload),
+            content_hash=hashlib.sha256(payload).hexdigest(),
+            metadata_={},
+        )
+        db.add(item)
+        await db.flush()
+        await register_item_asset(
+            db,
+            item,
+            sha256=hashlib.sha256(payload).hexdigest(),
+            size_bytes=len(payload),
+            etag=(put_result.get("ETag") or "").strip('"'),
+            binding=binding,
+        )
+    else:
+        item_id = uuid.uuid4()
+        await ownership.reserve(
+            db, fixture_scope[0], "item", item_id, logical_key="video_demo/video"
+        )
+        await db.commit()
+        item = DatasetItem(
+            id=item_id,
+            dataset_id=ds.id,
+            file_name=video.name,
+            file_path="",
+            file_type="video",
+            file_size=len(payload),
+            metadata_={"storage_relative_path": video.name},
+        )
+        allocation, original = await ownership.create_original(
+            db,
+            run_id=fixture_scope[0],
+            admission_id=fixture_scope[1],
+            item=item,
+            logical_path=video.name,
+            payload=payload,
+            content_type=content_type,
+            requested_by=owner_id,
+        )
+        item.content_hash = original.sha256
+        await ownership.attach_original(db, item, allocation, original)
+        await ownership.publish_resource(db, fixture_scope[0], "item", item_id)
     delegation = originals.system_authorization(
         "dataset_item", item.id, await originals.pin(db, "dataset_item", item.id)
     )
@@ -169,7 +230,7 @@ async def seed_video(db, *, owner_id: uuid.UUID, video: Path) -> dict | None:
     )
 
     return {
-        "project": PROJECT_DISPLAY_ID,
+        "project": project_display_id,
         "frames": video_meta.get("frame_count") or 0,
         "item_id": str(item.id),
         "video_delegation": delegation,

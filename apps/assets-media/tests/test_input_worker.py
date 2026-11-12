@@ -43,6 +43,10 @@ def world():
         calls.append((operation, request))
         if operation == "claim_accepted_image_input":
             return c.ClaimedInput(claim=claim)
+        if operation == "begin_accepted_image_original":
+            return image.OriginalRead(
+                ownership="ordinary", object_key=work.source.file_path
+            )
         if operation == "heartbeat_accepted_image_input":
             return c.InputLease(
                 input_id=claim.input.input_id,
@@ -70,6 +74,7 @@ def world():
         upload_blob=AsyncMock(return_value=blob),
         head_source=AsyncMock(return_value=work.source.object_identity),
     )
+    storage.bind_original = lambda _permit: storage
     return SimpleNamespace(
         work=work,
         claim=claim,
@@ -146,12 +151,9 @@ async def test_lost_or_unknown_initial_lease_never_copies_or_overwrites_winner(
         return await native(operation, request)
 
     state.database.call.side_effect = lost
-    assert (
-        await InputExecutor(
-            state.database, state.storage, temp_root=tmp_path
-        ).execute_once()
-        is None
-    )
+    executor = InputExecutor(state.database, state.storage, temp_root=tmp_path)
+    assert await executor.execute_once() is None
+    assert executor.unsettled_claim is True
     state.storage.download_source.assert_not_awaited()
     assert not any(
         operation in {"finish_accepted_image_input", "fail_accepted_image_input"}

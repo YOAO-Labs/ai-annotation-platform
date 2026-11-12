@@ -49,17 +49,15 @@ async def request(db, project, *, task_ids=None):
     if task_ids is not None:
         selected = [str(identifier) for identifier in task_ids]
         payload.update(task_ids=selected, scope={"task_ids": selected})
-    job = AsyncJob(
-        id=uuid.uuid4(),
-        kind="export",
-        project_id=project.id,
-        user_id=project.owner_id,
+    job, receipt = await image_jobs.create_scoped_job(
+        db,
+        project,
+        actor_id=project.owner_id,
         payload=payload,
-    )
-    db.add(job)
-    await db.flush()
-    receipt = await image_jobs.capture_job(
-        db, job, project, batch_id=None, targets=targets, opts=opts, task_ids=task_ids
+        batch_id=None,
+        targets=targets,
+        opts=opts,
+        task_ids=task_ids,
     )
     await db.commit()
     return (
@@ -225,3 +223,154 @@ async def test_unknown_final_commit_keeps_paired_image_responsibility(
         is committed
     )
     assert all(not path.exists() for path in harness.built_paths)
+
+
+async def test_image_scope_blocks_only_its_dataset_and_fences_rebinding(worker_db):
+    from fastapi import HTTPException
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import fixture_run_ownership as ownership
+
+    db = worker_db
+    project, dataset, *_ = await setup(db, "image")
+    own_run, neighbor_run, neighbor_dataset = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    db.add_all(
+        [
+            FixtureRun(id=own_run, family="scale"),
+            FixtureRun(id=neighbor_run, family="scale"),
+        ]
+    )
+    await db.flush()
+    await ownership.reserve(
+        db, own_run, "dataset", dataset.id, logical_key="dataset", published=True
+    )
+    await ownership.reserve(
+        db,
+        neighbor_run,
+        "dataset",
+        neighbor_dataset,
+        logical_key="dataset",
+        published=True,
+    )
+    await ownership.seal(db, neighbor_run, family="scale")
+    await db.commit()
+
+    job_id, receipt, _ = await request(db, project)
+    await ownership.guard_dataset_jobs(db, [neighbor_dataset])
+    with pytest.raises(HTTPException) as blocked:
+        async with db.begin_nested():
+            await ownership.guard_dataset_jobs(db, [dataset.id])
+    assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
+    with pytest.raises(DBAPIError, match="image export job binding changed"):
+        async with db.begin_nested():
+            await db.execute(
+                text(
+                    "UPDATE public.async_jobs SET payload = payload || jsonb_build_object("
+                    "'image_media', jsonb_build_object('schema', 3, "
+                    "'bundle_id', CAST(:other AS text), 'input_digest', CAST(:digest AS text))) "
+                    "WHERE id = :id"
+                ),
+                {
+                    "id": job_id,
+                    "other": str(uuid.uuid4()),
+                    "digest": receipt.input_digest,
+                },
+            )
+    assert await db.scalar(
+        text("SELECT public.image_export_scope_matches(:job, :bundle)"),
+        {"job": job_id, "bundle": receipt.id},
+    )
+    assert not await db.scalar(
+        text("SELECT public.image_export_scope_matches(:job, :bundle)"),
+        {"job": job_id, "bundle": uuid.uuid4()},
+    )
+    await ownership.seal(db, own_run, family="scale")
+    await db.commit()
+    with pytest.raises(ContentError, match="fixture_run_closed"):
+        async with db.begin_nested():
+            await request(db, project)
+    with pytest.raises(DBAPIError, match="fixture_dataset_job_scope_unknown"):
+        async with db.begin_nested():
+            db.add(
+                AsyncJob(
+                    id=uuid.uuid4(),
+                    kind="export",
+                    project_id=project.id,
+                    user_id=project.owner_id,
+                    payload={},
+                )
+            )
+            await db.flush()
+    with pytest.raises(DBAPIError, match="image export scope is not bound"):
+        async with db.begin_nested():
+            await db.execute(
+                text(
+                    "SELECT public.prepare_image_export_scope("
+                    ":job, :bundle, :project, :actor, CAST(ARRAY[] AS uuid[]))"
+                ),
+                {
+                    "job": uuid.uuid4(),
+                    "bundle": uuid.uuid4(),
+                    "project": project.id,
+                    "actor": project.owner_id,
+                },
+            )
+            await db.execute(
+                text("SET CONSTRAINTS public.image_export_scope_complete IMMEDIATE")
+            )
+
+
+async def test_unbound_image_delivery_and_changed_source_never_start_io(
+    worker_db, monkeypatch
+):
+    db = worker_db
+    project, _, item, _, _, _ = await setup(db, "image")
+    harness = ImageHarness(db, monkeypatch)
+    job_id, receipt, args = await request(db, project)
+
+    # A late delivery with another Job's bundle cannot acquire this scope.
+    other_job, other_receipt, _ = await request(db, project)
+    owner_id = project.owner_id
+    job = await db.get(AsyncJob, job_id)
+    with pytest.raises(ContentError, match="scope_binding_changed"):
+        await image_jobs.assert_scope_binding(db, job, other_receipt)
+    assert harness.prepares == 0
+    legacy = AsyncJob(
+        id=uuid.uuid4(),
+        kind="export",
+        user_id=project.owner_id,
+        project_id=project.id,
+        payload={"targets": args["targets"], "batch_id": None, **args["opts"]},
+    )
+    db.add(legacy)
+    await db.flush()
+    await image_jobs.capture_job(
+        db, legacy, project, batch_id=None, targets=args["targets"], opts=args["opts"]
+    )
+    await db.commit()
+    with pytest.raises(ContentError, match="scope_binding_changed"):
+        await worker.run_owned(db, **{**args, "async_job_id": str(legacy.id)})
+    assert harness.prepares == 0
+
+    # The Dataset identity is part of the checked source, not just a Job field.
+    from app.db.models.dataset import Dataset
+
+    replacement = Dataset(
+        id=uuid.uuid4(),
+        display_id=f"DS-{uuid.uuid4().hex[:12]}",
+        name="replacement",
+        data_type="image",
+        created_by=owner_id,
+        metadata_={},
+    )
+    db.add(replacement)
+    await db.flush()
+    item.dataset_id = replacement.id
+    await db.commit()
+    with pytest.raises(ContentError, match="inputs_changed"):
+        await worker.run_owned(db, **args)
+    assert harness.prepares == 0
+    assert (await state(db, ExportMediaBundle, receipt.id)).published_at is None
+    assert (await state(db, AsyncJob, other_job)).status == "pending"

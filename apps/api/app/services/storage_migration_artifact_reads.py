@@ -12,6 +12,7 @@ import re
 import uuid
 
 from app.services import (
+    export_execution_context,
     storage_access,
     storage_migration_copy as copy,
     storage_migration_read_publications as publications,
@@ -354,13 +355,19 @@ async def run(
             await on_acquired(permit)
         await publications.recheck(db, route)
 
+    permit = await storage_access.acquire(
+        db,
+        route.target_location_id,
+        route.purpose,
+        expected_revision=route.maintenance_revision,
+    )
+    owner = export_execution_context.current_optional()
+    entered, failure = False, None
     try:
-        async with await storage_access.acquire(
-            db,
-            route.target_location_id,
-            route.purpose,
-            expected_revision=route.maintenance_revision,
-        ):
+        async with permit:
+            if owner is not None:
+                await owner.enter_io()
+                entered = True
             await storage_access.run(
                 db,
                 route.target_location_id,
@@ -372,7 +379,22 @@ async def run(
             )
             await publications.recheck(db, route)
             return result
-    except BaseException:
+    except BaseException as exc:
+        failure = exc
         if completed and close_result is not None:
-            close_result(result)
+            try:
+                close_result(result)
+            except BaseException as closing:
+                storage_access.mark_unsettled(closing)
+                failure = BaseExceptionGroup(
+                    "Artifact read and result close failed", [exc, closing]
+                )
+                raise failure from None
         raise
+    finally:
+        if (
+            entered
+            and permit._settled
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)

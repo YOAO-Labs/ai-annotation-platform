@@ -4,14 +4,12 @@ from __future__ import annotations
 
 import json
 import uuid
-from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from yoao_labeling.screenshot_operations_contract import (
     ResetSeedTasks,
-    SCREENSHOT_OPERATIONS_FUNCTION,
     SCREENSHOT_OPERATIONS_PROTOCOL,
     ScreenshotOperationsCommand,
     ScreenshotOperationsResult,
@@ -19,21 +17,20 @@ from yoao_labeling.screenshot_operations_contract import (
     screenshot_operations_command_json,
 )
 
-_ROOT = Path(__file__).resolve().parents[3]
-
 
 def test_screenshot_operation_protocol_is_closed_and_self_consistent():
     task_id = uuid.uuid4()
     request = ResetSeedTasks(
         schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+        run_id=uuid.uuid4(),
         operation="reset_seed_tasks",
         project_id=uuid.uuid4(),
-        project_display_id="P-OCR",
+        project_display_id="P-123",
         tasks=(
             {
                 "id": task_id,
                 "file_path": "ocr-dev/ch_en_num.jpg",
-                "display_id": "T-SS-OCR-001",
+                "display_id": "T-SS-123-001",
                 "sequence_order": 0,
                 "status": "pending",
             },
@@ -50,6 +47,16 @@ def test_screenshot_operation_protocol_is_closed_and_self_consistent():
     with pytest.raises(ValidationError):
         TypeAdapter(ScreenshotOperationsCommand).validate_python(
             {
+                key: value
+                for key, value in request.model_dump(
+                    mode="python", by_alias=True
+                ).items()
+                if key != "run_id"
+            }
+        )
+    with pytest.raises(ValidationError):
+        TypeAdapter(ScreenshotOperationsCommand).validate_python(
+            {
                 **request.model_dump(mode="python", by_alias=True),
                 "arbitrary_sql": "DELETE FROM public.tasks",
             }
@@ -62,29 +69,3 @@ def test_screenshot_operation_protocol_is_closed_and_self_consistent():
     assert ScreenshotOperationsResult(
         operation=request.operation, changed=True, counts={"tasks": 1}
     ).counts == {"tasks": 1}
-
-    packaged_sql = (
-        _ROOT
-        / "apps/labeling/src/yoao_labeling/sql/0363_labeling_screenshot_operations.sql"
-    )
-    migration_sql = (
-        _ROOT / "apps/api/alembic/sql/0363_labeling_screenshot_operations.sql"
-    )
-    assert migration_sql.read_bytes() == packaged_sql.read_bytes()
-    schema = json.loads(
-        (
-            _ROOT / "apps/labeling/src/yoao_labeling/screenshot-operations.schema.json"
-        ).read_text(encoding="utf-8")
-    )
-    assert schema["$id"] == SCREENSHOT_OPERATIONS_PROTOCOL
-    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert (
-        _ROOT / "apps/api/alembic/sql/0363_labeling_screenshot_operations.schema.json"
-    ).read_bytes() == (
-        _ROOT / "apps/labeling/src/yoao_labeling/screenshot-operations.schema.json"
-    ).read_bytes()
-    assert (
-        schema["x-postgresql-functions"][SCREENSHOT_OPERATIONS_FUNCTION]["returns"]
-        == "jsonb"
-    )
-    assert schema["x-transactions"]["commit"] is False

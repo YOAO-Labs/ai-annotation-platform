@@ -3,23 +3,27 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import AsyncExitStack, closing
 import json
 import os
 from urllib.parse import urlsplit
 import uuid
 
 import pytest
+from botocore.exceptions import ClientError
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
 
-from tests.identity_e2e_support import (
-    e2e_consumer as e2e_consumer,
-    fenced_http as fenced_http,
-    fixture_and_fenced_http as fixture_and_fenced_http,
-)
+from tests.identity_e2e_support import fixture_routing_owner
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     endpoint_url,
+)
+from tests.seed_owner_support import (
+    _fixture_versions,
+    _read_versions,
+    fixture_original_reader,
+    private_owned_suite,
 )
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.workspace_import_cli_helpers import WorkspaceImportCli
@@ -34,11 +38,21 @@ pytestmark = [
 ]
 
 
-async def _namespace_count(engine, namespace):
+@pytest.fixture
+async def seed_owner_stack(test_engine, monkeypatch):
+    async with (
+        fixture_routing_owner(test_engine, monkeypatch),
+        AsyncExitStack() as stack,
+    ):
+        yield stack
+
+
+async def _fixture_user_count(engine, manifest):
+    ids = [uuid.UUID(user["id"]) for user in manifest["users"].values()]
     async with engine.connect() as db:
         return await db.scalar(
-            text("SELECT count(*) FROM users WHERE email LIKE :suffix"),
-            {"suffix": f"%-{namespace}@e2e.test"},
+            text("SELECT count(*) FROM users WHERE id = ANY(:ids)"),
+            {"ids": ids},
         )
 
 
@@ -56,15 +70,12 @@ async def _probe(cli, mode, record_property):
 
 
 async def test_installed_api_consumes_owner_prepared_project_roles(
-    test_engine, tmp_path, monkeypatch, record_property, fixture_and_fenced_http
+    test_engine, tmp_path, monkeypatch, record_property, seed_owner_stack
 ):
     _verify_postgres(test_engine.url)
-    resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
+    resources, _main_bucket, _owner_s3 = await assert_workspace_identity(test_engine)
     endpoint = urlsplit(endpoint_url())
     host = f"[{endpoint.hostname}]" if ":" in endpoint.hostname else endpoint.hostname
-    namespaces = [uuid.uuid4().hex[:10] for _ in range(2)]
-    prefixes = [f"e2e/owned/{namespace}/project-roles/" for namespace in namespaces]
-    bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     keeper_id = uuid.uuid4()
     source_root = tmp_path / "identity-e2e-probe"
     source_root.mkdir(mode=0o700)
@@ -82,17 +93,19 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
         minio_use_ssl=endpoint.scheme == "https",
         s3_access_key=os.environ["AAP_MODULE_DATA_API_BOOTSTRAP_S3_ACCESS_KEY"],
         s3_secret_key=os.environ["AAP_MODULE_DATA_API_BOOTSTRAP_S3_SECRET_KEY"],
+        original_reader=True,
         identity_auth_database_url=make_url(
             os.environ["AAP_MODULE_DATA_IDENTITY_AUTH_URL"]
         ),
     )
-    # The existing fixture transport starts lazily in its own process. Only its
-    # signed employee tokens, never the owner DSN, go to the installed API.
+    # The private process must inherit the same signing key before it starts.
+    # Only signed employee tokens, never the owner DSN, go to the installed API.
     monkeypatch.setenv("SECRET_KEY", cli.secret_key)
-    fixture = fixture_and_fenced_http
+    suite = await seed_owner_stack.enter_async_context(private_owned_suite())
+    fixture = suite.owner
+    runs = [suite.new_run(uuid.uuid4().hex[:10]) for _ in range(2)]
+    manifests = []
     try:
-        # Docker network attachment replaces existing host-port connections.
-        await test_engine.dispose()
         await asyncio.to_thread(cli.start)
         async with test_engine.begin() as db:
             await db.execute(
@@ -102,11 +115,9 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
                 ),
                 {"id": keeper_id, "email": f"cold-keeper-{keeper_id}@example.test"},
             )
-        manifests = []
-        for namespace in namespaces:
-            assert await _namespace_count(test_engine, namespace) == 0
+        for run in runs:
             response = await fixture.post(
-                "/api/v1/__test/seed/project-roles", json={"namespace": namespace}
+                "/api/v1/__test/seed/project-roles", json=run.payload()
             )
             assert response.status_code == 200, response.text
             data = response.json()
@@ -117,7 +128,12 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
             manifests.append(
                 {"fixture": data, "access_token": login.json()["access_token"]}
             )
-            assert await _namespace_count(test_engine, namespace) == 9
+            assert await _fixture_user_count(test_engine, data) == 9
+        first_versions = await _fixture_versions(test_engine, runs[0])
+        neighbor_versions = await _fixture_versions(test_engine, runs[1])
+        with closing(fixture_original_reader()) as reader:
+            _read_versions(reader, first_versions)
+            neighbor_bytes = _read_versions(reader, neighbor_versions)
         # The runner creates this outside the source mount with mode 0600.
         with cli.environment_file.open("a", encoding="utf-8") as stream:
             stream.write("AAP_E2E_CONSUMER_FIXTURES=" + json.dumps(manifests) + "\n")
@@ -151,11 +167,23 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
 
         for _ in range(2):
             cleaned = await fixture.post(
-                "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespaces[0]}
+                "/api/v1/__test/seed/owned-cleanup", json=runs[0].payload()
             )
             assert cleaned.status_code == 200, cleaned.text
-        assert await _namespace_count(test_engine, namespaces[0]) == 0
-        assert await _namespace_count(test_engine, namespaces[1]) == 9
+        assert await _fixture_user_count(test_engine, manifests[0]["fixture"]) == 0
+        assert await _fixture_user_count(test_engine, manifests[1]["fixture"]) == 9
+        with closing(fixture_original_reader()) as reader:
+            for row in first_versions:
+                with pytest.raises(ClientError) as removed:
+                    reader.head_object(
+                        Bucket=row["bucket"],
+                        Key=row["object_key"],
+                        VersionId=row["version_id"],
+                    )
+                assert (
+                    removed.value.response["ResponseMetadata"]["HTTPStatusCode"] == 404
+                )
+            assert _read_versions(reader, neighbor_versions) == neighbor_bytes
         neighbor = await _probe(cli, "neighbor", record_property)
         assert neighbor["removed_actor_status"] == 401
         assert neighbor["neighbor_project_role"] == "annotator"
@@ -168,37 +196,23 @@ async def test_installed_api_consumes_owner_prepared_project_roles(
             )
     finally:
         try:
-            for namespace in namespaces:
+            for run, manifest in zip(runs, manifests):
                 cleaned = await fixture.post(
-                    "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
+                    "/api/v1/__test/seed/owned-cleanup", json=run.payload()
                 )
                 assert cleaned.status_code == 200, cleaned.text
-                assert await _namespace_count(test_engine, namespace) == 0
+                assert await _fixture_user_count(test_engine, manifest["fixture"]) == 0
             async with test_engine.begin() as db:
                 await db.execute(
                     text("DELETE FROM users WHERE id=:id"), {"id": keeper_id}
                 )
         finally:
-            try:
-                for prefix in prefixes:
-                    paginator = owner_s3.get_paginator("list_object_versions")
-                    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-                        versions = [
-                            {"Key": item["Key"], "VersionId": item["VersionId"]}
-                            for kind in ("Versions", "DeleteMarkers")
-                            for item in page.get(kind, [])
-                        ]
-                        if versions:
-                            deleted = owner_s3.delete_objects(
-                                Bucket=bucket, Delete={"Objects": versions}
-                            )
-                            assert not deleted.get("Errors"), deleted
-            finally:
-                await test_engine.dispose()
-                await asyncio.to_thread(cli.close)
+            await test_engine.dispose()
+            await asyncio.to_thread(cli.close)
 
 
 _PROBE_SOURCE = r"""import asyncio
+import hashlib
 import json
 import os
 import socket
@@ -273,6 +287,16 @@ try:
             hidden = client.post("/api/v1/__test/seed/project-roles", json={"namespace": "forbidden"})
             assert hidden.status_code == 404, hidden.text
             assert not any("/__test/seed/" in path for path in client.get("/openapi.json").json()["paths"])
+            identity = client.get(
+                f"/api/v1/files/tasks/{data['annotation_task_id']}/original-identity",
+                headers=headers,
+            )
+            assert identity.status_code == 200, identity.text
+            original = identity.json()
+            downloaded = client.get(original["download_path"], headers=headers)
+            assert downloaded.status_code == 200, downloaded.text
+            assert len(downloaded.content) == original["size_bytes"]
+            assert hashlib.sha256(downloaded.content).hexdigest() == original["sha256"]
             annotation = client.post(
                 f"/api/v1/tasks/{data['annotation_task_id']}/annotations",
                 headers=headers,
@@ -289,11 +313,22 @@ try:
         elif sys.argv[1] == "neighbor":
             removed = client.get("/api/v1/auth/me", headers=headers)
             assert removed.status_code == 401, removed.text
+            neighbor_headers = {"Authorization": "Bearer " + neighbor["access_token"]}
             access = client.get(
                 f"/api/v1/projects/{neighbor['fixture']['projects']['a']['project_id']}/access",
-                headers={"Authorization": "Bearer " + neighbor["access_token"]},
+                headers=neighbor_headers,
             )
             assert access.status_code == 200, access.text
+            identity = client.get(
+                f"/api/v1/files/tasks/{neighbor['fixture']['annotation_task_id']}/original-identity",
+                headers=neighbor_headers,
+            )
+            assert identity.status_code == 200, identity.text
+            original = identity.json()
+            downloaded = client.get(original["download_path"], headers=neighbor_headers)
+            assert downloaded.status_code == 200, downloaded.text
+            assert len(downloaded.content) == original["size_bytes"]
+            assert hashlib.sha256(downloaded.content).hexdigest() == original["sha256"]
             result = {"removed_actor_status": removed.status_code, "neighbor_project_role": access.json()["project_role"]}
         else:
             raise AssertionError("unknown consumer mode")

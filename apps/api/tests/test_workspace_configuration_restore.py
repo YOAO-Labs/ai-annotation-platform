@@ -31,6 +31,7 @@ from app.db.models.project_template import ProjectTemplate
 from app.db.models.user import User
 from tests.factory import create_user
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.workspace_configuration_helpers import configuration_dsn
 from tests.workspace_template_query_helpers import template_query_dsn
@@ -403,10 +404,20 @@ async def test_workspace_configuration_receipts_survive_owned_restore_and_protec
             ).one()
             assert frozen_scope == "private" and frozen_creator == actor_id
 
-        refused = _alembic(test_engine.url, "downgrade", "bo0256")
-        assert refused.returncode != 0
-        assert b"Cannot remove Workspace configuration while private state exists" in (
-            refused.stdout + refused.stderr
+        await assert_historical_receipt_guards(
+            test_engine,
+            test_engine,
+            _alembic,
+            [
+                (
+                    "bo0257",
+                    "bo0256",
+                    "0257_workspace_configuration.py",
+                    "workspace_configuration_operation_receipts",
+                    "operation_id",
+                    operation_ids[0],
+                )
+            ],
         )
         async with source_maker() as db:
             assert await db.scalar(

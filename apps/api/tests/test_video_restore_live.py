@@ -15,6 +15,7 @@ from yoao_inference.restore import RestoreUnavailable, VideoRestoreManager
 from yoao_inference.restore_postgres import VideoRestorePostgresProvider
 from yoao_inference.routing_backend_control import BackendRoutingControl
 from yoao_inference.routing_runtime import RoutingRuntime
+from yoao_inference.pipeline_server import PipelineHttpServer
 from yoao_inference_contract.routing import make_routing_command
 from yoao_labeling.video_writer import VideoWriterManager
 from yoao_labeling.video_writer_contract import (
@@ -430,6 +431,8 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
     release_request = asyncio.Event()
     request_entered = asyncio.Event()
     owner = None
+    routing_server = None
+    target_runtime = None
     operator = None
     completed_before = None
     dump = tmp_path / "video-restore-live.dump"
@@ -834,8 +837,25 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
         # The same run now obtains a normal fresh claim, observes the global
         # retirement proof, enters recovery_ready, seals the remaining canonical
         # windows, and publishes through the independent Labeling owner.
-        monkeypatch.setattr(settings, "inference_routing_url", "")
-        monkeypatch.setattr(settings, "inference_routing_token", "")
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as routing_listener:
+            routing_listener.bind(("127.0.0.1", 0))
+            routing_port = routing_listener.getsockname()[1]
+        routing_token = uuid.uuid4().hex
+        routing_server = PipelineHttpServer(
+            manager=None,
+            data=None,
+            control_token=None,
+            host="127.0.0.1",
+            port=routing_port,
+            routing_manager=target_runtime.manager,
+            routing_control_token=routing_token,
+            scope_retirement_manager=target_runtime.scope_retirement_manager,
+        )
+        await routing_server.start()
+        monkeypatch.setattr(
+            settings, "inference_routing_url", f"http://127.0.0.1:{routing_port}"
+        )
+        monkeypatch.setattr(settings, "inference_routing_token", routing_token)
         monkeypatch.setattr(settings, "inference_routing_token_file", "")
         restored_sessions = async_sessionmaker(restored_engine, expire_on_commit=False)
         writer = VideoWriterManager(VideoWriterPostgresProvider(writer_dsn))
@@ -990,6 +1010,10 @@ async def test_restored_video_execution_resumes_after_real_global_route_drain(
             await asyncio.gather(request_task, return_exceptions=True)
         if backend_http is not None:
             await backend_http.aclose()
+        if routing_server is not None:
+            await routing_server.close()
+        if target_runtime is not None:
+            await target_runtime.close()
         if owner is not None:
             await owner.close()
         if backend_server is not None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 import uuid
@@ -51,6 +52,8 @@ def test_jobs_broker_rejects_foreign_target_or_reused_bearer(broker, token):
         ("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL", "asset_media_worker_client"),
         ("AAP_MODULE_DATA_INFERENCE_ROUTING_URL", "inference_routing_client"),
         ("AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL", "labeling_video_writer_client"),
+        ("AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL", "jobs_dispatch_relay_client"),
+        ("AAP_MODULE_DATA_JOBS_PUBLICATION_URL", "jobs_publication_client"),
     ],
 )
 def test_restored_role_context_keeps_the_existing_database_guard(
@@ -70,6 +73,76 @@ def test_restored_role_context_keeps_the_existing_database_guard(
         assert make_url(os.environ["TEST_DATABASE_URL"]).database == "restored_test"
     assert os.environ["TEST_DATABASE_URL"] == reference
     assert os.environ[variable] == role
+
+
+@pytest.mark.parametrize("violation", [None, "stopped", "network", "endpoint", "address"])
+def test_jobs_queue_origin_requires_the_verified_owned_attachment(violation):
+    container_id = "container-id"
+    endpoint = {
+        "NetworkID": "network-id",
+        "EndpointID": "endpoint-id",
+        "IPAddress": "172.20.0.7",
+    }
+    member = {"EndpointID": "endpoint-id", "IPv4Address": "172.20.0.7/16"}
+    network = {
+        "Name": "owned_default",
+        "Id": "network-id",
+        "Containers": {container_id: member},
+    }
+    queue = {
+        "Id": container_id,
+        "State": {"Running": True, "Health": {"Status": "healthy"}},
+        "NetworkSettings": {"Networks": {"owned_default": endpoint}},
+    }
+    if violation == "stopped":
+        queue["State"]["Running"] = False
+    elif violation == "network":
+        endpoint["NetworkID"] = "foreign-network"
+    elif violation == "endpoint":
+        member["EndpointID"] = "other-endpoint"
+    elif violation == "address":
+        member["IPv4Address"] = "172.20.0.8/16"
+    stack = object.__new__(IdentityModuleStack)
+    stack._dependency_network = lambda: network
+    stack._verify_project_ownership = lambda: {"jobs-queue": queue}
+    if violation is None:
+        assert stack.jobs_queue_origin == "http://172.20.0.7:8190"
+    else:
+        with pytest.raises(RuntimeError):
+            _ = stack.jobs_queue_origin
+
+
+def test_stack_destruction_waits_for_every_owner_guard():
+    stack = object.__new__(IdentityModuleStack)
+    stack._retention_guards = []
+    states = {"export": True, "tracker": False}
+    stack.retain_while(lambda: states["export"])
+    stack.retain_while(lambda: states["tracker"])
+
+    class ForbiddenPath:
+        def is_file(self):
+            raise AssertionError("retained stack attempted destruction")
+
+    stack._compose_env_file = ForbiddenPath()
+    assert stack.retention_required
+    with pytest.raises(RuntimeError, match="owner retirement is unproved"):
+        asyncio.run(stack.stop())
+    with pytest.raises(RuntimeError, match="owner retirement is unproved"):
+        asyncio.run(stack.switch_database("foreign_test"))
+    states["export"] = False
+    states["tracker"] = True
+    assert stack.retention_required
+    with pytest.raises(RuntimeError, match="owner retirement is unproved"):
+        asyncio.run(stack.stop())
+    states["tracker"] = False
+    assert not stack.retention_required
+
+    def unknown_guard():
+        raise RuntimeError("owner proof unavailable")
+
+    stack.retain_while(unknown_guard)
+    with pytest.raises(RuntimeError, match="owner proof unavailable"):
+        asyncio.run(stack.stop())
 
 
 def test_jobs_queue_image_requires_complete_source_bound_inputs():

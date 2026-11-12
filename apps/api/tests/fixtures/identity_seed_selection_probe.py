@@ -20,7 +20,16 @@ def main() -> None:
         "postgresql+asyncpg://seed_probe:unreachable@127.0.0.1:1/guard_probe"
     )
     completed = subprocess.run(
-        [sys.executable, "-m", "scripts.seed_scale", "4", "2", "1"],
+        [
+            sys.executable,
+            "-m",
+            "scripts.seed_scale",
+            "--run-id",
+            "77a215e7-01c5-438b-a069-d287ae9a25a7",
+            "4",
+            "2",
+            "1",
+        ],
         env=environment,
         capture_output=True,
         text=True,

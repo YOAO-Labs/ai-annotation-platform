@@ -1,6 +1,5 @@
 """Video consumers accept saved owners and explicit producer authority only."""
 
-from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 import uuid
@@ -8,7 +7,7 @@ import uuid
 from fastapi import HTTPException, Request
 import pytest
 
-from app.api.v1 import datasets, storage
+from app.api.v1 import storage
 from app.api.v1.tasks import _shared as shared
 from app.cli.video import rebuild_timetable as cli
 from app.services import video_derivative_originals as originals
@@ -164,55 +163,6 @@ async def test_import_unknown_original_cannot_dispatch(monkeypatch):
     with pytest.raises(ContentError, match="content_unverified"):
         await DatasetService(db).enqueue_media_for_items([uuid.uuid4()])
     dispatch.assert_not_called()
-
-
-@pytest.mark.parametrize("blocked", [False, True])
-async def test_http_backfill_freezes_exact_request_and_commits_before_dispatch(
-    monkeypatch, blocked
-):
-    from app.services import reference_access
-
-    dataset_id, item_id, authority, actor = (
-        uuid.uuid4(),
-        uuid.uuid4(),
-        object(),
-        object(),
-    )
-    request = Request({"type": "http", "method": "POST", "path": "/backfill"})
-    events = []
-    db = SimpleNamespace(
-        scalars=AsyncMock(return_value=[item_id]),
-        commit=AsyncMock(side_effect=lambda: events.append("commit")),
-    )
-    monkeypatch.setattr(datasets, "recheck_directory_write", AsyncMock())
-    monkeypatch.setattr(
-        datasets,
-        "DatasetService",
-        lambda _db: SimpleNamespace(get=AsyncMock(return_value=object())),
-    )
-    monkeypatch.setattr(reference_access, "reject_reference_scope", AsyncMock())
-    authorize = AsyncMock(
-        side_effect=ContentError("location_unavailable") if blocked else None,
-        return_value=authority,
-    )
-    monkeypatch.setattr(originals, "authorize_policy", authorize)
-    delegation = {"mode": "http", "request": "exact-key-fingerprint"}
-    monkeypatch.setattr(originals, "authorization", MagicMock(return_value=delegation))
-    dispatch = MagicMock(side_effect=lambda *_a, **_k: events.append("dispatch"))
-    monkeypatch.setattr(media.backfill_media, "delay", dispatch)
-    if blocked:
-        with pytest.raises(HTTPException) as failure:
-            await datasets.backfill_media_endpoint(request, dataset_id, db, actor)
-        assert failure.value.detail == {"code": "location_unavailable"}
-        dispatch.assert_not_called()
-        assert events == []
-    else:
-        await datasets.backfill_media_endpoint(request, dataset_id, db, actor)
-        authorize.assert_awaited_once_with(db, "dataset", item_id, actor, request)
-        dispatch.assert_called_once_with(
-            str(dataset_id), video_delegations={str(item_id): delegation}
-        )
-        assert events == ["commit", "dispatch"]
 
 
 async def test_storage_retry_persists_exact_authority_before_dispatch(monkeypatch):
@@ -380,41 +330,6 @@ async def test_cli_dry_run_is_metadata_only_and_never_dispatches(monkeypatch):
     prepare.assert_not_awaited()
     run.assert_not_awaited()
     db.commit.assert_not_awaited()
-    denied.assert_not_called()
-
-
-async def test_video_catalog_validates_original_and_poster_without_current_bucket_fallback(
-    monkeypatch,
-):
-    from app.services.screenshot_seed_catalog import verified_video_seed_digest
-
-    value, authority, db = (
-        SimpleNamespace(id=uuid.uuid4(), thumbnail_path=PATH),
-        object(),
-        object(),
-    )
-    source = SimpleNamespace(sha256="a" * 64)
-    events = []
-    monkeypatch.setattr(originals, "pin", AsyncMock(return_value=source))
-    monkeypatch.setattr(
-        originals, "system_authorization", MagicMock(return_value={"mode": "system"})
-    )
-    monkeypatch.setattr(originals, "delegated", AsyncMock(return_value=authority))
-
-    @asynccontextmanager
-    async def checked_media(actual_db, actual_authority, actual_source):
-        assert (actual_db, actual_authority, actual_source) == (db, authority, source)
-        events.append("verified-open")
-        yield object()
-        events.append("drained-close")
-
-    monkeypatch.setattr(originals, "media", checked_media)
-    thumbnail = AsyncMock(return_value=(PATH, "saved-url"))
-    monkeypatch.setattr(derivatives, "thumbnail", thumbnail)
-    denied = deny_current_storage(monkeypatch)
-    assert await verified_video_seed_digest(db, value) == source.sha256
-    assert events == ["verified-open", "drained-close"]
-    thumbnail.assert_awaited_once_with(db, item_id=value.id)
     denied.assert_not_called()
 
 

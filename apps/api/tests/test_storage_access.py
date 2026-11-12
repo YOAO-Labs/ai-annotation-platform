@@ -249,10 +249,24 @@ async def test_settlement_failure_retains_record_and_original_body_error(
             async with permit:
                 pass
         assert failure.value.status == 503
+        assert access.failure_unsettled(failure.value)
         assert await count(test_engine, location_id) == 1
-        with pytest.raises(ValueError, match="body failed"):
+        with pytest.raises(ExceptionGroup) as failure:
             async with permit:
                 raise ValueError("body failed")
+        assert any(isinstance(exc, ValueError) for exc in failure.value.exceptions)
+        assert access.failure_unsettled(failure.value)
+        assert await count(test_engine, location_id) == 1
+
+
+async def test_nested_unsettled_failure_retains_the_exact_permit(test_engine):
+    async with world(test_engine) as (db, location_id):
+        permit = await access.acquire(db, location_id, "nested_uncertain")
+        child = access.mark_unsettled(OSError("unconfirmed close"))
+        with pytest.raises(ExceptionGroup) as failure:
+            async with permit:
+                raise ExceptionGroup("physical failure", [child])
+        assert access.failure_unsettled(failure.value)
         assert await count(test_engine, location_id) == 1
 
 

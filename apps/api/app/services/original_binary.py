@@ -4,14 +4,15 @@ Routes own HTTP serialization. Physical capture and response ownership stay in
 original_binary_response; this module owns current authority and source checks.
 """
 
-from dataclasses import dataclass, field
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field, replace
 from typing import Literal
 import uuid
 
 from fastapi import HTTPException
 
 from app.services import original_content_access as access
-from app.services import original_sources, storage_access
+from app.services import fixture_original_read, original_sources, storage_access
 from app.services.content_snapshot import ContentError
 
 
@@ -122,14 +123,27 @@ async def authorize_original(
     return AuthorizedOriginal(resource, proof, source, key)
 
 
-async def recheck_original(db, context):
-    """Reauthorize a frozen source without retaining locks across local I/O."""
+async def recheck_original(db, context, *, captured=False):
+    """Reauthorize current facts; captured bytes no longer need the old I/O fence."""
     current, key = await _current(db, context.resource, context.proof)
     if key != context.key:
         raise HTTPException(403, {"code": "api_key_authority_revoked"})
-    if current != context.source:
+    expected = context.source
+    if captured:
+        # The current lookup still rejects stopped gates. A completed stop/resume
+        # does not change already-verified bytes, authority, or source identity.
+        expected = replace(expected, maintenance_revision=current.maintenance_revision)
+        if expected.read_route is not None and current.read_route is not None:
+            expected = replace(
+                expected,
+                read_route=replace(
+                    expected.read_route,
+                    maintenance_revision=current.read_route.maintenance_revision,
+                ),
+            )
+    if current != expected:
         raise ContentError("content_binding_changed")
-    await original_sources.recheck_read_route(db, context.source)
+    await original_sources.recheck_read_route(db, current)
     await db.commit()
     access.check_clock(context.proof, key)
 
@@ -176,6 +190,41 @@ async def snapshot(
     return await capture_authorized(db, context, capture_download)
 
 
+@asynccontextmanager
+async def _ordinary_admission(db, context, plan):
+    source = context.source
+    purpose = (
+        "task_original_read_"
+        if source.owner_kind == "task_original"
+        else "dataset_original_read_"
+    ) + source.content_id.hex
+    async with await storage_access.acquire(
+        db,
+        plan.location_id,
+        plan.purpose(purpose),
+        expected_revision=plan.maintenance_revision,
+    ):
+        await recheck_original(db, context)
+        yield plan.spec, await original_sources.read_options(db, source)
+
+
+@asynccontextmanager
+async def _read_admission(db, context, plan):
+    source = context.source
+    if not await fixture_original_read.is_fixture(db, source):
+        async with _ordinary_admission(db, context, plan) as admitted:
+            yield admitted
+        return
+
+    # Classification must not hold the request connection across the media owner.
+    await db.commit()
+    async with fixture_original_read.admitted(
+        db, source, context.proof.actor_id, plan.spec
+    ) as admitted:
+        await recheck_original(db, context)
+        yield admitted
+
+
 async def capture_authorized(db, context, capture):
     """Capture one frozen original with its caller's explicit physical budget."""
     from app.services.original_binary_response import close_stage
@@ -185,22 +234,8 @@ async def capture_authorized(db, context, capture):
 
     stage = None
     try:
-        purpose = (
-            "task_original_read_"
-            if source.owner_kind == "task_original"
-            else "dataset_original_read_"
-        ) + source.content_id.hex
-        async with await storage_access.acquire(
-            db,
-            plan.location_id,
-            plan.purpose(purpose),
-            expected_revision=plan.maintenance_revision,
-        ):
-            await recheck_original(db, context)
-            stage = await capture(
-                plan.spec,
-                **(await original_sources.read_options(db, source)),
-            )
+        async with _read_admission(db, context, plan) as (spec, options):
+            stage = await capture(spec, **options)
         await recheck_original(db, context)
         return stage
     except BaseException:

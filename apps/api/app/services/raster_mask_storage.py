@@ -54,7 +54,7 @@ from app.services.mask_gc import (
 )
 from app.services.storage import StorageService, storage_service
 from app.services.video_context import VideoContext
-from app.services.storage_access import finish, mark_unsettled
+from app.services.storage_access import failure_unsettled, finish, mark_unsettled
 from app.utils.raster_mask_gzip import (
     MAX_COMPRESSED_BYTES,
     MAX_EXPANSION_RATIO,
@@ -1182,8 +1182,12 @@ async def _run_content_io(call, *args, **kwargs):
         try:
             await finish(task)
         except BaseException as late:
-            if getattr(late, "storage_operation_unsettled", False):
-                mark_unsettled(interrupted)
+            combined = BaseExceptionGroup(
+                "Raster content operation and cancellation failed", [interrupted, late]
+            )
+            if failure_unsettled(late):
+                mark_unsettled(combined)
+            raise combined from None
         raise
 
 
@@ -1214,7 +1218,7 @@ def _encode_rle(rle, *, compressed=False):
 def raster_mask_storage_contract_error(exc):
     """Keep owned storage and admission failures outside input-validation errors."""
     status = getattr(exc, "status_code", getattr(exc, "status", 409))
-    return RasterMaskContractError(
+    failure = RasterMaskContractError(
         status_code=503 if status >= 500 else 409,
         reason=exc.code,
         message="mask storage is unavailable"
@@ -1222,6 +1226,9 @@ def raster_mask_storage_contract_error(exc):
         else "mask ownership or storage admission changed; retry the operation",
         retryable=True,
     )
+    if getattr(exc, "storage_operation_unsettled", False):
+        mark_unsettled(failure)
+    return failure
 
 
 async def _store_owned(rle, *, compressed=False, db=None, storage=storage_service):

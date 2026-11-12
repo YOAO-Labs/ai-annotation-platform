@@ -8,7 +8,7 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 import unittest
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 import uuid
 
 from worktree_recovery_image_export import (
@@ -21,7 +21,6 @@ from worktree_recovery_image_export import (
     _expected,
     _historical_url,
     _interrupt_after_pending_zip,
-    _new_job,
     attempt_identifier,
     job_identifier,
     verify_image_exports,
@@ -122,45 +121,15 @@ class RecoveryImageContracts(unittest.TestCase):
 
 
 class RecoveryImageSeed(unittest.IsolatedAsyncioTestCase):
-    async def test_capture_has_explicit_scope_and_commit_before_external_sessions(self):
-        from app.services.exporting import image_jobs
-
-        project_id, snapshot, raw = inputs()
-        project = SimpleNamespace(
-            id=project_id, display_id="P-REC-IMG", data_type="image"
-        )
-        actor = SimpleNamespace(id=uuid.uuid4())
-        db = SimpleNamespace(add=Mock(), flush=AsyncMock(), commit=AsyncMock())
-        receipt = SimpleNamespace(input_snapshot=snapshot)
-        with patch.object(
-            image_jobs, "capture_job", AsyncMock(return_value=receipt)
-        ) as capture:
-            result = await _new_job(
-                db,
-                state="building",
-                project=project,
-                actor=actor,
-                storage=SimpleNamespace(export_bucket="source-export"),
-                expected=_expected(raw),
-            )
-        self.assertIs(result, receipt)
-        job = db.add.call_args.args[0]
-        self.assertEqual(job.id, job_identifier("building"))
-        self.assertEqual(job.celery_task_id, attempt_identifier("building"))
-        self.assertEqual(
-            job.payload["scope"],
-            {"task_ids": sorted(str(identifier) for identifier in raw)},
-        )
-        self.assertEqual(job.payload["output_authority"]["actor_id"], str(actor.id))
-        self.assertEqual(job.payload[FIXTURE_KEY]["qualification"], QUALIFICATION)
-        self.assertEqual(capture.await_args.kwargs["task_ids"], sorted(raw, key=str))
-        self.assertEqual(capture.await_args.kwargs["opts"], OPTIONS)
-        db.commit.assert_awaited_once()
-
     async def interrupted(self, *, wrong_candidate=False):
         from app.services import async_job as jobs, export_media_bundles as bundles
         from app.services import export_outputs, export_storage
-        from app.services.exporting import image_delivery, image_inputs, packaging
+        from app.services.exporting import (
+            image_delivery,
+            image_inputs,
+            image_jobs,
+            packaging,
+        )
         from app.workers import lidar_export as publisher
 
         _, snapshot, _ = inputs()
@@ -203,6 +172,12 @@ class RecoveryImageSeed(unittest.IsolatedAsyncioTestCase):
             with (
                 patch.object(bundles, "claim", AsyncMock(return_value=receipt)),
                 patch.object(bundles, "check_claim", AsyncMock()),
+                patch.object(
+                    jobs,
+                    "get_job",
+                    AsyncMock(return_value=SimpleNamespace(id=receipt.job_id)),
+                ),
+                patch.object(image_jobs, "assert_scope_binding", AsyncMock()),
                 patch.object(jobs, "mark_running", AsyncMock()) as running,
                 patch.object(jobs, "mark_complete", AsyncMock()) as complete,
                 patch.object(image_delivery, "prepare", prepare),
@@ -260,6 +235,7 @@ class RecoveryImageTransport(unittest.IsolatedAsyncioTestCase):
         from app.db.models.export_output import ExportOutput
         from app.services import export_media_bundles as bundles
         from app.services import export_media_storage as physical, export_storage
+        from app.services.exporting import image_jobs
         from app.services.exporting.image_delivery import Delivery
         from app.services.exporting.image_inputs import digest
         from app.services.exporting.image_media_paths import logical_sources
@@ -282,6 +258,11 @@ class RecoveryImageTransport(unittest.IsolatedAsyncioTestCase):
         self.public = patch.object(settings, "minio_public_url", "")
         self.public.start()
         self.addCleanup(self.public.stop)
+        # This transport double has no SQL owner; native scope is covered by
+        # the disposable database acceptance rather than the fake DB.
+        scope = patch.object(image_jobs, "assert_scope_binding", AsyncMock())
+        scope.start()
+        self.addCleanup(scope.stop)
 
         # unittest discovery does not install the API suite's pytest allocation
         # fixture. Keep this transport-only DB behind the same explicit boundary

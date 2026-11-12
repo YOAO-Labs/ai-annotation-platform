@@ -16,7 +16,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -25,15 +25,7 @@ if str(_API_ROOT) not in sys.path:
     sys.path.insert(0, str(_API_ROOT))
 
 from app.config import settings  # noqa: E402
-from app.db.models.async_job import AsyncJob  # noqa: E402
-from app.db.models.dataset import Dataset, ProjectDataset  # noqa: E402
-from app.services.project_access import get_workspace_project  # noqa: E402
 from app.services.batch import BatchService  # noqa: E402
-from app.services.screenshot_seed_spec import (  # noqa: E402
-    PROJECT_SPECS,
-    SEED_MANAGED_BY,
-)
-from app.workers.celery_app import celery_app  # noqa: E402
 from yoao_labeling.screenshot_operations_contract import (  # noqa: E402
     CleanupOCRRows,
     DeleteOCRPredictions,
@@ -74,74 +66,26 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def assert_screenshot_scope(
-    db: AsyncSession,
-    *,
-    project_key: str,
-    project_id: uuid.UUID,
-    task_id: uuid.UUID,
-) -> str:
-    project = await get_workspace_project(db, project_id=project_id)
-    expected_display_id = PROJECT_SPECS[project_key].display_id
-    if project is None or project.display_id != expected_display_id:
-        raise RuntimeError(
-            f"cleanup scope is not screenshot project {expected_display_id}: {project_id}"
-        )
-
-    task = await get_core_row(db, task_row, task_id)
-    if task is None or task.project_id != project_id:
-        raise RuntimeError(
-            f"cleanup task does not belong to screenshot project: {task_id}"
-        )
-
-    datasets = (
-        (
-            await db.execute(
-                select(Dataset)
-                .join(
-                    ProjectDataset,
-                    ProjectDataset.dataset_id == Dataset.id,
-                )
-                .where(ProjectDataset.project_id == project_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    managed = any(
-        isinstance(dataset.metadata_, dict)
-        and isinstance(dataset.metadata_.get("seed"), dict)
-        and dataset.metadata_["seed"].get("managed_by") == SEED_MANAGED_BY
-        and dataset.metadata_["seed"].get("logical_key") == project_key
-        for dataset in datasets
-    )
-    if not managed:
-        raise RuntimeError("cleanup refused: project is not screenshot-seed managed")
-
-    task_spec = next(
-        (
-            candidate
-            for candidate in PROJECT_SPECS[project_key].tasks
-            if candidate.file_path == task.file_path
-        ),
-        None,
-    )
-    if task_spec is None:
-        raise RuntimeError("cleanup refused: task is not declared by screenshot seed")
-    return task_spec.status
-
-
 async def cleanup(args: argparse.Namespace) -> dict[str, int]:
-    engine = create_async_engine(settings.database_url, echo=False)
+    from screenshot_fixture_owner import (
+        assert_screenshot_scope,
+        close_screenshot_owner,
+        screenshot_owner,
+    )
+
+    run_id, owner_url = await screenshot_owner()
+    engine = create_async_engine(owner_url, echo=False, hide_parameters=True)
     session_factory = async_sessionmaker(
         engine,
         class_=AsyncSession,
         expire_on_commit=False,
     )
+    failure = None
     try:
         async with session_factory() as db:
             expected_task_status = await assert_screenshot_scope(
                 db,
+                run_id=run_id,
                 project_key=args.project_key,
                 project_id=args.project_id,
                 task_id=args.task_id,
@@ -202,22 +146,24 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
                     ]
                 )
             )
-            # Successful recordings are terminal already. On an interrupted flow,
-            # revoke any still-queued work before removing its isolated test row;
-            # terminate=False keeps the dedicated screenshot worker alive.
-            for celery_task_id in celery_task_ids:
-                try:
-                    celery_app.AsyncResult(celery_task_id).revoke(terminate=False)
-                except Exception as exc:  # noqa: BLE001 - scope checks remain authoritative
-                    print(
-                        f"[cleanup-screenshot-inference] WARN celery revoke failed: {exc}",
-                        file=sys.stderr,
-                    )
+            if celery_task_ids:
+                raise RuntimeError(
+                    "screenshot cleanup cannot retire unowned Celery jobs without "
+                    "the corresponding Jobs execution owner"
+                )
+            from app.services import fixture_run_ownership as ownership
+            from app.services.workspace_e2e_fixtures import (
+                guard_fixture_project_cleanup,
+            )
+
+            await guard_fixture_project_cleanup(db, [args.project_id])
+            await ownership.guard_project_jobs(db, [args.project_id])
 
             source_cleanup = await screenshot_operations_command(
                 db,
                 CleanupOCRRows(
                     schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                    run_id=run_id,
                     operation="cleanup_ocr_rows",
                     project_key=args.project_key,
                     project_id=args.project_id,
@@ -269,6 +215,7 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
                     db,
                     DeleteOCRPredictions(
                         schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                        run_id=run_id,
                         operation="delete_ocr_predictions",
                         project_key=args.project_key,
                         project_id=args.project_id,
@@ -308,6 +255,7 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
                 db,
                 FinishOCRCleanup(
                     schema=SCREENSHOT_OPERATIONS_PROTOCOL,
+                    run_id=run_id,
                     operation="finish_ocr_cleanup",
                     project_key=args.project_key,
                     project_id=args.project_id,
@@ -320,29 +268,13 @@ async def cleanup(args: argparse.Namespace) -> dict[str, int]:
             )
             if task is None:
                 raise RuntimeError(f"cleanup task disappeared: {args.task_id}")
-            if celery_task_ids:
-                job_result = await db.execute(
-                    delete(AsyncJob).where(
-                        AsyncJob.celery_task_id.in_(celery_task_ids),
-                    )
-                )
-                async_jobs = job_result.rowcount or 0
-            else:
-                async_jobs = 0
+            async_jobs = 0
             await db.commit()
+    except BaseException as exc:
+        failure = exc
+        raise
     finally:
-        await engine.dispose()
-
-    # Celery result backend is outside PostgreSQL. Forgetting an already-expired
-    # result is harmless and keeps the recorder idempotent for the afterAll retry.
-    for celery_task_id in celery_task_ids:
-        try:
-            celery_app.AsyncResult(celery_task_id).forget()
-        except Exception as exc:  # noqa: BLE001 - DB cleanup remains authoritative
-            print(
-                f"[cleanup-screenshot-inference] WARN celery forget failed: {exc}",
-                file=sys.stderr,
-            )
+        await close_screenshot_owner(engine, failure)
 
     return {
         **prediction_counts,

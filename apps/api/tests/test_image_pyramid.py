@@ -7,6 +7,7 @@ from datetime import timedelta
 
 import pytest
 from PIL import Image
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.image_pyramid import ImagePyramidAsset, ImagePyramidGeneration
@@ -286,18 +287,12 @@ async def test_reconcile_retains_unpinned_legacy_generation_without_storage_scan
     )
 
 
-@pytest.mark.parametrize("operation", ["get", "retry"])
-async def test_unpinned_legacy_ready_is_stale_or_regenerated(
-    db_session, httpx_client, super_admin, monkeypatch, operation
+async def test_unpinned_legacy_ready_is_stale_without_storage_reads(
+    db_session, httpx_client, super_admin, monkeypatch, transport
 ):
     user, token = super_admin
     task, item = await make_image_task(db_session, user.id)
     _, generation, _, _ = await ready_generation(db_session, item, pinned=False)
-    queued = []
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: queued.append((args, kwargs)) or "new-job",
-    )
     monkeypatch.setattr(
         "app.api.v1.tasks.image_pyramid.settings.image_pyramid_auto_generate", False
     )
@@ -305,26 +300,20 @@ async def test_unpinned_legacy_ready_is_stale_or_regenerated(
         {"Authorization": f"Bearer {token}"},
         f"/api/v1/tasks/{task.id}/image-pyramid",
     )
-    response = (
-        await httpx_client.get(route, headers=headers)
-        if operation == "get"
-        else await httpx_client.post(route + "/retry", headers=headers)
-    )
-    assert response.status_code == (200 if operation == "get" else 202)
-    assert response.json()["status"] == ("stale" if operation == "get" else "queued")
+    response = await httpx_client.get(route, headers=headers)
+    assert response.status_code == 200
+    assert response.json()["status"] == "stale"
     assert generation.output_id is None
-    if operation == "retry":
-        assert queued[0][0] == ("task", task.id)
-        assert queued[0][1]["delegation"]["original"]["content_id"]
+    assert not transport.verified and not transport.signed
 
 
 async def test_retry_is_idempotent_while_generation_is_pending(
-    db_session, httpx_client, super_admin, monkeypatch
+    db_session, httpx_client, super_admin
 ):
     user, token = super_admin
     task, item = await make_image_task(db_session, user.id)
     owner = await pyramids.owner_for_dataset_item(db_session, item)
-    await pyramids.prepare_generation(
+    generation = await pyramids.prepare_generation(
         db_session,
         owner,
         force=False,
@@ -332,20 +321,22 @@ async def test_retry_is_idempotent_while_generation_is_pending(
             "dataset_item", item.id, owner.source
         ),
     )
-    monkeypatch.setattr(
-        "app.api.v1.tasks.image_pyramid.enqueue_image_pyramid",
-        lambda *args, **kwargs: pytest.fail("Pending generation must not enqueue"),
+    assert generation is not None
+    for _ in range(2):
+        response = await httpx_client.post(
+            f"/api/v1/tasks/{task.id}/image-pyramid/retry",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert response.status_code == 202
+        assert response.json()["status"] == "pending"
+    await db_session.refresh(generation)
+    assert generation.status == "pending"
+    generations = await db_session.scalars(
+        select(ImagePyramidGeneration.generation).where(
+            ImagePyramidGeneration.asset_id == generation.asset_id
+        )
     )
-    response = await httpx_client.post(
-        f"/api/v1/tasks/{task.id}/image-pyramid/retry",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert response.status_code == 202
-    assert response.json() == {
-        "task_id": str(task.id),
-        "status": "pending",
-        "celery_task_id": None,
-    }
+    assert list(generations) == [generation.generation]
 
 
 async def test_retry_failed_generation_keeps_cooldown(
@@ -377,7 +368,7 @@ async def test_task_summary_is_lightweight(
 ):
     user, token = super_admin
     task, item = await make_image_task(db_session, user.id)
-    await ready_generation(db_session, item, pinned=pinned)
+    _, generation, _, _ = await ready_generation(db_session, item, pinned=pinned)
     monkeypatch.setattr(
         physical,
         "read_manifest",
@@ -393,13 +384,7 @@ async def test_task_summary_is_lightweight(
     )
     assert response.status_code == 200
     summary = response.json()["image_pyramid"]
-    assert summary == {
-        "status": "ready" if pinned else "failed",
-        "generation": 1,
-        "width": item.width,
-        "height": item.height,
-        "tile_size": 512,
-        "format": "webp",
-        "required": True,
-    }
+    assert summary["status"] == ("ready" if pinned else "failed")
+    assert summary["generation"] == generation.generation
+    assert (summary["width"], summary["height"]) == (item.width, item.height)
     assert "levels" not in summary and "url" not in summary

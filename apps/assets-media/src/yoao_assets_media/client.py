@@ -115,6 +115,25 @@ class MediaClient:
             raise c.MediaFailure("invalid_response") from None
         return result
 
+    async def ready_source_reference(
+        self, request: c.ReadSourceRequest
+    ) -> SourceReference:
+        result = await self._request(
+            "/v1/ready-source-reference", request, SourceReference
+        )
+        try:
+            c.require_scope(request, result.source)
+            if (
+                result.source.file_type != "video"
+                or result.source.materialized_generation
+                != result.source.source_generation
+                or result.poster_url is None
+            ):
+                raise ValueError("video publication is not ready")
+        except ValueError:
+            raise c.MediaFailure("invalid_response") from None
+        return result
+
     async def raw_source_reference(
         self, request: c.ReadSourceRequest
     ) -> SourceReference:

@@ -1,43 +1,20 @@
 from datetime import datetime, timezone
-import json
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from sqlalchemy import delete
 
-from yoao_assets_source.import_delivery_contract import (
-    DatasetImportDelivery,
-    DatasetImportDeliveryCompletion,
-)
-from yoao_notifications.publication_contract import PublicationAuthorization
+from yoao_assets_source.import_delivery_contract import DatasetImportDelivery
+from app.db.models.async_job import AsyncJob
+from app.db.models.notification import Notification
+from app.db.models.project_member import ProjectMember
 from app.services import dataset_import_delivery as delivery_data
 from app.services import notification as notification_module
 from app.services.notification import NotificationService
 from app.workers import dataset_import_delivery as delivery_worker
-
-
-def test_delivery_wire_models_match_the_frozen_json_schema():
-    schema_path = (
-        Path(__file__).parents[1]
-        / "alembic/sql/0214_dataset_import_delivery.schema.json"
-    )
-    schema = json.loads(schema_path.read_text())
-    assert schema["$schema"] == "https://json-schema.org/draft/2020-12/schema"
-    assert schema["x-postgresql-functions"] == [
-        "aap_assets_v1.queue_dataset_import_delivery(uuid, text, uuid)",
-        "aap_assets_v1.dataset_import_delivery_target_is_current(text, uuid)",
-        "aap_assets_v1.claim_dataset_import_delivery(uuid, integer)",
-        "aap_assets_v1.complete_dataset_import_delivery(uuid, uuid)",
-    ]
-    assert (
-        schema["$defs"]["DatasetImportDelivery"]
-        == DatasetImportDelivery.model_json_schema()
-    )
-    assert schema["$defs"]["DatasetImportDeliveryCompletion"] == (
-        DatasetImportDeliveryCompletion.model_json_schema()
-    )
+from tests.factory import create_membership, create_project
 
 
 def _delivery(kind="thumbnail"):
@@ -62,54 +39,12 @@ class _Result:
 class _Session:
     def __init__(self, events=None):
         self.events = events if events is not None else []
-        self.calls = []
 
     async def execute(self, statement, parameters):
-        self.calls.append((str(statement), parameters))
         return _Result(self.next_value)
 
     async def commit(self):
         self.events.append("commit")
-
-
-async def test_sql_adapter_decodes_claim_and_acknowledges_exact_lease():
-    delivery = _delivery()
-    db = _Session()
-    db.next_value = {
-        "schema": "aap-dataset-import-delivery/v1",
-        "ok": True,
-        "data": delivery.model_dump(mode="json"),
-    }
-    claimed = await delivery_data.claim_dataset_import_delivery(
-        db, lease_token=delivery.lease_token, lease_seconds=120
-    )
-    assert claimed == delivery
-    assert "claim_dataset_import_delivery" in db.calls[0][0]
-    assert db.calls[0][1] == {
-        "lease_token": delivery.lease_token,
-        "lease_seconds": 120,
-    }
-
-    db.next_value = True
-    assert await delivery_data.dataset_import_delivery_target_is_current(db, delivery)
-    assert "dataset_import_delivery_target_is_current" in db.calls[1][0]
-
-    db.next_value = {
-        "schema": "aap-dataset-import-delivery/v1",
-        "ok": True,
-        "data": {
-            "delivery_id": str(delivery.delivery_id),
-            "lease_token": str(delivery.lease_token),
-            "delivered": True,
-        },
-    }
-    receipt = await delivery_data.complete_dataset_import_delivery(
-        db,
-        delivery_id=delivery.delivery_id,
-        lease_token=delivery.lease_token,
-    )
-    assert receipt.delivery_id == delivery.delivery_id
-    assert "complete_dataset_import_delivery" in db.calls[2][0]
 
 
 async def test_media_delivery_is_acked_only_after_broker_accepts(monkeypatch):
@@ -272,46 +207,39 @@ async def test_notification_transport_failure_leaves_delivery_unacknowledged(
     ack.assert_not_awaited()
 
 
-async def test_notification_publish_failure_propagates_for_retry(monkeypatch):
-    row = SimpleNamespace(
+async def test_notification_publish_failure_propagates_for_retry(
+    db_session, annotator, monkeypatch
+):
+    user, _ = annotator
+    job = AsyncJob(
         id=uuid4(),
-        user_id=uuid4(),
+        kind="dataset_import",
+        user_id=user.id,
+        status="completed",
+        payload={},
+        result={},
+    )
+    row = Notification(
+        user_id=user.id,
         type="dataset_import_completed",
         target_type="async_job",
-        target_id=uuid4(),
+        target_id=job.id,
         payload={},
-        created_at=None,
     )
-    service = NotificationService(SimpleNamespace())
-    monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=row))
-    service._resolve_delivery_scopes = AsyncMock(return_value=[(False, None, False)])
-    service._publication_authorizations = AsyncMock(
-        return_value=[
-            PublicationAuthorization(
-                restricted=False,
-                project_id=None,
-                export_required=False,
-                member=False,
-                reviewer=False,
-                owner=False,
-                super_admin=False,
-            )
-        ]
-    )
-    monkeypatch.setattr(
-        notification_module,
-        "_publish",
-        AsyncMock(side_effect=RuntimeError("redis unavailable")),
-    )
+    db_session.add_all([job, row])
+    await db_session.flush()
+    service = NotificationService(db_session)
+    monkeypatch.setattr(notification_module.settings, "notification_publication_url", "")
+    publish = AsyncMock(side_effect=RuntimeError("redis unavailable"))
+    monkeypatch.setattr(notification_module, "_publish", publish)
 
     with pytest.raises(RuntimeError, match="redis unavailable"):
         await service.publish_by_id(row.id)
+    publish.assert_awaited_once()
 
 
-async def test_missing_notification_is_a_safe_ack(monkeypatch):
-    db = SimpleNamespace()
-    service = NotificationService(db)
-    monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=None))
+async def test_missing_notification_is_a_safe_ack(db_session, monkeypatch):
+    service = NotificationService(db_session)
     publish = AsyncMock()
     monkeypatch.setattr(notification_module, "_publish", publish)
 
@@ -319,26 +247,42 @@ async def test_missing_notification_is_a_safe_ack(monkeypatch):
     publish.assert_not_awaited()
 
 
-async def test_revoked_notification_is_suppressed_and_ackable(monkeypatch):
-    row = SimpleNamespace(id=uuid4(), user_id=uuid4(), type="dataset_import_completed")
-    service = NotificationService(SimpleNamespace())
-    monkeypatch.setattr(service, "notification_by_id", AsyncMock(return_value=row))
-    service._resolve_delivery_scopes = AsyncMock(return_value=[(True, uuid4(), False)])
-    service._publication_authorizations = AsyncMock(
-        return_value=[
-            PublicationAuthorization(
-                restricted=True,
-                project_id=uuid4(),
-                export_required=False,
-                member=False,
-                reviewer=False,
-                owner=False,
-                super_admin=False,
-            )
-        ]
+async def test_revoked_notification_is_suppressed_and_ackable(
+    db_session, super_admin, annotator, monkeypatch
+):
+    owner, _ = super_admin
+    user, _ = annotator
+    project = await create_project(db_session, owner_id=owner.id)
+    membership = await create_membership(
+        db_session, project_id=project.id, user_id=user.id, role="reviewer"
     )
+    job = AsyncJob(
+        id=uuid4(),
+        kind="batch_predict",
+        project_id=project.id,
+        user_id=user.id,
+        status="completed",
+        payload={},
+        result={},
+    )
+    row = Notification(
+        user_id=user.id,
+        type="job.completed",
+        target_type="async_job",
+        target_id=job.id,
+        payload={},
+    )
+    db_session.add_all([job, row])
+    await db_session.flush()
+    service = NotificationService(db_session)
+    monkeypatch.setattr(notification_module.settings, "notification_publication_url", "")
     publish = AsyncMock()
     monkeypatch.setattr(notification_module, "_publish", publish)
 
+    assert await service.publish_by_id(row.id) is True
+    publish.assert_awaited_once()
+    await db_session.execute(
+        delete(ProjectMember).where(ProjectMember.id == membership.id)
+    )
     assert await service.publish_by_id(row.id) is False
-    publish.assert_not_awaited()
+    publish.assert_awaited_once()

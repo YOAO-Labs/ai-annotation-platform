@@ -162,6 +162,7 @@ async def test_native_peer_takes_over_saved_results_without_changing_write_ident
                     member,
                     resumed_result,
                     resumed_requests,
+                    request=world.request,
                     manifest_backed=False,
                 )
             assert await _counts(world) == (2, 2, 0, 2)

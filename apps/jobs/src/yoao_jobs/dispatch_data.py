@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from .dispatch_contract import (
     JOBS_DISPATCH_FUNCTIONS,
+    JOBS_MEDIA_PREPARE_FUNCTION,
     DispatchClaimRequest,
     DispatchExecute,
     DispatchFinishRequest,
@@ -17,6 +19,7 @@ from .dispatch_contract import (
     DispatchPrepareRequest,
     DispatchPurpose,
     DispatchStatus,
+    MediaPreparation,
     JobsDispatchRejected,
     _DispatchClaimsReply,
     _DispatchLeaseReply,
@@ -106,6 +109,69 @@ class JobsDispatchDataClient:
         if not callable(execute):
             raise TypeError("Jobs dispatch execute callback must be callable")
         self._execute = execute
+
+    async def prepare_media(
+        self,
+        *,
+        owner_kind: str,
+        owner_id: UUID,
+        producer_kind: str,
+        delivery_id: UUID,
+        source: dict[str, Any],
+        envelope: dict[str, Any],
+    ) -> MediaPreparation:
+        """Prepare media in the caller's transaction without choosing fixture scope."""
+        if (
+            owner_kind not in {"task", "dataset_item"}
+            or producer_kind not in {
+                "pyramid", "thumbnail", "task_thumbnail", "video_metadata", "video_derivatives"
+            }
+            or not isinstance(owner_id, UUID)
+            or not isinstance(delivery_id, UUID)
+            or type(source) is not dict
+            or type(envelope) is not dict
+        ):
+            raise ValueError("Invalid Jobs media preparation request")
+        _validate_json_value(source)
+        _validate_json_value(envelope)
+        if _decode_queue_envelope(envelope) != str(delivery_id):
+            raise ValueError("Jobs media envelope does not match the delivery")
+        request = {
+            "schema": "aap-jobs-media-prepare/v1",
+            "owner_kind": owner_kind,
+            "owner_id": str(owner_id),
+            "producer_kind": producer_kind,
+            "delivery_id": str(delivery_id),
+            "source": source,
+            "envelope": envelope,
+        }
+        result = await self._execute(
+            JOBS_MEDIA_PREPARE_FUNCTION, {"p_request": request}
+        )
+        receipt = _decode_reply(MediaPreparation, result)
+        if _decode_queue_envelope(receipt.envelope) != str(delivery_id):
+            raise ValueError("Jobs media preparation returned an invalid envelope")
+        if receipt.delivery_id != delivery_id:
+            raise ValueError("Jobs media preparation returned a different delivery")
+        if receipt.ownership == "ordinary":
+            if receipt.payload_digest is not None or receipt.envelope != envelope:
+                raise ValueError("Jobs ordinary media preparation changed its envelope")
+        else:
+            actual = receipt.envelope
+            expected = {**envelope, "options": {**envelope["options"]}}
+            queue = actual.get("options", {}).get("queue")
+            suffix = "pyramid" if producer_kind == "pyramid" else "media"
+            if (
+                not isinstance(queue, str)
+                or re.fullmatch(rf"aap_workspace_worker_[0-9a-f]{{32}}_{suffix}", queue) is None
+                or receipt.payload_digest is None
+                or re.fullmatch(r"[0-9a-f]{64}", receipt.payload_digest) is None
+            ):
+                raise ValueError("Jobs fixture media preparation returned an invalid receipt")
+            expected["options"]["queue"] = queue
+            if actual != expected:
+                raise ValueError("Jobs fixture media preparation changed its payload")
+        return receipt
 
     async def prepare(
         self,

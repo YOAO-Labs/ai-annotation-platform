@@ -37,6 +37,8 @@ YOAO 把项目管理、Data Manager、多模态标注工作台、AI 预标注、
 - **存储管理控制台与九用途受控切换**：集中管理存储位置、远端连接器（含修订冲突保护与凭据列举验证）与九用途映射，展示读取/新写入策略、用途代次、位置修订、节点探测健康与去重后的已采纳源索引规模；头像、报告附件、审计归档、导出、导入暂存、数据集原件、媒体缓存、标注文件与训练文件均支持真实写入验证与五分钟预览确认后切换新分配位置，历史与在途对象保留原保存地址（[存储位置与连接器](./docs-site/user-guide/datasets/storage-connections.md) · [九用途映射与受控切换](./docs-site/user-guide/datasets/purpose-bindings.md)）。
 - **新托管原件条件创建、保留账本与准确版本受控回收**：新托管上传、ZIP、连接器复制与目录托管复制采用暂存直传隔离、条件创建与完整回读核验；数据集支持预览归档与恢复，外部位置支持访问排空维护与维护影响盘点；删除托管数据集或样本时同事务保留原件位置证据，支持保留期限、备份/迁移要求登记、后台完整内容核验、周期引用核对与准确版本受控回收（[生命周期与保留回收](./docs-site/user-guide/datasets/lifecycle-and-retention.md) · [原件访问与保留架构](./docs-site/dev/concepts/original-access-and-retention.md)）。
 - **ZIP 先封存后发布**：整包可入库字节完成核验后，才统一登记样本、Scene 和计数；提交前重新检查原请求凭据、目录管理权限和数据集生命周期。拒绝发布时不留下部分业务结果，已封存对象保留平台归属证据（[图像导入](./docs-site/user-guide/datasets/import-images.md) · [原生入库边界](./docs-site/api/guides/module-data.md#同步-zip-与对象桶扫描)）。
+- **来源写入的最小事务权限**：受限业务身份通过有限原生投影核对数据集生命周期和来源保护，不直接读取私表；行锁随调用方事务结算，仍保留当前凭据、管理权限、归档与修订检查（[来源写入事务投影](./docs-site/api/guides/module-data.md#assets-来源写入的事务投影)）。
+- **连接器导入的独立完整核验**：Importer 保留内建目标的写入身份，准确版本回读由 Source 执行；丢失回复只恢复同一操作状态，发布和重复跳过均核对当前租约的完整核验回执，不放宽原件读取权限（[Source 导入核验](./docs-site/api/guides/assets-source.md#source-所属的导入核验)）。
 - **对象存储迁移、原生写入封闭与九用途原子切换**：提供锁定构建的双候选对象存储本地对比验证、配置源只读迁移清单、27 类已保存业务定位目录、持久初次复制与后续增量批次、迁移维护窗口、受控本机 MinIO 原生写入封闭与最终增量封存；支持发布已封存迁移副本的九用途准确版本读取映射、同事务原子切换九用途与带真实新写入的受控回滚，以及切换后的正向观察与旧实例退役手册（[对象存储迁移准备](./docs-site/user-guide/datasets/storage-migration.md) · [迁移清单与切换运维](./docs-site/ops/deploy/storage-migration-inventory.md) · [候选存储本地验证](./docs-site/ops/deploy/storage-candidate-poc.md)）。
 - **六分类容量盘点、净变化增量账目、故障观测与隔离恢复**：后台按实际桶去重盘点九用途对象占用并按六分类展示持久快照，配套 26 类生产者的写入/删除净变化增量账目与周期对账；位置来源诊断提供当日 UTC 窗口原图不可读率、预览失败率、持久故障合并恢复记录、外部原件保护责任声明与任务真实推进观测；配套离线一致备份与隔离恢复演练及紧急受控只读应用回退（[存储诊断与容量账目](./docs-site/user-guide/datasets/storage-operations.md) · [一致备份与恢复演练](./docs-site/ops/deploy/storage-recovery.md) · [受控只读应用回退](./docs-site/ops/upgrade-guide.md#数据集存储的受控只读应用回退)）。
 
@@ -47,6 +49,8 @@ YOAO 把项目管理、Data Manager、多模态标注工作台、AI 预标注、
 - **模型回流、谱系追踪与逐样本评估**：成功训练权重可注册为项目候选模型，完成类别绑定、认证推理实例加载与固定样本试用后发布为项目默认预标模型，分别记录训练版本与实际推理版本；支持完整来源与使用谱系追踪，以及固定最多 32 个验证成员的逐样本 TP/FP/FN 叠加评估、双候选对比与当前任务原件核对（[模型回流与默认预标](./docs-site/user-guide/online-learning/models.md) · [逐样本评估](./docs-site/user-guide/online-learning/sample-evaluation.md)）。
 - **自动训练策略、有界参数搜索与主动学习选样**：支持按审核后训练内容变化、检查间隔与冷却时间触发的自动训练策略，最多 20 个显式网格组合与原生计算时间预算的参数搜索，以及固定未标注候选池、启发式建议与等量随机对照的主动学习人工选样，且预览、评估与主动学习各自固定输出存储归属（[自动训练](./docs-site/user-guide/online-learning/auto-training.md) · [主动学习选样](./docs-site/user-guide/online-learning/active-learning.md)）。
 - **固定核验原件输入的 AI 预标注、交互推理与异步导出**：托管与原地引用图片的后台预标、ROI 管线、整图原生 Mask 分割预标、失败重试、同步交互式 SAM、选中框二次推理、批量 Mask 修复，以及托管视频整段预标均沿已登记原件完整核验并使用固定版本临时输入；图片、视频、点云（KITTI / Point Mask / 多相机 COCO / NuScenes）与原地引用图片的异步导出均固定输入身份、交付核验后的独立媒体副本并共用首次七天有效期限。KITTI 预检先列出已登记相机通道，显式选择并通过核验后才允许创建导出（[预测 API](./docs-site/api/guides/predictions.md) · [ML 后端 API](./docs-site/api/guides/ml-backend.md) · [导出 API](./docs-site/api/guides/export.md) · [预标注管线架构](./docs-site/dev/concepts/prediction-pipeline.md)）。
+
+图片异步导出在创建后台任务前固定实际来源数据集，与冻结输入同事务绑定；来源冲突明确拒绝，不从项目当前内容猜测旧作业归属。缺少绑定的旧未完成任务需重新导出，既有已发布产物的保存期限不变。
 
 普通图片预标以逐题事务替换旧候选并保存结果回执；推理失败、写入回滚或取消先取得写入资格时保留旧内容，多阶段部分失败保留可用候选及可重试失败记录。检查点恢复和取消边界见 [AI 预标操作](./docs-site/user-guide/projects/ai-preannotate.md)与[后台作业 API](./docs-site/api/guides/async-jobs.md)。
 
@@ -63,6 +67,8 @@ Audit 提供独立分区维护、归档和日聚合刷新命令，使用固定�
 预训练模型／完整变体的描述随插件发布，批准、实际安装资产可用性及项目授权由平台分别管理。管理员 API SDK 在当前容器内测量文件大小与 SHA256，再按修订提交批准；目录展示、安装成功和 GPU 资格都不会自动授予使用权。目录、排队及实际发送共用准入规则，用户训练 checkpoint 仍走 Learning／Assets 的部署与发布流程，见[安装与资产审批](./docs-site/user-guide/superadmin/ml-backend-registry.md#可安装推理插件)。
 
 API 客户端应从当前 [OpenAPI 快照](./apps/api/openapi.snapshot.json)生成；导入响应的组件类型名与现有 wire 值说明见[导入接口](./docs-site/api/guides/import.md#响应)，外部预测导入的错误与回滚规则见[预测 API](./docs-site/api/guides/predictions.md#导入外部预测)。
+
+托管原件保留预演按 `owner_type` 区分样本文件与辅助原件；辅助原件只有自身 `auxiliary_original_id`，不能替代样本 ID。字段互斥约束见[保留预演 API](./docs-site/api/guides/storage-locations.md#托管原件保留预演)，SDK 离线 `yoao describe "GET /api/v1/storage/managed-original-reclamation"` 可查看说明；该路由仍未声明专用 SDK 方法。
 
 原生标注导入与导出使用 `native_json` 选择器；当前 JSON 文档使用 `schema_version: "2.0"` 与 `yoao` 身份。历史 `1.x` 原生文档仍可读取，格式和媒体支持范围见[导出格式](./docs-site/user-guide/reference/export-formats.md#aap-json-1-5-无损)。
 
@@ -294,9 +300,9 @@ pnpm format
 
 # 前端测试
 pnpm test
-pnpm test:e2e          # 需要 Postgres/Redis/MinIO；自启 3001/8010 与 annotation_e2e
-pnpm --filter web test:e2e:visual  # 视觉基线（独立于默认功能集）
-pnpm --filter web test:e2e:stress  # 完整布局压力矩阵
+pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 隔离资源与受限 API
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # 后端
 cd apps/api && uv run pytest

@@ -152,7 +152,111 @@ def validate_message(
         reject("image_export_options_changed")
 
 
-async def capture_job(db, job, project, *, batch_id, targets, opts, task_ids=None):
+async def create_scoped_job(
+    db,
+    project,
+    *,
+    actor_id,
+    payload,
+    batch_id,
+    targets,
+    opts,
+    task_ids=None,
+    job_id=None,
+):
+    """Capture the source scope before the Job can be admitted or dispatched."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    from app.db.models.async_job import AsyncJob
+
+    if await db.scalar(text("SHOW transaction_isolation")) != "read committed":
+        reject("image_export_isolation_unsupported")
+
+    inputs = await image_inputs.collect(
+        db, project.id, batch_id, targets, opts, task_ids=task_ids, lock=True
+    )
+    data = inputs.snapshot
+    datasets = {uuid.UUID(item["dataset_id"]) for item in data["items"]}
+    datasets.update(uuid.UUID(ref["dataset_id"]) for ref in data["references"].values())
+    datasets.update(
+        uuid.UUID(entry["source"]["item_facts"]["dataset_id"])
+        for entry in data["media"]
+        if entry["source"]["owner_kind"] == "dataset_asset"
+    )
+    job_id = uuid.UUID(_uuid(job_id)) if job_id is not None else uuid.uuid4()
+    bundle_id = uuid.uuid4()
+    try:
+        await db.execute(
+            text(
+                "SELECT public.prepare_image_export_scope("
+                ":job_id, :bundle_id, :project_id, :actor_id, CAST(:datasets AS uuid[]))"
+            ),
+            {
+                "job_id": job_id,
+                "bundle_id": bundle_id,
+                "project_id": project.id,
+                "actor_id": actor_id,
+                "datasets": sorted(datasets, key=str),
+            },
+        )
+    except DBAPIError as exc:
+        state = getattr(exc.orig, "sqlstate", None) or getattr(exc.orig, "pgcode", None)
+        if state == "55P03":
+            reject("image_export_inputs_busy")
+        native = exc.orig.__cause__
+        if (
+            state == "23514"
+            and getattr(native, "message", None) == "fixture_run_closed"
+        ):
+            reject("fixture_run_closed")
+        raise
+    job = AsyncJob(
+        id=job_id,
+        kind="export",
+        user_id=actor_id,
+        project_id=project.id,
+        payload=payload,
+    )
+    db.add(job)
+    await db.flush()
+    receipt = await capture_job(
+        db,
+        job,
+        project,
+        batch_id=batch_id,
+        targets=targets,
+        opts=opts,
+        task_ids=task_ids,
+        _inputs=inputs,
+        _bundle_id=bundle_id,
+    )
+    return job, receipt
+
+
+async def assert_scope_binding(db, job, receipt):
+    from sqlalchemy import text
+
+    valid = await db.scalar(
+        text("SELECT public.image_export_scope_matches(:job_id, :bundle_id)"),
+        {"job_id": job.id, "bundle_id": receipt.id},
+    )
+    if valid is not True:
+        reject("image_export_scope_binding_changed")
+
+
+async def capture_job(
+    db,
+    job,
+    project,
+    *,
+    batch_id,
+    targets,
+    opts,
+    task_ids=None,
+    _inputs=None,
+    _bundle_id=None,
+):
     """Flush a new responsibility once; idempotent re-dispatch never recaptures."""
     if project.data_type != "image":
         return None
@@ -191,7 +295,7 @@ async def capture_job(db, job, project, *, batch_id, targets, opts, task_ids=Non
             task_ids=task_ids,
         )
         return receipt
-    inputs = await image_inputs.collect(
+    inputs = _inputs or await image_inputs.collect(
         db, project.id, batch_id, targets, opts, task_ids=task_ids, lock=True
     )
     try:
@@ -202,6 +306,7 @@ async def capture_job(db, job, project, *, batch_id, targets, opts, task_ids=Non
             input_snapshot=inputs.snapshot,
             input_digest=inputs.digest,
             logical_sources=image_media_paths.logical_sources(inputs.snapshot),
+            **({"bundle_id": _bundle_id} if _bundle_id is not None else {}),
         )
     except export_media_storage.ExportMediaStorageError as exc:
         raise ContentError(exc.code, exc.status_code) from None

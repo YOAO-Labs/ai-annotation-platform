@@ -83,6 +83,27 @@ class IdentityTests(unittest.TestCase):
 
 
 class EnvironmentTests(unittest.TestCase):
+    def test_application_process_cannot_inherit_private_inference_dsns(self):
+        from worktree_env import application_environment
+
+        private = {
+            "inference_gpu_database_url": "gpu-secret",
+            "INFERENCE_GPU_DATABASE_URL_FILE": "/gpu-secret",
+            "inference_backend_endpoint_setup_database_url_file": "/endpoint-secret",
+            "INFERENCE_BACKEND_STATS_DATABASE_URL": "stats-secret",
+            "aap_module_data_inference_gpu_url": "verifier-secret",
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL_FILE": "/verifier-secret",
+            "inference_health_data_database_url": "health-secret",
+        }
+        environment = application_environment(
+            {**private, "INFERENCE_BACKEND_CONTROL_URL": "http://fixture-owner"}
+        )
+        for key in private:
+            self.assertNotIn(key, environment)
+        self.assertEqual(
+            environment["INFERENCE_BACKEND_CONTROL_URL"], "http://fixture-owner"
+        )
+
     def test_every_identity_settings_database_selector_is_overridden(self):
         import ast
         from worktree_env import isolated_environment, load_identity, topology
@@ -112,6 +133,7 @@ class EnvironmentTests(unittest.TestCase):
             }
             env = isolated_environment(
                 resources,
+                code_root=root,
                 database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/db",
                 migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/db",
                 minio_endpoint="localhost:9000",
@@ -172,6 +194,7 @@ class EnvironmentTests(unittest.TestCase):
             }
             env = isolated_environment(
                 resources,
+                code_root=root,
                 database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/annotation",
                 migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/annotation",
                 minio_endpoint="localhost:9000",
@@ -252,6 +275,94 @@ class EnvironmentTests(unittest.TestCase):
             self.assertEqual(env["MINIO_PUBLIC_URL"], "/minio")
             self.assertEqual(env["MINIO_PROXY_TARGET"], "http://localhost:9000")
 
+    def test_resource_root_and_code_venv_are_independent(self):
+        from worktree_env import isolated_environment, load_identity, topology
+
+        with (
+            tempfile.TemporaryDirectory() as resources_dir,
+            tempfile.TemporaryDirectory() as code_dir,
+        ):
+            root = Path(resources_dir).resolve()
+            code_root = Path(code_dir).resolve()
+            resources = topology(root, load_identity(root, create=True), "test")
+            env = isolated_environment(
+                resources,
+                code_root=code_root,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited={
+                    "AAP_WORKTREE_RESOURCE_ROOT": "/wrong-root",
+                    "aap_worktree_resource_root": "/also-wrong",
+                    "UV_PROJECT_ENVIRONMENT": "/wrong-venv",
+                },
+            )
+            self.assertEqual(env["AAP_WORKTREE_RESOURCE_ROOT"], str(root))
+            self.assertNotIn("aap_worktree_resource_root", env)
+            self.assertEqual(
+                env["UV_PROJECT_ENVIRONMENT"], str(code_root / "apps/api/.venv")
+            )
+            self.assertTrue(env["TMPDIR"].startswith(resources["directory"]))
+
+    def test_application_does_not_inherit_inference_owner_dsns(self):
+        from worktree_env import application_environment, frontend_environment
+
+        environment = {
+            "INFERENCE_ROUTING_DATABASE_URL": "private-routing-dsn",
+            "inference_routing_database_url_file": "/private/routing",
+            "INFERENCE_HEALTH_OBSERVATION_DATABASE_URL": "private-health-dsn",
+            "inference_health_observation_database_url_file": "/private/health",
+            "aap_module_data_inference_routing_url": "private-routing-dsn",
+            "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL": "private-health-dsn",
+            "INFERENCE_ROUTING_URL": "http://127.0.0.1:8123",
+            "INFERENCE_ROUTING_TOKEN": "caller-token",
+        }
+        for child in (
+            application_environment(environment),
+            frontend_environment(environment),
+        ):
+            for key in environment:
+                if "_DATABASE_URL" in key.upper() or key.upper().startswith(
+                    "AAP_MODULE_DATA_INFERENCE_"
+                ):
+                    self.assertNotIn(key, child)
+        application = application_environment(environment)
+        self.assertEqual(
+            application["INFERENCE_ROUTING_URL"], environment["INFERENCE_ROUTING_URL"]
+        )
+        self.assertEqual(
+            application["INFERENCE_ROUTING_TOKEN"],
+            environment["INFERENCE_ROUTING_TOKEN"],
+        )
+
+    def test_e2e_does_not_select_inherited_inference_owners(self):
+        from worktree_env import isolated_environment, load_identity, topology
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            environment = isolated_environment(
+                resources,
+                code_root=root,
+                database_url="postgresql+asyncpg://runtime:fixture@localhost/db",
+                migration_database_url="postgresql+asyncpg://owner:fixture@localhost/db",
+                minio_endpoint="localhost:9000",
+                redis_port=6391,
+                inherited={
+                    "inference_routing_url": "http://shared",
+                    "INFERENCE_ROUTING_DATABASE_URL": "postgresql://shared",
+                    "inference_health_observation_token_file": "/shared/token",
+                    "aap_module_data_inference_routing_url": "postgresql://shared",
+                },
+            )
+            self.assertNotIn("inference_routing_url", environment)
+            self.assertEqual(environment["INFERENCE_ROUTING_URL"], "")
+            self.assertEqual(environment["INFERENCE_ROUTING_DATABASE_URL"], "")
+            self.assertNotIn("aap_module_data_inference_routing_url", environment)
+            self.assertEqual(environment["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"], "")
+            self.assertEqual(environment["INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE"], "")
+
     def test_legacy_manifest_cannot_launch_with_a_fallback_inputs_bucket(self):
         from worktree_env import load_identity, topology, isolated_environment
 
@@ -262,6 +373,7 @@ class EnvironmentTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "显式运行 init"):
                 isolated_environment(
                     resources,
+                    code_root=root,
                     database_url="postgresql+asyncpg://runtime:fixture@localhost:5432/annotation",
                     migration_database_url="postgresql+asyncpg://owner:fixture@localhost:5432/annotation",
                     minio_endpoint="localhost:9000",
@@ -290,6 +402,7 @@ class EnvironmentTests(unittest.TestCase):
                 {"minio_endpoint": "objects.example:9000"},
             ):
                 arguments = dict(
+                    code_root=root,
                     database_url=local,
                     migration_database_url=local,
                     minio_endpoint="localhost:9000",

@@ -5,12 +5,45 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
+
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+)
 
 
 pytestmark = pytest.mark.asyncio
 
 NAMESPACE = "filterseed"
+
+
+@pytest.fixture
+async def filtering_keepers(committed_owner, fixture_and_fenced_http, test_engine):
+    """Remove only this case's committed, unrelated keeper IDs."""
+    ids = {}
+    try:
+        yield ids
+    finally:
+        await committed_owner.rollback()
+        await fixture_and_fenced_http.owner_suite.finish()
+        async with test_engine.begin() as db:
+            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
+            if "audit" in ids:
+                await db.execute(
+                    text("DELETE FROM audit_logs WHERE id=:id"), {"id": ids["audit"]}
+                )
+            if "job" in ids:
+                await db.execute(
+                    text("DELETE FROM async_jobs WHERE id=:id"), {"id": ids["job"]}
+                )
+            if "template" in ids:
+                await db.execute(
+                    text("DELETE FROM project_templates WHERE id=:id"),
+                    {"id": ids["template"]},
+                )
 
 
 async def _access_token(httpx_client, email: str) -> str:
@@ -21,9 +54,13 @@ async def _access_token(httpx_client, email: str) -> str:
     return response.json()["access_token"]
 
 
-async def test_filtering_seed_real_queries_match_literal_memberships(httpx_client):
+async def test_filtering_seed_real_queries_match_literal_memberships(
+    fixture_and_fenced_http,
+):
+    httpx_client = fixture_and_fenced_http
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
     response = await httpx_client.post(
-        "/api/v1/__test/seed/filtering", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/filtering", json=run.payload()
     )
     assert response.status_code == 200, response.text
     manifest = response.json()
@@ -185,7 +222,7 @@ async def test_filtering_seed_real_queries_match_literal_memberships(httpx_clien
 
 
 async def test_filtering_seed_manifest_matches_constructed_memberships(
-    httpx_client, db_session
+    fixture_and_fenced_http, committed_owner
 ):
     from app.db.models.annotation import Annotation
     from app.db.models.async_job import AsyncJob
@@ -197,8 +234,11 @@ async def test_filtering_seed_manifest_matches_constructed_memberships(
     from app.db.models.user_invitation import UserInvitation
     from app.db.models.video_tracker_job import VideoTrackerJob
 
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+
     response = await httpx_client.post(
-        "/api/v1/__test/seed/filtering", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/filtering", json=run.payload()
     )
     assert response.status_code == 200, response.text
     manifest = response.json()
@@ -416,7 +456,7 @@ async def test_filtering_seed_manifest_matches_constructed_memberships(
 
 
 async def test_filtering_seed_cleanup_removes_manifest_rows_only(
-    httpx_client, db_session
+    fixture_and_fenced_http, committed_owner, filtering_keepers
 ):
     from app.db.models.async_job import AsyncJob
     from app.db.models.audit_log import AuditLog
@@ -427,8 +467,11 @@ async def test_filtering_seed_cleanup_removes_manifest_rows_only(
     from app.db.models.user import User
     from app.db.models.user_invitation import UserInvitation
 
+    httpx_client, db_session = fixture_and_fenced_http, committed_owner
+    run = httpx_client.owner_suite.new_run(NAMESPACE)
+
     response = await httpx_client.post(
-        "/api/v1/__test/seed/filtering", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/filtering", json=run.payload()
     )
     assert response.status_code == 200, response.text
     manifest = response.json()
@@ -487,9 +530,13 @@ async def test_filtering_seed_cleanup_removes_manifest_rows_only(
     )
     db_session.add_all([keep_template, keep_job, keep_audit])
     await db_session.flush()
+    filtering_keepers.update(
+        template=keep_template.id, job=keep_job.id, audit=keep_audit.id
+    )
+    await db_session.commit()
 
     cleanup = await httpx_client.post(
-        "/api/v1/__test/seed/owned-cleanup", json={"namespace": NAMESPACE}
+        "/api/v1/__test/seed/owned-cleanup", json=run.payload()
     )
     assert cleanup.status_code == 200, cleanup.text
     assert cleanup.json() == {"ok": True}

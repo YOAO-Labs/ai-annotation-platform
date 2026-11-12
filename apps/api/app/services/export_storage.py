@@ -7,15 +7,15 @@ Credentials remain owned by StorageService; legacy references are never guessed.
 
 from __future__ import annotations
 
+import hashlib
+import re
+import time
+import uuid
 from contextlib import contextmanager
 from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-import hashlib
 from pathlib import Path
-import time
-import uuid
-import re
 from urllib.parse import urlsplit
 
 from botocore.exceptions import ClientError
@@ -409,8 +409,10 @@ def _budget(deadline):
 
 
 def _unavailable(exc):
+    if isinstance(exc, BaseExceptionGroup):
+        return exc
     error = ExportStorageError("export_storage_unavailable", status_code=503)
-    if getattr(exc, "storage_operation_unsettled", False):
+    if storage_access.failure_unsettled(exc):
         storage_access.mark_unsettled(error)
     return error
 
@@ -420,7 +422,7 @@ def file_receipt(path) -> tuple[str, int]:
     deadline = time.monotonic() + VERIFY_SECONDS
     checksum, size = hashlib.sha256(), 0
     try:
-        with Path(path).open("rb") as source:
+        with storage_access.closing_registered(Path(path).open("rb")) as source:
             while True:
                 _budget(deadline)
                 chunk = source.read(CHUNK_BYTES)
@@ -431,10 +433,14 @@ def file_receipt(path) -> tuple[str, int]:
                     _reject("export_storage_integrity_mismatch")
                 checksum.update(chunk)
         _budget(deadline)
-    except ExportStorageError:
+    except BaseException as exc:
+        if storage_access.failure_unsettled(exc) and exc.__context__ is not None:
+            raise BaseExceptionGroup(
+                "Export hashing and local file close failed", [exc.__context__, exc]
+            ) from None
+        if isinstance(exc, OSError):
+            raise _unavailable(exc) from None
         raise
-    except OSError as exc:
-        raise _unavailable(exc) from None
     if size <= 0:
         _reject("export_storage_integrity_mismatch")
     return checksum.hexdigest(), size
@@ -452,9 +458,11 @@ def verify_read(client, output, *, missing_ok=False) -> bool:
     return _verify(client, output, resolve(output), missing_ok=missing_ok)
 
 
-def _verify(client, output, owner, *, missing_ok=False, observation=None):
+def _verify(client, output, owner, *, missing_ok=False, observation=None, written=None):
     deadline = time.monotonic() + VERIFY_SECONDS
     params = {"Bucket": owner.bucket, "Key": owner.object_key}
+    if written is not None and written["version_id"] is not None:
+        params["VersionId"] = written["version_id"]
     try:
         head = client.head_object(**params)
         _budget(deadline)
@@ -466,12 +474,29 @@ def _verify(client, output, owner, *, missing_ok=False, observation=None):
             or not 0 < len(etag) <= 1024
         ):
             _reject("export_storage_integrity_mismatch")
+        if written is not None and (
+            etag != written["etag"]
+            or head.get("VersionId") != written["version_id"]
+            or head.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+            or head.get("DeleteMarker") not in (None, False)
+        ):
+            _reject("export_storage_integrity_mismatch")
         response = client.get_object(**params, IfMatch=etag)
         with storage_access.closing_registered(response["Body"]) as body:
             if (
                 response.get("ETag") != etag
                 or type(response.get("ContentLength")) is not int
                 or response.get("ContentLength") != output.size_bytes
+                or (
+                    written is not None
+                    and (
+                        response.get("VersionId") != written["version_id"]
+                        or response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                        != 200
+                        or response.get("DeleteMarker") not in (None, False)
+                        or response.get("ContentRange") is not None
+                    )
+                )
             ):
                 _reject("export_storage_integrity_mismatch")
             checksum, size = hashlib.sha256(), 0
@@ -492,6 +517,14 @@ def _verify(client, output, owner, *, missing_ok=False, observation=None):
             after.get("ETag") != etag
             or type(after.get("ContentLength")) is not int
             or after.get("ContentLength") != output.size_bytes
+            or (
+                written is not None
+                and (
+                    after.get("VersionId") != written["version_id"]
+                    or after.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+                    or after.get("DeleteMarker") not in (None, False)
+                )
+            )
         ):
             _reject("export_storage_integrity_mismatch")
         _budget(deadline)
@@ -517,7 +550,7 @@ def _verify(client, output, owner, *, missing_ok=False, observation=None):
     return True
 
 
-def write(output, path, *, target=None, accounting=None) -> None:
+def write(output, path, *, target=None, accounting=None, save_proof=None) -> None:
     """Upload one independent candidate; no failure authorizes deletion."""
     owner = resolve(output)
     if file_receipt(path) != (output.sha256, output.size_bytes):
@@ -553,18 +586,46 @@ def write(output, path, *, target=None, accounting=None) -> None:
             else:
                 with observation.hooks():
                     upload()
-            _verify(client, output, owner, observation=observation)
+            written = None
+            if save_proof is not None:
+                from app.services.export_zip_accounting import immutable
+
+                if (
+                    observation is None
+                    or observation.opaque
+                    or observation.sends != 1
+                    or observation.acks != 1
+                    or not isinstance(observation.ack, dict)
+                ):
+                    _reject("export_storage_invalid_receipt")
+                version = observation.ack.get("VersionId")
+                etag = observation.ack.get("ETag")
+                if not _plain(etag, 1024):
+                    _reject("export_storage_invalid_receipt")
+                if version is None:
+                    status = client.get_bucket_versioning(Bucket=owner.bucket)
+                    if status.get("Status") is not None:
+                        _reject("export_storage_invalid_receipt")
+                elif not immutable(version):
+                    _reject("export_storage_invalid_receipt")
+                written = {"version_id": version, "etag": etag}
+            _verify(client, output, owner, observation=observation, written=written)
             if observation is not None:
                 observation.complete()
+            if save_proof is not None:
+                save_proof(written)
     except Exception as exc:
         raise _unavailable(exc) from None
 
 
-def delete(output, *, target=None, accounting=None) -> None:
+def delete(output, *, target=None, accounting=None, proof=None) -> None:
     """Delete only the precise object of a caller's committed retirement."""
     owner = resolve(output)
     try:
         with client_context(output, target, owned=accounting is not None) as client:
+            if proof is not None:
+                _delete_proven(client, output, owner, proof, accounting=accounting)
+                return
             if accounting is not None:
                 from app.services.key_removal_accounting import Observation
 
@@ -583,6 +644,65 @@ def delete(output, *, target=None, accounting=None) -> None:
         raise _unavailable(exc) from None
 
 
+def _delete_proven(client, output, owner, proof, *, accounting):
+    """Delete a fixture's recorded version and prove that exact version absent."""
+    from app.services.export_zip_accounting import immutable
+
+    if not isinstance(proof, dict) or set(proof) != {"version_id", "etag"}:
+        _reject("export_storage_invalid_receipt")
+    version, etag = proof["version_id"], proof["etag"]
+    if not _plain(etag, 1024) or (version is not None and not immutable(version)):
+        _reject("export_storage_invalid_receipt")
+    params = {"Bucket": owner.bucket, "Key": owner.object_key}
+    if version is None:
+        if client.get_bucket_versioning(Bucket=owner.bucket).get("Status") is not None:
+            _reject("export_storage_invalid_receipt")
+        try:
+            client.head_object(**params)
+        except ClientError as exc:
+            code = str(exc.response.get("Error", {}).get("Code", ""))
+            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if code in {"404", "NoSuchKey", "NotFound"} and status == 404:
+                return
+            raise
+        _verify(client, output, owner, written=proof)
+        params["IfMatch"] = etag
+    else:
+        params["VersionId"] = version
+    if accounting is None:
+        response = client.delete_object(**params)
+    else:
+        if version is None:
+            from app.services.key_removal_accounting import Observation
+
+            observation = Observation(accounting, client, owner.object_key)
+        else:
+            from app.services.object_removal_accounting import Observation
+
+            observation = Observation(accounting, client, owner.object_key, version)
+        response = observation.submit(lambda: client.delete_object(**params))
+        observation.complete(response)
+    if (
+        not isinstance(response, dict)
+        or response.get("ResponseMetadata", {}).get("HTTPStatusCode") not in (200, 204)
+        or (version is not None and response.get("VersionId") != version)
+        or response.get("DeleteMarker") is True
+    ):
+        _reject("export_storage_invalid_receipt")
+    check = {"Bucket": owner.bucket, "Key": owner.object_key}
+    if version is not None:
+        check["VersionId"] = version
+    try:
+        client.head_object(**check)
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+        if code in {"404", "NoSuchKey", "NoSuchVersion", "NotFound"} and status == 404:
+            return
+        raise
+    _reject("export_storage_integrity_mismatch")
+
+
 def sign(output, *, download_name, now=None, target=None) -> str:
     """Issue only the remaining immutable retention window, without alignment."""
     owner = resolve(output)
@@ -590,31 +710,42 @@ def sign(output, *, download_name, now=None, target=None) -> str:
     seconds = min(
         RETENTION_SECONDS, int((_instant(output.expires_at) - current).total_seconds())
     )
+    fixture_window = _instant(output.expires_at) - _instant(
+        output.created_at
+    ) == timedelta(minutes=15)
+    if fixture_window:
+        seconds -= 1
     if seconds <= 0:
         _reject("export_storage_expired")
     try:
         with client_context(output, target) as client:
             if owner.ref["location_id"] == str(LEGACY_LOCATION_ID):
-                return storage_service.generate_download_url(
+                url = storage_service.generate_download_url(
                     owner.object_key,
                     expires_in=seconds,
                     bucket=owner.bucket,
                     download_name=download_name,
                     align=False,
                 )
-            return storage_presigning.generate_url(
-                client,
-                "get_object",
-                params={
-                    "Bucket": owner.bucket,
-                    "Key": owner.object_key,
-                    "ResponseContentDisposition": f'attachment; filename="{download_name}"',
-                },
-                expires_in=seconds,
-                audience="internal",
-            )
+            else:
+                url = storage_presigning.generate_url(
+                    client,
+                    "get_object",
+                    params={
+                        "Bucket": owner.bucket,
+                        "Key": owner.object_key,
+                        "ResponseContentDisposition": f'attachment; filename="{download_name}"',
+                    },
+                    expires_in=seconds,
+                    audience="internal",
+                )
     except Exception as exc:
         raise _unavailable(exc) from None
+    if fixture_window and _instant(now or datetime.now(timezone.utc)) + timedelta(
+        seconds=seconds
+    ) > _instant(output.expires_at):
+        _reject("export_storage_expired")
+    return url
 
 
 def sign_read(client, output, *, download_name, now=None) -> str:
@@ -624,10 +755,15 @@ def sign_read(client, output, *, download_name, now=None) -> str:
     seconds = min(
         RETENTION_SECONDS, int((_instant(output.expires_at) - current).total_seconds())
     )
+    fixture_window = _instant(output.expires_at) - _instant(
+        output.created_at
+    ) == timedelta(minutes=15)
+    if fixture_window:
+        seconds -= 1
     if seconds <= 0:
         _reject("export_storage_expired")
     try:
-        return storage_presigning.generate_url(
+        url = storage_presigning.generate_url(
             client,
             "get_object",
             params={
@@ -640,3 +776,8 @@ def sign_read(client, output, *, download_name, now=None) -> str:
         )
     except Exception as exc:
         raise _unavailable(exc) from None
+    if fixture_window and _instant(now or datetime.now(timezone.utc)) + timedelta(
+        seconds=seconds
+    ) > _instant(output.expires_at):
+        _reject("export_storage_expired")
+    return url

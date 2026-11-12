@@ -22,6 +22,17 @@ BUCKETS = {
     "MINIO_INPUTS_BUCKET": "accepted-inputs",
 }
 MODES = ("dev", "test", "e2e")
+FIXTURE_ORIGINAL_ENV_KEYS = frozenset(
+    "AAP_ASSETS_ADDITIONAL_ORIGINAL_" + suffix
+    for suffix in (
+        "ENDPOINT",
+        "BUCKET",
+        "ACCESS_KEY",
+        "SECRET_KEY",
+        "ACCESS_KEY_FILE",
+        "SECRET_KEY_FILE",
+    )
+)
 
 
 class WorktreeError(ValueError):
@@ -113,7 +124,7 @@ def topology(root: Path, identity: dict, mode: str) -> dict:
     }
 
 
-def isolated_environment(
+def _validate_environment_sources(
     resources: dict,
     *,
     database_url: str,
@@ -121,18 +132,11 @@ def isolated_environment(
     minio_endpoint: str,
     redis_port: int,
     inherited: dict,
-    minio_use_ssl: bool = False,
-    require_inputs_bucket: bool = True,
-) -> dict:
-    """Return child-only overrides; never persist or print the connection strings."""
+    minio_use_ssl: bool,
+    retirement: bool = False,
+):
+    """Validate connection sources without creating a child environment."""
     from sqlalchemy.engine import make_url
-
-    if require_inputs_bucket and "MINIO_INPUTS_BUCKET" not in resources.get(
-        "buckets", {}
-    ):
-        raise WorktreeError(
-            "工作树尚未配置独立输入 bucket；请显式运行 init 完成资源升级"
-        )
 
     local = {"localhost", "127.0.0.1", "::1"}
     runtime = make_url(database_url)
@@ -145,10 +149,65 @@ def isolated_environment(
     if (runtime.port or 5432) != (migration.port or 5432):
         raise WorktreeError("API 与迁移必须连接同一个本机 PostgreSQL 实例")
     endpoint = urlsplit("http://" + minio_endpoint)
-    if endpoint.hostname not in local or endpoint.username or endpoint.path:
+    if endpoint.username or endpoint.path:
         raise WorktreeError("独立开发环境只接受本机 MinIO endpoint")
+    if retirement and (resources["mode"] != "test" or endpoint.hostname in local):
+        raise WorktreeError("仅可退休使用共享 bootstrap 的测试环境")
+    if endpoint.hostname not in local:
+        selector = inherited.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
+        if (
+            resources["mode"] != "test"
+            or not selector
+            or selector != os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
+        ):
+            raise WorktreeError("独立开发环境只接受本机 MinIO endpoint")
+        from worktree_resources import (
+            _verified_finished_shared_bootstrap_minio,
+            verified_shared_bootstrap_minio,
+        )
+
+        scheme = "https" if minio_use_ssl else "http"
+        verify = (
+            _verified_finished_shared_bootstrap_minio
+            if retirement
+            else verified_shared_bootstrap_minio
+        )
+        if verify(f"{scheme}://{minio_endpoint}") is None:
+            raise WorktreeError("独立开发环境只接受已验证的测试 MinIO endpoint")
     if not 1 <= redis_port <= 65535:
         raise WorktreeError("无效的独立 Redis 端口")
+    return runtime, migration
+
+
+def isolated_environment(
+    resources: dict,
+    *,
+    code_root: Path,
+    database_url: str,
+    migration_database_url: str,
+    minio_endpoint: str,
+    redis_port: int,
+    inherited: dict,
+    minio_use_ssl: bool = False,
+    require_inputs_bucket: bool = True,
+) -> dict:
+    """Return child-only overrides; never persist or print the connection strings."""
+    if require_inputs_bucket and "MINIO_INPUTS_BUCKET" not in resources.get(
+        "buckets", {}
+    ):
+        raise WorktreeError(
+            "工作树尚未配置独立输入 bucket；请显式运行 init 完成资源升级"
+        )
+
+    runtime, migration = _validate_environment_sources(
+        resources,
+        database_url=database_url,
+        migration_database_url=migration_database_url,
+        minio_endpoint=minio_endpoint,
+        redis_port=redis_port,
+        inherited=inherited,
+        minio_use_ssl=minio_use_ssl,
+    )
     runtime = runtime.set(database=resources["database"])
     migration = migration.set(database=resources["database"])
     directory = Path(resources["directory"])
@@ -163,7 +222,10 @@ def isolated_environment(
         "MIGRATION_DATABASE_URL": migration.render_as_string(hide_password=False),
         "TEST_DATABASE_URL": test_url,
         "PLAYWRIGHT_E2E_DATABASE_URL": test_url,
+        "AAP_WORKTREE_RESOURCE_ROOT": resources["root"],
+        "AAP_FIXTURE_TOOLS_ROOT": str(code_root / "scripts"),
         "AAP_WORKTREE_MODE": resources["mode"],
+        "FIXTURE_RUNTIME_DATABASE_URL": "",
         "REDIS_URL": redis_url,
         "CELERY_BROKER_URL": redis_url,
         "CELERY_BROKER_READ_URL": redis_url,
@@ -183,7 +245,7 @@ def isolated_environment(
         "TMPDIR": str(directory / "tmp"),
         "TMP": str(directory / "tmp"),
         "TEMP": str(directory / "tmp"),
-        "UV_PROJECT_ENVIRONMENT": str(Path(resources["root"]) / "apps/api/.venv"),
+        "UV_PROJECT_ENVIRONMENT": str(code_root / "apps/api/.venv"),
         "ENVIRONMENT": "development",
         "E2E_SEED_ENABLED": "true" if resources["mode"] in {"test", "e2e"} else "false",
         "ALEMBIC_AUTO_UPGRADE": "false",
@@ -239,12 +301,50 @@ def isolated_environment(
         "SMTP_HOST": "",
         "SENTRY_DSN": "",
     }
+    if resources["mode"] == "e2e":
+        overrides.update(
+            {
+                f"INFERENCE_{owner}_{suffix}": ""
+                for owner in ("ROUTING", "HEALTH_OBSERVATION", "BACKEND_CONTROL")
+                for suffix in (
+                    "URL",
+                    "TOKEN",
+                    "TOKEN_FILE",
+                    "DATABASE_URL",
+                    "DATABASE_URL_FILE",
+                )
+            }
+        )
+        overrides.update(
+            {
+                f"AAP_MODULE_DATA_INFERENCE_{owner}_URL": ""
+                for owner in ("ROUTING", "HEALTH_OBSERVATION")
+            }
+        )
+        # Fixture owners have their own credentials; never inherit another
+        # Inference owner's private database selectors into E2E consumers.
+        for key in inherited:
+            upper = key.upper()
+            if upper.startswith(
+                (
+                    "INFERENCE_BACKEND_ENDPOINT_",
+                    "INFERENCE_GPU_",
+                    "INFERENCE_HEALTH_DATA_",
+                    "INFERENCE_BACKEND_STATS_",
+                )
+            ) and (
+                upper.endswith("_DATABASE_URL") or upper.endswith("_DATABASE_URL_FILE")
+            ):
+                overrides[upper] = ""
+    fixture_target_keys = (
+        FIXTURE_ORIGINAL_ENV_KEYS if resources["mode"] in {"test", "e2e"} else ()
+    )
     # Pydantic settings are case-insensitive; remove lower-case inherited aliases too.
     return {
         **{
             key: value
             for key, value in inherited.items()
-            if key.upper() not in overrides
+            if key.upper() not in overrides and key.upper() not in fixture_target_keys
         },
         **overrides,
     }
@@ -283,8 +383,23 @@ def frontend_environment(environment: dict) -> dict:
 
 def application_environment(environment: dict) -> dict:
     """Remove migration/test credentials before launching application processes."""
+
+    def is_private_inference_dsn(key):
+        upper = key.upper()
+        return (
+            upper.startswith("INFERENCE_")
+            and upper.endswith(("_DATABASE_URL", "_DATABASE_URL_FILE"))
+        ) or (
+            upper.startswith("AAP_MODULE_DATA_INFERENCE_")
+            and upper.endswith(("_URL", "_URL_FILE"))
+        )
+
     return {
-        **environment,
+        **{
+            key: value
+            for key, value in environment.items()
+            if not is_private_inference_dsn(key)
+        },
         "MIGRATION_DATABASE_URL": "",
         "TEST_DATABASE_URL": "",
         "PLAYWRIGHT_E2E_DATABASE_URL": "",

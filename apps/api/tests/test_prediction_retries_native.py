@@ -109,10 +109,11 @@ def _predict(
 
     monkeypatch.setattr(retry, "_model_execution_port", lambda *_a, **_k: object())
     monkeypatch.setattr(retry, "execute_task_pipeline", execute)
-    monkeypatch.setattr(
-        "app.services.storage.resolve_task_url",
-        lambda _task: "https://example.test/original.txt",
-    )
+
+    async def resolve_url(_db, _task):
+        return "https://example.test/original.txt"
+
+    monkeypatch.setattr("app.services.storage.resolve_task_url", resolve_url)
     return calls
 
 

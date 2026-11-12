@@ -9,13 +9,35 @@ x-logging: &logging
     max-size: "10m"
     max-file: "3"
 
+x-runtime-env: &runtime-env
+  ALEMBIC_AUTO_UPGRADE: "false"
+  MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:?.env.production must set MINIO_TRAINING_BUCKET}
+  MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:?.env.production must set MINIO_INPUTS_BUCKET}
+  JOBS_PUBLICATION_DATABASE_URL: ""
+  JOBS_PUBLICATION_DATABASE_URL_FILE: ""
+  EXPORT_EXECUTION_DATABASE_URL: ""
+  EXPORT_EXECUTION_DATABASE_URL_FILE: ""
+
+x-jobs-publication-secret: &jobs-publication-secret
+  type: bind
+  source: ${JOBS_PUBLICATION_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/jobs_publication_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-export-execution-secret: &export-execution-secret
+  type: bind
+  source: ${EXPORT_EXECUTION_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/export_execution_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
 x-runtime: &runtime
   image: aap-production-api:${AAP_IMAGE_TAG:?Set AAP_IMAGE_TAG to the deployed revision}
   env_file: .env.production
-  environment:
-    ALEMBIC_AUTO_UPGRADE: "false"
-    MINIO_TRAINING_BUCKET: ${MINIO_TRAINING_BUCKET:?.env.production must set MINIO_TRAINING_BUCKET}
-    MINIO_INPUTS_BUCKET: ${MINIO_INPUTS_BUCKET:?.env.production must set MINIO_INPUTS_BUCKET}
+  environment: *runtime-env
   restart: unless-stopped
   init: true
   logging: *logging
@@ -41,7 +63,11 @@ services:
       context: .
       dockerfile: infra/docker/Dockerfile.api
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers --forwarded-allow-ips=*
+    environment:
+      <<: *runtime-env
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
     volumes:
+      - *jobs-publication-secret
       - duckdb:/var/lib/duckdb:ro
       - type: bind
         source: ${AAP_PRODUCTION_STATE_DIR}/known_hosts
@@ -126,7 +152,11 @@ services:
   celery-worker:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
+    environment:
+      <<: *runtime-env
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
     volumes:
+      - *jobs-publication-secret
       - duckdb:/var/lib/duckdb
       - type: bind
         source: ${AAP_PRODUCTION_STATE_DIR}/known_hosts
@@ -144,20 +174,37 @@ services:
   celery-worker-gpu:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=1
+    environment:
+      <<: *runtime-env
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+    volumes:
+      - *jobs-publication-secret
 
   celery-worker-cpu:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=4
+    environment:
+      <<: *runtime-env
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+    volumes:
+      - *jobs-publication-secret
 
   celery-worker-export:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
+    environment:
+      <<: *runtime-env
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
+    volumes:
+      - *jobs-publication-secret
+      - *export-execution-secret
 
   celery-worker-image-pyramid:
     <<: *worker
     command: celery -A app.workers.celery_app worker -l info -Q image-pyramid --concurrency=1 --prefetch-multiplier=1 --max-memory-per-child=1572864
     environment:
-      ALEMBIC_AUTO_UPGRADE: "false"
+      <<: *runtime-env
       VIPS_CONCURRENCY: "4"
       MALLOC_ARENA_MAX: "2"
       MALLOC_TRIM_THRESHOLD_: "131072"

@@ -37,9 +37,30 @@ Named pipelines may borrow the API transaction when no HTTP owner is selected. R
 
 The Native migration resources and schemas ship in the package. Install matching migrations, module owner grants and runtime grants before selecting the independent owner. `infra/docker/inference-owner-grants.sql` installs one closed LOGIN profile per endpoint purpose, aggregate statistics, private GPU authority or collector. These LOGINS cannot own objects, inherit roles, read tables or call unrelated functions. Ordinary caller GPU capabilities have a separate bounded profile and never receive private authority functions.
 
+Owned test providers use authenticated health observation rather than a direct fixture health setter. Runtime grant reapplication revokes the obsolete fixture capability even in test and E2E databases; a database suffix does not authorize fabricated health. Historical SQL stays frozen, and the current forward migration removes that capability.
+
 ## Recovery and boundaries
 
 Durable routing binds scopes, attempts, control operations and retirement to exact backend continuity. Video acquisition includes the current Jobs execution proof. Cancellation, late results and restored execution remain fenced by Jobs/Labeling and routing state; a timeout or expired lease is not proof that backend work stopped.
+
+Video status and restore validate the same digest-bound approved registry candidates
+as acquisition. The candidate list remains part of the original command digest;
+status and recovery do not expand it or bypass current execution and physical
+retirement fences.
+
+Image batch and retry route acquisition carries the current Jobs result-execution
+generation, request digest and lease. The native owner binds each admitted scope
+to that proof and checks the current Job and generation again at managed model
+dispatch start. A superseded lease or terminal Job cannot start a new send.
+Synchronous fixture `predict-test` scopes bind to their actual project, task and
+fixture run; sealing the run fences new acquisition and dispatch.
+
+Fixture retirement enumerates those exact scopes and uses the existing managed
+backend scope-retirement protocol. It also requires the Assets original-read
+owner and the generation-bound generated-Mask producer anchors to be settled.
+Pending or indeterminate producers and untracked, unmanaged or mismatched
+scopes block cleanup; terminal Job status, broker revocation and lease expiry
+are not physical drain. Scope retirement does not establish GPU capacity.
 
 The `yoao-video-restore` CLI consumes a function-only LOGIN through `--database-url-file`; choose `--inspect`, `--command-file` or `--status`. Its fixed protocol binds the backup digest and external fencing facts, observes the actual controller incarnation and rotates restored authority. It does not stop external processes or revoke S3 credentials merely by accepting a digest. Object-store disaster recovery and physical GPU capacity require separate evidence.
 

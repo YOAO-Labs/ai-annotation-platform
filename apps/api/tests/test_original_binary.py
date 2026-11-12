@@ -327,6 +327,13 @@ async def test_generic_bytes_and_empty_do_not_enter_pillow(
     else:
         task, _, asset = await managed(world, data=data, file_type=file_type)
         content_id = asset.id
+    from app.api.v1.tasks._shared import _task_with_url
+
+    task_dto = _task_with_url(task)
+    assert task_dto.file_url is None
+    assert task_dto.original_identity_path == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
+    )
     resource = service.Resource(kind="task", task_id=task.id)
     monkeypatch.setattr(storage_service, "bucket", "wrong-current-bucket")
     monkeypatch.setattr(storage_service, "datasets_bucket", "wrong-current-datasets")
@@ -358,6 +365,27 @@ async def test_generic_bytes_and_empty_do_not_enter_pillow(
     finally:
         image.close()
     assert await operations(world) == 0
+
+
+async def test_primary_lidar_task_dto_uses_canonical_original_identity(world):
+    from app.api.v1.tasks._shared import _task_with_url
+
+    task, _item, asset = await managed(
+        world, data=b"point cloud bytes", file_type="point_cloud", primary_only=True
+    )
+    dto = _task_with_url(task)
+    assert dto.file_url is None
+    assert dto.original_identity_path == (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
+    )
+    identity = await service.public_identity(
+        world.db,
+        service.Resource(kind="task", task_id=task.id),
+        world.actor,
+        request(world.actor),
+    )
+    assert identity["owner_kind"] == "dataset_asset"
+    assert identity["content_id"] == asset.id
 
 
 async def test_real_request_and_current_scope_are_required_even_when_key_id_omitted(

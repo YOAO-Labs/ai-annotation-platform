@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-fixture-media-backfill-cleanup/v1",
+  "x-postgresql-functions": {
+    "aap_jobs_v1.delete_fixture_media_backfills": {
+      "arguments": "uuid, uuid",
+      "returns": "bigint",
+      "volatility": "volatile",
+      "parallel": "unsafe"
+    }
+  },
+  "x-scope": "Only recorded dataset backfill Jobs for the exact sealed run and published Dataset with complete Jobs and Assets retirement proof; the Dataset must still exist.",
+  "x-security": "Test database only; private fixture owner principal; Jobs definer; PUBLIC execute revoked.",
+  "x-transactions": "Borrows the caller transaction at READ COMMITTED and retains native row locks, deletion triggers and immutable retirement evidence."
+}

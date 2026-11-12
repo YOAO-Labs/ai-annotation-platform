@@ -225,6 +225,7 @@ async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots
 ):
     from dataclasses import replace
     from app.application.raster_mask_retention import referenced_raster_mask_keys
+    from app.application.prediction_mask_producers import prediction_mask_producer
     from app.config import settings
     from app.services.batch_result_masks import normalize_batch_prediction_masks
     from app.services.raster_mask_storage import (
@@ -269,24 +270,26 @@ async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots
         assert metadata.payload.byte_size > 16 * 1024 * 1024
         assert metadata.payload.part_count > 32
         _raw, requests = await world.execution.load(1, stage="raw")
-        async with world.writers() as db:
-            prepared = await normalize_batch_prediction_masks(db, requests)
-            await db.commit()
-        keys = {
-            reference["object_key"]
-            for reference in collect_mask_references(prepared[0].result)
-        }
-        # These are valid newly uploaded bytes after an earlier GC epoch. A
-        # snapshot must verify the current bytes and obtain a fresh permit.
-        async with world.owner_factory() as owner:
-            await owner.execute(
-                text(
-                    "UPDATE mask_gc_key_epochs SET epoch=epoch+1 WHERE object_key=ANY(:keys)"
-                ),
-                {"keys": list(keys)},
+        async with prediction_mask_producer(world.execution, 1):
+            async with world.writers() as db:
+                prepared = await normalize_batch_prediction_masks(db, requests)
+                await db.commit()
+            keys = {
+                reference["object_key"]
+                for reference in collect_mask_references(prepared[0].result)
+            }
+            # Verify the prepared snapshot obtains the current content epoch.
+            async with world.owner_factory() as owner:
+                await owner.execute(
+                    text(
+                        "UPDATE mask_gc_key_epochs SET epoch=epoch+1 WHERE object_key=ANY(:keys)"
+                    ),
+                    {"keys": list(keys)},
+                )
+                await owner.commit()
+            await world.execution.capture(
+                1, prepared, stage="prepared", context=context
             )
-            await owner.commit()
-        await world.execution.capture(1, prepared, stage="prepared", context=context)
         keys = {
             reference["object_key"]
             for reference in collect_mask_references(prepared[0].result)
@@ -315,6 +318,7 @@ async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots
                 member,
                 result,
                 requests,
+                request=world.request,
                 manifest_backed=False,
             )
         assert await _counts(world) == (1, 1, 0, 1)
@@ -329,6 +333,69 @@ async def test_one_large_mask_response_exceeds_16mib_and_transfers_pending_roots
                 )
                 == 0
             )
+
+
+async def test_mask_producer_cannot_start_after_execution_takeover(test_engine):
+    from app.application.prediction_mask_producers import (
+        current_prediction_mask_producer,
+        prediction_mask_producer,
+    )
+    from app.services.raster_mask_storage import store_generated_mask_content
+
+    async with _world(test_engine, result_count=1, masks=True) as world:
+        await world.execution.capture(1, world.requests, stage="raw", context={})
+        replacement = BatchResultExecution(
+            world.request,
+            world.writers,
+            execution_id=str(world.execution.scope["job_id"]),
+            executor_session_factory=world.executors,
+        )
+        with pytest.raises(RuntimeError, match="interrupted"):
+            async with prediction_mask_producer(world.execution, 1):
+                producer_id = current_prediction_mask_producer()
+                async with world.writers() as db:
+                    await store_generated_mask_content(
+                        db,
+                        {"encoding": "coco_rle", "size": [2, 2], "counts": [0, 1, 3]},
+                    )
+                    await db.commit()
+                async with world.owner_factory() as owner:
+                    object_id = await owner.scalar(
+                        text(
+                            "SELECT object_id FROM aap_jobs_v1.prediction_mask_producer_objects WHERE producer_id=:id"
+                        ),
+                        {"id": producer_id},
+                    )
+                    assert object_id is not None
+                async with world.owner_factory() as owner:
+                    await owner.execute(
+                        text(
+                            "UPDATE batch_result_executions SET lease_expires_at=clock_timestamp()-interval '1 second' WHERE job_id=:job"
+                        ),
+                        {"job": world.execution.scope["job_id"]},
+                    )
+                    await owner.commit()
+                await replacement.claim()
+                async with world.owner_factory() as owner:
+                    admitted = await owner.scalar(
+                        text(
+                            "SELECT aap_jobs_v1.bind_prediction_mask_object(:producer,:object)"
+                        ),
+                        {"producer": producer_id, "object": object_id},
+                    )
+                    assert admitted is False
+                raise RuntimeError("interrupted")
+        async with world.owner_factory() as owner:
+            assert (
+                await owner.scalar(
+                    text(
+                        "SELECT state FROM aap_jobs_v1.prediction_mask_producers WHERE id=:id"
+                    ),
+                    {"id": producer_id},
+                )
+                == "pending"
+            )
+        await replacement.close()
 
 
 async def _ready(world):
@@ -387,6 +454,7 @@ async def test_actual_multi_result_write_transfers_receipts_counts_and_releases_
                 member,
                 result,
                 requests,
+                request=world.request,
                 manifest_backed=False,
             )
         assert await _counts(world) == (2, 2, 0, 2)
@@ -850,6 +918,7 @@ async def test_stale_worker_cannot_commit_ready_prediction_after_lease_takeover(
                         member,
                         result,
                         requests,
+                        request=world.request,
                         manifest_backed=False,
                     )
                 await db.rollback()
@@ -864,6 +933,7 @@ async def test_stale_worker_cannot_commit_ready_prediction_after_lease_takeover(
                     member,
                     actual_result,
                     actual_requests,
+                    request=world.request,
                     manifest_backed=False,
                 )
             assert await _counts(world) == (1, 1, 0, 1)
@@ -896,6 +966,7 @@ async def test_lost_real_commit_ack_reads_exact_receipt_without_duplicate_predic
                 member,
                 result,
                 requests,
+                request=world.request,
                 manifest_backed=False,
             )
         assert await _counts(world) == (1, 1, 0, 1)

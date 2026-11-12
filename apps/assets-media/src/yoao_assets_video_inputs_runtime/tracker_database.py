@@ -54,7 +54,7 @@ class AsyncpgTrackerVideoInputDatabase:
 
 
 class TrackerVideoInputExecutorDatabase:
-    """Map the five tracker lease calls onto VideoInputExecutor's stable port."""
+    """Map tracker lease and original-read calls onto VideoInputExecutor's port."""
 
     _OPERATIONS = {
         "claim_accepted_video_input": "claim_video_tracker_input",
@@ -62,6 +62,8 @@ class TrackerVideoInputExecutorDatabase:
         "stage_accepted_video_times": "stage_video_tracker_times",
         "finish_accepted_video_input": "finish_video_tracker_input",
         "fail_accepted_video_input": "fail_video_tracker_input",
+        "begin_accepted_video_original": "begin_tracker_video_original",
+        "finish_accepted_video_original": "finish_tracker_video_original",
     }
 
     def __init__(self, database: TrackerVideoInputDatabase):

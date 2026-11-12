@@ -60,6 +60,11 @@ def _request(result: list[dict]) -> ApplyPredictionResultRequest:
 @pytest.mark.asyncio
 async def test_normalize_externalizes_inline_and_native_masks_once(monkeypatch):
     from app.services import batch_result_masks
+    from app.application import prediction_mask_producers
+
+    monkeypatch.setattr(
+        prediction_mask_producers, "current_prediction_mask_producer", uuid.uuid4
+    )
     from app.services.raster_mask_storage import build_rle_reference
 
     candidate_id = "sha256:" + "a" * 64
@@ -197,6 +202,11 @@ async def test_normalize_propagates_content_fence_without_mutating_or_committing
     monkeypatch,
 ):
     from app.services import batch_result_masks
+    from app.application import prediction_mask_producers
+
+    monkeypatch.setattr(
+        prediction_mask_producers, "current_prediction_mask_producer", uuid.uuid4
+    )
     from app.services.raster_mask_storage import RasterMaskContractError
 
     request = _request(

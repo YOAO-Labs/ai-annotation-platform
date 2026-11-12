@@ -40,7 +40,7 @@ from tests.test_prediction_inputs import input_storage_world
 
 
 @asynccontextmanager
-async def _owned_database(admin_engine):
+async def _owned_database(admin_engine, *, before_drop=None):
     """Drop only the database identity created by this fixture invocation."""
     name = "aap_managed_" + uuid.uuid4().hex + "_test"
     marker = "managed-inference:" + uuid.uuid4().hex
@@ -57,36 +57,61 @@ async def _owned_database(admin_engine):
     try:
         yield engine
     finally:
-        await engine.dispose()
-        async with admin_engine.connect() as connection:
-            db = await connection.execution_options(isolation_level="AUTOCOMMIT")
-            observed = (
-                await db.execute(
+        primary = sys.exception()
+        disposed = False
+        try:
+            if before_drop is not None:
+                await before_drop(engine)
+            await engine.dispose()
+            disposed = True
+            async with admin_engine.connect() as connection:
+                db = await connection.execution_options(isolation_level="AUTOCOMMIT")
+                observed = (
+                    await db.execute(
+                        text(
+                            "SELECT oid,shobj_description(oid,'pg_database') "
+                            "FROM pg_database WHERE datname=:name"
+                        ),
+                        {"name": name},
+                    )
+                ).one()
+                assert observed == (oid, marker), observed
+                clients = await db.scalar(
                     text(
-                        "SELECT oid,shobj_description(oid,'pg_database') "
-                        "FROM pg_database WHERE datname=:name"
+                        "SELECT count(*) FROM pg_stat_activity WHERE datname=:name "
+                        "AND backend_type IS DISTINCT FROM 'autovacuum worker'"
                     ),
                     {"name": name},
                 )
-            ).one()
-            assert observed == (oid, marker), observed
-            clients = await db.scalar(
-                text(
-                    "SELECT count(*) FROM pg_stat_activity WHERE datname=:name "
-                    "AND backend_type IS DISTINCT FROM 'autovacuum worker'"
-                ),
-                {"name": name},
+                assert clients == 0, clients
+                await db.execute(text(f'DROP DATABASE "{name}"'))
+        except BaseException as cleanup_error:
+            if before_drop is None:
+                raise
+            errors = [cleanup_error]
+            if not disposed:
+                try:
+                    await engine.dispose()
+                except BaseException as dispose_error:
+                    errors.append(dispose_error)
+            errors.append(
+                RuntimeError(
+                    f"Fixture database cleanup unconfirmed: {name} (oid={oid}, marker={marker})"
+                )
             )
-            assert clients == 0, clients
-            await db.execute(text(f'DROP DATABASE "{name}"'))
+            if primary is not None:
+                errors.insert(0, primary)
+            raise BaseExceptionGroup(
+                "Fixture database cleanup failed", errors
+            ) from None
 
 
 @asynccontextmanager
-async def managed_database(test_db_url):
+async def managed_database(test_db_url, *, before_drop=None):
     """Use fresh migrations rather than cloning database-bound authorities."""
     admin = create_async_engine(test_db_url, poolclass=NullPool)
     try:
-        async with _owned_database(admin) as engine:
+        async with _owned_database(admin, before_drop=before_drop) as engine:
             environment = os.environ.copy()
             environment["AAP_MANAGED_DATABASE_URL"] = engine.url.render_as_string(
                 hide_password=False

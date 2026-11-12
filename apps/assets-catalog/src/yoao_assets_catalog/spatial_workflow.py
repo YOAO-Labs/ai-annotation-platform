@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from builtins import BaseExceptionGroup
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any, Protocol, TypeVar
@@ -143,6 +144,10 @@ class CalibrationSourceReader(Protocol):
     ) -> tuple[SourceObjectFacts, bytes]: ...
 
 
+class CalibrationSourceOwnershipError(Exception):
+    """An owner-qualified source could not be read or physically settled."""
+
+
 @dataclass(frozen=True, slots=True)
 class SpatialLayoutFacts:
     actor_id: UUID | None
@@ -186,9 +191,12 @@ class SpatialWorkflow:
         self,
         native: SpatialNativeBinding,
         source_reader: CalibrationSourceReader,
+        *,
+        admitted_calibration_reader=None,
     ) -> None:
         self._native = native
         self._source_reader = source_reader
+        self._admitted_calibration_reader = admitted_calibration_reader
 
     async def invoke_native(
         self,
@@ -663,11 +671,16 @@ class SpatialWorkflow:
             if not cameras:
                 continue
             try:
-                facts, body = await asyncio.to_thread(
-                    self._source_reader.read_calibration_source,
-                    source_item.file_path,
-                    expected_size=source_item.file_size,
-                )
+                if self._admitted_calibration_reader is None:
+                    facts, body = await asyncio.to_thread(
+                        self._source_reader.read_calibration_source,
+                        source_item.file_path,
+                        expected_size=source_item.file_size,
+                    )
+                else:
+                    facts, body = await self._admitted_calibration_reader(
+                        _require_creation_operation_id(capture), source_item
+                    )
                 raw = json.loads(body)
                 if not isinstance(raw, dict):
                     continue
@@ -677,6 +690,10 @@ class SpatialWorkflow:
                 calibration = spatial.WireCalibration.model_validate(
                     parsed.model_dump(mode="json")
                 )
+            except CalibrationSourceOwnershipError:
+                raise
+            except BaseExceptionGroup:
+                raise
             except (
                 SourceReadError,
                 UnicodeDecodeError,

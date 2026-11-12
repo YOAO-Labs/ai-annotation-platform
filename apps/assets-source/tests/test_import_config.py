@@ -8,6 +8,8 @@ from yoao_assets_source_import.config import ConfigurationError, load_config
 def _environment() -> dict[str, str]:
     return {
         "ASSETS_IMPORT_DATABASE_URL": "postgresql://assets_import:secret@db.test/aap",
+        "ASSETS_IMPORT_VERIFY_URL": "http://source.internal:8767",
+        "ASSETS_IMPORT_VERIFY_TOKEN": "v" * 40,
         "ASSETS_IMPORT_S3_ENDPOINT": "http://minio.internal:9000",
         "ASSETS_IMPORT_S3_ACCESS_KEY": "explicit-access",
         "ASSETS_IMPORT_S3_SECRET_KEY": "explicit-secret",
@@ -83,6 +85,8 @@ def test_secret_file_input_and_conflict(tmp_path) -> None:
     ("key", "value", "message"),
     [
         ("ASSETS_IMPORT_S3_ENDPOINT", "http://user:secret@host.test", "origin"),
+        ("ASSETS_IMPORT_VERIFY_URL", "http://user:secret@host.test", "origin"),
+        ("ASSETS_IMPORT_VERIFY_TOKEN", "short", "32\\+ ASCII"),
         ("ASSETS_IMPORT_LEASE_SECONDS", "20", "between 30 and 3600"),
         ("ASSETS_IMPORT_HEARTBEAT_SECONDS", "70", "less than half"),
         ("ASSETS_IMPORT_DATASETS_BUCKET", "192.0.2.4", "is invalid"),

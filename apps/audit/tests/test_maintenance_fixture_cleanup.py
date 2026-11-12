@@ -1,55 +1,42 @@
 from __future__ import annotations
 
+import json
+from uuid import uuid4
+
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from yoao_audit.maintenance_contract import (
     AuditMaintenanceUnavailable,
     MAINTENANCE_PROTOCOL,
+    _MaintenanceRequest,
+    decode_maintenance_reply,
 )
-from yoao_audit.maintenance_data import AuditMaintenanceData
 
 
-@pytest.mark.asyncio
-async def test_filtering_fixture_cleanup_uses_exact_nullable_namespace_and_count():
-    requests = []
-
-    async def call(request):
-        requests.append(request)
-        return {
-            "schema": MAINTENANCE_PROTOCOL,
-            "ok": True,
-            "data": {"deleted_rows": 2},
-        }
-
-    data = AuditMaintenanceData(call)
-    assert await data.cleanup_filtering_fixture_events(None) == 2
-    assert await data.cleanup_filtering_fixture_events("ab12cd34") == 2
-    assert requests == [
-        {
-            "schema": MAINTENANCE_PROTOCOL,
-            "operation": "cleanup_filtering_fixture_events",
-            "namespace": None,
-        },
-        {
-            "schema": MAINTENANCE_PROTOCOL,
-            "operation": "cleanup_filtering_fixture_events",
-            "namespace": "ab12cd34",
-        },
-    ]
-
-    with pytest.raises(ValidationError):
-        await data.cleanup_filtering_fixture_events("UpperCase")
+def test_fixture_cleanup_request_is_closed_and_requires_uuid():
+    adapter = TypeAdapter(_MaintenanceRequest)
+    request = {
+        "schema": MAINTENANCE_PROTOCOL,
+        "operation": "cleanup_fixture_events",
+        "run_id": str(uuid4()),
+    }
+    assert str(adapter.validate_json(json.dumps(request)).run_id) == request["run_id"]
+    for invalid in (
+        {**request, "run_id": "not-a-uuid"},
+        {**request, "namespace": "ab12"},
+        {**request, "operation": "cleanup_filtering_fixture_events"},
+    ):
+        with pytest.raises(ValidationError):
+            adapter.validate_json(json.dumps(invalid))
 
 
-@pytest.mark.asyncio
-async def test_filtering_fixture_cleanup_rejects_malformed_owner_count():
-    async def call(_request):
-        return {
-            "schema": MAINTENANCE_PROTOCOL,
-            "ok": True,
-            "data": {"deleted_rows": True},
-        }
-
+def test_fixture_cleanup_rejects_malformed_owner_count():
     with pytest.raises(AuditMaintenanceUnavailable):
-        await AuditMaintenanceData(call).cleanup_filtering_fixture_events(None)
+        decode_maintenance_reply(
+            {
+                "schema": MAINTENANCE_PROTOCOL,
+                "ok": True,
+                "data": {"deleted_rows": True},
+            }
+        )

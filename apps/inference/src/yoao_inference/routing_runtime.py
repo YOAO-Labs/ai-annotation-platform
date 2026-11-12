@@ -8,6 +8,7 @@ import logging
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
 from typing import Any
+from urllib.parse import unquote, urlsplit
 from uuid import UUID
 
 from yoao_inference_contract.routing import (
@@ -81,6 +82,13 @@ class RoutingRuntime:
             )
         ):
             raise ValueError("Invalid Inference routing runtime settings")
+        try:
+            login = urlsplit(dsn).username
+            self.expected_login = unquote(login) if login else ""
+        except ValueError:
+            raise ValueError("Invalid Inference routing runtime settings") from None
+        if not self.expected_login:
+            raise ValueError("Inference routing database URL requires an explicit LOGIN")
         self.dsn = dsn.replace("postgresql+asyncpg://", "postgresql://", 1)
         self.connect_timeout_seconds = float(connect_timeout_seconds)
         self.command_timeout_seconds = float(command_timeout_seconds)
@@ -331,13 +339,16 @@ class RoutingRuntime:
         try:
             connection = await asyncpg.connect(
                 self.dsn,
+                user=self.expected_login,
                 timeout=self.connect_timeout_seconds,
                 command_timeout=self.command_timeout_seconds,
                 server_settings={"application_name": "aap-inference-routing"},
             )
             transaction = connection.transaction(readonly=False)
             await transaction.start()
-            data = await RoutingPostgresData.bind(connection)
+            data = await RoutingPostgresData.bind(
+                connection, expected_login=self.expected_login
+            )
             try:
                 yield data
             except BaseException:

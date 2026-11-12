@@ -318,6 +318,24 @@ def test_vips_header_decode_wrapper_preserves_physical_uncertainty(monkeypatch):
     assert failure.value.storage_operation_unsettled is True
 
 
+def test_vips_probe_keeps_primary_and_uncertain_cleanup_failure(monkeypatch):
+    from app.services import storage_access
+    from app.services.image_pyramid import ImagePyramidError
+
+    fake_vips = SimpleNamespace(
+        Image=SimpleNamespace(new_from_file=MagicMock(side_effect=ValueError("decode"))),
+        cache_set_max=MagicMock(side_effect=OSError("cleanup")),
+    )
+    monkeypatch.setitem(sys.modules, "pyvips", fake_vips)
+    stage = SimpleNamespace(file=SimpleNamespace(fileno=lambda: 123))
+
+    with pytest.raises(ExceptionGroup) as failure:
+        media._pyramid_dimensions_from_stage(stage)
+    assert len(failure.value.exceptions) == 2
+    assert all(isinstance(exc, ImagePyramidError) for exc in failure.value.exceptions)
+    assert storage_access.failure_unsettled(failure.value)
+
+
 def test_vips_header_errors_do_not_keep_native_image_in_traceback(monkeypatch):
     import weakref
     from app.services.image_pyramid import ImagePyramidError

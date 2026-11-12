@@ -1293,7 +1293,7 @@ test.describe("video Issue persisted context", () => {
   }) => {
     const legacy = await createIssue(request, fixture, 33, [0.46, 0.54]);
     const future = await createIssue(request, fixture, 143, [0.49, 0.51]);
-    const historical = await seed.videoIssueContextHistory(future.id);
+    const historical = await seed.videoIssueContextHistory(fixture.data.project_id, future.id);
     expect(historical.anchor_position).toMatchObject({
       x: 0.49,
       y: 0.51,
@@ -1488,31 +1488,33 @@ test.describe("video Issue persisted context", () => {
       await request.get(`${API_BASE}/api/v1/users`, { headers: auth(fixture.token) }),
     );
     const annotator = users.find((user) => user.email === fixture.data.annotator_email)!;
-    // Authority now comes from project membership: invite a second employee who
-    // accepts an annotator responsibility in this project through the real
-    // invitation → registration path, then hand the batch to them. The actor is
-    // namespace-scoped (`takeover-<namespace>@e2e.test`) so the exact owned
-    // cleanup removes it instead of leaking a shared global account.
+    const inviter = users.find((user) => user.email === fixture.data.admin_email);
+    if (!inviter) throw new Error("Owned fixture inviter is missing");
+    // Predeclare the exact owned invitation before the real product operations;
+    // Identity binds the created invitation and new account in their own transaction.
     const takeoverEmail = fixture.data.admin_email.replace(/^admin-/, "takeover-");
-    const invitation = await json<{ token: string }>(
-      await request.post(`${API_BASE}/api/v1/users/invite`, {
-        headers: auth(fixture.token),
-        data: {
-          email: takeoverEmail,
-          role: "employee",
-          project_id: fixture.data.project_id,
-          project_member_role: "annotator",
-        },
-      }),
-    );
-    const takeover = await json<{ user: { id: string } }>(
-      await request.post(`${API_BASE}/api/v1/auth/register`, {
-        data: {
-          token: invitation.token,
-          name: "E2E Takeover",
-          password: "Takeover-123",
-        },
-      }),
+    const takeover = await seed.withOwnedInvitation(
+      fixture.data.project_id,
+      inviter.id,
+      takeoverEmail,
+      async () => {
+        const invitation = await json<{ token: string }>(
+          await request.post(`${API_BASE}/api/v1/users/invite`, {
+            headers: auth(fixture.token),
+            data: {
+              email: takeoverEmail,
+              role: "employee",
+              project_id: fixture.data.project_id,
+              project_member_role: "annotator",
+            },
+          }),
+        );
+        return json<{ user: { id: string } }>(
+          await request.post(`${API_BASE}/api/v1/auth/register`, {
+            data: { token: invitation.token, name: "E2E Takeover", password: "Takeover-123" },
+          }),
+        );
+      },
     );
     const batch = await json<{ id: string }>(
       await request.post(`${API_BASE}/api/v1/projects/${fixture.data.project_id}/batches`, {

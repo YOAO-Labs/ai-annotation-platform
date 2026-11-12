@@ -13,12 +13,19 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from pydantic import (
+    BaseModel,
     Field,
     StrictBool,
     StrictInt,
     StrictStr,
     ValidationError,
     model_validator,
+)
+
+from yoao_assets_images.contract import (
+    FinishOriginalReadRequest,
+    FinishedOriginalRead,
+    OriginalRead,
 )
 
 from . import execution as e
@@ -355,6 +362,11 @@ class TrackerInputRequest(TrackerInputReadRequest):
     request_digest: Digest
 
 
+class TrackerPrepareOriginalRequest(TrackerInputRequest):
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+
+
 class PrepareTrackerInputRequest(TrackerInputRequest):
     source_snapshot: Digest | None
     timetable_revision: Count | None
@@ -378,6 +390,11 @@ class VerifyTrackerInputRequest(TrackerInputRequest):
 
 class TrackerSourceReferenceRequest(VerifyTrackerInputRequest):
     pass
+
+
+class TrackerControlOriginalRequest(TrackerSourceReferenceRequest):
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
 
 
 class TrackerVideoSourceMaterial(Value):
@@ -525,8 +542,8 @@ class _Error(Value):
 @dataclass(frozen=True)
 class NativeOperation:
     namespace: Literal["aap_assets_v1", "aap_labeling_v1"]
-    request: type[Value]
-    result: type[Value]
+    request: type[BaseModel]
+    result: type[BaseModel]
     arguments: tuple[str, ...]
     sql_types: tuple[str, ...]
     role: Literal["control", "worker", "labeling", "cleanup"]
@@ -534,8 +551,8 @@ class NativeOperation:
 
 def _operation(
     namespace: Literal["aap_assets_v1", "aap_labeling_v1"],
-    request: type[Value],
-    result: type[Value],
+    request: type[BaseModel],
+    result: type[BaseModel],
     arguments: tuple[str, ...],
     sql_types: tuple[str, ...],
     role: Literal["control", "worker", "labeling", "cleanup"],
@@ -544,6 +561,63 @@ def _operation(
 
 
 TRACKER_OPERATIONS: dict[str, NativeOperation] = {
+    "begin_tracker_prepare_original": _operation(
+        "aap_assets_v1",
+        TrackerPrepareOriginalRequest,
+        OriginalRead,
+        (
+            "actor_id",
+            "tracker_job_id",
+            "task_id",
+            "input_id",
+            "request_digest",
+            "source_snapshot",
+            "object_key",
+        ),
+        ("uuid", "uuid", "uuid", "uuid", "text", "text", "text"),
+        "control",
+    ),
+    "begin_tracker_control_original": _operation(
+        "aap_assets_v1",
+        TrackerControlOriginalRequest,
+        OriginalRead,
+        (
+            "actor_id",
+            "tracker_job_id",
+            "task_id",
+            "input_id",
+            "request_digest",
+            "plan_digest",
+            "source_snapshot",
+            "object_key",
+        ),
+        ("uuid", "uuid", "uuid", "uuid", "text", "text", "text", "text"),
+        "control",
+    ),
+    "finish_tracker_control_original": _operation(
+        "aap_assets_v1",
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "control",
+    ),
+    "begin_tracker_video_original": _operation(
+        "aap_assets_v1",
+        e.VideoInputLeaseRequest,
+        OriginalRead,
+        ("input_id", "generation", "lease_token"),
+        ("uuid", "bigint", "uuid"),
+        "worker",
+    ),
+    "finish_tracker_video_original": _operation(
+        "aap_assets_v1",
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "worker",
+    ),
     "capture_video_tracker_input": _operation(
         "aap_labeling_v1",
         TrackerVideoInputRequest,
@@ -767,6 +841,20 @@ def parse_labeling_native(operation: str, request: Value, raw: Any) -> Value:
 
 
 def require_scope(operation: str, request: Value, result: Value) -> None:
+    if isinstance(
+        request, (TrackerPrepareOriginalRequest, TrackerControlOriginalRequest)
+    ):
+        if (
+            not isinstance(result, OriginalRead)
+            or result.object_key != request.object_key
+        ):
+            raise ValueError("tracker source read escaped its original")
+    if isinstance(request, FinishOriginalReadRequest) and (
+        not isinstance(result, FinishedOriginalRead)
+        or result.creation_id != request.creation_id
+        or result.operation_id != request.operation_id
+    ):
+        raise ValueError("tracker original read finish escaped its operation")
     record = getattr(result, "record", None) or getattr(result, "input", None)
     if isinstance(result, TrackerVideoInputRecord):
         record = result

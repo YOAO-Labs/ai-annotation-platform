@@ -1,17 +1,15 @@
 """Real seed cleanup preserves independent guide owners and current references."""
 
-import asyncio
 from datetime import datetime, timezone
 import hashlib
 from types import SimpleNamespace
 import uuid
 
-import httpx
 import pytest
-from sqlalchemy import delete, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
-from app.api.v1 import _test_seed as seed, _test_seed_attachments as attachments
+from app.api.v1 import _test_seed_attachments as attachments
 from app.db.models.annotation_comment import AnnotationComment
 from app.db.models.comment_attachment_upload import CommentAttachmentUpload
 from app.db.models.guide_asset_upload import GuideAssetUpload as Upload
@@ -19,7 +17,6 @@ from app.db.models.project import Project
 from app.db.models.project_guide_asset import ProjectGuideAsset as Reference
 from app.db.models.storage_maintenance import StorageOperation
 from app.db.models.user import User
-from app.deps import get_db
 from app.services import comment_attachment_storage, comment_attachment_uploads
 from app.services import guide_asset_references as references
 from app.services import guide_asset_storage as storage, guide_asset_uploads as uploads
@@ -27,13 +24,27 @@ from app.services import storage as storage_module, storage_access
 from app.application.project_deletion import delete_project
 from tests._owned_s3 import patch_owned_client
 from tests.seed_attachment_support import Objects, build as build_comments
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+    owner_fault_http as owner_fault_http,
+)
 from tests.seed_attachment_support import upload as upload_comment
 
 
 @pytest.fixture
-async def context(test_engine, app_module, monkeypatch):
-    """Commit real SQL, fake only provider bytes, and clean every owned UUID."""
-    db = async_sessionmaker(test_engine, expire_on_commit=False)()
+async def context(
+    test_engine,
+    monkeypatch,
+    committed_owner,
+    fenced_http,
+    fixture_and_fenced_http,
+    owner_fault_http,
+):
+    """Use real originals and exact fake guide/attachment owner operations."""
+    db = committed_owner
     objects = Objects(storage_module.storage_service)
     patch_owned_client(monkeypatch, objects.client)
     for module in (
@@ -47,116 +58,65 @@ async def context(test_engine, app_module, monkeypatch):
         monkeypatch.setattr(module, "storage_service", objects)
     ctx = SimpleNamespace(
         db=db,
+        http=fenced_http,
+        owner_http=owner_fault_http,
+        suite=fixture_and_fenced_http.owner_suite,
         engine=test_engine,
         objects=objects,
-        names=[],
-        project_ids=set(),
+        runs=[],
         guide_ids=set(),
         operations=set(),
     )
-
-    async def session():
-        yield db
-
-    previous = app_module.dependency_overrides.get(get_db)
-    app_module.dependency_overrides[get_db] = session
     try:
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app_module), base_url="http://test"
-        ) as client:
-            ctx.http = client
-            try:
-                yield ctx
-            finally:
-                objects.probe = None
-                await db.rollback()
-                # A failed HTTP request may have committed a new pending owner.
-                # Select only this test's exact original projects, never a prefix.
-                ctx.guide_ids.update(
-                    await db.scalars(
-                        select(Upload.id).where(Upload.project_id.in_(ctx.project_ids))
-                    )
-                )
-                await db.execute(
-                    delete(Reference).where(
-                        Reference.upload_id.in_(ctx.guide_ids)
-                        | Reference.project_id.in_(ctx.project_ids)
-                    )
-                )
-                await db.execute(delete(Upload).where(Upload.id.in_(ctx.guide_ids)))
-                purposes = [
-                    uploads.purpose(kind, identifier)
-                    for identifier in ctx.guide_ids
-                    for kind in ("read", "write", "delete")
-                ]
-                await db.execute(
-                    delete(StorageOperation).where(
-                        StorageOperation.id.in_(ctx.operations)
-                        | StorageOperation.purpose.in_(purposes)
-                    )
-                )
-                await db.commit()
-                for name in reversed(ctx.names):
-                    owned = seed._parse_owned_namespace(name)
-                    scope = await seed._resolve_fixture_scope(db, owned)
-                    comments = list(
-                        await db.scalars(
-                            select(CommentAttachmentUpload).where(
-                                CommentAttachmentUpload.project_id.in_(
-                                    scope.project_ids
-                                )
-                            )
-                        )
-                    )
-                    for comment in comments:
-                        saved = comment_attachment_storage.resolve(comment)
-                        objects.data.pop((saved.bucket, saved.object_key), None)
-                    await db.execute(
-                        delete(CommentAttachmentUpload).where(
-                            CommentAttachmentUpload.project_id.in_(scope.project_ids)
-                        )
-                    )
-                    await db.commit()
-                    await seed._cleanup_e2e_fixtures(db, owned)
-                assert (
-                    await db.scalar(
-                        select(Upload.id).where(Upload.id.in_(ctx.guide_ids)).limit(1)
-                    )
-                    is None
-                )
-                assert all(body.closed for body in objects.bodies)
-                objects.data.clear()
-                assert (
-                    await db.scalar(
-                        select(Reference.upload_id)
-                        .where(Reference.upload_id.in_(ctx.guide_ids))
-                        .limit(1)
-                    )
-                    is None
-                )
-                assert (
-                    await db.scalar(
-                        select(StorageOperation.id)
-                        .where(
-                            StorageOperation.id.in_(ctx.operations)
-                            | StorageOperation.purpose.in_(purposes)
-                        )
-                        .limit(1)
-                    )
-                    is None
-                )
+        yield ctx
     finally:
-        await db.close()
-        if previous is None:
-            app_module.dependency_overrides.pop(get_db, None)
-        else:
-            app_module.dependency_overrides[get_db] = previous
+        objects.probe = None
+        await db.rollback()
+        for run in reversed(ctx.runs):
+            response = await ctx.owner_http.post(
+                "/api/v1/__test/seed/owned-cleanup", json=run.payload()
+            )
+            assert response.status_code == 200, response.text
+        remaining = list(
+            await db.scalars(select(Upload.id).where(Upload.id.in_(ctx.guide_ids)))
+        )
+        await db.commit()
+        result = await uploads.cleanup(db, identifiers=remaining)
+        assert result["failed"] == 0 and result["retained"] == 0, result
+        if result["retired"]:
+            remaining = list(
+                await db.scalars(select(Upload.id).where(Upload.id.in_(ctx.guide_ids)))
+            )
+            await db.commit()
+            result = await uploads.cleanup(db, identifiers=remaining)
+            assert result["failed"] == 0 and result["retained"] == 0, result
+        assert (
+            await db.scalar(
+                select(Upload.id).where(Upload.id.in_(ctx.guide_ids)).limit(1)
+            )
+            is None
+        )
+        assert (
+            await db.scalar(
+                select(Reference.upload_id)
+                .where(Reference.upload_id.in_(ctx.guide_ids))
+                .limit(1)
+            )
+            is None
+        )
+        assert (
+            await db.scalar(
+                select(StorageOperation.id)
+                .where(StorageOperation.id.in_(ctx.operations))
+                .limit(1)
+            )
+            is None
+        )
+        assert all(body.closed for body in objects.bodies)
 
 
 async def build(ctx):
-    world = await build_comments(ctx)
-    ctx.project_ids.add(uuid.UUID(world["project_id"]))
-    return world
+    return await build_comments(ctx)
 
 
 async def upload(ctx, world, raw=b"<svg>independent guide</svg>"):
@@ -201,8 +161,8 @@ async def pending(ctx, world, *, has_bytes=True):
 
 
 async def clean(ctx, world):
-    return await ctx.http.post(
-        "/api/v1/__test/seed/owned-cleanup", json={"namespace": world["namespace"]}
+    return await ctx.owner_http.post(
+        "/api/v1/__test/seed/owned-cleanup", json=world["run"].payload()
     )
 
 
@@ -210,6 +170,15 @@ async def current(ctx, receipt):
     row = await ctx.db.get(Upload, receipt.id, populate_existing=True)
     await ctx.db.commit()
     return row
+
+
+async def discard_synthetic_pending(ctx, row):
+    """Remove only a pending row and fake bytes explicitly injected by a test."""
+    assert row.state == "pending"
+    owner = storage.resolve(storage.snapshot(row))
+    await ctx.db.delete(row)
+    await ctx.db.commit()
+    ctx.objects.data.pop((owner.bucket, owner.object_key), None)
 
 
 async def share(ctx, source, target):
@@ -399,6 +368,8 @@ async def test_live_pending_preflight_precedes_any_comment_or_legacy_physical_io
     comment = await ctx.db.get(AnnotationComment, uuid.UUID(comment_id))
     assert comment.attachments == [value]
     assert await ctx.db.get(Project, receipt.project_id) is not None
+    await discard_synthetic_pending(ctx, await current(ctx, receipt))
+    assert (await clean(ctx, world)).status_code == 200
 
 
 async def test_late_pending_final_recheck_rolls_back_guide_unlink_and_keeps_fixture(
@@ -411,8 +382,7 @@ async def test_late_pending_final_recheck_rolls_back_guide_unlink_and_keeps_fixt
     comment_receipt = comment_attachment_storage.snapshot(comment)
     identifier = uuid.uuid4()
     ctx.guide_ids.add(identifier)
-    loop = asyncio.get_running_loop()
-    real_cleanup = seed._cleanup_fixture_storage
+    real_delete_objects = attachments.delete_objects
 
     async def inject():
         async with async_sessionmaker(ctx.engine, expire_on_commit=False)() as other:
@@ -437,12 +407,12 @@ async def test_late_pending_final_recheck_rolls_back_guide_unlink_and_keeps_fixt
                 row.storage_ref["bucket"], row.storage_ref["object_key"]
             ] = b"late"
 
-    def cleanup_then_insert(*args):
-        real_cleanup(*args)
-        asyncio.run_coroutine_threadsafe(inject(), loop).result(timeout=10)
+    async def cleanup_then_insert(*args):
+        await real_delete_objects(*args)
+        await inject()
 
     with monkeypatch.context() as patch:
-        patch.setattr(seed, "_cleanup_fixture_storage", cleanup_then_insert)
+        patch.setattr(attachments, "delete_objects", cleanup_then_insert)
         result = await clean(ctx, world)
     assert result.status_code == 409, result.text
     assert result.json()["detail"]["code"] == "e2e_seed_guide_asset_pending"
@@ -467,6 +437,8 @@ async def test_late_pending_final_recheck_rolls_back_guide_unlink_and_keeps_fixt
     assert (await ctx.db.get(AnnotationComment, uuid.UUID(comment_id))).attachments == [
         attachment
     ]
+    await discard_synthetic_pending(ctx, late)
+    assert (await clean(ctx, world)).status_code == 200
 
 
 async def test_missing_origin_pending_is_retained_without_guessing_namespace(context):
@@ -488,3 +460,4 @@ async def test_missing_origin_pending_is_retained_without_guessing_namespace(con
     result = await uploads.cleanup(ctx.db, identifiers=[receipt.id])
     assert result == {"objects": 0, "retired": 0, "retained": 1, "failed": 0}
     assert await current(ctx, receipt) is not None
+    await discard_synthetic_pending(ctx, await current(ctx, receipt))

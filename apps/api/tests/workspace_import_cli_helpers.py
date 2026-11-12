@@ -3,22 +3,35 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import hashlib
 import json
 import os
 from pathlib import Path
 import re
+import select
 import secrets
 import subprocess
+import sys
+import time
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
 
 from sqlalchemy.engine import URL, make_url
 
-from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_asset_storage_cleanup_runtime import (
+    _verified_resource_manifest,
+    _verify_postgres,
+)
 from tests.test_identity_sessions_live import _verify_redis
+from tests.test_labeling_module_api_cold import (
+    _minio_dependency,
+    _verify_minio_identity,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
+_RETAINED_FIXTURE_CLIENTS = []
 _EMPTY_SELECTOR_PREFIXES = (
     "IDENTITY_AUTH",
     "IDENTITY_KEY",
@@ -70,6 +83,12 @@ _EMPTY_SELECTOR_SUFFIXES = (
     "_DATABASE_URL",
     "_DATABASE_URL_FILE",
 )
+_ORIGINAL_READER_KEYS = (
+    "AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT",
+    "AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET",
+    "AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY",
+    "AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY",
+)
 
 
 @dataclass(frozen=True)
@@ -109,7 +128,41 @@ class WorkspaceImportCli:
         s3_secret_key: str,
         runtime_database_url: URL | None = None,
         identity_auth_database_url: URL | None = None,
+        fixture_run_ids: frozenset[uuid.UUID] | None = None,
+        fixture_family: str | None = None,
+        original_reader: bool = False,
+        managed_original_writer: bool = False,
     ) -> None:
+        if (fixture_run_ids is None) != (fixture_family is None) or (
+            fixture_run_ids is not None
+            and (
+                not fixture_run_ids
+                or any(not isinstance(value, uuid.UUID) for value in fixture_run_ids)
+                or fixture_family not in {"scale", "screenshot"}
+                or (fixture_family == "screenshot" and len(fixture_run_ids) != 1)
+                or runtime_database_url is not None
+                or identity_auth_database_url is not None
+                or os.geteuid() == 0
+            )
+        ):
+            raise ValueError("Private fixture CLI needs its exact family and run IDs")
+        if original_reader and fixture_family is not None:
+            raise ValueError("Original-reader and private owner profiles are separate")
+        if managed_original_writer and (original_reader or fixture_family is not None):
+            raise ValueError(
+                "Managed-original writer requires its own consumer profile"
+            )
+        self.fixture_run_ids = fixture_run_ids
+        self.fixture_family = fixture_family
+        self.host_network = (
+            fixture_family is not None or original_reader or managed_original_writer
+        )
+        self.original_reader_environment = {
+            name: self._required(name) if original_reader else ""
+            for name in _ORIGINAL_READER_KEYS
+        }
+        self.fixture_metadata: dict[Path, str] = {}
+        self.fixture_resource_root: Path | None = None
         self.test_engine = test_engine
         self.source_root = Path(source_root).resolve(strict=True)
         if self.source_root.is_symlink() or not self.source_root.is_dir():
@@ -124,7 +177,11 @@ class WorkspaceImportCli:
             or parsed_minio.fragment
         ):
             raise ValueError("Verifier supplied an invalid MinIO authority")
-        self.minio_authority = self._docker_authority(parsed_minio)
+        if parsed_minio.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("Owned MinIO must have a loopback host endpoint")
+        self.minio_authority = (
+            parsed_minio.netloc if self.host_network else "workspace-import-minio:9000"
+        )
         self.minio_use_ssl = minio_use_ssl
         self.buckets = dict(buckets)
         if (
@@ -156,6 +213,36 @@ class WorkspaceImportCli:
             raise RuntimeError("nuScenes CLI requires the disposable test database")
         _verify_postgres(test_engine.url)
         self.redis_owner_url = _verify_redis()
+        self.minio = None
+        if not self.host_network or managed_original_writer:
+            resource_url = make_url(self._required("AAP_MODULE_DATA_ASSET_CLEANUP_URL"))
+            if (resource_url.host, resource_url.port) != (
+                test_engine.url.host,
+                test_engine.url.port,
+            ):
+                raise RuntimeError(
+                    "CLI database and owned store use different verifiers"
+                )
+            resources = _verified_resource_manifest(
+                SimpleNamespace(url=resource_url), resource_url
+            )
+            if resources["buckets"] != self.buckets:
+                raise RuntimeError(
+                    "CLI buckets differ from the verified resource manifest"
+                )
+            self.minio = _minio_dependency(resources)
+            if (parsed_minio.port, minio_use_ssl) != (
+                self.minio["host_port"],
+                self.minio["ssl"],
+            ):
+                raise RuntimeError("CLI MinIO endpoint differs from the verified store")
+            if managed_original_writer:
+                from app.config import settings
+
+                if minio_authority != settings.minio_endpoint:
+                    raise RuntimeError(
+                        "CLI managed-original endpoint differs from its catalog"
+                    )
         self.database_name = database_name
         self.database_url = self._runtime_database_url(runtime_database_url)
         self.identity_auth_database_url = ""
@@ -186,11 +273,24 @@ class WorkspaceImportCli:
         self.image = self._required("AAP_WORKSPACE_MODULE_API_IMAGE")
         self.image_identity = self._required("AAP_WORKSPACE_MODULE_API_IDENTITY")
         self.image_record = self._verify_image()
-        self.redis_url = self._docker_redis_url(self.redis_owner_url)
+        self.redis_url = (
+            self.redis_owner_url.render_as_string(hide_password=False)
+            if self.host_network
+            else self._docker_redis_url(self.redis_owner_url)
+        )
 
     def start(self) -> None:
         self.directory.mkdir(mode=0o700, parents=True, exist_ok=False)
+        if self.fixture_family is not None:
+            self._prepare_private_fixture_context()
+            self._assert_transport()
+            return
         self._write_environment_file()
+        if self.host_network:
+            # Preserve the saved original endpoint without enrolling a new store peer.
+            self.network_id = "host"
+            self._assert_transport()
+            return
         self.network_id = self._docker(
             "network",
             "create",
@@ -205,6 +305,8 @@ class WorkspaceImportCli:
         self._docker(
             "network",
             "connect",
+            "--gw-priority",
+            "-1",
             "--alias",
             "workspace-import-postgres",
             self.network_id,
@@ -213,15 +315,29 @@ class WorkspaceImportCli:
         self._docker(
             "network",
             "connect",
+            "--gw-priority",
+            "-1",
             "--alias",
             "workspace-import-redis",
             self.network_id,
             self.redis_container,
         )
+        _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
+        self._docker(
+            "network",
+            "connect",
+            "--gw-priority",
+            "-1",
+            "--alias",
+            "workspace-import-minio",
+            self.network_id,
+            self.minio["id"],
+        )
         self.assert_private_network(
             {
                 self._peer_id(self.postgres_container),
                 self._peer_id(self.redis_container),
+                self.minio["id"],
             }
         )
 
@@ -258,6 +374,28 @@ class WorkspaceImportCli:
             for argument in command
         ):
             raise ValueError("CLI command must be non-empty single-line arguments")
+        if self.fixture_family == "scale":
+            if (
+                command[:4] != ("python", "-m", "scripts.seed_scale", "--run-id")
+                or len(command) < 5
+                or command[4] not in {str(value) for value in self.fixture_run_ids}
+                or command[5:] not in (("4", "2", "1"), ("--purge",))
+            ):
+                raise ValueError("Fixture owner may only seed or purge its exact runs")
+        elif self.fixture_family == "screenshot" and command[:2] not in {
+            ("python", "scripts/screenshot_job_recovery_fixture.py"),
+            ("python", "scripts/screenshot_review_reject_fixture.py"),
+            ("python", "scripts/restore_screenshot_user_preferences.py"),
+        }:
+            raise ValueError(
+                "Private screenshot CLI permits only its fixed fixture commands"
+            )
+        self._assert_transport()
+        metadata_mounts = [
+            value
+            for path in self.fixture_metadata
+            for value in ("--mount", f"type=bind,source={path},target={path},readonly")
+        ]
         run_id = uuid.uuid4().hex[:12]
         container_name = f"{self.network_name}-{run_id}"
         container_id = self._docker(
@@ -280,8 +418,11 @@ class WorkspaceImportCli:
             str(self.environment_file),
             "--mount",
             f"type=bind,source={self.source_root},target=/fixture,readonly",
+            *metadata_mounts,
             "--user",
-            "10003:10003",
+            f"{os.geteuid()}:{os.getegid()}"
+            if self.fixture_family is not None
+            else "10003:10003",
             "--read-only",
             "--cap-drop",
             "ALL",
@@ -307,12 +448,7 @@ class WorkspaceImportCli:
         timed_out = False
         try:
             self._verify_container(self._inspect(container_id), run_id=run_id)
-            self.assert_private_network(
-                {
-                    self._peer_id(self.postgres_container),
-                    self._peer_id(self.redis_container),
-                }
-            )
+            self._assert_transport()
             try:
                 start_result = subprocess.run(
                     ["docker", "start", "--attach", container_id],
@@ -350,12 +486,7 @@ class WorkspaceImportCli:
                 ) from None
             record = self._inspect(container_id)
             self._verify_container(record, run_id=run_id)
-            self.assert_private_network(
-                {
-                    self._peer_id(self.postgres_container),
-                    self._peer_id(self.redis_container),
-                }
-            )
+            self._assert_transport()
             stdout = self.redact(start_result.stdout or "")
             stderr = self.redact(start_result.stderr or "")
             if start_error:
@@ -364,6 +495,8 @@ class WorkspaceImportCli:
                 "container_id": record.get("Id"),
                 "image_id": record.get("Image"),
                 "run_id": run_id,
+                "fixture_family": self.fixture_family,
+                "fixture_run_ids": sorted(map(str, self.fixture_run_ids or ())),
                 "docker_wait_exit_code": exit_code,
                 "docker_attach_exit_code": start_result.returncode,
                 "timed_out": timed_out,
@@ -398,21 +531,28 @@ class WorkspaceImportCli:
                     self._docker("stop", "--time", "5", container_id, timeout=15)
                 self._docker("rm", container_id, timeout=30)
             self.container_id = None
-            self.assert_private_network(
-                {
-                    self._peer_id(self.postgres_container),
-                    self._peer_id(self.redis_container),
-                }
-            )
+            self._assert_transport()
 
     def running_database_client_address(self) -> str:
-        """Return the verified running CLI endpoint on its owned private network."""
+        """Return the verified transport endpoint used by the running CLI."""
         if self.container_id is None:
             raise RuntimeError("No nuScenes CLI container is currently running")
         record = self._inspect(self.container_id)
         self._verify_container(record)
         if not (record.get("State") or {}).get("Running"):
             raise RuntimeError("nuScenes CLI container has already exited")
+        if self.host_network:
+            self._assert_transport()
+            postgres = self._inspect(self.postgres_container)
+            bridge = (postgres.get("NetworkSettings", {}).get("Networks") or {}).get(
+                "bridge", {}
+            )
+            address = bridge.get("Gateway")
+            if not address:
+                raise RuntimeError(
+                    "Owned PostgreSQL has no verified host bridge endpoint"
+                )
+            return address
         network = record["NetworkSettings"]["Networks"][self.network_name]
         address = network.get("IPAddress")
         if not address:
@@ -431,19 +571,13 @@ class WorkspaceImportCli:
         self._verify_container(record, run_id=run_id)
         if not (record.get("State") or {}).get("Running"):
             return False
-        self.assert_private_network(
-            {
-                self._peer_id(self.postgres_container),
-                self._peer_id(self.redis_container),
-                record["Id"],
-            }
-        )
+        self._assert_transport()
         self._current_container_stopped = True
         self._docker("stop", "--time", "5", self.container_id, timeout=15)
         return True
 
     def assert_private_network(self, expected: set[str]) -> None:
-        if self.network_id is None:
+        if self.network_id is None or self.host_network:
             raise RuntimeError("nuScenes CLI network has not been created")
         network = self._inspect_network()
         attached = set((network.get("Containers") or {}).keys())
@@ -459,12 +593,20 @@ class WorkspaceImportCli:
                     self._docker("stop", "--time", "5", self.container_id, timeout=15)
                 self._docker("rm", self.container_id, timeout=30)
             self.container_id = None
+        if self.network_id is not None and self.host_network:
+            self._assert_transport()
+            self.network_id = None
         if self.network_id is not None:
             _verify_postgres(self.test_engine.url)
             _verify_redis()
+            _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
             network = self._inspect_network()
             peers = network.get("Containers") or {}
-            for peer in (self.postgres_container, self.redis_container):
+            for peer in (
+                self.postgres_container,
+                self.redis_container,
+                self.minio["id"],
+            ):
                 peer_id = self._peer_id(peer)
                 if peer_id in peers:
                     self._docker("network", "disconnect", self.network_id, peer)
@@ -485,9 +627,19 @@ class WorkspaceImportCli:
             self.s3_access_key,
             self.s3_secret_key,
             self.database_url.password or "",
+            self.test_engine.url.password or "",
             self.redis_owner_url.password or "",
             self.secret_key,
         ]
+        secrets_to_hide.extend(
+            self.original_reader_environment[name]
+            for name in _ORIGINAL_READER_KEYS
+            if name.endswith(("ACCESS_KEY", "SECRET_KEY"))
+        )
+        if self.identity_auth_database_url:
+            secrets_to_hide.append(
+                make_url(self.identity_auth_database_url).password or ""
+            )
         for secret in sorted(set(secrets_to_hide), key=len, reverse=True):
             if secret:
                 value = value.replace(secret, "<redacted>")
@@ -512,7 +664,20 @@ class WorkspaceImportCli:
         extra_mounts = [mount for mount in mounts if mount.get("Type") != "bind"]
         expected_network = (
             record.get("NetworkSettings", {}).get("Networks") or {}
-        ).get(self.network_name)
+        ).get("host" if self.host_network else self.network_name)
+        expected_mounts = {
+            "/fixture": self.source_root,
+            **{str(path): path for path in self.fixture_metadata},
+        }
+        actual_mounts = {
+            mount.get("Destination"): Path(mount.get("Source", "")).resolve()
+            for mount in binds
+        }
+        expected_user = (
+            f"{os.geteuid()}:{os.getegid()}"
+            if self.fixture_family is not None
+            else "10003:10003"
+        )
         if (
             labels.get("org.aap.acceptance") != "workspace-import-cli"
             or labels.get("org.aap.acceptance-id") != self.identity
@@ -522,17 +687,19 @@ class WorkspaceImportCli:
             or labels.get("com.docker.compose.project") is not None
             or record.get("Image") != self.image_record["id"]
             or config.get("Image") != self.image
-            or config.get("User") != "10003:10003"
+            or config.get("User") != expected_user
+            or host.get("NetworkMode") != self.network_id
+            or host.get("Privileged") is True
+            or host.get("PidMode") not in {"", "private"}
             or host.get("ReadonlyRootfs") is not True
             or "ALL" not in (host.get("CapDrop") or [])
             or "no-new-privileges:true" not in (host.get("SecurityOpt") or [])
             or host.get("Memory") != 512 * 1024 * 1024
             or host.get("NanoCpus") != 1_000_000_000
             or host.get("PidsLimit") != 64
-            or len(binds) != 1
-            or binds[0].get("Destination") != "/fixture"
-            or Path(binds[0].get("Source", "")).resolve() != self.source_root
-            or binds[0].get("RW") is not False
+            or len(binds) != len(expected_mounts)
+            or actual_mounts != expected_mounts
+            or any(mount.get("RW") is not False for mount in binds)
             or any(
                 mount.get("Type") != "tmpfs" or mount.get("Destination") != "/tmp"
                 for mount in extra_mounts
@@ -549,8 +716,9 @@ class WorkspaceImportCli:
         database = make_url(env.get("DATABASE_URL", ""))
         if (
             database.username != self.database_url.username
-            or database.host != "workspace-import-postgres"
-            or database.port != 5432
+            or database.password != self.database_url.password
+            or database.host != self.database_url.host
+            or database.port != self.database_url.port
             or database.database != self.database_name
             or env.get("DATABASE_URL_FILE")
             or env.get("REDIS_URL") != self.redis_url
@@ -560,7 +728,8 @@ class WorkspaceImportCli:
             or env.get("CELERY_BROKER_WRITE_URL") != self.redis_url
             or env.get("MIGRATION_DATABASE_URL")
             or env.get("ALEMBIC_AUTO_UPGRADE") != "false"
-            or env.get("E2E_SEED_ENABLED") != "false"
+            or env.get("E2E_SEED_ENABLED")
+            != ("true" if self.fixture_run_ids is not None else "false")
             or env.get("MINIO_ENDPOINT") != self.minio_authority
             or env.get("MINIO_ACCESS_KEY") != self.s3_access_key
             or env.get("MINIO_SECRET_KEY") != self.s3_secret_key
@@ -571,6 +740,32 @@ class WorkspaceImportCli:
             != self.identity_auth_database_url
         ):
             raise RuntimeError("nuScenes CLI did not use its scoped operational inputs")
+        fixture_environment = self._fixture_environment()
+        if any(
+            env.get(name, "") != fixture_environment.get(name, "")
+            for name in (
+                "PLAYWRIGHT_E2E_DATABASE_URL",
+                "FIXTURE_RUNTIME_DATABASE_URL",
+                "AAP_WORKTREE_RESOURCE_ROOT",
+                "AAP_WORKTREE_MODE",
+                "AAP_FIXTURE_TOOLS_ROOT",
+                "SCREENSHOT_FIXTURE_RUN_ID",
+            )
+        ):
+            raise RuntimeError("CLI fixture authority differs from its private profile")
+        if any(
+            env.get(name, "") != value
+            for name, value in self.original_reader_environment.items()
+        ) or env.get("CONNECTOR_ENCRYPTION_KEY"):
+            raise RuntimeError("CLI original-reader authority differs from its profile")
+        if any(
+            name in env
+            for name, value in self.original_reader_environment.items()
+            if not value
+        ):
+            raise RuntimeError(
+                "CLI without an original reader inherited target settings"
+            )
         bucket_names = {
             name
             for name in env
@@ -594,6 +789,10 @@ class WorkspaceImportCli:
         expected_selectors = {"DATABASE_URL"}
         if self.identity_auth_database_url:
             expected_selectors.add("IDENTITY_AUTH_DATABASE_URL")
+        if self.fixture_family is not None:
+            expected_selectors.update(
+                {"PLAYWRIGHT_E2E_DATABASE_URL", "FIXTURE_RUNTIME_DATABASE_URL"}
+            )
         if database_selectors != expected_selectors:
             raise RuntimeError(
                 "nuScenes CLI must use only its scoped runtime database URL"
@@ -667,6 +866,8 @@ class WorkspaceImportCli:
             or not str(value.database or "").endswith("_test")
         ):
             raise RuntimeError("Runtime role does not target the owned test DB")
+        if self.host_network:
+            return value
         return value.set(
             host="workspace-import-postgres",
             port=5432,
@@ -684,7 +885,7 @@ class WorkspaceImportCli:
             "TEST_DATABASE_URL": "",
             "PLAYWRIGHT_E2E_DATABASE_URL": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
-            "E2E_SEED_ENABLED": "false",
+            "E2E_SEED_ENABLED": "true" if self.fixture_run_ids is not None else "false",
             "PYTHONPATH": "/app",
             "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONUNBUFFERED": "1",
@@ -717,6 +918,13 @@ class WorkspaceImportCli:
             for suffix in _EMPTY_SELECTOR_SUFFIXES:
                 values[prefix + suffix] = ""
         values["IDENTITY_AUTH_DATABASE_URL"] = self.identity_auth_database_url
+        values.update(self._fixture_environment())
+        values.update(
+            (name, value)
+            for name, value in self.original_reader_environment.items()
+            if value
+        )
+        values["CONNECTOR_ENCRYPTION_KEY"] = ""
         for name in ("WORKSPACE_INFERENCE_PROBE",):
             for suffix in ("_URL", "_TOKEN", "_TOKEN_FILE"):
                 values[name + suffix] = ""
@@ -732,6 +940,249 @@ class WorkspaceImportCli:
             lines.append(f"{key}={value}")
         self.environment_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
         self.environment_file.chmod(0o600)
+
+    def _fixture_environment(self) -> dict[str, str]:
+        if self.fixture_family is None:
+            return {}
+        values = {
+            "PLAYWRIGHT_E2E_DATABASE_URL": self.test_engine.url.render_as_string(
+                hide_password=False
+            ),
+            "FIXTURE_RUNTIME_DATABASE_URL": self.database_url.render_as_string(
+                hide_password=False
+            ),
+            "AAP_WORKTREE_RESOURCE_ROOT": str(self.fixture_resource_root),
+            "AAP_WORKTREE_MODE": "test",
+            "AAP_FIXTURE_TOOLS_ROOT": "/opt/yoao-fixture-tools",
+        }
+        if self.fixture_family == "screenshot":
+            values["SCREENSHOT_FIXTURE_RUN_ID"] = str(next(iter(self.fixture_run_ids)))
+        return values
+
+    def _prepare_private_fixture_context(self) -> None:
+        root = Path(self._required("AAP_WORKTREE_RESOURCE_ROOT"))
+        if (
+            not root.is_absolute()
+            or root != root.resolve(strict=True)
+            or self._required("AAP_WORKTREE_MODE") != "test"
+        ):
+            raise RuntimeError(
+                "Private fixture metadata must use its canonical test root"
+            )
+        self.fixture_resource_root = root
+        for path in (
+            root / ".worktree/identity.json",
+            root / ".worktree/test/resources.json",
+        ):
+            if not path.is_file() or path != path.resolve(strict=True):
+                raise RuntimeError(
+                    "Private fixture metadata is not an exact regular file"
+                )
+            self.fixture_metadata[path] = hashlib.sha256(path.read_bytes()).hexdigest()
+        # Establish cleanup authority before the coordinator can commit any run.
+        self.network_id = "host"
+        self._write_environment_file()
+        environment = dict(os.environ)
+        environment.update(
+            {
+                "DATABASE_URL": self.database_url.render_as_string(hide_password=False),
+                "FIXTURE_RUNTIME_DATABASE_URL": self.database_url.render_as_string(
+                    hide_password=False
+                ),
+                "PLAYWRIGHT_E2E_DATABASE_URL": self.test_engine.url.render_as_string(
+                    hide_password=False
+                ),
+            }
+        )
+        requests = [
+            {
+                "operation": "prepare_fixture_suite",
+                "data": {"suite_id": str(run_id), "family": self.fixture_family},
+            }
+            for run_id in sorted(self.fixture_run_ids, key=str)
+        ]
+        process = subprocess.Popen(
+            [sys.executable, str(ROOT / "apps/web/e2e/fixtures/seed-request.py")],
+            cwd=ROOT / "apps/api",
+            env=environment,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        deadline = time.monotonic() + 180
+        operation_id = None
+        reply = None
+        try:
+
+            def exchange(envelope):
+                process.stdin.write(json.dumps(envelope) + "\n")
+                process.stdin.flush()
+                if not select.select(
+                    [process.stdout], [], [], max(0, deadline - time.monotonic())
+                )[0]:
+                    raise RuntimeError(
+                        "Private fixture coordinator outcome is unresolved"
+                    )
+                line = process.stdout.readline()
+                if not line:
+                    raise RuntimeError(
+                        "Private fixture coordinator exited before replying"
+                    )
+                reply = json.loads(line)
+                if reply.get("operation_id") != envelope["operation_id"]:
+                    raise RuntimeError("Private fixture coordinator identity changed")
+                return reply
+
+            for request in requests:
+                operation_id = str(uuid.uuid4())
+                reply = None
+                reply = exchange(
+                    {
+                        "action": "execute",
+                        "operation_id": operation_id,
+                        "payload": request,
+                    }
+                )
+                if reply.get("state") == "pending":
+                    raise RuntimeError("Private fixture coordinator outcome is pending")
+                if reply.get("owner_error") in {
+                    "OperationOutcomeUnresolved",
+                    "OperationIdentityConflict",
+                }:
+                    raise RuntimeError(
+                        f"Private fixture operation refused: {reply['owner_error']}"
+                    )
+                if any(
+                    key in reply
+                    and (
+                        not isinstance(reply[key], str) or not reply[key].isidentifier()
+                    )
+                    for key in ("owner_error", "journal_error", "disposal_error")
+                ):
+                    raise RuntimeError(
+                        "Private fixture coordinator returned an invalid error"
+                    )
+                if "operation_response" in reply and (
+                    not isinstance(reply["operation_response"], dict)
+                    or type(reply["operation_response"].get("status")) is not int
+                    or not isinstance(reply["operation_response"].get("body"), str)
+                ):
+                    raise RuntimeError(
+                        "Private fixture coordinator returned an invalid operation response"
+                    )
+                if reply.get("owner_error") is None and (
+                    type(reply.get("status")) is not int
+                    or not isinstance(reply.get("body"), str)
+                    or (
+                        reply["status"] == 200
+                        and json.loads(reply["body"]) != request["data"]
+                    )
+                ):
+                    raise RuntimeError(
+                        "Private fixture coordinator returned a different scope"
+                    )
+                receipt = exchange({"action": "ack", "operation_id": operation_id})
+                if receipt.get("state") != "acknowledged":
+                    raise RuntimeError(
+                        "Private fixture coordinator receipt is unresolved"
+                    )
+                if reply.get("disposal_error"):
+                    causes = []
+                    if "operation_response" in reply:
+                        causes.append(
+                            RuntimeError(
+                                f"Fixture operation returned HTTP {reply['operation_response']['status']}"
+                            )
+                        )
+                    if (
+                        reply.get("owner_error")
+                        and reply["owner_error"] != reply["disposal_error"]
+                    ):
+                        causes.append(
+                            RuntimeError(
+                                f"Fixture operation failed: {reply['owner_error']}"
+                            )
+                        )
+                    causes.append(
+                        RuntimeError(
+                            f"Fixture database disposal failed: {reply['disposal_error']}"
+                        )
+                    )
+                    if reply.get("journal_error"):
+                        causes.append(
+                            RuntimeError(
+                                f"Fixture evidence journal failed: {reply['journal_error']}"
+                            )
+                        )
+                    raise ExceptionGroup(
+                        "Private fixture operation and disposal failed", causes
+                    )
+                if reply.get("journal_error"):
+                    raise ExceptionGroup(
+                        "Private fixture operation and evidence failed",
+                        [
+                            RuntimeError(
+                                f"Fixture operation: {reply.get('owner_error', reply.get('status'))}"
+                            ),
+                            RuntimeError(
+                                f"Fixture evidence journal: {reply['journal_error']}"
+                            ),
+                        ],
+                    )
+                if (
+                    reply.get("owner_error")
+                    or reply.get("status") != 200
+                    or json.loads(reply["body"]) != request["data"]
+                ):
+                    raise RuntimeError(
+                        "Private fixture coordinator returned a different scope"
+                    )
+            process.stdin.close()
+            if process.wait(timeout=max(0, deadline - time.monotonic())):
+                raise RuntimeError(
+                    "Private fixture coordinator refused CLI preparation"
+                )
+            process.stdout.close()
+            process.stderr.close()
+        except BaseException as error:
+            _RETAINED_FIXTURE_CLIENTS.append(process)
+            if reply is not None:
+                error.fixture_response = reply
+                error.add_note("Fixture operation response was received")
+            error.fixture_operation_id = operation_id
+            if operation_id:
+                error.add_note(f"Fixture operation ID: {operation_id}")
+            raise
+
+    def _assert_transport(self) -> None:
+        if self.host_network:
+            _verify_postgres(self.test_engine.url)
+            _verify_redis()
+            if self.minio is not None:
+                _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
+            for path, digest in self.fixture_metadata.items():
+                if (
+                    path != path.resolve(strict=True)
+                    or hashlib.sha256(path.read_bytes()).hexdigest() != digest
+                ):
+                    raise RuntimeError("Private fixture launcher metadata changed")
+            if self.network_id != "host" or (
+                self.fixture_family is not None and len(self.fixture_metadata) != 2
+            ):
+                raise RuntimeError("CLI host transport is not prepared")
+            return
+        _verify_minio_identity(self._inspect(self.minio["id"]), self.minio)
+        expected = {
+            self._peer_id(self.postgres_container),
+            self._peer_id(self.redis_container),
+            self.minio["id"],
+        }
+        if self.container_id is not None:
+            record = self._inspect(self.container_id)
+            if (record.get("State") or {}).get("Running"):
+                expected.add(record["Id"])
+        self.assert_private_network(expected)
 
     def _inspect(self, identity: str, *, required: bool = True) -> dict | None:
         result = subprocess.run(
@@ -784,13 +1235,6 @@ class WorkspaceImportCli:
         if result.returncode != 0:
             raise RuntimeError("Owned nuScenes Docker operation failed")
         return result.stdout.strip()
-
-    @staticmethod
-    def _docker_authority(parsed) -> str:
-        if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError("Owned MinIO must have a loopback host endpoint")
-        port = parsed.port or 9000
-        return f"host.docker.internal:{port}"
 
     @staticmethod
     def _docker_redis_url(value: URL) -> str:

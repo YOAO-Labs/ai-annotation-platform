@@ -6,10 +6,14 @@ import asyncio
 from contextlib import AsyncExitStack, asynccontextmanager
 from datetime import datetime, timezone
 from hashlib import sha256
+from ipaddress import IPv4Address, ip_address, ip_network
 import json
 import os
+from pathlib import Path
 import secrets
-from urllib.parse import urlsplit, urlunsplit
+import socket
+import sys
+from urllib.parse import urlsplit
 import uuid
 
 from celery import Celery
@@ -43,7 +47,6 @@ from tests.test_video_window_recovery_live import (
     _expire_exact_claim,
     _first_checkpoint,
     _first_window_parts,
-    _reserve_port,
     _scope_rows,
 )
 from tests.test_workspace_cross_frame_worker_live import (
@@ -75,20 +78,147 @@ _ROUTING_SCHEMA = "aap_inference_routing_v1"
 _ROUTING_OWNER_PORT = 8768
 
 
-def _host_forward_url(value: str) -> str:
-    parsed = urlsplit(value)
-    if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
-        raise AssertionError("owned Media and backend fixtures must bind loopback")
-    netloc = (
-        f"host.docker.internal:{parsed.port}" if parsed.port else "host.docker.internal"
+class _TrackerFixtureBridge:
+    """A live, owned bridge whose gateway is the only fixture bind address."""
+
+    def __init__(self, network_id: str, name: str, gateway: str, identity: str | None):
+        self.network_id = network_id
+        self.name = name
+        self.gateway = gateway
+        self.identity = identity
+
+    def verified_gateway(self) -> str:
+        if self.identity is None:
+            from worktree_resources import verified_shared_bootstrap_minio
+
+            record = verified_shared_bootstrap_minio(endpoint_url())
+            attachments = record["NetworkSettings"]["Networks"] if record else {}
+            attachment = attachments.get(self.name, {})
+            if (
+                attachment.get("NetworkID") != self.network_id
+                or attachment.get("Gateway") != self.gateway
+            ):
+                raise RuntimeError("Tracker shared bridge identity changed")
+        else:
+            from tests.test_asset_storage_cleanup_runtime import _docker
+
+            records = json.loads(_docker("network", "inspect", self.network_id))
+            if len(records) != 1:
+                raise RuntimeError("Tracker bridge identity is not unique")
+            network = records[0]
+            labels = network.get("Labels") or {}
+            configs = (network.get("IPAM") or {}).get("Config") or []
+            if not (
+                network.get("Id") == self.network_id
+                and network.get("Name") == self.name
+                and network.get("Driver") == "bridge"
+                and labels.get("org.aap.acceptance") == "tracker-fixture"
+                and labels.get("org.aap.acceptance-id") == self.identity
+                and len(configs) == 1
+                and configs[0].get("Gateway") == self.gateway
+                and ip_address(self.gateway) in ip_network(configs[0]["Subnet"])
+            ):
+                raise RuntimeError("Tracker bridge ownership changed")
+        address = ip_address(self.gateway)
+        if (
+            not isinstance(address, IPv4Address)
+            or not any(
+                address in ip_network(cidr)
+                for cidr in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
+            )
+        ):
+            raise RuntimeError("Tracker bridge gateway is not a private IPv4 address")
+        return self.gateway
+
+    def reserve_listener(self):
+        gateway = self.verified_gateway()
+        listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            listener.bind((gateway, 0))
+            listener.listen(128)
+            listener.setblocking(False)
+            return listener, f"http://{gateway}:{listener.getsockname()[1]}"
+        except BaseException:
+            listener.close()
+            raise
+
+
+@asynccontextmanager
+async def _tracker_fixture_bridge(*, retain=None):
+    from tests.test_asset_storage_cleanup_runtime import _docker
+
+    if retain is not None and not callable(retain):
+        raise TypeError("Tracker bridge retention requires a callable")
+
+    if os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER"):
+        scripts = str(Path(__file__).resolve().parents[3] / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from worktree_resources import verified_shared_bootstrap_minio
+
+        gateway = urlsplit(endpoint_url()).hostname
+        record = verified_shared_bootstrap_minio(endpoint_url())
+        matches = [
+            (name, attachment)
+            for name, attachment in record["NetworkSettings"]["Networks"].items()
+            if attachment.get("Gateway") == gateway
+        ]
+        if len(matches) != 1:
+            raise RuntimeError("Tracker shared bridge is not unique")
+        name, attachment = matches[0]
+        bridge = _TrackerFixtureBridge(attachment["NetworkID"], name, gateway, None)
+        bridge.verified_gateway()
+        yield bridge
+        return
+
+    identity = uuid.uuid4().hex
+    name = f"aap-tracker-fixture-{identity}"
+    network_id = _docker(
+        "network", "create", "--driver", "bridge",
+        "--label", "org.aap.acceptance=tracker-fixture",
+        "--label", f"org.aap.acceptance-id={identity}", name,
     )
-    return urlunsplit(
-        (parsed.scheme, netloc, parsed.path, parsed.query, parsed.fragment)
-    )
+    try:
+        records = json.loads(_docker("network", "inspect", network_id))
+        if len(records) != 1:
+            raise RuntimeError("Tracker bridge identity is not unique")
+        configs = (records[0].get("IPAM") or {}).get("Config") or []
+        if len(configs) != 1:
+            raise RuntimeError("Tracker bridge has no unique gateway")
+        bridge = _TrackerFixtureBridge(network_id, name, configs[0]["Gateway"], identity)
+        bridge.verified_gateway()
+        yield bridge
+    finally:
+        if retain is None or not retain():
+            records = json.loads(_docker("network", "inspect", network_id))
+            if len(records) != 1:
+                raise RuntimeError("Tracker bridge cleanup identity is not unique")
+            network = records[0]
+            labels = network.get("Labels") or {}
+            if not (
+                network.get("Id") == network_id
+                and network.get("Name") == name
+                and labels.get("org.aap.acceptance") == "tracker-fixture"
+                and labels.get("org.aap.acceptance-id") == identity
+                and not network.get("Containers")
+            ):
+                raise RuntimeError("Tracker bridge cleanup ownership changed")
+            _docker("network", "rm", network_id)
 
 
 class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
     """Reuse the verified consumer worker, adding only the tracker owner bindings."""
+
+    @staticmethod
+    def _docker_http_endpoint(value: str) -> str:
+        if os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER"):
+            from worktree_resources import verified_shared_bootstrap_minio
+
+            if verified_shared_bootstrap_minio(value) is None:
+                raise RuntimeError("Tracker storage bootstrap owner is unavailable")
+            return urlsplit(value).netloc
+        return WorkspaceCeleryWorker._docker_http_endpoint(value)
 
     def __init__(self, *args, media_url: str, media_token: str, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -176,7 +306,7 @@ class _VideoTrackerCeleryWorker(WorkspaceCeleryWorker):
             "labeling_video_writer_client",
         )
         self._tracker_environment = {
-            "ASSETS_MEDIA_URL": _host_forward_url(media_url),
+            "ASSETS_MEDIA_URL": media_url,
             "ASSETS_MEDIA_TOKEN": media_token,
             "ASSETS_MEDIA_TOKEN_FILE": "",
             "INFERENCE_ROUTING_URL": self._routing_owner_url,
@@ -296,18 +426,28 @@ print(json.dumps(observed, sort_keys=True, separators=(',', ':')))
                 {
                     "project_id": str(world["project_id"]),
                     "registry_id": str(world["registry_id"]),
+                    "backend_host": world["backend_host"],
+                    "backend_port": world["backend_port"],
                 }
                 for world in worlds.values()
             ],
             separators=(",", ":"),
         )
-        code = """import asyncio, json, sys, uuid
-from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from app.config import settings
-from app.services.ml_backend import MLBackendService
-from app.services.ml_routing.authority import RoutingAuthority
+        code = """import asyncio, json, sys
+
+stage = 'imports'
+health_diagnostics = None
 
 async def main():
+    global stage, health_diagnostics
+    import uuid
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from app.config import settings
+    from app.services.inference_health_data import InferenceHealthData
+    from app.services.ml_backend import MLBackendService
+    from app.services.ml_routing.authority import RoutingAuthority
+
+    stage = 'database_setup'
     records = json.loads(sys.argv[1])
     engine = create_async_engine(settings.database_url, hide_parameters=True)
     sessions = async_sessionmaker(engine, expire_on_commit=False)
@@ -319,13 +459,41 @@ async def main():
             project_id = uuid.UUID(record['project_id'])
             async with sessions.begin() as db:
                 service = MLBackendService(db)
+                stage = 'health'
+                data = InferenceHealthData(db)
+                before = await data.get_backend(registry_id)
                 if not await service.check_health(registry_id):
+                    try:
+                        after = await data.get_backend(registry_id)
+                        health_diagnostics = {
+                            'backend_found_before': before is not None,
+                            'backend_found_after': after is not None,
+                            'backend_was_connected': before is not None and before.state == 'connected',
+                            'backend_now_error': after is not None and after.state == 'error',
+                            'last_checked_changed': before is not None and after is not None
+                            and before.last_checked_at != after.last_checked_at,
+                        }
+                        try:
+                            _, writer = await asyncio.wait_for(
+                                asyncio.open_connection(record['backend_host'], record['backend_port']),
+                                timeout=3,
+                            )
+                        except (OSError, TimeoutError) as probe_error:
+                            health_diagnostics['backend_tcp'] = type(probe_error).__name__
+                        else:
+                            writer.close()
+                            await writer.wait_closed()
+                            health_diagnostics['backend_tcp'] = 'connected'
+                    except Exception as diagnostic_error:
+                        health_diagnostics = {'error': type(diagnostic_error).__name__}
                     raise RuntimeError('backend health check failed')
+                stage = 'selection'
                 selected = await service.get_tracker_backend_for_capabilities(
                     project_id, ['sam2_video']
                 )
                 if selected is None or selected.id != registry_id:
                     raise RuntimeError('tracker backend selection mismatch')
+            stage = 'reconcile'
             result = await authority.execute('reconcile', {
                 'registry_id': str(registry_id),
                 'control_id': str(uuid.uuid4()),
@@ -338,9 +506,27 @@ async def main():
             })
     finally:
         await engine.dispose()
-    print(json.dumps(results, separators=(',', ':')))
+    return results
 
-asyncio.run(main())
+try:
+    results = asyncio.run(main())
+except Exception as error:
+    cause = error
+    sqlstate = None
+    seen = set()
+    while cause is not None and id(cause) not in seen:
+        seen.add(id(cause))
+        value = getattr(cause, 'sqlstate', None) or getattr(cause, 'pgcode', None)
+        if isinstance(value, str) and len(value) == 5 and value.isalnum():
+            sqlstate = value
+            break
+        cause = getattr(cause, 'orig', None) or cause.__cause__
+    print(json.dumps({
+        'ok': False, 'stage': stage, 'error': type(error).__name__,
+        'sqlstate': sqlstate, 'health': health_diagnostics,
+    }, separators=(',', ':')))
+else:
+    print(json.dumps({'ok': True, 'results': results}, separators=(',', ':')))
 """
         result = self._docker(
             "exec",
@@ -351,7 +537,10 @@ asyncio.run(main())
             payload,
             timeout=120,
         )
-        return json.loads(result)
+        evidence = json.loads(result)
+        if evidence.get("ok") is not True:
+            raise RuntimeError(f"Tracker route bootstrap failed: {evidence!r}")
+        return evidence["results"]
 
     def _write_env_file(self, path, values: dict[str, str]) -> None:
         super()._write_env_file(path, {**values, **self._tracker_environment})
@@ -461,6 +650,8 @@ async def _seed_tracker_world(
             "task_id": task_id,
             "job_id": job.id,
             "registry_id": registry.id,
+            "backend_host": urlsplit(backend_url).hostname,
+            "backend_port": urlsplit(backend_url).port,
             "backend_token": backend_token,
         }
 
@@ -614,8 +805,10 @@ async def _assert_terminal_execution(
             (
                 await db.execute(
                     text(
-                        f"SELECT writer_terminal,writer_terminal_outcome,execution_retired "
-                        f"FROM {_JOBS_SCHEMA}.video_execution_journals WHERE job_id=:job"
+                        "SELECT j.writer_terminal,j.writer_terminal_outcome,j.execution_retired "
+                        f"FROM {_JOBS_SCHEMA}.video_execution_journals AS j "
+                        f"JOIN {_JOBS_SCHEMA}.video_executions AS e "
+                        "ON e.job_id=j.job_id AND e.run_id=j.run_id WHERE j.job_id=:job"
                     ),
                     {"job": job_id},
                 )
@@ -822,16 +1015,19 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
     sender = None
     worlds: dict[str, dict] = {}
     deliveries = []
-    async with _video_runtime(test_engine, tmp_path) as media:
+    async with _tracker_fixture_bridge() as bridge, _video_runtime(
+        test_engine, tmp_path, tracker_bridge=bridge
+    ) as media:
         async with AsyncExitStack() as peers:
             peer_specs = {}
             for label in ("success", "cancel", "removed", "disabled", "replay"):
-                listener, backend_origin = _reserve_port()
+                listener, backend_origin = bridge.reserve_listener()
+                peers.callback(listener.close)
                 backend_token = secrets.token_urlsafe(24)
                 world = await _seed_tracker_world(
                     media,
                     video,
-                    backend_url=_host_forward_url(backend_origin),
+                    backend_url=backend_origin,
                     backend_token=backend_token,
                     label=label,
                 )
@@ -916,7 +1112,7 @@ async def test_real_video_tracker_cold_worker_uses_workspace_acl_and_genuine_ret
             record_property("video_tracker_delivery_policy", delivery_policy)
             record_property(
                 "peer_route_limitation",
-                "PostgreSQL and Redis use verified private container aliases; Assets Media and deterministic backend use the existing host.docker.internal forwarding route.",
+                "PostgreSQL and Redis use verified private container aliases; Assets Media and deterministic backend use the verified fixture bridge gateway.",
             )
 
             bootstrap = await asyncio.to_thread(

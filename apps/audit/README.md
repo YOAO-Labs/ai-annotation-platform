@@ -72,12 +72,19 @@ reads use `audit_events`. The summary's completed-day aggregates use
 Partition retention/archive maintenance now uses the fixed Audit maintenance
 capability, and append hydration does not read the base table. The ordinary API
 retains parent-table SELECT for the held consumer, not private writes or DDL.
-The same owner command has one fixed `cleanup_filtering_fixture_events` operation
-for the hidden E2E seed cleanup. It accepts only the shared filtering marker or a
-validated 4–12 character lowercase alphanumeric namespace, requires an `_test` or
-`_e2e` database and the caller's transaction-local immutability scope, and matches
-only `/api/v1/__test/seed/filtering`. It returns the deleted-row count and does
-not grant ordinary API roles direct Audit deletes.
+The same owner command offers `cleanup_fixture_events(run_id)` for hidden E2E
+seed cleanup. Only a session with USAGE membership in the actual fixture-run
+table owner may invoke it, in an `_test` or `_e2e` database and the caller's
+transaction-local immutability scope. It locks an owned leaf run in `sealing`
+or `retired` state, requires all admissions to be settled, and validates the
+filtering path and producer namespace of each existing row before deleting only
+the exact `(id, created_at)` identities registered to that run. The producer
+namespace is the first 12 hexadecimal characters of SHA-256 over the run UUID's
+16 bytes followed by the UTF-8 caller namespace; the stored scope key remains
+the original caller namespace. Already-deleted rows are ignored; mismatches
+abort the caller's transaction. It returns the deleted-row count and grants
+ordinary callers no direct Audit deletes. Forward migration refuses historical
+UUID ownership rows rather than adopting them or inventing event timestamps.
 
 `aap_audit_v1.audit_daily_facts` publishes the existing six-dimension daily
 materialization through a read-only security-barrier view. Its row key matches

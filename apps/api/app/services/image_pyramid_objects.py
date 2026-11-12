@@ -577,6 +577,17 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
         raise
 
 
+async def retire_fixture(db, control, identifier):
+    """Retire this saved pyramid output under its sealed fixture owner."""
+    from app.services.fixture_media_retirement import _retire_output
+
+    def retire(target, output, fixture):
+        with physical.open_storage(target=target, single_attempt=True, owned=True) as storage:
+            return physical.delete(storage, output, fixture=fixture)
+
+    await _retire_output(db, control, "pyramid_output", identifier, Output, retire)
+
+
 async def reconcile(db, storage):
     """Retire known, unused outputs before exact saved-prefix physical deletion."""
     from app.services.image_pyramid import fail_generation, utcnow
@@ -588,6 +599,9 @@ async def reconcile(db, storage):
                 select(Generation.asset_id, Generation.generation)
                 .where(
                     Generation.status == "building",
+                    func.aap_assets_v1.fixture_media_ordinary_gc(
+                        "pyramid_generation", Generation.asset_id, Generation.generation
+                    ),
                     Generation.lease_expires_at <= utcnow(),
                 )
                 .limit(100)
@@ -611,6 +625,9 @@ async def reconcile(db, storage):
                 .where(
                     Generation.output_id.is_not(None),
                     Generation.updated_at < cutoff,
+                    func.aap_assets_v1.fixture_media_ordinary_gc(
+                        "pyramid_generation", Generation.asset_id, Generation.generation
+                    ),
                     Generation.status.in_(("ready", "failed")),
                     Generation.generation.is_distinct_from(Asset.active_generation),
                     Generation.generation.is_distinct_from(Asset.building_generation),
@@ -646,6 +663,7 @@ async def reconcile(db, storage):
             select(Output.id)
             .where(
                 Output.state != "deleted",
+                func.aap_assets_v1.fixture_media_ordinary_gc("pyramid_output", Output.id, 0),
                 Output.updated_at < cutoff,
                 ~exists().where(Generation.output_id == Output.id),
                 ~exists().where(

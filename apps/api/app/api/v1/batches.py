@@ -1279,8 +1279,6 @@ async def export_batch(
             headers={"Content-Disposition": f"attachment; filename={fname}_voc.zip"},
         )
 
-    from app.services import async_job as async_job_svc
-    from app.db.models.async_job import AsyncJobKind
     from app.services.jobs_queue import dispatch_job
     from app.services.jobs_dispatch import (
         prepare_job_dispatch,
@@ -1301,28 +1299,27 @@ async def export_batch(
         **({"video_export_scope": video_scope_payload} if video_scope_payload else {}),
         **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
     }
-    job = await async_job_svc.create_job(
-        db,
-        kind=AsyncJobKind.EXPORT.value,
-        user_id=actor.id,
-        project_id=project.id,
-        payload={
-            "output_authority": output_proof,
-            "batch_id": str(batch_id),
-            "targets": targets,
-            "project_id": str(project_id),
-            "project_display_id": project.display_id,
-            "batch_display_id": batch.display_id,
-            **export_opts,
-        },
-    )
     from app.services.content_snapshot import ContentError
-    from app.services.exporting.media_jobs import capture_job
+    from app.services.exporting.media_jobs import create_export_job
     from app.services.video_canonical import VideoBoundaryUnreconciledError
 
     try:
-        media_bundle = await capture_job(
-            db, job, project, batch_id=batch_id, targets=targets, opts=export_opts
+        job, media_bundle = await create_export_job(
+            db,
+            project,
+            actor_id=actor.id,
+            batch_id=batch_id,
+            targets=targets,
+            opts=export_opts,
+            payload={
+                "output_authority": output_proof,
+                "batch_id": str(batch_id),
+                "targets": targets,
+                "project_id": str(project_id),
+                "project_display_id": project.display_id,
+                "batch_display_id": batch.display_id,
+                **export_opts,
+            },
         )
     except VideoBoundaryUnreconciledError as exc:
         raise HTTPException(409, detail=exc.detail) from None

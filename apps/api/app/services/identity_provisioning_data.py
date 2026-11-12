@@ -35,13 +35,14 @@ class IdentityProvisioningData:
         self.db = db
 
     async def lookup_first_seed_account(self) -> tuple[uuid.UUID, str] | None:
-        profile = aliased(User, account_profiles, adapt_on_names=True)
-        user = (
+        if self.db.autoflush:
+            await self.db.flush()
+        row = (
             await self.db.execute(
-                select(profile).options(load_only(profile.id, profile.email)).limit(1)
+                text("SELECT id, email FROM aap_identity_v1.read_first_seed_account()")
             )
-        ).scalar_one_or_none()
-        return (user.id, user.email) if user is not None else None
+        ).one_or_none()
+        return (row.id, row.email) if row is not None else None
 
     async def read_scale_seed_super_admin(self):
         return _payload(

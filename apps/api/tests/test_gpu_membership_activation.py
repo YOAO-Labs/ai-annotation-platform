@@ -414,7 +414,9 @@ async def promotion_db(
         yield _PromotionHarness(
             factory=factory,
             backend_ids=backend_ids,
-            authority_data=GPUAuthorityPoolData(pool),
+            authority_data=GPUAuthorityPoolData(
+                pool, expected_role="inference_gpu_authority_client"
+            ),
             endpoint_source=_TestOwnedEndpointSource(factory),
             backend_transport=_TestBackendControlTransport(factory),
         )

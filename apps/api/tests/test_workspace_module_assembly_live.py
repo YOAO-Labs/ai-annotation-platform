@@ -25,7 +25,6 @@ import pytest
 from app.db.models.dataset import Dataset, ProjectDataset
 from app.db.models.ml_backend_pool import MLBackendPoolMember, MLBackendServicePool
 from app.db.models.ml_backend_registry import MLBackendRegistry
-from app.db.models.prediction import FailedPrediction
 from app.db.models.user import User
 from tests.factory import create_user
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
@@ -888,21 +887,9 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                     owner_id=actors["owner"].id,
                     project_id=native_project_id,
                 )
-                async with maker.begin() as db:
-                    failed_id = uuid.uuid4()
-                    db.add(
-                        FailedPrediction(
-                            id=failed_id,
-                            project_id=native_project_id,
-                            error_type="assembly-worker-read",
-                            message="actorless retry metadata",
-                            extra={},
-                        )
-                    )
 
-                # Workspace owner HTTP is deliberately stopped for APIs which
-                # must remain in the caller transaction and for an actor-free
-                # worker helper that reads through the fixed Native function.
+                # Workspace owner HTTP is deliberately stopped to qualify the
+                # transaction-local Native Project read.
                 for service in _WORKSPACE_STOP_ORDER:
                     await stack.stop_service(service)
 
@@ -925,7 +912,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                 )
                 try:
                     from app.services.project_access import get_workspace_project
-                    from app.workers.predictions_retry import _retry_job_metadata
 
                     consumer_sessions = async_sessionmaker(
                         consumer_engine, expire_on_commit=False
@@ -938,17 +924,6 @@ async def test_workspace_module_assembly_public_api_native_boundaries_and_restor
                         assert native_project is not None
                         assert (
                             native_project.name
-                            == "Workspace Native transaction project"
-                        )
-                    async with consumer_sessions() as db:
-                        await db.execute(text("SET TRANSACTION READ ONLY"))
-                        worker_project_id, worker_payload = await _retry_job_metadata(
-                            db, failed_id
-                        )
-                        assert worker_project_id == native_project_id
-                        assert worker_payload["project_display_id"]
-                        assert (
-                            worker_payload["project_name"]
                             == "Workspace Native transaction project"
                         )
                 finally:

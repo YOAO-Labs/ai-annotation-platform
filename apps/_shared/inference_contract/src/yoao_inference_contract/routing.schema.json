@@ -309,12 +309,47 @@
           "minLength": 1,
           "maxLength": 512
         },
+        "prediction_execution": {
+          "anyOf": [{ "$ref": "#/$defs/RoutingPredictionExecutionProof" }, { "type": "null" }]
+        },
+        "prediction_test": {
+          "anyOf": [{ "$ref": "#/$defs/RoutingPredictionTestProof" }, { "type": "null" }]
+        },
         "operation": {
           "type": "string",
           "minLength": 1,
           "maxLength": 96
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "operation": { "enum": ["image_batch_predict", "prediction_retry"] } },
+            "required": ["operation"]
+          },
+          "then": {
+            "required": ["prediction_execution"],
+            "properties": {
+              "prediction_execution": { "$ref": "#/$defs/RoutingPredictionExecutionProof" }
+            }
+          },
+          "else": { "properties": { "prediction_execution": { "type": "null" } } }
+        },
+        {
+          "if": {
+            "properties": { "operation": { "const": "predict_test" } },
+            "required": ["operation"]
+          },
+          "then": {
+            "required": ["prediction_test"],
+            "properties": {
+              "prediction_test": { "$ref": "#/$defs/RoutingPredictionTestProof" }
+            }
+          },
+          "else": { "properties": { "prediction_test": { "type": "null" } } }
+        }
+      ],
+      "description": "Prediction routes require a current execution lease or exact test task. The owner validates matching project, job/task identity and stage owner before admission."
     },
     "BeginBody": {
       "type": "object",
@@ -1570,6 +1605,68 @@
           "enum": ["unverified", "ready", null]
         }
       }
+    },
+    "RoutingPredictionExecutionProof": {
+      "additionalProperties": false,
+      "description": "Current Jobs result-execution lease, not a saved metadata correlation.",
+      "properties": {
+        "job_id": {
+          "format": "uuid",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "actor_id": {
+          "format": "uuid",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "project_id": {
+          "format": "uuid",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "request_digest": {
+          "pattern": "^[0-9a-f]{64}$",
+          "type": "string"
+        },
+        "generation": {
+          "maximum": 9223372036854775807,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "lease_token": {
+          "format": "uuid",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": [
+        "job_id",
+        "actor_id",
+        "project_id",
+        "request_digest",
+        "generation",
+        "lease_token"
+      ],
+      "type": "object"
+    },
+    "RoutingPredictionTestProof": {
+      "additionalProperties": false,
+      "description": "The exact task whose synchronous prediction test owns this scope.",
+      "properties": {
+        "project_id": {
+          "format": "uuid",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        },
+        "task_id": {
+          "format": "uuid",
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+        }
+      },
+      "required": ["project_id", "task_id"],
+      "type": "object"
     },
     "RoutingVideoExecutionProof": {
       "additionalProperties": false,

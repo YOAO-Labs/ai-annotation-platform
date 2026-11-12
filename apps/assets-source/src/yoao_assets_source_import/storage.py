@@ -11,7 +11,6 @@ from __future__ import annotations
 import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
-from io import BytesIO
 import mimetypes
 from typing import Any, Awaitable, BinaryIO, Callable
 
@@ -28,12 +27,14 @@ from yoao_assets_source.connectors.crypto import (
     decrypt_secret,
 )
 from yoao_assets_source.import_contract import ImportEntry
+from yoao_assets_source.import_verification_contract import ImportVerificationResult
 from yoao_assets_source.managed_original_contract import (
     ManagedOriginalMaterial,
     ManagedOriginalProof,
 )
 
 from .config import ImportConfig
+from .verification import ExpectedOriginal
 
 
 class DestinationWriteError(OSError):
@@ -128,6 +129,7 @@ class DestinationStorage:
         on_prepared: Callable[[Any], Awaitable[None]] | None = None,
         on_writing: Callable[[], Awaitable[None]] | None = None,
         on_written: Callable[[Any], Awaitable[None]] | None = None,
+        on_verify: Callable[[ExpectedOriginal], Awaitable[ImportVerificationResult]],
     ) -> TransferResult:
         with self._client_scope(target) as client:
             return await self._transfer_with(
@@ -141,6 +143,7 @@ class DestinationStorage:
                 on_prepared=on_prepared,
                 on_writing=on_writing,
                 on_written=on_written,
+                on_verify=on_verify,
             )
 
     async def _transfer_with(
@@ -156,6 +159,7 @@ class DestinationStorage:
         on_prepared: Callable[[Any], Awaitable[None]] | None = None,
         on_writing: Callable[[], Awaitable[None]] | None = None,
         on_written: Callable[[Any], Awaitable[None]] | None = None,
+        on_verify: Callable[[ExpectedOriginal], Awaitable[ImportVerificationResult]],
     ) -> TransferResult:
         """Prepare, conditionally complete and fully read back one original."""
         if entry.file_path != target.file_path:
@@ -196,25 +200,21 @@ class DestinationStorage:
             )
             if on_written is not None:
                 await on_written(receipt)
-            verified = await _thread(
-                managed_original.verify,
-                client,
-                target.bucket,
-                target.object_key,
-                receipt,
-                sha256=prepared.sha256,
-                size_bytes=prepared.size_bytes,
-                max_bytes=max_bytes,
-                timeout_seconds=self._io_timeout,
+            verified = await on_verify(
+                ExpectedOriginal(
+                    sha256=prepared.sha256,
+                    md5=prepared.md5,
+                    size_bytes=prepared.size_bytes,
+                    etag=receipt.etag,
+                    version_id=receipt.version_id,
+                )
             )
         except managed_original.WriterError as exc:
             raise _writer_failure(exc) from None
         if prepared.size_bytes != entry.source.size:
             raise SourceChangedError("source size changed after enumeration")
         dimensions = (
-            await asyncio.to_thread(_image_dimensions, verified.head_bytes)
-            if entry.file_type == "image"
-            else None
+            (verified.width, verified.height) if verified.width is not None else None
         )
         object_identity = None
         if entry.file_type == "image":
@@ -230,11 +230,7 @@ class DestinationStorage:
             version_id=receipt.version_id,
             request_id=receipt.request_id,
             prepared=prepared.evidence(),
-            verification={
-                **verified.evidence(),
-                "etag": receipt.etag,
-                "version_id": receipt.version_id,
-            },
+            verification=verified.model_dump(mode="json"),
             observed={"observation": verified.observation},
         )
         return TransferResult(
@@ -245,37 +241,6 @@ class DestinationStorage:
             object_identity=object_identity,
         )
 
-    async def verify(
-        self,
-        target: ManagedOriginalMaterial,
-        *,
-        sha256: str,
-        size_bytes: int,
-    ) -> Any:
-        """Read back the exact saved version of an already verified creation."""
-        if target.etag is None:
-            raise DestinationWriteError("destination returned an invalid write receipt")
-        with self._client_scope(target) as client:
-            try:
-                verified = await _thread(
-                    managed_original.verify,
-                    client,
-                    target.bucket,
-                    target.object_key,
-                    managed_original.WriteReceipt(
-                        etag=target.etag,
-                        version_id=target.version_id,
-                        request_id=None,
-                        response={},
-                    ),
-                    sha256=sha256,
-                    size_bytes=size_bytes,
-                    max_bytes=max(size_bytes, 1),
-                    timeout_seconds=self._io_timeout,
-                )
-            except managed_original.WriterError as exc:
-                raise _writer_failure(exc) from None
-        return verified
 
 
 def _writer_failure(exc: managed_original.WriterError) -> DestinationWriteError:
@@ -330,7 +295,7 @@ def _close_client(client: Any) -> None:
 
 
 def _object_identity_from_verified(
-    verified: managed_original.Verified, *, byte_size: int
+    verified: ImportVerificationResult, *, byte_size: int
 ) -> ObjectIdentity:
     etag = verified.observation.get("etag")
     version_id = verified.observation.get("version_id")
@@ -474,22 +439,3 @@ async def _read_part(
         data.extend(chunk)
         on_bytes(len(chunk))
     return bytes(data)
-
-
-def _image_dimensions(head: bytes) -> tuple[int, int] | None:
-    if not head:
-        return None
-    try:
-        from PIL import Image
-
-        with Image.open(BytesIO(head)) as image:
-            width, height = int(image.width), int(image.height)
-            try:
-                orientation = int(image.getexif().get(274, 1))
-            except Exception:
-                orientation = 1
-            if width < 1 or height < 1:
-                return None
-            return (height, width) if orientation in {5, 6, 7, 8} else (width, height)
-    except Exception:
-        return None

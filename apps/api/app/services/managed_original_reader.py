@@ -23,7 +23,7 @@ from botocore.exceptions import ClientError
 
 from app.services.content_snapshot import ContentError
 from app.services.filesystem_storage import FilesystemStorageError
-from app.services.storage_access import close_registered, mark_unsettled
+from app.services.storage_access import close_registered, failure_unsettled, mark_unsettled
 
 CHUNK_BYTES = 256 * 1024
 _slots = threading.BoundedSemaphore(4)
@@ -226,7 +226,9 @@ def _conditions(client, params, etag, check):
 
 
 def _failure(exc):
-    if getattr(exc, "storage_operation_unsettled", False):
+    if isinstance(exc, BaseExceptionGroup):
+        return mark_unsettled(exc) if failure_unsettled(exc) else exc
+    if failure_unsettled(exc):
         return mark_unsettled(ContentError("storage_operation_unsettled", 503))
     if isinstance(exc, ContentError):
         return exc
@@ -331,17 +333,34 @@ def _capture(
                 if digest.hexdigest() != spec.sha256:
                     _reject("content_mismatch")
             finally:
-                close_registered(body)
+                primary = sys.exception()
+                try:
+                    close_registered(body)
+                except BaseException as closing:
+                    if primary is None:
+                        raise
+                    raise BaseExceptionGroup(
+                        "Original read and response close failed", [primary, closing]
+                    ) from None
             check()
             if _observation(client.head_object(**params), spec) != before:
                 _reject()
             check()
         finally:
             if client is not None:
-                if context is not None:
-                    context.__exit__(*sys.exc_info())
-                else:
-                    close_registered(client)
+                primary = sys.exception()
+                try:
+                    if context is not None:
+                        context.__exit__(*sys.exc_info())
+                    else:
+                        close_registered(client)
+                except BaseException as closing:
+                    mark_unsettled(closing)
+                    if primary is None:
+                        raise
+                    raise BaseExceptionGroup(
+                        "Original read and client close failed", [primary, closing]
+                    ) from None
         check()
         temporary.seek(0)
         stage = BinaryStage(
@@ -355,11 +374,12 @@ def _capture(
         transferred = True
         return stage
     except BaseException as exc:
-        unsettled = getattr(exc, "storage_operation_unsettled", False)
+        unsettled = failure_unsettled(exc)
         if isinstance(exc, Exception):
             raise _failure(exc) from None
         raise
     finally:
+        primary = sys.exception()
         if not transferred:
             # Closing the local temporary file does not settle an unknown
             # provider constructor or remote handle. Explicit pools retain that
@@ -371,7 +391,12 @@ def _capture(
                         close_registered(temporary)
                     except BaseException as exc:
                         settled = not retain_on_close_error
-                        raise _failure(exc) from None
+                        closing = _failure(exc)
+                        if primary is not None:
+                            raise BaseExceptionGroup(
+                                "Original read and temporary close failed", [primary, closing]
+                            ) from None
+                        raise closing from None
             finally:
                 if settled:
                     release()

@@ -30,6 +30,22 @@ async def video_source_references(
                     *(gateway.source_reference(request) for request in batch),
                     return_exceptions=True,
                 )
+                failures = [
+                    value
+                    for value in batch_references
+                    if isinstance(value, BaseException)
+                ]
+                if any(
+                    getattr(value, "storage_operation_unsettled", False)
+                    for value in failures
+                ):
+                    if len(failures) == 1:
+                        raise failures[0]
+                    combined = BaseExceptionGroup(
+                        "Video source references failed", failures
+                    )
+                    combined.storage_operation_unsettled = True
+                    raise combined
                 for index, (request, reference) in enumerate(
                     zip(batch, batch_references, strict=True), start=start
                 ):
@@ -49,11 +65,17 @@ async def video_source_references(
                     )
                     resolved[index] = reference.model_copy(
                         update={
-                            "original_url": browser_media_url(reference.original_url),
-                            "video_url": browser_media_url(
-                                reference.video_url
-                                if materialized
-                                else reference.original_url
+                            "original_url": (
+                                browser_media_url(reference.original_url)
+                                if reference.original_url is not None
+                                else None
+                            ),
+                            "video_url": (
+                                browser_media_url(reference.video_url)
+                                if materialized and reference.video_url
+                                else browser_media_url(reference.original_url)
+                                if not materialized and reference.original_url
+                                else None
                             ),
                             "poster_url": (
                                 browser_media_url(reference.poster_url)
@@ -62,7 +84,9 @@ async def video_source_references(
                             ),
                         }
                     )
-    except Exception:
+    except Exception as exc:
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
         return resolved
     return resolved
 

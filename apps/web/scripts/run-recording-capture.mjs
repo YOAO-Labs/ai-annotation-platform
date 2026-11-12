@@ -1,4 +1,5 @@
-import { spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
@@ -78,10 +79,12 @@ if (values["headless-display"]) {
 }
 
 const webRoot = fileURLToPath(new URL("..", import.meta.url));
-const apiRoot = path.resolve(webRoot, "../api");
-const databaseUrl = process.env.SCREENSHOT_DATABASE_URL;
-if (!databaseUrl || !/(_test|_e2e)$/.test(new URL(databaseUrl).pathname)) {
-  throw new Error("SCREENSHOT_DATABASE_URL must select an isolated *_test or *_e2e database.");
+if (
+  !["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "") ||
+  !process.env.DATABASE_URL ||
+  !process.env.PLAYWRIGHT_E2E_DATABASE_URL
+) {
+  throw new Error("Capture requires pnpm dev:worktree exec --mode e2e --with-worker.");
 }
 const redisUrl = process.env.REDIS_URL;
 if (!redisUrl || !process.env.CELERY_BROKER_URL) {
@@ -91,16 +94,18 @@ if (!redisUrl || !process.env.CELERY_BROKER_URL) {
 }
 const redis = new URL(redisUrl);
 const broker = new URL(process.env.CELERY_BROKER_URL);
-if (!/^\/[1-9]\d*$/.test(redis.pathname) || redis.href !== broker.href) {
-  throw new Error(
-    "Capture requires the same explicit nonzero Redis DB for REDIS_URL and CELERY_BROKER_URL.",
-  );
+if (
+  redis.protocol !== "redis:" ||
+  redis.hostname !== "127.0.0.1" ||
+  redis.pathname !== "/0" ||
+  redis.href !== broker.href
+) {
+  throw new Error("Capture requires the isolated worktree Redis and matching Celery broker.");
 }
 const env = {
   ...process.env,
-  DATABASE_URL: databaseUrl,
-  MIGRATION_DATABASE_URL: databaseUrl,
-  PYTHONPATH: ".",
+  SCREENSHOT_FIXTURE_RUN_ID: randomUUID(),
+  SCREENSHOT_ASSET_OFFLINE: "1",
   SCREENSHOT_BACKEND_REQUIREMENTS: plan.backendRequirements,
   SCREENSHOT_RECORDING_FLOWS: plan.flows.join(","),
   SCREENSHOT_RECORDING_PROFILE: plan.profile,
@@ -108,27 +113,28 @@ const env = {
   SCREENSHOT_VALIDATE_ONLY: values["validate-only"] ? "1" : "0",
   ...(captureDriver ? { MARKETING_CAPTURE_DRIVER: captureDriver } : {}),
 };
-const requiresLiveInference = plan.flows.some((id) => recordingInference(id) === "live");
-if (plan.backendRequirements !== "none" || requiresLiveInference) {
-  const response = await fetch(
-    new URL("/health", process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010"),
-    { signal: AbortSignal.timeout(15_000) },
-  );
-  if (!response.ok) throw new Error(`Capture API health failed: ${response.status}`);
-  const health = await response.json();
-  const workers = health?.checks?.celery?.workers ?? [];
-  if (!workers.length || workers.some((worker) => !worker.name?.startsWith("screenshots@"))) {
-    throw new Error("Live recording requires only screenshots@ workers on the capture API broker.");
-  }
-}
-function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, env, stdio: "inherit" });
-  if (result.error) throw result.error;
-  if (result.status !== 0) process.exit(result.status ?? 1);
+let child;
+let interrupted;
+const interrupt = () => {
+  interrupted = "SIGINT";
+  child?.kill("SIGINT");
+};
+const terminate = () => {
+  interrupted = "SIGTERM";
+  child?.kill("SIGTERM");
+};
+async function run(command, args, cwd) {
+  child = spawn(command, args, { cwd, env, stdio: "inherit" });
+  const result = await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  child = undefined;
+  if (result.code !== 0) throw new Error(`${command} failed: ${result.signal ?? result.code}`);
 }
 // Fail read-only capture checks before fixture reconciliation can mutate the database.
 if (plan.profile === "marketing") {
-  run(
+  await run(
     process.execPath,
     [
       "scripts/run-marketing-capture.mjs",
@@ -138,37 +144,33 @@ if (plan.profile === "marketing") {
     webRoot,
   );
 }
-// Probe live registered backends during reconciliation, never silently start a stub.
-run(
-  path.join(apiRoot, ".venv/bin/python"),
-  [
-    "scripts/seed.py",
-    "--profile",
-    "screenshots",
-    "--offline",
-    "--repair",
-    "--ml-backend-mode",
-    "live",
-    "--backend-requirements",
-    plan.backendRequirements,
-  ],
-  apiRoot,
-);
-if (plan.profile === "marketing") {
-  run(
-    process.execPath,
-    [
-      "scripts/run-marketing-capture.mjs",
-      "--grep",
-      plan.grep,
-      ...(values["resize-display"] ? ["--resize-display"] : []),
-    ],
-    webRoot,
-  );
-} else {
-  run(
-    path.join(webRoot, "node_modules/.bin/playwright"),
-    ["test", "--config=playwright.screenshots.config.ts", "--project=flows", "--grep", plan.grep],
-    webRoot,
-  );
+let failure;
+process.on("SIGINT", interrupt);
+process.on("SIGTERM", terminate);
+try {
+  if (plan.profile === "marketing") {
+    await run(
+      process.execPath,
+      [
+        "scripts/run-marketing-capture.mjs",
+        "--grep",
+        plan.grep,
+        ...(values["resize-display"] ? ["--resize-display"] : []),
+      ],
+      webRoot,
+    );
+  } else {
+    await run(
+      path.join(webRoot, "node_modules/.bin/playwright"),
+      ["test", "--config=playwright.screenshots.config.ts", "--project=flows", "--grep", plan.grep],
+      webRoot,
+    );
+  }
+} catch (error) {
+  failure = error;
+} finally {
+  process.removeListener("SIGINT", interrupt);
+  process.removeListener("SIGTERM", terminate);
 }
+if (failure) throw failure;
+if (interrupted) process.exitCode = interrupted === "SIGINT" ? 130 : 143;

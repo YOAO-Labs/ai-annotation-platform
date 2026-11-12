@@ -57,7 +57,8 @@ async def test_runtime_uses_a_fresh_connection_and_commits_each_operation(
         connections.append(connection)
         return connection
 
-    async def bind(_cls, connection):
+    async def bind(_cls, connection, *, expected_login):
+        assert expected_login == "routing"
         return ("bound", connection)
 
     asyncpg_module = ModuleType("asyncpg")
@@ -84,7 +85,8 @@ async def test_body_failure_rolls_back_and_cleanup_does_not_replace_it(monkeypat
     async def connect(*_args, **_kwargs):
         return connection
 
-    async def bind(_cls, _connection):
+    async def bind(_cls, _connection, *, expected_login):
+        assert expected_login == "routing"
         return object()
 
     asyncpg_module = ModuleType("asyncpg")

@@ -8,14 +8,20 @@ from app.db.models.task import Task
 from app.db.models.task_original import TaskOriginal
 from app.services import managed_original_creation as creations
 from app.services.storage import storage_service
+from tests.identity_e2e_support import (
+    committed_owner as committed_owner,
+    fixture_and_fenced_http as fixture_and_fenced_http,
+)
 from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
 
 
 async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(
-    httpx_client, db_session
+    fixture_and_fenced_http, committed_owner
 ):
-    namespace = "to" + uuid.uuid4().hex[:8]
-    world = await _build_owned(httpx_client, namespace)
+    httpx_client = fixture_and_fenced_http
+    db_session = committed_owner
+    run = httpx_client.owner_suite.new_run("to" + uuid.uuid4().hex[:8])
+    world = await _build_owned(httpx_client, run)
     records = []
     try:
         response = await httpx_client.post(
@@ -39,8 +45,9 @@ async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(
             allocation = await creations.for_task(
                 db_session, task_id=task_id, object_key=task.file_path
             )
+            await db_session.rollback()
             payload = b"retained candidate"
-            storage_service.client.put_object(
+            staged = storage_service.client.put_object(
                 Bucket=allocation["staging_bucket"],
                 Key=allocation["staging_key"],
                 Body=payload,
@@ -51,12 +58,12 @@ async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(
                     f"/api/v1/files/upload-complete/{task_id}", headers=headers
                 )
                 assert response.status_code == 200, response.text
-            records.append((task_id, allocation, complete))
-        response = await _cleanup_owned(httpx_client, namespace)
+            records.append((task_id, allocation, complete, staged.get("VersionId")))
+        response = await _cleanup_owned(httpx_client, run)
         assert response.status_code == 200, response.text
         db_session.expire_all()
         assert await db_session.get(Project, uuid.UUID(world["project_id"])) is None
-        for task_id, allocation, complete in records:
+        for task_id, allocation, complete, staged_version in records:
             assert await db_session.get(Task, task_id) is None
             ledger = await db_session.get(ManagedOriginalCreation, allocation["id"])
             assert ledger.status == ("verified" if complete else "allocated")
@@ -67,13 +74,17 @@ async def test_namespace_cleanup_preserves_known_and_unfinished_task_originals(
                 if complete
                 else (allocation["staging_bucket"], allocation["staging_key"])
             )
-            body = storage_service.client.get_object(Bucket=bucket, Key=key)["Body"]
+            request = {"Bucket": bucket, "Key": key}
+            version = owner.version_id if complete else staged_version
+            if version and version != "null":
+                request["VersionId"] = version
+            body = storage_service.client.get_object(**request)["Body"]
             try:
                 assert body.read() == b"retained candidate"
             finally:
                 body.close()
-        assert (await _cleanup_owned(httpx_client, namespace)).status_code == 200
+        assert (await _cleanup_owned(httpx_client, run)).status_code == 200
     finally:
         # Immutable physical responsibility is removed only by destroying the
         # launcher's whole disposable test mode, never by bypassing its guards.
-        assert (await _cleanup_owned(httpx_client, namespace)).status_code == 200
+        assert (await _cleanup_owned(httpx_client, run)).status_code == 200

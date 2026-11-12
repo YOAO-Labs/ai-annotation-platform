@@ -29,7 +29,9 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
 CMD ["python", "-m", "yoao_assets_media_runtime"]
 
 FROM runtime AS worker
-RUN apt-get update \
+RUN sed -i 's|^URIs: http://deb.debian.org/|URIs: https://deb.debian.org/|' \
+        /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 USER 10005:10005

@@ -99,6 +99,9 @@ END $$;
 
 REVOKE ALL ON SCHEMA aap_assets_v1 FROM :"asset_operator_role";
 GRANT USAGE ON SCHEMA aap_assets_v1 TO :"asset_operator_role";
+GRANT USAGE ON SCHEMA aap_identity_v1 TO :"asset_operator_role";
+GRANT EXECUTE ON FUNCTION aap_identity_v1.read_first_seed_account()
+    TO :"asset_operator_role";
 GRANT EXECUTE ON FUNCTION
     aap_assets_v1.publish_operator_item_original(jsonb),
     aap_assets_v1.operator_item_original_facts(uuid,uuid),
@@ -135,6 +138,9 @@ DECLARE
         WHERE role.rolname = current_setting('aap.asset_operator_role')
     );
     allowed_functions oid[] := ARRAY[
+        pg_catalog.to_regprocedure(
+            'aap_identity_v1.read_first_seed_account()'
+        )::oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.publish_operator_item_original(jsonb)'
         )::oid,
@@ -219,7 +225,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
-          AND ns.nspname <> 'aap_assets_v1'
+          AND ns.nspname NOT IN ('aap_assets_v1', 'aap_identity_v1')
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
         RAISE EXCEPTION 'Operator LOGIN has access to a foreign module schema';

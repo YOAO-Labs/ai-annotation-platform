@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+from contextlib import suppress
+import logging
 from collections.abc import Awaitable, Callable
 from typing import BinaryIO, TypeVar
+from uuid import uuid4
 
+import asyncpg
 from pydantic import BaseModel, ValidationError
 
 from .config import SourceConfig
@@ -38,6 +43,13 @@ from yoao_assets_source.ingest_contract import (
     IngestReceipt,
     decode_ingest_reply,
 )
+from yoao_assets_source.import_verification_contract import (
+    ImportVerificationReply,
+    ImportVerificationRequest,
+    ImportVerificationResult,
+)
+from yoao_assets_source.managed_original_contract import ManagedOriginalMaterial
+from .ingest_storage_errors import ManagedStorageError
 from .storage import SourceStorage
 from .workflow import UploadWorkflow
 from .ingest_storage import IngestStorage
@@ -46,6 +58,7 @@ from .image_admission import ImageAdmission
 
 _Result = TypeVar("_Result", bound=BaseModel)
 _SOURCE_SCHEMA = "aap-assets-source/v1"
+logger = logging.getLogger("yoao_assets_source_runtime.import_recovery")
 
 
 class _ExpectedFailure(Exception):
@@ -63,15 +76,35 @@ class SourceRuntime:
         self._config = config
         self._database = database
         self._storage = storage
+        self._recovery_task: asyncio.Task[None] | None = None
 
     @classmethod
     async def start(cls, config: SourceConfig) -> SourceRuntime:
         database = await SourceDatabase.connect(config)
         try:
-            return cls(config, database, SourceStorage(config))
+            runtime = cls(config, database, SourceStorage(config))
+            runtime._recovery_task = asyncio.create_task(
+                runtime._recover_import_verifications(), name="source-import-verification-recovery"
+            )
+            return runtime
         except Exception:
             await database.close()
             raise
+
+    async def _recover_import_verifications(self) -> None:
+        cursor = None
+        while True:
+            try:
+                payload = await self._database.import_verification("recover", cursor)
+                cursor = payload["cursor"]
+                if cursor is None:
+                    await asyncio.sleep(1)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Import verification recovery could not advance")
+                cursor = None
+                await asyncio.sleep(1)
 
     async def init_upload(self, request: UploadInitRequest) -> bytes:
         async def operation(ports: SourceDataPorts) -> UploadInitResult:
@@ -102,6 +135,142 @@ class SourceRuntime:
             return await self._ingest_workflow(ports).scan(command)
 
         return await self._run_ingest(operation)
+
+    async def import_verification_status(
+        self, request: ImportVerificationRequest
+    ) -> dict:
+        command = request.model_dump(mode="json")
+        payload = await self._database.import_verification("status", command)
+        if payload.get("state") == "drained":
+            payload = await self._finish_import_verification(command, payload["evidence"]["result"])
+        return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
+
+    async def _finish_import_verification(self, command: dict, result) -> dict:
+        try:
+            return await self._database.import_verification("finish", command, result)
+        except asyncpg.LockNotAvailableError:
+            # The durable drained receipt lets later status calls retry settlement
+            # without replaying the physical read or claiming a failed commit.
+            return {"state": "pending"}
+
+    async def _record_import_read(self, command: dict, result) -> dict:
+        payload = await self._database.import_verification("record", command, result)
+        if payload.get("state") == "drained":
+            return await self._finish_import_verification(command, result)
+        return payload
+
+    async def verify_import_original(self, request: ImportVerificationRequest) -> dict:
+        command = request.model_dump(mode="json")
+        deadline = asyncio.get_running_loop().time() + self._config.import_verify_timeout_seconds
+        admission = {**command, "admission_id": str(uuid4())}
+
+        async def settle_admission() -> None:
+            while True:
+                try:
+                    recorded = await self._database.import_verification("record", admission, None)
+                    if recorded.get("state") == "drained":
+                        await self._finish_import_verification(command, None)
+                    return
+                except (asyncpg.PostgresConnectionError, OSError, TimeoutError):
+                    remaining = deadline - asyncio.get_running_loop().time()
+                    if remaining <= 0:
+                        raise
+                    await asyncio.sleep(min(0.05, remaining))
+
+        uncertain = False
+        try:
+            while True:
+                budget = asyncio.timeout_at(deadline)
+                try:
+                    async with budget:
+                        started = await self._database.import_verification("begin", admission)
+                    break
+                except TimeoutError:
+                    if budget.expired() or asyncio.get_running_loop().time() >= deadline:
+                        raise
+                    # Only this private pre-read nonce can resume an ambiguous
+                    # admission; a connection timeout is not the Source deadline.
+                    uncertain = True
+                except (asyncpg.LockNotAvailableError, asyncpg.ObjectInUseError) as exc:
+                    if (isinstance(exc, asyncpg.ObjectInUseError)
+                        and exc.message != "import_verification_maintenance_unavailable"):
+                        raise
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError("import verification admission deadline")
+                await asyncio.sleep(min(0.05, remaining))
+            if started.get("state") != "started":
+                if uncertain:
+                    await settle_admission()
+                return ImportVerificationReply.model_validate(started).model_dump(mode="json")
+            facts = dict(started["material"])
+            image = facts.pop("file_type") == "image"
+            expected_md5 = facts.pop("md5")
+            material = ManagedOriginalMaterial.model_validate(facts)
+            if material.destination is None and material.bucket != self._config.datasets_bucket:
+                payload = await self._record_import_read(command, None)
+                return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
+            remaining = deadline - asyncio.get_running_loop().time()
+            if remaining <= 0:
+                # Admission succeeded after the budget, before any physical read.
+                payload = await self._record_import_read(command, None)
+                return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
+            task = asyncio.create_task(
+                self._storage.managed.verify(
+                    material,
+                    sha256=material.sha256,
+                    size_bytes=material.size_bytes,
+                    image=image,
+                    timeout_seconds=remaining,
+                )
+            )
+        except (Exception, asyncio.CancelledError):
+            # No physical read has started; only this request's private nonce
+            # can settle a commit whose acknowledgement was lost.
+            cleanup = asyncio.create_task(settle_admission())
+            while True:
+                try:
+                    await asyncio.shield(cleanup)
+                    break
+                except asyncio.CancelledError:
+                    if cleanup.done():
+                        break
+                except Exception:
+                    logger.exception("Import verification admission settlement failed")
+                    break
+            raise
+        cancelled = False
+        try:
+            try:
+                verified = await asyncio.shield(task)
+            except asyncio.CancelledError:
+                cancelled = True
+                verified = await asyncio.shield(task)
+        except ManagedStorageError as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
+            payload = await self._record_import_read(command, None)
+        else:
+            if verified.md5 != expected_md5:
+                payload = await self._record_import_read(command, None)
+            else:
+                dimensions = verified.dimensions
+                receipt = ImportVerificationResult(
+                    sha256=verified.sha256,
+                    md5=verified.md5,
+                    size_bytes=verified.size_bytes,
+                    etag=verified.etag,
+                    version_id=verified.version_id,
+                    observation=verified.observation,
+                    physical_settled=True,
+                    current_head_matches=True,
+                    width=dimensions[0] if dimensions else None,
+                    height=dimensions[1] if dimensions else None,
+                )
+                payload = await self._record_import_read(command, receipt.model_dump(mode="json"))
+        if cancelled:
+            raise asyncio.CancelledError
+        return ImportVerificationReply.model_validate(payload).model_dump(mode="json")
 
     async def manage_connection(self, operation_name: str, request: BaseModel) -> bytes:
         try:
@@ -142,6 +311,10 @@ class SourceRuntime:
         return await self._database.ready()
 
     async def close(self) -> None:
+        if self._recovery_task is not None:
+            self._recovery_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._recovery_task
         await self._database.close()
 
     def _workflow(self, ports: SourceDataPorts) -> UploadWorkflow:

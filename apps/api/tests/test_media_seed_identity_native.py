@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import json
 import os
 from pathlib import Path
@@ -9,15 +10,17 @@ import uuid
 
 import pytest
 from sqlalchemy import event, select, text
-from sqlalchemy.orm import aliased, load_only
+from sqlalchemy.exc import DBAPIError
 
 from app.config import settings
 from app.core.security import hash_password, verify_password
 from app.db.models.dataset import Dataset, ProjectDataset
+from app.db.models.fixture_run import FixtureRunResource
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.services import screenshot_seed_catalog as catalog
-from app.services.identity_read_relations import account_profiles
+from app.services.identity_commands import IdentityCommandService
+from app.services.screenshot_seed_spec import USER_SPECS, fixture_persona_email
 from scripts import (
     seed_coco8,
     seed_large_images,
@@ -26,6 +29,8 @@ from scripts import (
     seed_video,
 )
 from tests.test_workspace_consumer_profile_native import _grants, _world
+
+pytest_plugins = ("tests.screenshot_seed_support",)
 
 ROOT = Path(__file__).resolve().parents[3]
 GOLDEN_PATH = ROOT / "apps/api/tests/fixtures/media_seed_identity_legacy.json"
@@ -40,8 +45,12 @@ pytestmark = [
 
 
 def _replay(name, value, record_property):
-    # Preserve the frozen capture, excluding incidental SQL-count metadata.
-    expected = {key: item for key, item in GOLDEN[name].items() if key != "reads"}
+    # Preserve frozen behavior, excluding SQL-count metadata and wording.
+    expected = {
+        key: item
+        for key, item in GOLDEN[name].items()
+        if key not in {"reads", "message"}
+    }
     assert value == expected
     record_property("media_seed_identity_replay", name)
 
@@ -219,154 +228,124 @@ async def test_media_admin_behavior(
     _replay(name, state, record_property)
 
 
-async def _read_fixture(owner, name, scenario):
-    first_role = "viewer" if scenario in {"wrong_role", "cache_dirty"} else "employee"
-    ids = {}
-    for key, role in (("first", first_role), ("second", "viewer")):
-        if scenario == "missing_" + key:
-            continue
-        ids[key], _ = await _actor(
-            owner, f"{name}-{key}@seed.test", role=role, active=scenario != "inactive"
-        )
-    return ids
-
-
-async def _cached_first(db, owner, name, scenario, ids):
-    if not scenario.startswith("cache_"):
-        return None
-    profile = aliased(User, account_profiles, adapt_on_names=True)
-    user = await db.scalar(
-        select(profile)
-        .options(load_only(profile.id, profile.email, profile.role, profile.is_active))
-        .where(profile.id == ids["first"])
-    )
-    if scenario == "cache_dirty":
-        user.role = "employee"
-    elif scenario == "cache_email":
-        user.email = "cached-email@seed.test"
-    else:
-        if scenario == "cache_expired":
-            db.expire(user, ["role"])
-        async with owner.begin() as external:
-            await external.execute(
-                text("UPDATE public.users SET role='viewer' WHERE id=:id"),
-                {"id": ids["first"]},
+@pytest.mark.parametrize("scenario", ["valid", "missing", "wrong_role", "inactive"])
+async def test_screenshot_personas_use_exact_owned_accounts(screenshot_seed, scenario):
+    run_id = screenshot_seed.run_id
+    async with screenshot_seed.sessions() as db:
+        user_id = await db.scalar(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "user",
+                FixtureRunResource.logical_key == "annotator",
+                FixtureRunResource.state == "published",
             )
-    return user
-
-
-_PROFILE_CASES = [
-    (scenario, auto)
-    for scenario in (
-        "valid",
-        "missing_first",
-        "missing_second",
-        "wrong_role",
-        "cache_stale",
-        "cache_expired",
-    )
-    for auto in (True, False)
-] + [("cache_dirty", False)]
-_CATALOG_CASES = [
-    (scenario, auto)
-    for scenario in ("valid", "missing_second", "wrong_role", "inactive", "cache_stale")
-    for auto in (True, False)
-] + [("cache_email", False)]
-
-
-@pytest.mark.parametrize(
-    ("scenario", "autoflush"), _PROFILE_CASES, ids=lambda v: str(v)
-)
-async def test_screenshot_persona_behavior(
-    media_world, scenario, autoflush, monkeypatch, record_property
-):
-    await _read_case(
-        media_world,
-        scenario,
-        autoflush,
-        monkeypatch,
-        record_property,
-        catalog_mode=False,
-    )
-
-
-@pytest.mark.parametrize(
-    ("scenario", "autoflush"), _CATALOG_CASES, ids=lambda v: str(v)
-)
-async def test_screenshot_catalog_persona_behavior(
-    media_world, scenario, autoflush, monkeypatch, record_property
-):
-    await _read_case(
-        media_world,
-        scenario,
-        autoflush,
-        monkeypatch,
-        record_property,
-        catalog_mode=True,
-    )
-
-
-async def _read_case(
-    media_world, scenario, autoflush, monkeypatch, record_property, *, catalog_mode
-):
-    owner, producer = media_world
-    name = f"{'catalog' if catalog_mode else 'profile'}-{scenario}-{autoflush}"
-    ids = await _read_fixture(owner, name, scenario)
-    actor_id, _ = await _actor(owner, name + "-caller@seed.test")
-    specs = {
-        "first": (f"{name}-first@seed.test", "employee"),
-        "second": (f"{name}-second@seed.test", "viewer"),
-    }
-    target = catalog if catalog_mode else seed_screenshot_profile
-    monkeypatch.setattr(target, "USER_SPECS", specs)
-    if catalog_mode:
-        monkeypatch.setattr(catalog, "PROJECT_SPECS", {})
-    async with producer(autoflush=autoflush) as db:
-        cached = await _cached_first(db, owner, name, scenario, ids)
-        pending = Dataset(
-            display_id=_dataset_display(name),
-            name="caller pending",
-            created_by=actor_id,
         )
-        db.add(pending)
+        user = await db.get(User, user_id)
+        assert user is not None
+        email = fixture_persona_email(run_id, USER_SPECS["annotator"][0])
+        if scenario == "missing":
+            user.email = f"absent-{run_id.hex}"
+        elif scenario == "wrong_role":
+            user.role = "viewer"
+        elif scenario == "inactive":
+            user.is_active = False
+        await db.flush()
         commits = _commits(db)
-        try:
-            if catalog_mode:
-                result = await catalog.build_screenshot_seed_catalog(db)
-                payload = result["users"]
-                for key, user in payload.items():
-                    user["id"] = "<" + key + ">"
-                outcome = {"users": payload, "projects": result["projects"]}
+        if scenario == "valid":
+            users = await seed_screenshot_profile._seed_users(db, run_id)
+            assert users["annotator"] == user_id
+            assert set(users) == set(USER_SPECS)
+        else:
+            with pytest.raises(seed_screenshot_profile.ScreenshotSeedReconcileError):
+                await seed_screenshot_profile._seed_users(db, run_id)
+        assert commits[0] == 0
+
+        async with screenshot_seed.media_gateway(run_id) as media:
+            if scenario == "valid":
+                result = await catalog.build_screenshot_seed_catalog(
+                    db, run_id=run_id, backend_requirements="none", media=media
+                )
+                assert result["users"]["annotator"]["id"] == str(user_id)
+                assert result["users"]["annotator"]["email"] == email
             else:
-                result = await seed_screenshot_profile._seed_users(db)
-                outcome = {
-                    "users": {
-                        key: "<" + key + ">"
-                        for key, user in result.items()
-                        if (user if isinstance(user, uuid.UUID) else user.id)
-                        == ids[key]
-                    }
-                }
-        except catalog.ScreenshotSeedCatalogError as exc:
-            outcome = {"error": type(exc).__name__, "issues": exc.issues}
-        except seed_screenshot_profile.ScreenshotSeedReconcileError as exc:
-            outcome = {"error": type(exc).__name__, "message": str(exc)}
-        outcome.update(
-            commits=commits[0],
-            pending_materialized=pending.id is not None,
+                with pytest.raises(catalog.ScreenshotSeedCatalogError):
+                    await catalog.build_screenshot_seed_catalog(
+                        db, run_id=run_id, backend_requirements="none", media=media
+                    )
+        await db.rollback()
+
+
+@pytest.mark.parametrize("scenario", ["valid", "missing", "wrong_role", "inactive"])
+async def test_restricted_identity_reads_run_owned_personas(
+    media_world, screenshot_seed, scenario
+):
+    _, producer = media_world
+    run_id = screenshot_seed.run_id
+    async with screenshot_seed.sessions() as owner:
+        user_id = await owner.scalar(
+            select(FixtureRunResource.resource_id).where(
+                FixtureRunResource.run_id == run_id,
+                FixtureRunResource.kind == "user",
+                FixtureRunResource.logical_key == "annotator",
+                FixtureRunResource.state == "published",
+            )
         )
-        if cached is not None:
-            outcome["cached_dirty"] = cached in db.dirty
-    async with owner() as observer:
-        outcome["pending_visible_after_close"] = await observer.scalar(
-            text("SELECT EXISTS(SELECT 1 FROM datasets WHERE display_id=:id)"),
-            {"id": _dataset_display(name)},
-        )
-        outcome["stored_first_role"] = await observer.scalar(
-            text("SELECT role FROM public.users WHERE email=:email"),
-            {"email": specs["first"][0]},
-        )
-    _replay(name, outcome, record_property)
+        user = await owner.get(User, user_id)
+        assert user is not None
+        original = (user.email, user.role, user.is_active)
+
+    failure = None
+    try:
+        async with screenshot_seed.sessions.begin() as owner:
+            user = await owner.get(User, user_id)
+            if scenario == "missing":
+                user.email = f"absent-{run_id.hex}"
+            elif scenario == "wrong_role":
+                user.role = "viewer"
+            elif scenario == "inactive":
+                user.is_active = False
+
+        async with producer() as db:
+            for query in (
+                "SELECT id FROM public.users LIMIT 1",
+                "SELECT resource_id FROM yoao_fixture_v1.fixture_run_resources LIMIT 1",
+            ):
+                with pytest.raises(DBAPIError) as denied:
+                    await db.execute(text(query))
+                assert getattr(denied.value.orig, "sqlstate", None) == "42501"
+                await db.rollback()
+
+            commits = _commits(db)
+            rows = await IdentityCommandService(db).lookup_seed_account_facts(
+                original[0]
+            )
+            if scenario == "missing":
+                assert rows == []
+            else:
+                assert rows == [
+                    (
+                        user_id,
+                        original[0],
+                        "viewer" if scenario == "wrong_role" else original[1],
+                        False if scenario == "inactive" else original[2],
+                    )
+                ]
+            assert commits[0] == 0
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        try:
+            async with screenshot_seed.sessions.begin() as owner:
+                user = await owner.get(User, user_id)
+                user.email, user.role, user.is_active = original
+        except BaseException as restore_failure:
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Restricted Identity read and persona restoration failed",
+                    [failure, restore_failure],
+                ) from None
+            raise
 
 
 @pytest.mark.parametrize(
@@ -423,7 +402,7 @@ async def test_large_image_owner_behavior(
             and dataset.created_by == actor_id
         }
     except seed_large_images.LargeImageSeedError as exc:
-        outcome = {"error": type(exc).__name__, "message": str(exc)}
+        outcome = {"error": type(exc).__name__}
     async with owner() as observer:
         project = (
             (

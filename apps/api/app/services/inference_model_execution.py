@@ -18,7 +18,10 @@ from yoao_inference_contract.execution import (
     thaw_json,
 )
 from yoao_inference_contract.execution_client import ModelExecutionHttpClient
-from yoao_inference_contract.routing import RoutingScopeView
+from yoao_inference_contract.routing import (
+    RoutingPredictionExecutionProof,
+    RoutingScopeView,
+)
 from yoao_inference_contract.plugin import plugin_is_active
 from yoao_workspace.config import secret_source
 
@@ -43,11 +46,23 @@ logger = logging.getLogger(__name__)
 
 
 class _ModelExecutionGateway(ModelExecutionPort):
-    def __init__(self, db, *, bound_route=None, installation_trial=None) -> None:
+    def __init__(
+        self,
+        db,
+        *,
+        bound_route=None,
+        installation_trial=None,
+        prediction_execution=None,
+    ) -> None:
         self.db = db
         if bound_route is not None and not isinstance(bound_route, RoutingScopeView):
             raise TypeError("Pinned execution requires the existing RoutingScopeView")
         self.bound_route = bound_route
+        self.prediction_execution = (
+            None
+            if prediction_execution is None
+            else RoutingPredictionExecutionProof.model_validate(prediction_execution)
+        )
         self.installation_trial = (
             None if installation_trial is None else freeze_json(installation_trial)
         )
@@ -208,6 +223,15 @@ class _ModelExecutionGateway(ModelExecutionPort):
                     project_id=request.project_id,
                     owner=request.route_owner,
                     operation=request.route_operation,
+                    prediction_test=(
+                        {
+                            "project_id": request.project_id,
+                            "task_id": uuid.UUID(request.task_inputs[0]["id"]),
+                        }
+                        if request.route_operation == "predict_test"
+                        else None
+                    ),
+                    prediction_execution=self.prediction_execution,
                     required_instance_id=request.required_instance_id,
                     **(
                         {"approved_registry_ids": approved_registry_ids}
@@ -347,9 +371,13 @@ class _ModelExecutionGateway(ModelExecutionPort):
             )
 
 
-def model_execution_port(db, *, bound_route=None) -> ModelExecutionPort:
+def model_execution_port(
+    db, *, bound_route=None, prediction_execution=None
+) -> ModelExecutionPort:
     """Select and capture in the caller UOW; only Inference opens stored credentials."""
-    return _ModelExecutionGateway(db, bound_route=bound_route)
+    return _ModelExecutionGateway(
+        db, bound_route=bound_route, prediction_execution=prediction_execution
+    )
 
 
 def installation_trial_model_execution_port(

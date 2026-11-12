@@ -390,6 +390,7 @@ class ManagedStorage:
         sha256: str,
         size_bytes: int,
         image: bool = False,
+        timeout_seconds: float | None = None,
     ) -> ManagedRead:
         """Re-read the exact saved version before reusing a verified creation."""
         if target.etag is None:
@@ -410,7 +411,7 @@ class ManagedStorage:
                     sha256=sha256,
                     size_bytes=size_bytes,
                     max_bytes=max(size_bytes, 1),
-                    timeout_seconds=self._timeout,
+                    timeout_seconds=self._timeout if timeout_seconds is None else timeout_seconds,
                 )
             except managed_original.WriterError as exc:
                 raise _map_writer_error(exc) from None

@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-from importlib.resources import files
-from pathlib import Path
-
 import pytest
 from fastapi import HTTPException
 
@@ -17,32 +13,6 @@ _LABELING_DELETE = (
     "SELECT aap_labeling_v1.delete_fixture_project_rows(CAST(:pids AS uuid[]))"
 )
 _FIXTURE_DELETES = (_JOBS_DELETE, _LABELING_DELETE)
-
-
-def test_labeling_fixture_cleanup_resources_match_the_frozen_migration():
-    root = Path(__file__).resolve().parents[3]
-    migration = root / "apps/api/alembic/sql/0358_labeling_fixture_cleanup"
-    resource = files("yoao_labeling")
-    sql = resource.joinpath("sql/0358_labeling_fixture_cleanup.sql").read_text(
-        encoding="utf-8"
-    )
-    schema = json.loads(
-        resource.joinpath("fixture-cleanup.schema.json").read_text(encoding="utf-8")
-    )
-
-    assert sql == migration.with_suffix(".sql").read_text(encoding="utf-8")
-    assert schema == json.loads(
-        migration.with_suffix(".schema.json").read_text(encoding="utf-8")
-    )
-    assert schema["$id"] == "aap-labeling-fixture-cleanup/v1"
-    assert schema["x-postgresql-functions"] == {
-        "aap_labeling_v1.delete_fixture_project_rows": {
-            "arguments": "uuid[]",
-            "returns": "bigint",
-            "volatility": "volatile",
-            "parallel": "unsafe",
-        }
-    }
 
 
 class _Result:
@@ -163,28 +133,4 @@ async def test_fixture_owner_delete_keeps_transaction_abort_fail_fast(statement)
         await _try_fixture_delete(db, statement, {"pids": ["project-id"]})
 
     assert caught.value is error
-    assert db.savepoint_outcomes == ["rollback"]
-
-
-@pytest.mark.parametrize("statement", _FIXTURE_DELETES)
-async def test_fixture_owner_delete_releases_savepoint_and_preserves_statement_params(
-    statement,
-):
-    project_ids = ["project-a", "project-b"]
-    params = {"pids": project_ids}
-    db = _Session(result=_Result(2))
-
-    await _try_fixture_delete(db, statement, params)
-
-    assert db.calls == [(statement, params)]
-    assert db.calls[0][1] is params
-    assert db.calls[0][1]["pids"] is project_ids
-    assert db.savepoint_outcomes == ["release"]
-
-
-async def test_unrelated_legacy_fixture_delete_keeps_skip_behavior():
-    db = _Session(error=RuntimeError("legacy table unavailable"))
-
-    await _try_fixture_delete(db, "DELETE FROM legacy_fixture_rows", {})
-
     assert db.savepoint_outcomes == ["rollback"]

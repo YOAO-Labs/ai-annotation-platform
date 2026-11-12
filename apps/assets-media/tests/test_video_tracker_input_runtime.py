@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from unittest.mock import AsyncMock
 import pytest
 
+from yoao_assets_images.contract import OriginalRead
 from yoao_assets_video_inputs import execution as e
 from yoao_assets_video_inputs import tracker as t
 from yoao_assets_video_inputs import tracker_http as h
@@ -178,6 +179,13 @@ async def test_control_prepare_observes_source_and_signs_exact_retained_version(
             calls.append((operation, request))
             if operation == "read_video_tracker_input":
                 return work
+            if operation in {
+                "begin_tracker_prepare_original",
+                "begin_tracker_control_original",
+            }:
+                return OriginalRead(
+                    ownership="ordinary", object_key=fixtures.source_facts.file_path
+                )
             if operation == "prepare_video_tracker_input":
                 return pending.model_copy(update={"status": "materializing"})
             if operation == "reference_video_tracker_source":
@@ -194,6 +202,7 @@ async def test_control_prepare_observes_source_and_signs_exact_retained_version(
         verify_blob=AsyncMock(),
         sign_blob=AsyncMock(return_value=signed_url),
     )
+    storage.bind_original = lambda permit: storage
     control = TrackerVideoInputControl(Database(), storage, url_expiry_seconds=300)
     prepare_request = t.TrackerInputRequest(
         actor_id=fixtures.actor_id,
@@ -242,6 +251,10 @@ async def test_control_prepare_freezes_source_drift_as_terminal_and_not_as_ident
         async def call(self, operation, request):
             if operation == "read_video_tracker_input":
                 return work
+            if operation == "begin_tracker_prepare_original":
+                return OriginalRead(
+                    ownership="ordinary", object_key=fixtures.source_facts.file_path
+                )
             if operation == "prepare_video_tracker_input":
                 prepared.append(request)
                 failed = pending.model_copy(
@@ -253,6 +266,7 @@ async def test_control_prepare_freezes_source_drift_as_terminal_and_not_as_ident
     storage = SimpleNamespace(
         assert_versioning=AsyncMock(), head_source=AsyncMock(return_value=changed)
     )
+    storage.bind_original = lambda permit: storage
     control = TrackerVideoInputControl(Database(), storage)
     request = t.TrackerInputRequest(
         actor_id=fixtures.actor_id,

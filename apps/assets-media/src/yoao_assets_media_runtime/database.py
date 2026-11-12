@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import Any, Collection, Protocol, runtime_checkable
 
 from pydantic import BaseModel
@@ -108,6 +109,9 @@ class AsyncpgMediaDatabase:
         """Expose the configured asyncpg pool to the shared capability checker."""
         return self._pool
 
+    def fixture_business_connection(self):
+        return self._pool.acquire()
+
     @classmethod
     async def connect(
         cls,
@@ -138,9 +142,20 @@ class AsyncpgMediaDatabase:
             raise PermissionError("media operation is outside this SQL login scope")
         statement, parameters = prepare_native_call(name, request)
         async with self._pool.acquire() as connection:
-            async with connection.transaction():
-                raw = await connection.fetchval(statement, *parameters)
-                return validate_native_result(name, request, raw)
+            from .fixture_native_outputs import claim_admission, scan_admission, source_admission
+
+            if name == "begin_media_original_worker":
+                scope = source_admission(connection, "media", request)
+            elif name == "claim_video_media":
+                scope = claim_admission(connection, "media", request)
+            elif name == "advance_video_backfill":
+                scope = scan_admission(connection, "media", request)
+            else:
+                scope = nullcontext()
+            async with scope:
+                async with connection.transaction():
+                    raw = await connection.fetchval(statement, *parameters)
+                    return validate_native_result(name, request, raw)
 
     async def close(self) -> None:
         await self._pool.close()

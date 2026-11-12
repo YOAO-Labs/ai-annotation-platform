@@ -10,6 +10,8 @@ import pytest
 from botocore.exceptions import ClientError
 
 from yoao_assets_images.contract import ObjectIdentity
+from yoao_assets_source import managed_original
+from yoao_assets_source.import_verification_contract import ImportVerificationResult
 from yoao_assets_source.connectors import SourceChangedError
 from yoao_assets_source.import_contract import ImportEntry, ImportSourceObject
 from yoao_assets_source.managed_original_contract import ManagedOriginalMaterial
@@ -209,18 +211,32 @@ def _target(entry: ImportEntry, *, max_bytes: int | None = None):
         file_path=entry.file_path,
     )
 
+def _verify_from_store(store, entry, payload):
+    async def verify(_expected):
+        obj = store._object("datasets", entry.file_path, None)
+        receipt = managed_original.WriteReceipt(obj["etag"], obj["version"], None, {})
+        try:
+            result = managed_original.verify(
+                store, "datasets", entry.file_path, receipt,
+                sha256=hashlib.sha256(payload).hexdigest(),
+                size_bytes=len(payload), max_bytes=len(payload),
+            )
+        except managed_original.WriterError as exc:
+            raise DestinationWriteError(exc.code) from None
+        return ImportVerificationResult(
+            sha256=result.sha256, md5=result.md5, size_bytes=result.size_bytes,
+            etag=receipt.etag, version_id=receipt.version_id,
+            observation=result.observation, physical_settled=True,
+            current_head_matches=True,
+        )
+    return verify
+
 
 @pytest.mark.asyncio
-async def test_streaming_aggregates_short_reads_hashes_and_reads_back_exactly(
-    monkeypatch,
-) -> None:
+async def test_streaming_aggregates_short_reads_hashes_and_reads_back_exactly() -> None:
     data = b"x" * (8 * 1024 * 1024 + 123)
     store = _Store()
     storage = DestinationStorage(_config(), client=store)
-    monkeypatch.setattr(
-        "yoao_assets_source_import.storage._image_dimensions",
-        lambda head: pytest.fail("non-image dimensions must not be read"),
-    )
     entry = _entry(len(data))
 
     result = await storage.transfer(
@@ -230,6 +246,7 @@ async def test_streaming_aggregates_short_reads_hashes_and_reads_back_exactly(
         byte_budget=len(data),
         before_io=lambda: None,
         on_bytes=lambda amount: None,
+        on_verify=_verify_from_store(store, entry, data),
     )
 
     assert result.file_size == len(data)
@@ -273,6 +290,7 @@ async def test_transfer_rejects_size_larger_than_budget_before_destination_write
             byte_budget=3,
             before_io=lambda: None,
             on_bytes=lambda amount: None,
+            on_verify=_verify_from_store(store, entry, b"data"),
         )
     assert not store.created
     assert not store.objects
@@ -295,6 +313,7 @@ async def test_conditional_creation_conflict_is_never_read_back_or_published() -
             byte_budget=4,
             before_io=lambda: None,
             on_bytes=lambda amount: None,
+            on_verify=_verify_from_store(store, entry, b"data"),
         )
     assert caught.value.outcome == "conflict"
     assert store.objects[("datasets", entry.file_path, "v1")]["body"] == b"old"
@@ -314,9 +333,6 @@ async def test_readback_mismatch_fails_the_transfer(monkeypatch) -> None:
         return response
 
     monkeypatch.setattr(store, "get_object", corrupt_if_match)
-    monkeypatch.setattr(
-        "yoao_assets_source_import.storage._image_dimensions", lambda _head: None
-    )
 
     with pytest.raises(DestinationWriteError):
         await storage.transfer(
@@ -326,6 +342,7 @@ async def test_readback_mismatch_fails_the_transfer(monkeypatch) -> None:
             byte_budget=4,
             before_io=lambda: None,
             on_bytes=lambda amount: None,
+            on_verify=_verify_from_store(store, entry, b"data"),
         )
 
 
@@ -342,6 +359,7 @@ async def test_empty_source_uses_conditional_put_and_full_readback() -> None:
         byte_budget=0,
         before_io=lambda: None,
         on_bytes=lambda amount: None,
+        on_verify=_verify_from_store(store, entry, b""),
     )
 
     assert result.file_size == 0
@@ -355,15 +373,10 @@ async def test_empty_source_uses_conditional_put_and_full_readback() -> None:
 
 
 @pytest.mark.asyncio
-async def test_image_identity_comes_from_the_verified_saved_version(
-    monkeypatch,
-) -> None:
+async def test_image_identity_comes_from_the_verified_saved_version() -> None:
     store = _Store()
     entry = _entry(4, file_type="image")
     storage = DestinationStorage(_config(), client=store)
-    monkeypatch.setattr(
-        "yoao_assets_source_import.storage._image_dimensions", lambda _head: None
-    )
 
     result = await storage.transfer(
         io.BytesIO(b"data"),
@@ -372,6 +385,7 @@ async def test_image_identity_comes_from_the_verified_saved_version(
         byte_budget=4,
         before_io=lambda: None,
         on_bytes=lambda amount: None,
+        on_verify=_verify_from_store(store, entry, b"data"),
     )
 
     # Identity is normalized (no surrounding quotes); the saved evidence keeps

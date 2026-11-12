@@ -55,6 +55,15 @@ async def owned_db(test_engine):
                 lambda sync: _migration(sync, "0224_export_output_storage").upgrade()
             )
             await connection.run_sync(lambda sync: _migration(sync).upgrade())
+            # This fixture exercises the historical migration in a private schema;
+            # the current ORM also projects the later fixture retention columns.
+            await connection.execute(
+                text(
+                    "ALTER TABLE export_media_bundles "
+                    "ADD COLUMN fixture_run_id uuid, "
+                    "ADD COLUMN fixture_zip_created boolean NOT NULL DEFAULT false"
+                )
+            )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             yield db
     finally:

@@ -37,7 +37,7 @@ API／普通 worker 的模型执行、后端控制、健康观察、Workspace �
 - 端点打开：`setup`、`health_observation`、`catalog_fallback`、`stats`、`backend_read`、`lifecycle`、`execution`；各账号只能执行 policy 与对应 opener。
 - GPU 自有捕获／打开：`gpu_health_observation`、`gpu_control`；仅持有 policy、capture 和该用途的 opener。
 - 聚合统计：`backend_stats`；仅在 owner 内捕获统计分组和端点，公开结果不含 auth 分组键。
-- GPU 私有权威：`gpu_authority`，使用 `inference_gpu_authority_client`；policy／step 两函数，与普通 caller 的有限 GPU 管理能力分离。
+- GPU 私有权威：`gpu_authority`；policy／step 两函数，与普通 caller 的有限 GPU 管理能力分离。生产 owner 明确选择 `inference_gpu_authority_client`；独立工作树夹具使用自身的专用 LOGIN，不接管共享角色。
 - GPU 回收：`gpu_collector`，使用 `inference_gpu_collector_client`；单独 policy／step，两函数 LOGIN 与权威账号不同。
 
 授权脚本要求显式数据库名、迁移角色、Inference owner、client role 和 profile；拒绝超级权限、继承／成员旁路、表／序列访问、对象所有权和无关函数执行。不可把一组专用 LOGIN 合并成宽权限账号来通过 readiness。
@@ -98,7 +98,7 @@ Workspace 只传 registry UUID、不透明 `probe_subject`、timeout 和 `Capabi
 
 ### 同事务的健康数据能力
 
-`aap_inference_health_data_v1` 是固定 Native 数据边界，`HealthDataPostgresData.bind(connection)` 只绑定当前活动事务；提交／回滚后丢弃 binding。`InferenceHealthData` 是 API 原 Session 的适配器，不是第二套健康算法。GPU owner 的持久健康刷新也复用同一 `BackendHealthCoordinator` 和专用数据 LOGIN，不通过布尔“健康”替代真实持久观察。
+`aap_inference_health_data_v1` 是固定 Native 数据边界，`HealthDataPostgresData.bind(connection, expected_role=...)` 只绑定当前活动事务，并核验可信 owner 指定的精确 session／current LOGIN；提交／回滚后丢弃 binding。生产 GPU owner 选择 `inference_health_data_client`，工作树夹具使用自己持有的专用 LOGIN，两者均须通过相同的函数白名单、权限拒绝和 policy 核验；LOGIN 身份不能由 HTTP 请求或连接的自报身份决定。`InferenceHealthData` 是 API 原 Session 的适配器，不是第二套健康算法，GPU owner 的持久健康刷新也复用同一 `BackendHealthCoordinator` 和专用数据 LOGIN。
 
 ## Registry 环境同步
 

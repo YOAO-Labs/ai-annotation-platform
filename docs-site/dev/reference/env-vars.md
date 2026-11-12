@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-11
 ---
 
 # 环境变量参考
@@ -56,12 +56,16 @@ last_reviewed: 2026-11-04
 | `JOBS_QUEUE_BROKER_URL_FILE` | `—` | — |
 | `JOBS_QUEUE_HOST` | `127.0.0.1` | — |
 | `JOBS_QUEUE_PORT` | `8190` | — |
-| `JOBS_DISPATCH_RELAY_ENABLED` | `false` | 独立持久派发 relay 必须显式开启；仅持有 claim/finish/status 三项函数权限及队列 bearer。 不注入 broker、API 迁移凭据或私表读写权限；与 jobs-queue 分进程运行。 |
+| `JOBS_DISPATCH_RELAY_ENABLED` | `false` | 独立持久派发 relay 必须显式开启；账本凭据只持有 claim/finish/status 函数权限。 不注入 broker、API 迁移凭据或私表读写权限；与 jobs-queue 分进程运行。 |
 | `JOBS_DISPATCH_RELAY_DATABASE_URL` | `—` | — |
 | `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` | `—` | — |
 | `JOBS_DISPATCH_RELAY_BATCH_SIZE` | `100` | — |
 | `JOBS_DISPATCH_RELAY_LEASE_SECONDS` | `30` | — |
 | `JOBS_DISPATCH_RELAY_POLL_SECONDS` | `1` | — |
+| `JOBS_PUBLICATION_DATABASE_URL` | `—` | Jobs 发布入口和 relay 使用独立的仅函数调用凭据；不得授予私有表读写权限。 |
+| `JOBS_PUBLICATION_DATABASE_URL_FILE` | `—` | — |
+| `EXPORT_EXECUTION_DATABASE_URL` | `—` | 仅 export worker 挂载执行控制凭据；不得向 API 注入此凭据。 |
+| `EXPORT_EXECUTION_DATABASE_URL_FILE` | `—` | — |
 | `AAP_JOBS_QUEUE_RUNTIME_IMAGE` | `—` | 本机独立 Compose 组合：使用已验收镜像和已核实的基础设施网络，不创建第二份 Redis／PostgreSQL。 |
 | `AAP_JOBS_DEVELOPMENT_NETWORK` | `—` | — |
 
@@ -384,7 +388,7 @@ last_reviewed: 2026-11-04
 |---|---|---|
 | `AUDIT_RETENTION_MONTHS` | `12` | Celery beat 每月 2 日扫描超期分区，归档为 jsonl.gz 上传 MinIO `audit-archive/{YYYY}/{MM}.jsonl.gz`， 然后 DROP 该分区。默认 12 个月。 |
 
-## 错误监控 (Sentry)
+## 错误监控 (Sentry, )
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
@@ -499,6 +503,10 @@ last_reviewed: 2026-11-04
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `E2E_SEED_ENABLED` | `false` | 名称以 _e2e 或 _test 结尾的数据库；这些端点会创建和删除固定测试数据， 绝不要在开发库、staging 或 production 数据库上开启。 |
+| `PLAYWRIGHT_RASTER_FAULT_MANIFEST` | `—` | 仅由隔离 E2E 协调器提供：产品启动前准备的 Raster 故障夹具清单路径。 |
+| `AAP_FIXTURE_TOOLS_ROOT` | `—` | 仅由私有夹具协调器传入：fixture_suite_coordinator.py 所在的绝对目录。 |
+| `AAP_SCREENSHOT_SOURCE_CACHE` | `—` | 仅供隔离截图测试进程：已核验源素材缓存的绝对路径，只读，派生内容另写入任务独有的 pytest 临时目录。 不放入日常运行配置；目录结构与核验规则见 DEV.md。 |
+| `AAP_SCREENSHOT_NUSCENES_ARCHIVE` | `—` | 仅供隔离截图测试进程：官方 nuScenes v1.0-mini.tgz 的绝对路径，必须通过固定大小及 SHA-256 核验。 |
 
 ## Docker 卷存储位置 (可选)
 
@@ -643,9 +651,11 @@ last_reviewed: 2026-11-04
 | `ASSETS_SOURCE_URL` | `—` | 网关：URL 留空时用本地 Source 工作流；设置 URL 后所有操作都走远程，失败不会回退。 |
 | `ASSETS_SOURCE_TOKEN` | `—` | — |
 | `ASSETS_SOURCE_TIMEOUT_SECONDS` | `300` | — |
-| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source LOGIN 精确执行 23 项 Assets 能力（14 项来源/入库 + 9 项连接管理）；Catalog 29 项、导入 LOGIN 7 项各自独立。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
+| `ASSETS_SOURCE_DATABASE_URL` | `—` | 独立进程：显式专用 DSN/token/S3 凭据，不能使用日常 API 宽凭据。 Source、Catalog 和导入 LOGIN 各自只执行部署 grants 中列明的能力。 不授予业务关系、序列或其他 owner schema 的直接访问权限。 |
 | `ASSETS_SOURCE_DATABASE_URL_FILE` | `—` | — |
 | `ASSETS_SOURCE_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` | `—` | 导入核验专用令牌；与网关令牌不同，并与导入进程核验令牌相同。 |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_SOURCE_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_SOURCE_S3_SECRET_KEY` | `—` | — |
@@ -670,6 +680,7 @@ last_reviewed: 2026-11-04
 | `ASSETS_SOURCE_SQL_TIMEOUT_SECONDS` | `5` | — |
 | `ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS` | `2` | — |
 | `ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS` | `10` | — |
+| `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` | `120` | Source 独立对象完整校验的总时限（秒），不同于单次 S3 socket 超时。 |
 
 ## Assets Source serves dataset/source operations; guide bytes use managed uploads.
 
@@ -681,8 +692,11 @@ last_reviewed: 2026-11-04
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_IMPORT_DATABASE_URL` | `—` | 使用专用七函数 LOGIN 和只写来源前缀的对象身份，无 API/Celery/Redis 配置。 |
+| `ASSETS_IMPORT_DATABASE_URL` | `—` | 内置目标使用专用 LOGIN 和只写原件前缀的对象身份，无 API/Celery/Redis 配置。 |
 | `ASSETS_IMPORT_DATABASE_URL_FILE` | `—` | — |
+| `ASSETS_IMPORT_VERIFY_URL` | `—` | Source 核验服务的进程可达 origin 与独立令牌。 |
+| `ASSETS_IMPORT_VERIFY_TOKEN` | `—` | — |
+| `ASSETS_IMPORT_VERIFY_TOKEN_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY` | `—` | — |
 | `ASSETS_IMPORT_S3_ACCESS_KEY_FILE` | `—` | — |
 | `ASSETS_IMPORT_S3_SECRET_KEY` | `—` | — |
@@ -767,6 +781,12 @@ last_reviewed: 2026-11-04
 | `ASSETS_MEDIA_DATASETS_BUCKET` | `—` | — |
 | `ASSETS_MEDIA_CACHE_BUCKET` | `—` | — |
 | `ASSETS_MEDIA_INPUTS_BUCKET` | `—` | 独立 Assets Media 控制端和图片 Worker 的输入桶；Compose 默认继承 MINIO_INPUTS_BUCKET。 |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_ENDPOINT` | `http://private-minio:9000` | 可选的只读原始对象目标：仅 owner 许可且端点、桶及物理身份完全匹配时使用。 API、独立 Media 控制/执行器和 Images 执行器必须配置相同端点与桶；使用仅允许读取的独立凭据。 未使用时保持全部未设置；使用时四项全部必填。密钥可改用对应的 _FILE 变量，不能同时设置。 |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_BUCKET` | `fixture-originals` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY` | `—` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY` | `—` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_ACCESS_KEY_FILE` | `—` | — |
+| `AAP_ASSETS_ADDITIONAL_ORIGINAL_SECRET_KEY_FILE` | `—` | — |
 | `ASSETS_MEDIA_CONTROL_S3_ACCESS_KEY_FILE` | `—` | 仅供可选 Compose 的宿主 secret 路径；容器分别映射为上述进程内凭据。 |
 | `ASSETS_MEDIA_CONTROL_S3_SECRET_KEY_FILE` | `—` | — |
 | `ASSETS_MEDIA_WORKER_S3_ACCESS_KEY_FILE` | `—` | — |

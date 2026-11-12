@@ -418,6 +418,24 @@ def _passthrough_session_factory(db_session: AsyncSession):
     return async_sessionmaker(db_session.bind, expire_on_commit=False)
 
 
+async def _admit_native_retry(db, failed_id, actor_id):
+    from app.application.durable_prediction_retry import call_retry
+    from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
+
+    job_id = uuid.uuid4()
+    await call_retry(
+        SqlAlchemyPredictionRetryData(db, writer=True),
+        "admit_prediction_retry",
+        job_id=job_id,
+        failed_prediction_id=failed_id,
+        actor_id=actor_id,
+        execution_queue="ml.cpu",
+        legacy_delivery=False,
+    )
+    await db.commit()
+    return str(job_id)
+
+
 @pytest.mark.parametrize("controlled", [False, True])
 async def test_retry_worker_tracks_success_in_async_jobs(
     db_session, super_admin, monkeypatch, controlled
@@ -450,10 +468,10 @@ async def test_retry_worker_tracks_success_in_async_jobs(
     await db_session.commit()
     session_factory = _passthrough_session_factory(db_session)
 
-    monkeypatch.setattr(
-        "app.services.storage.resolve_task_url",
-        lambda received_task: f"http://minio.test/{received_task.file_path}",
-    )
+    async def resolve_url(_db, received_task):
+        return f"http://minio.test/{received_task.file_path}"
+
+    monkeypatch.setattr("app.services.storage.resolve_task_url", resolve_url)
 
     async def fake_execute(task_id, _stages, _ports, _contexts, **_kwargs):
         return pipeline_output(
@@ -472,8 +490,9 @@ async def test_retry_worker_tracks_success_in_async_jobs(
 
     patch_retry_execution(monkeypatch, fake_execute)
 
+    job_id = await _admit_native_retry(db_session, fp.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        session_factory, str(fp.id), str(user.id)
+        session_factory, str(fp.id), str(user.id), job_id=job_id
     )
 
     assert result["status"] == "succeeded", result
@@ -632,11 +651,17 @@ async def test_retry_uses_retained_input_version_and_verifies_before_write(
     monkeypatch.setattr(PredictionService, "apply_prediction_result_bundle", fake_apply)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
-        lambda _task: pytest.fail("frozen retry must not resolve the current Task URL"),
+        lambda _db, _task: pytest.fail(
+            "frozen retry must not resolve the current Task URL"
+        ),
     )
 
+    job_id = await _admit_native_retry(db_session, failed.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(failed.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(failed.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     assert result["status"] == "succeeded", result
@@ -738,13 +763,17 @@ async def test_permanent_frozen_retry_failure_uses_job_and_counter_path(
     monkeypatch.setattr("app.services.accepted_inputs.input_gateway", fake_gateway)
     monkeypatch.setattr(
         "app.services.storage.resolve_task_url",
-        lambda _task: pytest.fail(
+        lambda _db, _task: pytest.fail(
             "an expired frozen input must not resolve the current URL"
         ),
     )
 
+    job_id = await _admit_native_retry(db_session, failed.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(failed.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(failed.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     assert result["status"] == (
@@ -793,8 +822,12 @@ async def test_retry_worker_tracks_backend_failure_in_async_jobs(
 
     patch_retry_execution(monkeypatch, fake_execute)
 
+    job_id = await _admit_native_retry(db_session, fp.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(fp.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(fp.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     assert result["status"] == "failed"
@@ -865,8 +898,12 @@ async def test_retry_worker_preserves_gpu_arbiter_failure_in_job_and_source(
 
     patch_retry_execution(monkeypatch, fake_execute)
 
+    job_id = await _admit_native_retry(db_session, fp.id, user.id)
     result = await retry_worker._do_retry_with_factory(
-        _passthrough_session_factory(db_session), str(fp.id), str(user.id)
+        _passthrough_session_factory(db_session),
+        str(fp.id),
+        str(user.id),
+        job_id=job_id,
     )
 
     expected = {

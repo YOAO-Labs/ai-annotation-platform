@@ -304,6 +304,7 @@ async def _stack(test_engine, app_module, monkeypatch, connections_image):
             stack.values = {
                 "ASSETS_SOURCE_DATABASE_URL": _container_database_url(role_url),
                 "ASSETS_SOURCE_TOKEN": token,
+                "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": secrets.token_urlsafe(32),
                 "ASSETS_SOURCE_S3_ENDPOINT": f"{scheme}://host.docker.internal:{minio.port or 9000}",
                 "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": f"{scheme}://{settings.minio_endpoint}",
                 "ASSETS_SOURCE_S3_ACCESS_KEY": _required_env(

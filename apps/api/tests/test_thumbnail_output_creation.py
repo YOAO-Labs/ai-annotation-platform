@@ -6,7 +6,8 @@ import hashlib
 import uuid
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset_asset import StorageBinding, StorageLocation
@@ -260,3 +261,93 @@ async def test_cancel_during_accounting_still_persists_verified_owner(
         assert output.state == "ready" and not output.uncertain_write
         assert output.size_bytes == len(b"webp") and output.ready_at is not None
         assert not await fresh.scalar(select(StorageOperation.id))
+
+
+@pytest.mark.parametrize("cancel_checkpoint", [False, True])
+@pytest.mark.parametrize("write_refused", [False, True])
+async def test_checkpoint_failure_preserves_each_actual_failure_once(
+    media_db, client, monkeypatch, write_refused, cancel_checkpoint
+):
+    owner_id = uuid.uuid4()
+    async with media_db.bind.begin() as connection:
+        await connection.execute(
+            text(
+                "CREATE FUNCTION reject_thumbnail_checkpoint() RETURNS trigger "
+                "LANGUAGE plpgsql AS $$ BEGIN "
+                "RAISE EXCEPTION USING ERRCODE='55000', "
+                "MESSAGE='thumbnail_checkpoint_refused'; END $$"
+            )
+        )
+        await connection.execute(
+            text(
+                "CREATE TRIGGER reject_thumbnail_checkpoint BEFORE UPDATE "
+                "ON thumbnail_outputs FOR EACH ROW "
+                "EXECUTE FUNCTION reject_thumbnail_checkpoint()"
+            )
+        )
+
+    if write_refused:
+
+        def refuse(operation, params):
+            if operation == "put":
+                raise error("AccessDenied", 403)
+
+        client.hook = refuse
+
+    started, release = asyncio.Event(), asyncio.Event()
+    persist = service._persist_result
+
+    async def blocked(*args, **kwargs):
+        started.set()
+        await release.wait()
+        return await persist(*args, **kwargs)
+
+    if cancel_checkpoint:
+        monkeypatch.setattr(service, "_persist_result", blocked)
+    task = asyncio.create_task(
+        service.create(
+            media_db,
+            owner_kind="dataset_thumbnail",
+            owner_id=owner_id,
+            input_ref={},
+            body=b"webp",
+        )
+    )
+    if cancel_checkpoint:
+        await started.wait()
+        task.cancel()
+        release.set()
+    expected = (
+        BaseExceptionGroup
+        if cancel_checkpoint
+        else ExceptionGroup
+        if write_refused
+        else DBAPIError
+    )
+    with pytest.raises(expected) as rejected:
+        await task
+    failures = (
+        list(rejected.value.exceptions)
+        if isinstance(rejected.value, BaseExceptionGroup)
+        else [rejected.value]
+    )
+    if write_refused:
+        write_error = failures.pop(0)
+        assert isinstance(write_error, ContentError)
+        assert write_error.code == "thumbnail_write_rejected"
+    if cancel_checkpoint:
+        assert isinstance(failures.pop(0), asyncio.CancelledError)
+    (checkpoint_error,) = failures
+    assert isinstance(checkpoint_error, DBAPIError)
+    assert checkpoint_error.orig.sqlstate == "55000"
+    async with async_sessionmaker(media_db.bind, expire_on_commit=False)() as fresh:
+        output = await fresh.scalar(
+            select(ThumbnailOutput).where(ThumbnailOutput.owner_id == owner_id)
+        )
+        assert output.state == "building" and output.uncertain_write
+        assert output.ready_at is None
+        assert not await fresh.scalar(select(StorageOperation.id))
+        saved_key = service.owner(output).key(service.RELATIVE_KEY)
+        assert (
+            (service.owner(output).bucket, saved_key) in client.objects
+        ) is not write_refused

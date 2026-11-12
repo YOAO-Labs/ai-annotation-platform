@@ -14,6 +14,7 @@ from app.services import managed_original_reader as reader
 from app.services import original_binary, original_sources, prediction_originals
 from app.services import storage_access
 from app.services.content_snapshot import ContentError
+from app.services.original_read_plan import ReadRoute
 from tests.test_managed_original_reader import Provider
 from tests.test_prediction_originals import source as image_source
 from tests.test_training_dataset_originals import encoded
@@ -37,20 +38,37 @@ def routing(monkeypatch):
     provider.meta.endpoint_url = "http://physical-b.test:9000"
     provider.version = "verified-destination-version"
     publication_id = uuid.uuid4()
-    plan = SimpleNamespace(
-        location_id=uuid.uuid4(),
-        maintenance_revision=19,
-        spec=reader.ObjectSpec(
-            provider.meta.endpoint_url,
-            "destination-bucket",
-            "migration/copied-original.png",
-            digest,
-            len(raw),
-            expected_version_id=provider.version,
-            expected_etag=provider.etag,
+    logical = replace(
+        logical,
+        read_route=ReadRoute(
+            publication_id=publication_id,
+            publication_revision=1,
+            source_object_id=hashlib.sha256(logical.object_key.encode()).hexdigest(),
+            source_location_id=logical.location_id,
+            source_endpoint_url=logical.endpoint_url,
+            source_bucket=logical.bucket,
+            source_object_key=logical.object_key,
+            source_version_id=None,
+            sha256=digest,
+            size_bytes=len(raw),
+            source_etag=provider.etag,
+            is_latest=True,
+            target_location_id=uuid.uuid4(),
+            target_location_revision=1,
+            target_connection_id=uuid.uuid4(),
+            target_connection_revision=1,
+            target_endpoint_url=provider.meta.endpoint_url,
+            target_bucket="destination-bucket",
+            target_object_key="migration/copied-original.png",
+            target_version_id=provider.version,
+            target_etag=provider.etag,
+            target_content_sha256=digest,
+            creation_nonce=uuid.uuid4().hex,
+            creation_plan_uuid=str(uuid.uuid4()),
+            maintenance_revision=19,
         ),
-        purpose=lambda _label: "migration_read_" + publication_id.hex,
     )
+    plan = original_sources.read_plan(logical)
     state = SimpleNamespace(
         source=logical,
         raw=raw,
@@ -93,7 +111,6 @@ def routing(monkeypatch):
     async def recheck(_db, source):
         state.rechecks.append(source)
 
-    monkeypatch.setattr(original_sources, "read_plan", lambda _source: plan)
     monkeypatch.setattr(original_sources, "read_options", options)
     monkeypatch.setattr(original_sources, "recheck_read_route", recheck)
     monkeypatch.setattr(storage_access, "acquire", acquire)

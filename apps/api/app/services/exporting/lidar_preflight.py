@@ -23,6 +23,7 @@ from app.schemas.export import (
     LidarExportOptions,
     LidarExportPreflightResponse,
 )
+from app.services import export_execution_context
 from app.services.content_snapshot import ContentError
 from app.services.sensor_calibration import (
     SensorCalibrationState,
@@ -1005,7 +1006,7 @@ async def _preflight_lidar_export(
         async def verify_camera_asset(
             item: DatasetItem, common: dict
         ) -> tuple[DatasetItem, dict, dict | None]:
-            head = await asyncio.to_thread(
+            head = await export_execution_context.run_sync(
                 storage_service.verify_upload,
                 item.file_path,
                 storage_service.datasets_bucket,
@@ -1704,7 +1705,7 @@ async def _preflight_lidar_export(
         async def verify_asset(
             key: str, contract: tuple[int, str, dict, str]
         ) -> tuple[str, tuple[int, str, dict, str], dict | None]:
-            head = await asyncio.to_thread(
+            head = await export_execution_context.run_sync(
                 storage_service.verify_upload,
                 key,
                 storage_service.datasets_bucket,

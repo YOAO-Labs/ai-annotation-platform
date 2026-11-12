@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import suppress
+import builtins
+from contextlib import AsyncExitStack, suppress
 import hashlib
 import json
 import logging
@@ -23,11 +24,13 @@ from yoao_assets_inputs_runtime.database import AsyncpgInputDatabase
 from yoao_assets_inputs_runtime.storage import S3InputStorage
 from yoao_assets_inputs_runtime.worker import InputExecutor
 from yoao_assets_inputs.contract import InputFailure
+from yoao_assets_media_runtime.fixture_native_outputs import FixtureNativeRunSealed
 from yoao_assets_images.policy import image_policy_from_environment
 
 from yoao_assets_images.contract import (
     AdvanceImageBackfillRequest,
     Artifact,
+    BackfillOriginalReadRequest,
     ClaimImageMediaRequest,
     ClaimedImageWork,
     DimensionsResult,
@@ -54,6 +57,7 @@ from yoao_assets_images.contract import (
     ReconcileImageMediaRequest,
     ThumbnailResult,
     ThumbnailWorkSpec,
+    WorkerOriginalReadRequest,
     json_bytes,
     require_result_scope,
 )
@@ -72,6 +76,7 @@ from yoao_assets_images_runtime.processing import (
 from .config import ImageWorkerConfig, load_config
 from .database import AsyncpgImageDatabase, ImageDatabase
 from .health import check_capabilities
+from .original_read import admitted_original
 from .storage import DownloadedSource, ImageStorage, S3ImageStorage
 
 _BACKFILL_CALL_LIMIT = 1_000_000
@@ -273,10 +278,17 @@ async def _job_storage_call(heartbeat, operation, /, *args, **kwargs):
     try:
         async with asyncio.timeout_at(heartbeat.deadline):
             result = await operation(*args, **kwargs)
-    except TimeoutError:
-        raise ImageFailure("timeout") from None
+    except TimeoutError as exc:
+        failure = ImageFailure("timeout")
+        if getattr(exc.__cause__, "storage_operation_unsettled", False):
+            failure.storage_operation_unsettled = True
+        raise failure from None
     heartbeat.check()
     return result
+
+
+class _ImageClaimBusy(ImageFailure):
+    """Native claim rejection with no accepted lease or physical work."""
 
 
 class ImageExecutor:
@@ -299,18 +311,42 @@ class ImageExecutor:
     async def execute_once(
         self, *, job_id: UUID | None = None
     ) -> ImageWorkOutcome | None:
+        from yoao_assets_media_runtime.fixture_native_outputs import native_execution, native_job_candidates
+
+        if job_id is None:
+            candidates = await native_job_candidates(self.database, "image")
+            if candidates is not None:
+                for candidate in candidates:
+                    result = await self.execute_once(job_id=candidate)
+                    if result is not None:
+                        return result
+                return None
+
+        async with native_execution(self.database, "image", job_id) as admitted:
+            if not admitted:
+                return None
+            return await self._execute_once(job_id=job_id)
+
+    async def _execute_once(
+        self, *, job_id: UUID | None = None
+    ) -> ImageWorkOutcome | None:
         if self._closed:
             raise RuntimeError("image executor is closed")
         default_policy = ImagePolicy()
-        claimed = await self.database.call(
-            "claim_image_media",
-            ClaimImageMediaRequest(
-                worker_id=self.worker_id,
-                job_id=job_id,
-                lease_seconds=default_policy.lease_seconds,
-                kinds=["dimensions", "thumbnail", "pyramid", "image_backfill"],
-            ),
-        )
+        try:
+            claimed = await self.database.call(
+                "claim_image_media",
+                ClaimImageMediaRequest(
+                    worker_id=self.worker_id,
+                    job_id=job_id,
+                    lease_seconds=default_policy.lease_seconds,
+                    kinds=["dimensions", "thumbnail", "pyramid", "image_backfill"],
+                ),
+            )
+        except ImageFailure as exc:
+            if exc.code == "operation_busy":
+                raise _ImageClaimBusy(exc.code) from exc
+            raise
         if not isinstance(claimed, ClaimedImageWork):
             raise ImageFailure("invalid_response")
         claim = claimed.claim
@@ -327,31 +363,31 @@ class ImageExecutor:
         try:
             if isinstance(claim.spec, ImageBackfillSpec):
                 return await self._advance_backfill(claim, heartbeat)
-            result = await self._execute_source_claim(claim, heartbeat)
-            heartbeat.check()
-            try:
-                require_result_scope(claim, result)
-                finish = FinishImageMediaRequest(
-                    job_id=claim.job_id,
-                    generation=claim.generation,
-                    lease_token=claim.lease_token,
-                    result=result,
-                )
-                _check_finish_request_budget(finish)
-            except (TypeError, ValueError):
-                raise ImageFailure("invalid_response") from None
-            outcome = await self._finish_with_retries(finish, heartbeat)
-            if not isinstance(outcome, ImageWorkOutcome):
-                raise ImageFailure("invalid_response")
-            return outcome
+            return await self._execute_source_claim(claim, heartbeat)
+        except FixtureNativeRunSealed:
+            return None
         except ImageFailure as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             code = "source_missing" if exc.code == "object_missing" else exc.code
             if code not in _TERMINAL_FAILURES:
                 raise
             heartbeat.check_lease()
             return await self._fail_claim(claim, code)
         finally:
-            await heartbeat.close()
+            failure = sys.exception()
+            try:
+                await heartbeat.close()
+            except BaseException as close_error:
+                if failure is not None:
+                    combined = builtins.BaseExceptionGroup(
+                        "Image work and heartbeat shutdown failed",
+                        [failure, close_error],
+                    )
+                    if getattr(failure, "storage_operation_unsettled", False):
+                        combined.storage_operation_unsettled = True
+                    raise combined from None
+                raise
 
     async def _finish_with_retries(
         self,
@@ -390,7 +426,7 @@ class ImageExecutor:
 
     async def _execute_source_claim(
         self, claim: ImageClaim, heartbeat: _LeaseHeartbeat
-    ) -> ImageWorkResult:
+    ) -> ImageWorkOutcome:
         source = claim.source
         if source is None or source.object_identity is None:
             raise ImageFailure("invalid_response")
@@ -402,10 +438,58 @@ class ImageExecutor:
         if not source.upload_ready:
             raise ImageFailure("source_not_ready")
         heartbeat.check()
+        from yoao_assets_media_runtime.fixture_native_outputs import output_scope
+        from .original_read import fixture_original_permit
+
+        async with (
+            admitted_original(
+                self.database,
+                self.storage,
+                "begin_image_original_worker",
+                WorkerOriginalReadRequest(
+                    job_id=claim.job_id,
+                    generation=claim.generation,
+                    lease_token=claim.lease_token,
+                    source_snapshot=source.source_snapshot,
+                    object_key=source.file_path,
+                ),
+                "finish_image_original_worker",
+            ) as source_storage,
+            output_scope(
+                self.database, self.storage, claim, "image", fixture_original_permit()
+            ),
+        ):
+            result = await self._execute_admitted_source_claim(
+                claim, heartbeat, source, source_storage
+            )
+            heartbeat.check()
+            try:
+                require_result_scope(claim, result)
+                finish = FinishImageMediaRequest(
+                    job_id=claim.job_id,
+                    generation=claim.generation,
+                    lease_token=claim.lease_token,
+                    result=result,
+                )
+                _check_finish_request_budget(finish)
+            except (TypeError, ValueError):
+                raise ImageFailure("invalid_response") from None
+            outcome = await self._finish_with_retries(finish, heartbeat)
+            if not isinstance(outcome, ImageWorkOutcome):
+                raise ImageFailure("invalid_response")
+            from .original_read import fixture_upload_was_started
+
+            if fixture_upload_was_started() and outcome.outcome != "published":
+                raise RuntimeError("fixture image publication was not proven")
+            return outcome
+
+    async def _execute_admitted_source_claim(
+        self, claim, heartbeat, source, source_storage
+    ) -> ImageWorkResult:
 
         if isinstance(claim.spec, DimensionsWorkSpec):
             header = await _job_storage_call(
-                heartbeat, self.storage.read_source_header, source
+                heartbeat, source_storage.read_source_header, source
             )
             if header.identity != source.object_identity:
                 raise ImageFailure("source_changed")
@@ -413,7 +497,9 @@ class ImageExecutor:
             if dimensions is not None:
                 self._validate_known_dimensions(source, dimensions)
                 if (
-                    await _job_storage_call(heartbeat, self.storage.head_source, source)
+                    await _job_storage_call(
+                        heartbeat, source_storage.head_source, source
+                    )
                     != source.object_identity
                 ):
                     raise ImageFailure("source_changed")
@@ -427,7 +513,9 @@ class ImageExecutor:
                 workspace = Path(temporary)
                 workspace.chmod(0o700)
                 source_path = workspace / _source_filename(source.file_name)
-                download = await self._download_source(claim, source_path, heartbeat)
+                download = await self._download_source(
+                    claim, source_path, heartbeat, source_storage
+                )
                 output_dir = workspace / "output"
                 output_dir.mkdir(mode=0o700)
                 dimensions = await self._probe_full_dimensions(
@@ -436,7 +524,9 @@ class ImageExecutor:
                 self._validate_known_dimensions(source, dimensions)
                 heartbeat.check()
                 if (
-                    await _job_storage_call(heartbeat, self.storage.head_source, source)
+                    await _job_storage_call(
+                        heartbeat, source_storage.head_source, source
+                    )
                     != source.object_identity
                 ):
                     raise ImageFailure("source_changed")
@@ -468,7 +558,7 @@ class ImageExecutor:
         thumbnail_dimensions: tuple[int, int] | None = None
         if isinstance(claim.spec, ThumbnailWorkSpec):
             header = await _job_storage_call(
-                heartbeat, self.storage.read_source_header, source
+                heartbeat, source_storage.read_source_header, source
             )
             if header.identity != identity:
                 raise ImageFailure("source_changed")
@@ -483,7 +573,9 @@ class ImageExecutor:
             workspace = Path(temporary)
             workspace.chmod(0o700)
             source_path = workspace / _source_filename(source.file_name)
-            download = await self._download_source(claim, source_path, heartbeat)
+            download = await self._download_source(
+                claim, source_path, heartbeat, source_storage
+            )
             heartbeat.check()
             output_dir = workspace / "output"
             output_dir.mkdir(mode=0o700)
@@ -519,20 +611,24 @@ class ImageExecutor:
             await self._upload_result_artifacts(claim, result, output_dir, heartbeat)
             heartbeat.check()
             if (
-                await _job_storage_call(heartbeat, self.storage.head_source, source)
+                await _job_storage_call(heartbeat, source_storage.head_source, source)
                 != identity
             ):
                 raise ImageFailure("source_changed")
             return result
 
     async def _download_source(
-        self, claim: ImageClaim, destination: Path, heartbeat: _LeaseHeartbeat
+        self,
+        claim: ImageClaim,
+        destination: Path,
+        heartbeat: _LeaseHeartbeat,
+        source_storage,
     ) -> DownloadedSource:
         source = claim.source
         if source is None or source.object_identity is None:
             raise ImageFailure("invalid_response")
         downloaded = await _job_storage_call(
-            heartbeat, self.storage.download_source, source, destination
+            heartbeat, source_storage.download_source, source, destination
         )
         if (
             downloaded.identity != source.object_identity
@@ -912,15 +1008,32 @@ class ImageExecutor:
                     artifact=artifact,
                 )
 
-            rows = await asyncio.gather(
-                *(upload_tile(tile) for tile in batch), return_exceptions=True
-            )
-            failure = next(
-                (row for row in rows if isinstance(row, BaseException)), None
-            )
-            if failure is not None:
-                if isinstance(failure, ImageFailure):
-                    raise failure
+            try:
+                rows = await asyncio.gather(
+                    *(upload_tile(tile) for tile in batch), return_exceptions=True
+                )
+            except asyncio.CancelledError as exc:
+                from .original_read import fixture_original_active
+
+                if fixture_original_active():
+                    exc.storage_operation_unsettled = True
+                raise
+            failures = [row for row in rows if isinstance(row, BaseException)]
+            if failures:
+                from .original_read import _unsettled, fixture_original_active
+
+                if fixture_original_active():
+                    for failure in failures:
+                        if isinstance(failure, asyncio.CancelledError):
+                            failure.storage_operation_unsettled = True
+                if any(_unsettled(failure) for failure in failures):
+                    if len(failures) == 1:
+                        raise failures[0]
+                    combined = BaseExceptionGroup("Image tile uploads failed", failures)
+                    combined.storage_operation_unsettled = True
+                    raise combined from None
+                if isinstance(failures[0], ImageFailure):
+                    raise failures[0]
                 raise ImageFailure("storage_unavailable") from None
             uploaded_tiles.extend(
                 row for row in rows if isinstance(row, ImageTileArtifact)
@@ -984,13 +1097,14 @@ class ImageExecutor:
         # The native call first prepares a bounded candidate batch without moving
         # its cursor. S3 observations then happen without transaction-held locks.
         previous_cursor: tuple[str, int] | None = None
+        private_fixture = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
         for _ in range(_BACKFILL_CALL_LIMIT):
             heartbeat.check()
             request = AdvanceImageBackfillRequest(
                 job_id=claim.job_id,
                 generation=claim.generation,
                 lease_token=claim.lease_token,
-                batch_size=500,
+                batch_size=_MAX_UPLOAD_CONCURRENCY if private_fixture else 500,
             )
             progress = await self.database.call("advance_image_backfill", request)
             if not isinstance(progress, ImageBackfillProgress):
@@ -1004,15 +1118,29 @@ class ImageExecutor:
                     progress.candidates,
                     previous_cursor=previous_cursor,
                 )
-                observations = await self._observe_backfill_candidates(
-                    progress.candidates,
-                    progress.batch_token,
-                    heartbeat,
-                )
-                request = request.model_copy(update={"observations": observations})
-                progress = await self.database.call("advance_image_backfill", request)
-                if not isinstance(progress, ImageBackfillProgress):
-                    raise ImageFailure("invalid_response")
+                if private_fixture:
+                    async with AsyncExitStack() as source_permits:
+                        observations = await self._observe_fixture_backfill_candidates(
+                            claim, progress.candidates, progress.batch_token, heartbeat, source_permits
+                        )
+                        request = request.model_copy(update={"observations": observations})
+                        try:
+                            progress = await self.database.call("advance_image_backfill", request)
+                            if not isinstance(progress, ImageBackfillProgress):
+                                raise ImageFailure("invalid_response")
+                        except FixtureNativeRunSealed:
+                            raise
+                        except BaseException as exc:
+                            exc.storage_operation_unsettled = True
+                            raise
+                else:
+                    observations = await self._observe_backfill_candidates(
+                        claim, progress.candidates, progress.batch_token, heartbeat
+                    )
+                    request = request.model_copy(update={"observations": observations})
+                    progress = await self.database.call("advance_image_backfill", request)
+                    if not isinstance(progress, ImageBackfillProgress):
+                        raise ImageFailure("invalid_response")
                 heartbeat.check()
             if progress.complete:
                 return ImageWorkOutcome(
@@ -1063,8 +1191,63 @@ class ImageExecutor:
             if any(source.owner.id not in wanted for source in candidates):
                 raise ImageFailure("invalid_response")
 
+    async def _observe_fixture_backfill_candidates(
+        self, claim, candidates, batch_token, heartbeat, source_permits
+    ) -> ImageBackfillObservations:
+        """Retain each real fixture source permit through the owner's advance commit."""
+        observed = []
+        for source in candidates:
+            heartbeat.check()
+            source_storage = await source_permits.enter_async_context(
+                admitted_original(
+                    self.database,
+                    self.storage,
+                    "begin_image_original_backfill",
+                    BackfillOriginalReadRequest(
+                        job_id=claim.job_id,
+                        generation=claim.generation,
+                        lease_token=claim.lease_token,
+                        batch_token=batch_token,
+                        owner_kind=source.owner.kind,
+                        owner_id=source.owner.id,
+                        source_snapshot=source.source_snapshot,
+                        object_key=source.file_path,
+                    ),
+                    "finish_image_original_worker",
+                )
+            )
+            try:
+                identity = await _job_storage_call(heartbeat, source_storage.head_source, source)
+            except ImageFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
+                if exc.code not in {"object_missing", "source_changed"}:
+                    raise
+                observed.append(ImageBackfillSourceObservation(
+                    owner=source.owner, source_snapshot=source.source_snapshot,
+                    object_identity=None,
+                    error_code="source_missing" if exc.code == "object_missing" else "source_changed",
+                ))
+                continue
+            heartbeat.check()
+            if not source.upload_ready:
+                raise ImageFailure("source_not_ready")
+            changed = source.source_drifted or (
+                source.file_size is not None and identity.byte_size != source.file_size
+            )
+            observed.append(ImageBackfillSourceObservation(
+                owner=source.owner,
+                source_snapshot=source.source_snapshot,
+                object_identity=None if changed else identity,
+                error_code="source_changed" if changed else None,
+            ))
+        heartbeat.check()
+        return ImageBackfillObservations(batch_token=batch_token, items=observed)
+
+
     async def _observe_backfill_candidates(
         self,
+        claim: ImageClaim,
         candidates: list[ImageSource],
         batch_token: UUID,
         heartbeat: _LeaseHeartbeat,
@@ -1075,26 +1258,44 @@ class ImageExecutor:
         async def observe(source: ImageSource) -> ImageBackfillSourceObservation:
             heartbeat.check()
             async with semaphore:
-                try:
-                    identity = await _job_storage_call(
-                        heartbeat, self.storage.head_source, source
-                    )
-                except ImageFailure as exc:
-                    if exc.code == "object_missing":
-                        return ImageBackfillSourceObservation(
-                            owner=source.owner,
-                            source_snapshot=source.source_snapshot,
-                            object_identity=None,
-                            error_code="source_missing",
+                async with admitted_original(
+                    self.database,
+                    self.storage,
+                    "begin_image_original_backfill",
+                    BackfillOriginalReadRequest(
+                        job_id=claim.job_id,
+                        generation=claim.generation,
+                        lease_token=claim.lease_token,
+                        batch_token=batch_token,
+                        owner_kind=source.owner.kind,
+                        owner_id=source.owner.id,
+                        source_snapshot=source.source_snapshot,
+                        object_key=source.file_path,
+                    ),
+                    "finish_image_original_worker",
+                ) as source_storage:
+                    try:
+                        identity = await _job_storage_call(
+                            heartbeat, source_storage.head_source, source
                         )
-                    if exc.code == "source_changed":
-                        return ImageBackfillSourceObservation(
-                            owner=source.owner,
-                            source_snapshot=source.source_snapshot,
-                            object_identity=None,
-                            error_code="source_changed",
-                        )
-                    raise
+                    except ImageFailure as exc:
+                        if getattr(exc, "storage_operation_unsettled", False):
+                            raise
+                        if exc.code == "object_missing":
+                            return ImageBackfillSourceObservation(
+                                owner=source.owner,
+                                source_snapshot=source.source_snapshot,
+                                object_identity=None,
+                                error_code="source_missing",
+                            )
+                        if exc.code == "source_changed":
+                            return ImageBackfillSourceObservation(
+                                owner=source.owner,
+                                source_snapshot=source.source_snapshot,
+                                object_identity=None,
+                                error_code="source_changed",
+                            )
+                        raise
                 heartbeat.check()
             if not source.upload_ready:
                 raise ImageFailure("source_not_ready")
@@ -1228,7 +1429,7 @@ async def _run_child(
         while not wait_task.done():
             heartbeat.check()
             if (
-                _directory_size(workspace, policy.max_temp_bytes)
+                _directory_size(workspace, policy.max_temp_bytes, child_running=True)
                 > policy.max_temp_bytes
             ):
                 raise ImageFailure("resource_limit")
@@ -1428,7 +1629,9 @@ def _validate_child_tiles(
     return result
 
 
-def _directory_size(directory: Path, limit: int) -> int:
+def _directory_size(
+    directory: Path, limit: int, *, child_running: bool = False
+) -> int:
     total = 0
     try:
         for current, directories, files in os.walk(directory, followlinks=False):
@@ -1438,7 +1641,13 @@ def _directory_size(directory: Path, limit: int) -> int:
                     raise ImageFailure("tile_grid_mismatch")
             for name in files:
                 path = Path(current) / name
-                info = path.stat(follow_symlinks=False)
+                try:
+                    info = path.stat(follow_symlinks=False)
+                except FileNotFoundError:
+                    if not child_running:
+                        raise
+                    # libvips atomically publishes temporary tiles during encoding.
+                    continue
                 if not stat.S_ISREG(info.st_mode):
                     raise ImageFailure("tile_grid_mismatch")
                 total += info.st_size
@@ -1460,8 +1669,22 @@ def _check_finish_request_budget(request: FinishImageMediaRequest) -> None:
 
 
 async def _run_worker(
-    *, once: bool, job_id: UUID | None, input_id: UUID | None = None
+    *,
+    once: bool,
+    job_id: UUID | None,
+    input_id: UUID | None = None,
+    shutdown_event: asyncio.Event | None = None,
+    ready_callback=None,
+    strict: bool = False,
 ) -> None:
+    if ready_callback is not None and (
+        once or job_id is not None or input_id is not None or not strict
+    ):
+        raise ValueError("readiness requires both strict unselected worker lanes")
+    private = bool(os.environ.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"))
+    strict = strict or private
+    if private and input_id is not None:
+        raise ValueError("fixture native worker cannot claim ordinary inputs")
     config: ImageWorkerConfig = load_config()
     database = await _connect_worker_database(config)
     try:
@@ -1480,16 +1703,28 @@ async def _run_worker(
         )
         input_storage = None
         try:
-            input_storage = S3InputStorage(config.storage, source_storage=storage)
-            policy = image_policy_from_environment()
-            inputs = InputExecutor(
-                AsyncpgInputDatabase(database.pool, allowed_roles={"worker"}),
-                input_storage,
-                policy=policy,
-                worker_id=executor.worker_id,
-            )
+            inputs = None
+            if private:
+                from yoao_assets_media_runtime.fixture_native_outputs import native_producer_ready
+
+                await native_producer_ready(database, "image")
+            else:
+                input_storage = S3InputStorage(config.storage, source_storage=storage)
+                policy = image_policy_from_environment()
+                inputs = InputExecutor(
+                    AsyncpgInputDatabase(database.pool, allowed_roles={"worker"}),
+                    input_storage,
+                    policy=policy,
+                    worker_id=executor.worker_id,
+                )
+            stopped = shutdown_event or asyncio.Event()
+            ready = False
+            unsettled = False
+            if private and ready_callback is not None:
+                ready_callback()
+                ready = True
             if once:
-                if job_id is not None:
+                if job_id is not None or private:
                     await executor.execute_once(job_id=job_id)
                 else:
                     result = await inputs.execute_once(input_id=input_id)
@@ -1497,37 +1732,76 @@ async def _run_worker(
                         await executor.execute_once()
                 return
             next_reconcile = 0.0
-            while True:
+            while not stopped.is_set():
                 try:
                     now = asyncio.get_running_loop().time()
-                    if input_id is None and now >= next_reconcile:
+                    if not private and input_id is None and now >= next_reconcile:
                         await executor.reconcile_once()
                         next_reconcile = (
                             asyncio.get_running_loop().time()
                             + _RECONCILE_INTERVAL_SECONDS
                         )
+                    if stopped.is_set():
+                        break
                     input_work = (
                         await inputs.execute_once(input_id=input_id)
-                        if job_id is None
+                        if not private and job_id is None
                         else None
                     )
+                    if inputs is not None and (inputs.unsettled_claim or (
+                        input_work is not None
+                        and input_work.status not in {"ready", "failed"}
+                    )):
+                        unsettled = True
+                        if strict:
+                            raise RuntimeError("Assets image input claim is unsettled")
+                    if stopped.is_set():
+                        break
                     image_work = (
                         await executor.execute_once(job_id=job_id)
                         if input_id is None
                         else None
                     )
+                    if image_work is not None and image_work.outcome not in {
+                        "published",
+                        "replayed",
+                        "failed",
+                    }:
+                        unsettled = True
+                        if strict:
+                            raise RuntimeError("Assets image claim is unsettled")
+                    if stopped.is_set():
+                        break
+                    if not ready and ready_callback is not None:
+                        ready_callback()
+                        ready = True
                     did_work = input_work is not None or image_work is not None
+                except _ImageClaimBusy:
+                    did_work = False
                 except (ImageFailure, InputFailure) as exc:
+                    unsettled = True
+                    if strict:
+                        raise
                     _LOGGER.error("Assets image worker operation failed (%s)", exc.code)
                     did_work = False
                 except Exception as exc:  # noqa: BLE001 - do not log source/URL data
+                    unsettled = True
+                    if strict:
+                        raise
                     _LOGGER.error(
                         "Assets image worker iteration failed (%s)",
                         type(exc).__name__,
                     )
                     did_work = False
-                if did_work is None or did_work is False:
-                    await asyncio.sleep(config.poll_seconds)
+                if not did_work:
+                    try:
+                        await asyncio.wait_for(
+                            stopped.wait(), timeout=config.poll_seconds
+                        )
+                    except asyncio.TimeoutError:
+                        pass
+            if unsettled:
+                raise RuntimeError("Assets image worker has unsettled work")
         finally:
             try:
                 if input_storage is not None:
@@ -1558,6 +1832,7 @@ async def _connect_worker_database(config: ImageWorkerConfig) -> AsyncpgImageDat
 
 
 async def _with_signals(coroutine) -> None:
+    """Preserve cancellable one-shot and ordinary worker invocation semantics."""
     loop = asyncio.get_running_loop()
     task = asyncio.create_task(coroutine)
     installed = []
@@ -1576,6 +1851,36 @@ async def _with_signals(coroutine) -> None:
             loop.remove_signal_handler(caught_signal)
 
 
+async def _run_worker_cli(*, once, job_id, input_id, ready_fd, stopped_fd):
+    """Stop admitting work on signal; drain the exact current unit."""
+    loop = asyncio.get_running_loop()
+    stopped = asyncio.Event()
+    installed = []
+    for caught_signal in (signal.SIGTERM, signal.SIGINT):
+        loop.add_signal_handler(caught_signal, stopped.set)
+        installed.append(caught_signal)
+
+    def ready():
+        os.write(ready_fd, b"ready\n")
+        os.close(ready_fd)
+
+    try:
+        await _run_worker(
+            once=once,
+            job_id=job_id,
+            input_id=input_id,
+            shutdown_event=stopped,
+            ready_callback=ready if ready_fd is not None else None,
+            strict=ready_fd is not None,
+        )
+        if stopped_fd is not None and stopped.is_set():
+            os.write(stopped_fd, b"settled\n")
+            os.close(stopped_fd)
+    finally:
+        for caught_signal in installed:
+            loop.remove_signal_handler(caught_signal)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Assets image media worker")
     parser.add_argument("--once", action="store_true", help="execute at most one job")
@@ -1585,13 +1890,46 @@ def main() -> None:
     parser.add_argument(
         "--healthcheck", action="store_true", help="verify the worker SQL login"
     )
+    parser.add_argument("--ready-fd", type=int)
+    parser.add_argument("--stopped-fd", type=int)
     args = parser.parse_args()
-    coroutine = (
-        _healthcheck()
-        if args.healthcheck
-        else _run_worker(once=args.once, job_id=args.job_id, input_id=args.input_id)
-    )
-    asyncio.run(_with_signals(coroutine))
+    if (args.ready_fd is None) != (args.stopped_fd is None):
+        parser.error("ready and stopped descriptors must be supplied together")
+    if args.ready_fd is not None and (
+        args.ready_fd < 0
+        or args.stopped_fd < 0
+        or args.ready_fd == args.stopped_fd
+        or args.once
+        or args.job_id
+        or args.input_id
+        or args.healthcheck
+    ):
+        parser.error("supervised readiness requires a continuous unselected worker")
+    previous = {sig: signal.getsignal(sig) for sig in (signal.SIGTERM, signal.SIGINT)}
+    try:
+        if args.healthcheck:
+            asyncio.run(_healthcheck())
+        elif args.ready_fd is None:
+            asyncio.run(
+                _with_signals(
+                    _run_worker(
+                        once=args.once, job_id=args.job_id, input_id=args.input_id
+                    )
+                )
+            )
+        else:
+            asyncio.run(
+                _run_worker_cli(
+                    once=args.once,
+                    job_id=args.job_id,
+                    input_id=args.input_id,
+                    ready_fd=args.ready_fd,
+                    stopped_fd=args.stopped_fd,
+                )
+            )
+    finally:
+        for sig, handler in previous.items():
+            signal.signal(sig, handler)
 
 
 if __name__ == "__main__":

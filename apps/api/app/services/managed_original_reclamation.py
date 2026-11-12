@@ -313,9 +313,10 @@ WITH clock AS (
             AND l.kind = 's3' AND l.config = CAST(:location_config AS jsonb)
             AND l.config_revision = r.location_config_revision
             THEN 'current' ELSE 'mismatch' END AS current_identity,
-        (SELECT count(*) FROM dataset_asset_locations x
-            WHERE x.bucket = r.bucket
-                AND x.object_key = r.object_key) AS asset_locations,
+        ((SELECT count(*) FROM dataset_asset_locations x
+            WHERE x.bucket = r.bucket AND x.object_key = r.object_key)
+         + (SELECT count(*) FROM dataset_auxiliary_originals x
+            WHERE x.bucket = r.bucket AND x.object_key = r.object_key)) AS asset_locations,
         (SELECT count(*) FROM dataset_items i
             WHERE r.bucket = :datasets_bucket AND i.file_path = r.object_key) AS dataset_items,
         (SELECT count(*) FROM tasks t WHERE t.file_path = r.object_key
@@ -432,7 +433,8 @@ SELECT clock.measured_at, __CONFIGURATION__ AS configuration_fingerprint,
         'unknown_active_learning_rounds', au.count
     ) AS counts,
     COALESCE((SELECT jsonb_agg(jsonb_build_object(
-        'id', p.id, 'asset_id', p.asset_id, 'dataset_id', p.dataset_id,
+        'id', p.id, 'owner_type', p.owner_type, 'asset_id', p.asset_id,
+        'auxiliary_original_id', p.auxiliary_original_id, 'dataset_id', p.dataset_id,
         'dataset_item_id', p.dataset_item_id, 'retired_at', p.retired_at,
         'policy_revision', p.policy_revision, 'retain_until', p.retain_until,
         'effective_retain_until', p.effective_retain_until,
@@ -679,6 +681,8 @@ _GROUP_OBSERVATION = text(
         jsonb_build_object(
             'assets', (SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY a.asset_id, a.location_id, a.bucket), '[]'::jsonb)
                 FROM dataset_asset_locations a WHERE a.bucket = r.bucket AND a.object_key = r.object_key),
+            'auxiliary', (SELECT COALESCE(jsonb_agg(to_jsonb(a) ORDER BY a.id), '[]'::jsonb)
+                FROM dataset_auxiliary_originals a WHERE a.bucket = r.bucket AND a.object_key = r.object_key),
             'items', (SELECT COALESCE(jsonb_agg(to_jsonb(i) ORDER BY i.id), '[]'::jsonb)
                 FROM dataset_items i WHERE i.file_path = r.object_key),
             'tasks', (SELECT COALESCE(jsonb_agg(to_jsonb(t) ORDER BY t.id), '[]'::jsonb)

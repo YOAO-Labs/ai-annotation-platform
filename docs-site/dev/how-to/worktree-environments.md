@@ -60,7 +60,10 @@ pnpm dev:worktree -- up --with-worker
 
 媒体上传下载地址统一使用同源 `/minio`，Vite 转发到已验证的本机 MinIO endpoint；远程浏览器只需能访问 Web 端口。应用临时文件按模式隔离，端口预留锁则统一保存在用户目录的 `.cache/aap-dev-ports`，供所有工作树和模式协调使用。
 
-前端进程只接收系统和公开配置，不继承数据库或对象存储凭据。API 配置通过匿名管道交给监督进程后传给 API 子进程，不写入磁盘或命令行；API/普通 worker 不继承迁移账号连接。专用维护 worker 将同库的 owner 连接作为 `DATABASE_URL`，同时清空迁移和测试连接变量。进程身份同时核对启动时间、工作树范围和命令摘要，支持软链接入口和相对路径调用。
+前端进程只接收系统和公开配置，不继承数据库或对象存储凭据。API 配置通过匿名管道交给监督进程后传给 API 子进程，不写入磁盘或命令行；API/普通 worker 不继承迁移账号连接。专用维护 worker 将同库的 owner 连接作为 `DATABASE_URL`，同时清空迁移和测试连接变量。进程身份同时核对 Linux `boot_id`、`/proc/<pid>/stat` 的 `start_ticks`、工作树范围和命令摘要，支持软链接入口和相对路径调用；`ps lstart` 只供人工查看，不作为身份条件，避免系统时钟校正造成误判。缺少出生字段的旧记录不能证明身份，不补写当前观察值或据此删除原现场。
+
+API／普通 worker 的环境还会移除推理路由和健康观测 owner 的数据库连接及文件选择器；
+调用方可接收 HTTP 地址和令牌，但不能继承这两类 owner 的专用数据库凭据。
 
 所有 Identity 专用数据库选择器及文件选择器会在子进程中清空，避免从共享 `.env` 连接到其他环境。默认内嵌 Identity 通过固定 Native 能力读写，其私表与列权限在授权事务内撤销。
 
@@ -131,6 +134,54 @@ pnpm dev:worktree -- exec --mode e2e --with-worker -- pnpm test:e2e
 
 Playwright 的迁移和数据库夹具使用隔离库的所有者连接；其 API 使用同库的运行账号，并在启动前清空迁移及夹具连接变量。
 
+`exec --mode e2e` 在核验工作树数据库归属后撤销该库 `PUBLIC` 的临时表权限，
+并保留普通运行账号原本已有的临时表权限；其他数据库不受影响。专用函数账号不能继承该权限。
+该撤销不修改同库已有的显式授权；仅依赖 `PUBLIC` 的其他账号不自动保留该权限。
+共享 PostgreSQL 的 `PUBLIC CONNECT` 可能允许这些 LOGIN 认证到其他库；此工作树隔离
+不更改邻库的连接政策，也不是跨数据库认证沙箱。专用 Native 函数授权仅授予核验过的
+本模式数据库，启动时仍以真实 LOGIN 核验固定函数集合和私表访问拒绝。
+
+规范 E2E 启动同库的真实 Routing 与健康观测 HTTP owner，使用两个按工作树和模式创建的
+函数专用 LOGIN；API／worker 只收到 HTTP 选择器，不收到这两个数据库连接。凭据保存在
+`.worktree/e2e/inference-credentials.json`（0600），停止后保留，精确销毁时核验并删除账号。
+启动就绪确认共用 30 秒总期限，单次健康探测使用其中的剩余预算；
+有效的 Native 权限核验响应不因超过 1 秒便被反复截断，不另外延长启动期限。
+私有输出代理由自己的 CLI 入口定位本 checkout 的 API 包，不依赖外层 `PYTHONPATH`；
+这不向独立 Images／Media worker 添加 API 源码路径。
+规范 Raster 启动器从本次已核验的私有 Docker bridge 提供模型夹具的可达地址，
+不依赖宿主机名称能否解析到非回环地址，也不借用其他运行的网络。
+故障前仍须封闭原生产者与消费者。私有 Redis 可保留只含路由信息的 Kombu 绑定集合，
+待消费消息、未确认投递及未知状态仍阻止继续；不删除元数据来伪造空库。
+排空需等待已接纳请求和连接清理完成、私有回执及实际进程退出；结果不明时保留
+`inference-owner.json`、进程和凭据，`stop`／`destroy` 不会把它视为已停止。
+原监督进程已确认退出、没有未证明的消费者时，持有模式锁的恢复命令会核对原进程、
+私有控制 socket、Linux 进程启动身份及 pidfd。对仍在服务的同一个 owner，可执行
+`pnpm dev:worktree -- recover-inference -- <恢复命令>`。恢复时只读核验原数据库、物理存储、
+目标与创建回执、原 reader 凭据和连接器密钥／allowlist，并通过原 authority 的认证状态接口
+核验完整配置；不会重新迁移、开设替代存储或轮换凭据。命令收到原有 HTTP 和 reader 选择器，
+结束后 owner 仍保留；缺失原 authority 或任何身份不一致时拒绝恢复。
+如果排空已完成但控制回执丢失，可用 `pnpm dev:worktree -- recover-inference --finish-drain`
+检查原 owner 的认证排空状态，并在原件责任、authority 锁及进程退出均获证明后完成关闭。
+已完成的离线暂停会先保存 `inference-paused.json`：该记录绑定原 owner、排空回执、
+实际 pidfd 退出和原选择器，再移除运行标记。恢复可在核验这个回执后使用相同地址与令牌
+重新启动；缺少回执不能仅凭标记消失推断暂停完成。
+正在排空或身份不明时拒绝接管，不以连接消失、PID 复用或超时推断结算。
+
+规范 E2E 中断时，监督器只协作通知实际命令，不在宽限期后强杀进程；退出码仍为非零。
+无法证明消费者及后代结算时，`run.json` 保存已观察到的精确进程身份及未解决状态，
+并阻止 `stop`、`destroy` 和自动接管；不能仅凭进程或端点消失清除该记录。
+规范 E2E 在消费者启动前建立 Linux subreaper 边界；即使命令包装进程以零状态退出，
+仍需回收已接管的脱离进程，并确认只有已核验的 native owner 被排除，才记录监督完成回执。
+若消费者仍在运行或身份无法证明，保留其身份及未解决记录，不以超时或强杀当作结算。
+
+运行级原件夹具通过独立的 `seed-request.py` owner 进程准备和清理。该进程先核对同一个可销毁数据库及 owner 身份，再显式启用托管原件维护协议；不改变普通 API／worker 或生产环境的默认开关。清理仍须满足准确根回执、对象版本、location 维护门和读者责任的结算要求，启用开关不等于已证明物理 I/O 排空。
+
+夹具 Audit 清理使用原生 `(id, created_at)` 复合回执，而不是按 namespace 或单独的整数 ID 删除。实际认证会话必须属于夹具 owner，叶运行已经封闭且所有准入责任已结算；共享原始 namespace 的两个运行仍各自保留准确归属。旧 UUID 回执不会自动转换或补造时间戳。
+
+涉及后端注册项时，清理还依赖真实 Routing owner 的连续性和排空证明。不可达的展示地址、空作业列表或终态标记不代表后端可以安全删除；未满足前置时保留运行与资源，不绕过静默检查。
+
+测试提供方也须经过真实认证的健康观测，普通运行账号不再因数据库具有测试后缀而取得直接设置夹具健康状态的权限。重新应用权限会撤销旧授权；历史 SQL 保持原件，由前向迁移退役该入口。
+
 CI 的可复用 E2E 工作流同样从仓库根目录调用 `pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web <套件命令>`，不再另起使用 owner 连接的 API 或维护第二套运行账号授权。PostgreSQL 的初始 `postgres` 连接用于协调器建库和迁移；实际普通 API 只获得本模式的受限连接。需要已构建 Web 的 CI 套件仍使用经过指纹核验的产物和严格端口 preview；Mask 的开发服务器与原生构建入口保持各自约定。
 
 `--with-worker` 使用当前 checkout 的 Python 依赖，同时启动普通和维护 worker。普通 worker 消费 `default,media,cleanup,audit,export,image-pyramid,ml.cpu`；维护 worker 只消费 `maintenance`，负责审计与预测月分区、旧审计分区归档，以及人员效率和审计统计物化视图刷新。两者均需通过任务注册与队列订阅检查；除了职责队列，也允许 Celery 自动创建的当前节点专属定向队列，缺失职责队列或其他意外订阅仍会阻止启动。`doctor` 分别显示 `worker` 和 `maintenance_worker`；任一个退出都会停止同次启动的服务。
@@ -165,6 +216,15 @@ pnpm dev:worktree -- destroy --mode e2e --confirm '<id>:e2e'
 - 基础设施地址变化时，先使用旧配置处理旧环境，不能让同一份清单静默改指另一个服务器。
 
 销毁会先核对全部归属、连接和角色依赖，再删除本模式数据库及准确匹配的自有账号，不对其他数据库执行 `DROP OWNED`。凭据与目标清单保留到全部资源删除成功，失败后可用原配置重试。创建账号与归属 comment 在同一数据库事务里完成；若事务中断但凭据文件已保存，后续 `init` 复用该密码恢复，不自动轮换现有账号。
+
+共享测试 bootstrap 已明确结束、但原环境仍待回收时，使用原工作树和原配置显式进入退役模式：
+
+```bash
+pnpm dev:worktree -- doctor --mode test --retire-finished-bootstrap
+pnpm dev:worktree -- destroy --mode test --retire-finished-bootstrap --confirm '<id>:test'
+```
+
+该模式要求已保存的 test 资源清单与原 bootstrap 的运行、端点、网络及物理身份完全匹配。它只允许检查和删除原资源，不能初始化、重建、导出应用运行环境、启动 Redis、创建账号或升级 bucket。`--confirm`、活跃会话／读者、未结算责任及归属保护仍然生效；不要改写 owner journal 伪造运行状态，也不能用此选项接管未知环境。普通启动和环境导出仍只接受活跃 bootstrap。
 
 销毁工作树前，分别清理已经使用过的模式。Git/Orca 删除工作树不会自动删除数据库和 bucket。
 

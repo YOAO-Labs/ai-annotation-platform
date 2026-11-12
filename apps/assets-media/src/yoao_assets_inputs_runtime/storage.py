@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import base64
 from contextlib import suppress
 import hashlib
@@ -65,10 +66,24 @@ async def _run(function, *args):
     task = asyncio.create_task(asyncio.to_thread(function, stop, *args))
     try:
         return await asyncio.shield(task)
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as cancelled:
         stop.set()
-        with suppress(BaseException):
-            await task
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except BaseException:
+                break
+        try:
+            task.result()
+        except BaseException as late:
+            combined = builtins.BaseExceptionGroup(
+                "Accepted input I/O was cancelled and then failed", [cancelled, late]
+            )
+            if getattr(late, "storage_operation_unsettled", False):
+                combined.storage_operation_unsettled = True
+            raise combined from None
         raise
 
 
@@ -146,11 +161,8 @@ class S3InputStorage:
     async def assert_versioning(self):
         await _run(self._assert_versioning)
 
-    async def download_source(self, source, destination: Path):
-        return await self.source_storage.download_source(source, destination)
-
-    async def head_source(self, source):
-        return await self.source_storage.head_source(source)
+    def bind_original(self, permit):
+        return self.source_storage.bind_original(permit)
 
     def _head_blob(self, stop, blob):
         self._check_key(blob.key)

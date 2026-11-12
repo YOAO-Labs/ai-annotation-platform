@@ -23,6 +23,7 @@ from yoao_workspace_contract.access import (
     ProjectCapability,
 )
 from app.services.project_access import resolve_project_access
+from app.services.reference_keys import is_reference
 from app.services.storage import storage_service
 from app.services.assets_media_summary import AssetsTaskMediaSummaryReader
 from app.services.assets_media_summary_contract import TaskMediaSummary
@@ -65,7 +66,9 @@ async def _linked_source_references(
     try:
         async with media_gateway(db) as gateway:
             references = await gateway.source_references(requests, raw_only=True)
-    except MediaFailure:
+    except MediaFailure as exc:
+        if getattr(exc, "storage_operation_unsettled", False):
+            raise
         return found | {task.id: None for task in selected}
     if len(references) != len(selected) or any(
         reference.source.dataset_item_id != task.dataset_item_id
@@ -230,7 +233,7 @@ def _task_with_url(
     ``skipped_at``、未来新增列）通过 ``from_attributes`` 自动映射，无需在此手写。
     本 helper 仅负责无法从 ORM 直读的部分：
 
-    * ``file_url`` / ``thumbnail_url`` — MinIO presigned 签发
+    * ``file_url`` 来自来源 owner；fixture 原件使用认证读取
     * ``image_width`` / ``image_height`` / ``blurhash`` —— 来源可能是
       task 自身或关联的 :class:`DatasetItem`
     * ``assignee`` / ``reviewer`` (UserBrief) —— 调用方批量解析后传入
@@ -245,12 +248,14 @@ def _task_with_url(
         if task.dataset_item_id or task.file_type == "point_cloud"
         else storage_service.bucket
     )
+    file_url = None
     if owner_source_reference_loaded:
-        file_url = (
-            browser_media_url(owner_source_reference.original_url)
-            if owner_source is not None and not owner_source.source_drifted
-            else None
-        )
+        if (
+            owner_source is not None
+            and not owner_source.source_drifted
+            and owner_source_reference.original_url is not None
+        ):
+            file_url = browser_media_url(owner_source_reference.original_url)
         if owner_source is not None:
             if owner_source.file_type == "video":
                 owner_source_current = (
@@ -280,13 +285,6 @@ def _task_with_url(
             video_metadata = None
             if task.file_type == "image":
                 width, height, blurhash = None, None, None
-    else:
-        try:
-            file_url = storage_service.generate_download_url(
-                task.file_path, bucket=bucket
-            )
-        except Exception:
-            file_url = None
 
     thumbnail_url: str | None = None
     if owner_source_reference_loaded:
@@ -335,6 +333,11 @@ def _task_with_url(
 
     out = TaskOut.model_validate(task, from_attributes=True)
     out.file_url = file_url
+    out.original_identity_path = (
+        f"/api/v1/files/tasks/{task.id}/original-identity"
+        if not is_reference(task.file_path)
+        else None
+    )
     out.thumbnail_url = thumbnail_url
     out.image_width = width
     out.image_height = height

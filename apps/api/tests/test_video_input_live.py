@@ -56,8 +56,20 @@ pytestmark = [
 
 
 @asynccontextmanager
-async def _video_runtime(test_engine, tmp_path, *, source_test_engine=None):
+async def _video_runtime(
+    test_engine,
+    tmp_path,
+    *,
+    source_test_engine=None,
+    tracker_bridge=None,
+    tracker_retain=None,
+):
     from app.config import settings
+
+    if tracker_retain is not None and (
+        tracker_bridge is None or not callable(tracker_retain)
+    ):
+        raise ValueError("Tracker retention requires the owned fixture bridge")
 
     source_url = source_test_engine.url if source_test_engine is not None else None
     if source_url is not None and not (
@@ -144,7 +156,19 @@ async def _video_runtime(test_engine, tmp_path, *, source_test_engine=None):
     worker_access = _required_env("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_ACCESS_KEY")
     worker_secret = _required_env("AAP_MODULE_DATA_ASSET_MEDIA_WORKER_S3_SECRET_KEY")
     assert access != worker_access and secret != worker_secret
-    token, port = secrets.token_urlsafe(32), _free_loopback_port()
+    token = secrets.token_urlsafe(32)
+    if tracker_bridge is None:
+        host, port = "127.0.0.1", _free_loopback_port()
+    else:
+        from tests.test_workspace_video_tracker_worker_live import _TrackerFixtureBridge
+
+        if not isinstance(tracker_bridge, _TrackerFixtureBridge):
+            raise TypeError("Tracker media requires a verified fixture bridge")
+        listener, _ = tracker_bridge.reserve_listener()
+        try:
+            host, port = listener.getsockname()[:2]
+        finally:
+            listener.close()
     environment = _runtime_environment(
         tmp_path=tmp_path,
         role="control",
@@ -159,11 +183,12 @@ async def _video_runtime(test_engine, tmp_path, *, source_test_engine=None):
         token=token,
         port=port,
     )
+    environment["ASSETS_MEDIA_HOST"] = host
     log = tmp_path / "video-input-control.log"
     process, stream = _start_process(
         [sys.executable, "-m", "yoao_assets_media_runtime"], environment, log
     )
-    origin = f"http://127.0.0.1:{port}"
+    origin = f"http://{host}:{port}"
     http = httpx.AsyncClient(base_url=origin, timeout=15, trust_env=False)
     client = VideoInputClient(origin, token, client=http)
     runtime = SimpleNamespace(
@@ -187,8 +212,9 @@ async def _video_runtime(test_engine, tmp_path, *, source_test_engine=None):
         await _wait_control_ready(http, process, log)
         yield runtime
     finally:
-        for item in reversed(runtime.processes):
-            await asyncio.to_thread(_stop_process, item)
+        if tracker_retain is None or not tracker_retain():
+            for item in reversed(runtime.processes):
+                await asyncio.to_thread(_stop_process, item)
         await http.aclose()
         for item in runtime.streams:
             item.close()

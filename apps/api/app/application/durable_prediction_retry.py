@@ -68,11 +68,11 @@ def retry_scope(attempt):
     }
 
 
-def _model_execution_port(db):
+def _model_execution_port(db, *, prediction_execution):
     """Use the parent-composed, route/GPU-authorized execution owner."""
     from app.services.inference_model_execution import model_execution_port
 
-    return model_execution_port(db)
+    return model_execution_port(db, prediction_execution=prediction_execution)
 
 
 async def call_retry(database, operation, **values):
@@ -301,14 +301,7 @@ async def _infer(execution, attempt, prepared, session_factory):
             if image_proof is not None and video_proof is not None:
                 raise ValueError("retry authority is ambiguous")
             input_url = (
-                prepared.reference.url
-                if prepared.reference is not None
-                else resolve_task_url(
-                    SimpleNamespace(
-                        file_path=attempt.write_scope.source_file_path,
-                        dataset_item_id=attempt.write_scope.source_dataset_item_id,
-                    )
-                )
+                prepared.reference.url if prepared.reference is not None else None
             )
             retained_inputs = None
             pipeline_kwargs = {}
@@ -323,6 +316,7 @@ async def _infer(execution, attempt, prepared, session_factory):
                 owner = _video_retry_owner(db, attempt, video_proof, task)
                 await owner.authorize(db)
                 retained_inputs = await owner.open_inputs(task, session_factory)
+                input_url = owner.resolve_url(task)
                 before_dispatch, validate_results = await _video_pipeline_hooks(
                     owner, task, db
                 )
@@ -331,6 +325,14 @@ async def _infer(execution, attempt, prepared, session_factory):
                     "validate_results": validate_results,
                     "max_response_bytes": 64 * 1024**2,
                 }
+            elif input_url is None:
+                input_url = await resolve_task_url(
+                    db,
+                    SimpleNamespace(
+                        file_path=attempt.write_scope.source_file_path,
+                        dataset_item_id=attempt.write_scope.source_dataset_item_id,
+                    ),
+                )
             snapshot_id = getattr(_job, "execution_snapshot_id", None)
             if snapshot_id is None:
                 proof = image_proof or video_proof
@@ -420,7 +422,9 @@ async def _infer(execution, attempt, prepared, session_factory):
                 if prepared.accepted_input is not None
                 else None
             )
-            model_port = _model_execution_port(db)
+            model_port = _model_execution_port(
+                db, prediction_execution=execution._values()
+            )
             try:
                 output = await execute_task_pipeline(
                     str(task_id),
@@ -514,6 +518,7 @@ async def _infer(execution, attempt, prepared, session_factory):
 
 async def _prepare_snapshot(execution, session_factory):
     from dataclasses import replace
+    from app.application.prediction_mask_producers import prediction_mask_producer
     from app.services.batch_result_masks import normalize_batch_prediction_masks
     from app.services.prediction import to_video_bbox_result
 
@@ -533,10 +538,13 @@ async def _prepare_snapshot(execution, session_factory):
             else request
             for request in requests
         )
-        async with session_factory() as db:
-            requests = await normalize_batch_prediction_masks(db, requests)
-            await db.commit()
-        await execution.capture(1, requests, stage="prepared", context=saved.context)
+        async with prediction_mask_producer(execution, 1):
+            async with session_factory() as db:
+                requests = await normalize_batch_prediction_masks(db, requests)
+                await db.commit()
+            await execution.capture(
+                1, requests, stage="prepared", context=saved.context
+            )
     elif saved.state != "ready":
         await execution.seal(1, stage="prepared")
     return await execution.load(1, stage="prepared")

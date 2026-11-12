@@ -43,8 +43,10 @@ def image_storage_config(media_storage_config):
     """Use the existing image storage config for byte-only conditional source reads."""
     # The video adapter selects only the datasets bucket. The transport's unused
     # legacy slot aliases that same authorized bucket without image env settings.
+    values = asdict(media_storage_config)
+    values["additional_original"] = media_storage_config.additional_original
     return ImageStorageConfig(
-        **asdict(media_storage_config),
+        **values,
         legacy_bucket=media_storage_config.datasets_bucket,
     )
 
@@ -53,8 +55,12 @@ async def _close_shared_s3_clients(storage) -> None:
     """Close the one process-owned client pair shared by all three adapters."""
     closed: set[int] = set()
     first_error: BaseException | None = None
-    for name in ("_client", "_signer"):
-        client = getattr(storage, name, None)
+    additional = getattr(storage, "_additional_original", None)
+    for client in (
+        getattr(storage, "_client", None),
+        getattr(storage, "_signer", None),
+        getattr(additional, "client", None),
+    ):
         if client is None or id(client) in closed:
             continue
         closed.add(id(client))
@@ -146,6 +152,9 @@ class ClaimTrackingDatabase:
             self.claimed = result.claim is not None
         return result
 
+    def fixture_business_connection(self):
+        return self.database.fixture_business_connection()
+
     def begin_poll(self) -> None:
         self.claimed = False
 
@@ -188,6 +197,7 @@ async def create_worker_runtime(config: MediaWorkerConfig) -> WorkerRuntime:
             raise RuntimeError("Video worker SQL capability qualification failed")
 
         storage_values = asdict(config.storage)
+        storage_values["additional_original"] = config.storage.additional_original
         media_storage = S3MediaStorage(
             **{
                 key: value

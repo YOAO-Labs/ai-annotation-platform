@@ -29,7 +29,9 @@ export async function runOcrInference(
   const models = backend?.capabilities.models ?? [];
   const hasE2e = models.some((model) => model.id === "ocr-e2e");
   if (!backend?.name.toLowerCase().includes("rapidocr") || !hasE2e) {
-    throw new Error("[ocr-inference] P-OCR 未绑定含 ocr-e2e 的真实 RapidOCR backend");
+    throw new Error(
+      `[ocr-inference] ${project.display_id} 未绑定含 ocr-e2e 的真实 RapidOCR backend`,
+    );
   }
 
   const task = project.tasks.ocr;

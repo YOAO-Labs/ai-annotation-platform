@@ -5,6 +5,7 @@ from uuid import uuid4
 
 import pytest
 
+from yoao_assets_images.contract import OriginalRead
 from yoao_assets_inputs.contract import InputFailure
 from yoao_assets_video_inputs import execution as c
 from yoao_assets_video_inputs_runtime.control import VideoInputControl
@@ -20,13 +21,30 @@ def setup(*, member_=None):
         manifest=header, cursor=0, next_cursor=None, members=(selected,)
     )
     preparing = c.VideoMemberReceipt(manifest=header, member=member("preparing"))
-    database = SimpleNamespace(call=AsyncMock(side_effect=[page, preparing]))
+    database = SimpleNamespace(observation_reply=preparing)
+    database.permit = (
+        OriginalRead(ownership="ordinary", object_key=selected.source.file_path)
+        if selected.source is not None
+        else None
+    )
+
+    async def call(operation, request):
+        if operation == "read_accepted_video_manifest_page":
+            return page
+        if operation == "begin_video_member_original":
+            return database.permit
+        if operation == "prepare_accepted_video_member":
+            return database.observation_reply
+        raise AssertionError(f"Unexpected video control operation: {operation}")
+
+    database.call = AsyncMock(side_effect=call)
     storage = SimpleNamespace(
         assert_versioning=AsyncMock(),
         head_source=AsyncMock(return_value=source().object_identity),
         verify_blob=AsyncMock(),
         sign_blob=AsyncMock(),
     )
+    storage.bind_original = lambda permit: storage
     request = c.PrepareVideoMemberRequest(
         job_id=header.job_id,
         actor_id=CURRENT_ACTOR,
@@ -93,7 +111,7 @@ async def test_source_observation_records_a_fixed_failure_without_retargeting(
         manifest=manifest().model_copy(update={"prepared_count": 1}),
         member=member("failed").model_copy(update={"error": error}),
     )
-    database.call.side_effect = [database.call.side_effect.__next__(), receipt]
+    database.observation_reply = receipt
     assert (await control.prepare(request)).member.error == error
     observation = database.call.await_args_list[-1].args[1]
     assert observation.object_identity is None and observation.terminal_error == error
@@ -104,7 +122,42 @@ async def test_transient_storage_outage_is_not_frozen_as_a_member_failure():
     storage.head_source.side_effect = InputFailure("storage_unavailable")
     with pytest.raises(c.VideoInputFailure, match="storage_unavailable"):
         await control.prepare(request)
-    assert database.call.await_count == 1
+    assert all(
+        call.args[0] != "prepare_accepted_video_member"
+        for call in database.call.await_args_list
+    )
+
+
+async def test_uncertain_original_head_retains_admission_and_failure():
+    control, database, storage, request = setup()
+    database.permit = OriginalRead(
+        ownership="fixture",
+        object_key=source().file_path,
+        creation_id=uuid4(),
+        operation_id=uuid4(),
+        location_id=uuid4(),
+        endpoint_url="https://storage.example",
+        storage_identity="a" * 64,
+        bucket="datasets",
+        version_id="version-1",
+        etag="etag",
+        size_bytes=1,
+        sha256="b" * 64,
+    )
+    failure = InputFailure("object_missing")
+    failure.storage_operation_unsettled = True
+    storage.head_source.side_effect = failure
+
+    with pytest.raises(c.VideoInputFailure) as caught:
+        await control.prepare(request)
+
+    assert caught.value.__cause__ is failure
+    assert caught.value.storage_operation_unsettled
+    assert all(
+        call.args[0]
+        not in {"prepare_accepted_video_member", "finish_video_control_original"}
+        for call in database.call.await_args_list
+    )
 
 
 def input_request(accepted):
@@ -141,9 +194,15 @@ async def test_original_verification_never_uses_an_unready_or_expired_input(
 async def test_preoverwrite_verification_checks_exact_original_version_and_plan():
     control, database, storage, _ = setup()
     accepted = record("ready")
-    database.call = AsyncMock(
-        return_value=c.VideoInputWork(input=accepted, source=source())
-    )
+
+    async def read(operation, request):
+        if operation == "read_accepted_video_input_work":
+            return c.VideoInputWork(input=accepted, source=source())
+        if operation == "begin_video_control_original":
+            return database.permit
+        raise AssertionError(f"Unexpected video control operation: {operation}")
+
+    database.call = AsyncMock(side_effect=read)
     assert await control.verify(input_request(accepted)) == accepted
     storage.verify_blob.assert_awaited_once_with(accepted.plan.input.blob)
     storage.head_source.assert_awaited_once_with(source())

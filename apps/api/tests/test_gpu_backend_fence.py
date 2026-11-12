@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
 from app.db.models.gpu_backend_fence import GPUBackendFence
 from app.db.models.gpu_backend_membership import GPUBackendMembership
 from app.db.models.ml_backend_registry import MLBackendRegistry
+from tests.gpu_fence_helpers import cleanup_committed_backend
 from yoao_inference.gpu.fences import (
     GPUFenceExhaustedError,
     GPUFenceMembershipError,
@@ -36,7 +37,7 @@ async def gpu_authority_data() -> AsyncIterator[GPUAuthorityPoolData]:
     )
     pool = await asyncpg.create_pool(dsn=dsn, min_size=1, max_size=24)
     try:
-        yield GPUAuthorityPoolData(pool)
+        yield GPUAuthorityPoolData(pool, expected_role="inference_gpu_authority_client")
     finally:
         await pool.close()
 
@@ -75,61 +76,6 @@ _MAX_POSITIVE_INT64 = 9_223_372_036_854_775_807
 _RESOURCE_ID = "node-fence/GPU-test"
 
 
-async def _cleanup_committed_backend(
-    factory: async_sessionmaker[AsyncSession], backend_id: uuid.UUID
-) -> None:
-    """Remove committed test rows without weakening the production trigger."""
-
-    async with factory.begin() as db:
-        await db.execute(
-            update(GPUBackendFence)
-            .where(GPUBackendFence.backend_registry_id == backend_id)
-            .values(
-                generation_high_water=0,
-                control_epoch_high_water=0,
-                runtime_epoch_high_water=0,
-                token_expiry_high_water=None,
-            )
-        )
-        await db.execute(
-            delete(MLBackendRegistry).where(MLBackendRegistry.id == backend_id)
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_memberships DISABLE TRIGGER "
-                "trg_validate_gpu_backend_membership"
-            )
-        )
-        await db.execute(
-            delete(GPUBackendMembership).where(
-                GPUBackendMembership.backend_registry_id == backend_id
-            )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_memberships ENABLE TRIGGER "
-                "trg_validate_gpu_backend_membership"
-            )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_fences DISABLE TRIGGER "
-                "trg_validate_gpu_backend_fence_delete"
-            )
-        )
-        await db.execute(
-            delete(GPUBackendFence).where(
-                GPUBackendFence.backend_registry_id == backend_id
-            )
-        )
-        await db.execute(
-            text(
-                "ALTER TABLE gpu_backend_fences ENABLE TRIGGER "
-                "trg_validate_gpu_backend_fence_delete"
-            )
-        )
-
-
 @pytest.fixture
 async def committed_backend(
     test_engine: AsyncEngine,
@@ -155,7 +101,7 @@ async def committed_backend(
     try:
         yield factory, backend_id, 1
     finally:
-        await _cleanup_committed_backend(factory, backend_id)
+        await cleanup_committed_backend(factory, backend_id)
 
 
 async def _advance(
@@ -258,7 +204,7 @@ async def test_activation_requires_new_runtime_epoch_after_pending_baseline(
             await _activate(gpu_authority_data, backend_id, membership_epoch=1) == "6"
         )
     finally:
-        await _cleanup_committed_backend(factory, backend_id)
+        await cleanup_committed_backend(factory, backend_id)
 
 
 @pytest.mark.asyncio
@@ -388,7 +334,7 @@ async def test_managed_registry_delete_is_blocked_and_preserves_fence(
             assert membership.state == "active"
             assert await db.get(MLBackendRegistry, backend_id) is not None
     finally:
-        await _cleanup_committed_backend(factory, backend_id)
+        await cleanup_committed_backend(factory, backend_id)
 
 
 @pytest.mark.asyncio
@@ -588,7 +534,7 @@ async def test_retirement_waits_for_latest_locked_fence_evidence(
             delete_task.cancel()
             with pytest.raises(asyncio.CancelledError):
                 await delete_task
-        await _cleanup_committed_backend(factory, backend_id)
+        await cleanup_committed_backend(factory, backend_id)
 
 
 @pytest.mark.asyncio
@@ -625,4 +571,4 @@ async def test_fence_rejects_stale_membership_epoch(
         with pytest.raises(GPUFenceMembershipError):
             await _advance(gpu_authority_data, backend_id, 1, "generation")
     finally:
-        await _cleanup_committed_backend(factory, backend_id)
+        await cleanup_committed_backend(factory, backend_id)

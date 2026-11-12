@@ -2,10 +2,13 @@
  * Mask keyboard controls and refinement of the seeded prediction.
  * Native creation, persistence and re-edit are covered by the native write matrix.
  */
-import type { APIRequestContext } from "@playwright/test";
+import { mergeTests, type APIRequestContext } from "@playwright/test";
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
-import { test, expect } from "../fixtures/seed";
+import { test as seedTest, expect } from "../fixtures/seed";
+import { test as browserTest } from "../fixtures/raster-browser";
 import { openPredictionRefinement, confirmMaskRefinement } from "../helpers/mask-refinement";
+
+const test = mergeTests(seedTest, browserTest);
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 
@@ -77,6 +80,7 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
       score: 0.92,
     });
 
+    await seed.prepareRasterImages(data);
     await seed.injectToken(page, data.annotator_email);
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
     await openPredictionRefinement(page, predictionId);
@@ -154,6 +158,7 @@ test.describe("mask editor (I11)", { tag: "@mask-native" }, () => {
       toStatus: "pending",
       annotatorEmail: data.annotator_email,
     });
+    await seed.prepareRasterImages(data);
     await seed.injectToken(page, data.annotator_email);
     await page.goto(`/projects/${data.project_id}/annotate?task=${data.task_ids[0]}`);
     await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");

@@ -1,26 +1,24 @@
-"""规模化压测种子数据。
+"""Create and remove a scale fixture owned by an explicit isolated run.
 
-生成 1 个 project + 1 dataset + N 个 task（默认 10 万），分布在 M 个 active 批次；
-并让一个标注员对前 K 个 task 留有 active 标注（撑大 scheduler 的「已标注」NOT EXISTS
-判定）。task 全程 is_labeled=false，仍是「未标注」候选——正是热路径压测目标。
+Usage: python scripts/seed_scale.py --run-id UUID [N [M [K]]]
+       python scripts/seed_scale.py --run-id UUID --purge
 
-用法：
-    cd apps/api
-    uv run python scripts/seed_scale.py            # 默认 N=100000, M=50, K=20000
-    uv run python scripts/seed_scale.py 200000 80 40000
-    uv run python scripts/seed_scale.py --purge    # 仅清理上次种子，不重建
-
-清理：按 project / dataset 名称标记 'scale-seed' 级联删除（annotations → tasks →
-task_batches → dataset_items → datasets → projects）。
-
-跑完打印 project_id / 一个 batch_id / annotator_id，供 EXPLAIN ANALYZE 使用。
+The host coordinator must register the run before this command starts. The run
+ledger owns the exact project and dataset IDs. An interrupted admission remains
+a blocker; it is never treated as proof that the creator stopped.
 """
 
+import argparse
+import builtins
 import asyncio
+import os
 import sys
+import uuid
 
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from fastapi import HTTPException
 from sqlalchemy import text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.config import settings
 
@@ -28,135 +26,177 @@ if settings.environment == "production":
     print("[seed_scale] refusing to run with environment=production", file=sys.stderr)
     raise SystemExit(2)
 
+from app.db.models.fixture_run import FixtureRun  # noqa: E402
+from app.services import fixture_run_ownership as ownership  # noqa: E402
+from app.services.labeling_scale_seed_operations import LabelingScaleSeedOperations  # noqa: E402
+from app.services.test_seed_access import assert_isolated_test_seed_database  # noqa: E402
 from app.services.workspace_scale_seed_data import (  # noqa: E402
     create_scale_seed_project,
-    delete_scale_seed_projects,
     ensure_scale_seed_member,
-    guard_scale_seed_sources,
     prepare_scale_seed_cleanup,
 )
-from app.services.labeling_scale_seed_operations import (  # noqa: E402
-    LabelingScaleSeedOperations,
-)
-
-MARKER = "scale-seed"
 
 engine = create_async_engine(settings.database_url, echo=False)
 Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
-async def _purge(db: AsyncSession) -> None:
-    project_ids, dataset_ids = await prepare_scale_seed_cleanup(db, MARKER)
-    await LabelingScaleSeedOperations(db).purge_labeling_rows(MARKER, project_ids)
-    await guard_scale_seed_sources(db, dataset_ids, after_task_cleanup=True)
-    await db.execute(
-        text("DELETE FROM dataset_items WHERE dataset_id=ANY(CAST(:ids AS uuid[]))"),
-        {"ids": dataset_ids},
-    )
-    await db.execute(
-        text(
-            "DELETE FROM datasets WHERE id=ANY(CAST(:ids AS uuid[])) AND name=:marker"
-        ),
-        {"ids": dataset_ids, "marker": MARKER},
-    )
-    await delete_scale_seed_projects(db, marker=MARKER, project_ids=project_ids)
-    await db.commit()
+def _marker(run_id: uuid.UUID) -> str:
+    return f"scale-seed-{run_id.hex}"
 
 
-async def seed(n_tasks: int, n_batches: int, n_annotated: int) -> None:
+async def _purge(db: AsyncSession, run_id: uuid.UUID) -> None:
+    from app.api.v1._test_seed import _OwnedFixtureScope, _cleanup_owned_e2e_fixtures
+
+    scope = _OwnedFixtureScope(namespace=run_id.hex[:12], run_id=run_id)
+    await _cleanup_owned_e2e_fixtures(db, scope, family="scale")
+
+
+async def seed(
+    n_tasks: int,
+    n_batches: int,
+    n_annotated: int,
+    *,
+    run_id: uuid.UUID,
+    owner_sessions: async_sessionmaker[AsyncSession],
+    selector_sessions: async_sessionmaker[AsyncSession],
+) -> None:
     from app.services.identity_commands import IdentityCommandService
 
-    async with Session() as db:
-        labeling = LabelingScaleSeedOperations(db)
-        await _purge(db)
+    marker = _marker(run_id)
+    async with owner_sessions() as db:
+        await assert_isolated_test_seed_database(db)
+        run = await db.get(FixtureRun, run_id)
+        if run is None or run.family != "scale" or run.parent_run_id is not None:
+            raise HTTPException(409, detail={"code": "fixture_run_not_prepared"})
+        admission_id = await ownership.admit(db, run_id, "scale_seed")
+        await db.commit()
+        try:
+            projects, datasets = await prepare_scale_seed_cleanup(db, marker)
+            if projects or datasets:
+                raise HTTPException(409, detail={"code": "fixture_run_scope_changed"})
+            labeling = LabelingScaleSeedOperations(db)
+            async with selector_sessions() as selector_db:
+                owner_id, annotator_id = await IdentityCommandService(
+                    selector_db
+                ).resolve_scale_seed_actors()
+            if not owner_id or not annotator_id:
+                print("[seed_scale] need a super_admin and an annotator project member")
+                raise SystemExit(1)
 
-        owner_id, annotator_id = await IdentityCommandService(
-            db
-        ).resolve_scale_seed_actors()
-        if not owner_id or not annotator_id:
-            print(
-                "[seed_scale] need at least 1 super_admin and 1 user with the "
-                "annotator project duty via project_members (run seed.py first)"
+            project_id = await create_scale_seed_project(
+                db, owner_id=owner_id, marker=marker, total_tasks=n_tasks
             )
-            raise SystemExit(1)
-
-        project_id = await create_scale_seed_project(
-            db, owner_id=owner_id, marker=MARKER, total_tasks=n_tasks
-        )
-        await ensure_scale_seed_member(
-            db, project_id=project_id, annotator_id=annotator_id, owner_id=owner_id
-        )
-
-        dataset_id = (
+            await ownership.reserve(
+                db, run_id, "project", project_id, logical_key="project", published=True
+            )
+            await ensure_scale_seed_member(
+                db, project_id=project_id, annotator_id=annotator_id, owner_id=owner_id
+            )
+            dataset_id = (
+                await db.execute(
+                    text(
+                        "INSERT INTO datasets (id, display_id, name, created_by) VALUES (gen_random_uuid(), 'D-'||nextval('display_seq_datasets'), :m, :owner) RETURNING id"
+                    ),
+                    {"m": marker, "owner": owner_id},
+                )
+            ).scalar_one()
+            await ownership.reserve(
+                db, run_id, "dataset", dataset_id, logical_key="dataset", published=True
+            )
             await db.execute(
                 text(
-                    "INSERT INTO datasets (id, display_id, name, created_by) "
-                    "VALUES (gen_random_uuid(), 'D-'||nextval('display_seq_datasets'), :m, :owner) "
-                    "RETURNING id"
+                    "INSERT INTO dataset_items (id, dataset_id, file_name, file_path) SELECT gen_random_uuid(), :ds, 'img_'||g||'.jpg', '/seed/'||g||'.jpg' FROM generate_series(1, :n) g"
                 ),
-                {"m": MARKER, "owner": owner_id},
+                {"ds": dataset_id, "n": n_tasks},
             )
-        ).scalar()
-
-        await db.execute(
-            text(
-                "INSERT INTO dataset_items (id, dataset_id, file_name, file_path) "
-                "SELECT gen_random_uuid(), :ds, 'img_'||g||'.jpg', '/seed/'||g||'.jpg' "
-                "FROM generate_series(1, :n) g"
-            ),
-            {"ds": dataset_id, "n": n_tasks},
-        )
-
-        await labeling.create_batches(
-            MARKER, project_id, dataset_id, n_batches, annotator_id
-        )
-        await db.commit()
-
-        # tasks：按 dataset_item 行号轮转分配到批次；created_at 错开以让排序有区分度。
-        await labeling.create_tasks(MARKER, project_id, dataset_id)
-        await db.commit()
-
-        # 标注员对前 K 个 task 留 active 标注（task 仍 is_labeled=false）。
-        await labeling.create_annotations(MARKER, project_id, annotator_id, n_annotated)
-        await db.commit()
-
-        a_batch = await labeling.read_first_batch_id(project_id)
-
-        print(
-            f"[seed_scale] done: {n_tasks} tasks / {n_batches} batches / {n_annotated} annotated"
-        )
-        print(f"  project_id   = {project_id}")
-        print(f"  a_batch_id   = {a_batch}")
-        print(f"  annotator_id = {annotator_id}")
-        print("  EXPLAIN 示例：")
-        print(
-            f"    EXPLAIN ANALYZE SELECT * FROM aap_labeling_v1.task_rows "
-            f"WHERE project_id='{project_id}' "
-            "ORDER BY created_at, id LIMIT 100;"
-        )
-
-    await engine.dispose()
-
-
-def _parse_args() -> tuple[bool, int, int, int]:
-    args = sys.argv[1:]
-    if args and args[0] == "--purge":
-        return True, 0, 0, 0
-    n = int(args[0]) if len(args) > 0 else 100_000
-    m = int(args[1]) if len(args) > 1 else 50
-    k = int(args[2]) if len(args) > 2 else 20_000
-    return False, n, m, k
+            await labeling.create_batches(
+                marker, project_id, dataset_id, n_batches, annotator_id
+            )
+            await db.commit()
+            await labeling.create_tasks(marker, project_id, dataset_id)
+            await db.commit()
+            await labeling.create_annotations(
+                marker, project_id, annotator_id, n_annotated
+            )
+            await db.commit()
+            batch_id = await labeling.read_first_batch_id(project_id)
+        except BaseException as failure:
+            try:
+                await db.rollback()
+                await ownership.settle(db, run_id, admission_id)
+                await db.commit()
+            except BaseException as settlement_error:
+                raise builtins.BaseExceptionGroup(
+                    "Scale seed failed and admission settlement failed",
+                    [failure, settlement_error],
+                ) from None
+            raise
+        else:
+            await ownership.settle(db, run_id, admission_id)
+            await db.commit()
+            print(
+                f"[seed_scale] done: {n_tasks} tasks / {n_batches} batches / {n_annotated} annotated"
+            )
+            print(f"  run_id       = {run_id}")
+            print(f"  project_id   = {project_id}")
+            print(f"  a_batch_id   = {batch_id}")
+            print(f"  annotator_id = {annotator_id}")
+            print(
+                f"  EXPLAIN ANALYZE SELECT * FROM aap_labeling_v1.task_rows WHERE project_id='{project_id}' ORDER BY created_at, id LIMIT 100;"
+            )
 
 
 async def _main() -> None:
-    purge_only, n, m, k = _parse_args()
-    if purge_only:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--run-id", required=True, type=uuid.UUID)
+    parser.add_argument("--purge", action="store_true")
+    parser.add_argument("n", nargs="?", type=int, default=100_000)
+    parser.add_argument("m", nargs="?", type=int, default=50)
+    parser.add_argument("k", nargs="?", type=int, default=20_000)
+    args = parser.parse_args()
+    selector_sessions = Session
+    owner_engine = None
+    try:
+        from scripts.fixture_tools import configure_fixture_tools_path
+
+        configure_fixture_tools_path()
+        from fixture_suite_coordinator import verified_fixture_owner_url
+
+        runtime_url = make_url(os.environ["DATABASE_URL"])
+        fixture_runtime = os.environ.get("FIXTURE_RUNTIME_DATABASE_URL")
+        if engine.url != runtime_url or (
+            fixture_runtime and engine.url != make_url(fixture_runtime)
+        ):
+            raise RuntimeError(
+                "Selector database differs from the verified fixture runtime"
+            )
+
         async with Session() as db:
-            await _purge(db)
+            await assert_isolated_test_seed_database(db)
+
+        owner_engine = create_async_engine(
+            await verified_fixture_owner_url(), echo=False, hide_parameters=True
+        )
+        owner_sessions = async_sessionmaker(
+            owner_engine, class_=AsyncSession, expire_on_commit=False
+        )
+        if args.purge:
+            async with owner_sessions() as db:
+                await _purge(db, args.run_id)
+            print(f"[seed_scale] purged run {args.run_id}")
+        else:
+            await seed(
+                args.n,
+                args.m,
+                args.k,
+                run_id=args.run_id,
+                owner_sessions=owner_sessions,
+                selector_sessions=selector_sessions,
+            )
+    finally:
+        if owner_engine is not None:
+            await owner_engine.dispose()
         await engine.dispose()
-        print(f"[seed_scale] purged all '{MARKER}' seed data")
-        return
-    await seed(n, m, k)
 
 
 if __name__ == "__main__":

@@ -276,9 +276,9 @@ async def _metadata_preparing(db, ctx, *, force=False):
     output, enqueue = await derivatives.prepare(
         db, ctx.item.id, ctx.authority, "metadata", spec={"schema": 1}, force=force
     )
+    prepared = await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
     await db.commit()
-    if enqueue:
-        derivatives.dispatch([output.id])
+    await derivatives.publish_dispatch(prepared)
     raise HTTPException(503, {"code": "video_metadata_preparing"})
 
 
@@ -361,7 +361,6 @@ async def _replacement(db, ctx, output):
     # attempt or crossing a changed source, metadata generation or Gate.
     await derivatives.check(db, output, ctx.authority)
     replacement, enqueue = await _prepare(db, ctx, output.kind, output.spec, force=True)
-    await db.commit()
     return replacement, enqueue
 
 
@@ -379,6 +378,7 @@ async def _deliver(db, ctx, output, queue):
             if not _repairable(exc):
                 raise
             output, enqueue = await _replacement(db, ctx, output)
+            await db.commit()
             if enqueue:
                 queue.append(output.id)
     ready = output.state == "ready"
@@ -442,9 +442,10 @@ async def _finish_batch(db, ctx, outputs, results, queue):
     for output, result in zip(outputs, results, strict=True):
         if result.status == "ready":
             await derivatives.check(db, output, ctx.authority)
+    prepared = await derivatives.prepare_dispatch(db, list(dict.fromkeys(queue)))
     await db.commit()
     originals.clock(ctx.authority)
-    derivatives.dispatch(list(dict.fromkeys(queue)))
+    await derivatives.publish_dispatch(prepared)
 
 
 async def _chunks(db, ctx, chunk_ids):
@@ -630,14 +631,14 @@ async def chunk_samples(db, ctx, chunk_id, *, expected_output_id=None):
         raise HTTPException(404, "samples_not_available")
     output, enqueue = await _prepare(db, ctx, "chunk", spec)
     if expected_output_id is not None and output.id != expected_output_id:
+        prepared = await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
         await db.commit()
-        if enqueue:
-            derivatives.dispatch([output.id])
+        await derivatives.publish_dispatch(prepared)
         raise ContentError("video_derivative_generation_changed")
     if output.state != "ready":
+        prepared = await derivatives.prepare_dispatch(db, [output.id]) if enqueue else []
         await db.commit()
-        if enqueue:
-            derivatives.dispatch([output.id])
+        await derivatives.publish_dispatch(prepared)
         raise ContentError("video_derivative_not_ready")
     diagnostics = (output.result or {}).get("diagnostics") or {}
     if "samples" not in diagnostics:
@@ -650,8 +651,9 @@ async def chunk_samples(db, ctx, chunk_id, *, expected_output_id=None):
         if not _repairable(exc):
             raise
         replacement, enqueue = await _replacement(db, ctx, output)
-        if enqueue:
-            derivatives.dispatch([replacement.id])
+        prepared = await derivatives.prepare_dispatch(db, [replacement.id]) if enqueue else []
+        await db.commit()
+        await derivatives.publish_dispatch(prepared)
         raise ContentError("video_derivative_not_ready") from None
     identity = derivatives.identity(output, "chunk.mp4")
     identity.pop("byte_size")

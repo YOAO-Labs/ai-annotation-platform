@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -139,6 +139,11 @@ test("Playwright keeps owner credentials in setup and runtime credentials in the
       fileURLToPath(new URL("../apps/web/node_modules", import.meta.url)),
       join(directory, "node_modules"),
     );
+    await mkdir(join(directory, "e2e"), { recursive: true });
+    await symlink(
+      fileURLToPath(new URL("../apps/web/e2e/helpers", import.meta.url)),
+      join(directory, "e2e/helpers"),
+    );
     const owner = "postgresql+asyncpg://owner:fixture@localhost/aap_fixture_e2e";
     const runtime = owner.replace("owner:", "runtime:");
     const result = spawnSync(
@@ -257,6 +262,43 @@ test("isolated exec reserves distinct Playwright ports and preserves exit status
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("canonical exec cooperatively waits beyond the old kill grace and stays interrupted", { timeout: 12_000 }, async () => {
+  const module = new URL("./dev-worktree.mjs", import.meta.url).href;
+  const command = `
+    process.on("SIGTERM", () => setTimeout(() => {
+      console.log("drained");
+      process.exit(0);
+    }, 3_500));
+    console.log("ready");
+    setTimeout(() => process.exit(9), 9_000);
+  `;
+  const runner = spawn(process.execPath, [
+    "--input-type=module", "-e",
+    `import { runIsolatedCommand } from ${JSON.stringify(module)};
+     process.exitCode = await runIsolatedCommand(
+       ${JSON.stringify([process.execPath, "-e", command])},
+       { cooperativeE2e: true }
+     );`,
+  ], { stdio: ["ignore", "pipe", "pipe"] });
+  let output = "";
+  let signalled = false;
+  runner.stdout.on("data", (chunk) => {
+    output += chunk;
+    if (!signalled && output.includes("ready")) {
+      signalled = true;
+      runner.kill("SIGTERM");
+    }
+  });
+  runner.stderr.resume();
+  const result = await new Promise((resolve, reject) => {
+    runner.once("error", reject);
+    runner.once("close", (code, signal) => resolve({ code, signal }));
+  });
+  assert.equal(signalled, true);
+  assert.match(output, /drained/);
+  assert.deepEqual(result, { code: 143, signal: null });
 });
 
 test("service supervisor cannot bypass runtime preparation", async () => {

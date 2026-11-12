@@ -374,6 +374,16 @@ workflow LOGIN 不能领取或确认 outbox，也不能读取其私有表。
 完整 Workspace 和各参与 owner 的工件／凭据继续按台账验收。
 公开来源删除、上传与独立清理见下文；完整模块状态见[模块部署台账](/dev/concepts/module-deployment)。
 
+## Assets 来源写入的事务投影
+
+`read_dataset_source_authority(dataset_id, lock)` 返回数据集 ID、创建者、归档时间、
+生命周期修订和已登记来源保护状态；缺失数据集返回空行。读取上述状态不需要 Dataset
+或来源私表的 SELECT 权限；状态投影不能替代当前身份、管理权限及 API key scope 校验。
+
+`lock=true` 在调用方事务内取得 `FOR NO KEY UPDATE` 行锁，保持到调用方提交或回滚；
+`lock=false` 只读取当前语句可见的状态。函数不自行提交、回滚或关闭连接，两个参数都必须非空。
+ZIP、对象来源和上传工作流仍执行各自的归档、修订及来源管理围栏，不通过补授私表权限绕过准入。
+
 ## Assets 来源删除
 
 `delete_dataset(operation_id, actor_id, dataset_id, cleanup_bucket, audit_context)` 和
@@ -393,8 +403,9 @@ association 的建题。活动导入或不能证明无关的旧导入 scope 返�
 `source_in_use`、`active_learning_reference` 或 `creation_in_progress` 返回 HTTP 409；锁争用为
 `source_busy`，换请求复用操作 ID 为 `operation_conflict`。所有 owner 写入、审计和 Assets 回执与调用方
 提交/回滚一致。原始 source bytes 始终保留；只有 item-owned 金字塔进入精确 outbox。
-REST 两个 DELETE 保持 204 空响应，缺失/父子不匹配为 404。UUID `Idempotency-Key` 可选且成功回传；
-同次重试使用原 key。原生回执允许原 actor 仍活跃时重放，REST 的当前管理员检查继续生效。
+REST 两个 DELETE 保持 204 空响应，缺失/父子不匹配仍为 404。UUID `Idempotency-Key` 可选且成功回传；
+同次重试使用原 key。完整 Dataset 已删除后，只有显式 key 命中同一规范请求的成功回执才可重放，
+不是任意缺失数据集都返回成功；原 actor 仍须活跃，REST 当前管理员和 API key 权限检查继续生效。
 
 ## Assets 暂存上传
 
@@ -469,11 +480,11 @@ Item、Dataset 计数、Labeling append 回执、ZIP Scene/frame 变更、最终
 
 ZIP 的 `read_dataset_ingest_layout` 以 UUID keyset 分页返回至多 500 个 detached Item，并带有权威 snapshot digest/count；`finish_dataset_ingest` 会在写 Scene 与 frame assignment 前重验快照、计划归属和完整结算状态。扫描不调用这两项布局/Scene 能力。媒体 delivery claim 在派发前保存租约，ack 需校验同一活动 lease token 与当前 delivery target；此 outbox 提供可重试的 at-least-once 派发，不承诺 exactly-once。
 
-当前 native JSON 合同见 `apps/api/alembic/sql/0419_dataset_ingest_authority.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/yoao_assets_source/ingest_contract.schema.json`，部署时应用完整 Alembic 迁移链。这六项入库能力属于 Source LOGIN 当前的 37 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
+当前 native JSON 合同见 `apps/api/alembic/sql/0419_dataset_ingest_authority.schema.json`；纯 Python HTTP/wire 合同见 `apps/assets-source/src/yoao_assets_source/ingest_contract.schema.json`，部署时应用完整 Alembic 迁移链。这六项入库能力属于 Source LOGIN 当前的 42 项能力；`claim_dataset_source_ingest_delivery` 和 `complete_dataset_source_ingest_delivery` 仅供 API maintenance relay 领取/确认派发，不授予 Source LOGIN。图像来源验证与作业受理的三个能力由 Source LOGIN 使用，详见下文。交付收据表示 broker 接受，不表示媒体已执行。
 
 ## 存储连接器管理
 
-0217 为 Assets Source 增加九项连接器原生能力。Source LOGIN 当前还包含 `resolve_internal_image_source`、`schedule_image_media` 与 `read_legacy_dataset_upload` 三项图像来源/作业受理能力，共执行 26 项公开能力。独立连接器导入执行器使用九项 LOGIN 能力，其中额外两项用于与图片导入原子组合；它不能接受新的导入授权。两个角色都不能直接读取或写入业务表。
+下表九项原生能力用于连接管理；连同运行时配置读取，Source 的连接相关能力为 11 项。Source LOGIN 还包含来源/入库、`resolve_internal_image_source`、`schedule_image_media`、`read_legacy_dataset_upload`、托管原件和导入核验能力，共执行 42 项。独立连接器导入执行器使用 18 项 LOGIN 能力，执行已接受的导入、托管原件写入及准确核验回执消费；它不能接受新的导入授权。两个角色都不能直接读取或写入业务表。
 
 | 原生能力                          | SQL 参数签名                                                       |
 | --------------------------------- | ------------------------------------------------------------------ |
@@ -493,7 +504,7 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 
 ## 可信导入器数据集与素材登记
 
-0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 26 项、Catalog 的 29 项和连接器导入执行器的 9 项 LOGIN 能力分开；专用 `asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
+0218 为现有本地图片与 nuScenes 导入器发布独立的 `aap-assets-operator/v1` SQL 合同。它与 Source 的 42 项、Catalog 的 29 项和连接器导入执行器的 18 项 LOGIN 能力分开；专用 `asset_operator_client` LOGIN 被授予下面六项 Assets 函数。持有该 operator 凭据即获得此路径的受信任执行权限，owner UUID 只保留既有归属标记。图片导入沿用已有 owner 选择且没有新增 manager 门槛；nuScenes 保留既有 Catalog 资格检查和先锁 actor、再锁 Dataset 的顺序。函数不接收调用者传来的角色布尔值。
 
 | 原生能力                           | SQL 参数签名               | 用途                                                                |
 | ---------------------------------- | -------------------------- | ------------------------------------------------------------------- |
@@ -507,6 +518,10 @@ Source 在 `public.storage_connection_operations` 中保存不可变幂等回执
 每个写能力都接收操作 UUID；重放必须匹配原操作和请求。`dataset_operator_operations` 存储不可变回执且没有 live Dataset/Item 外键。批量追加/更新最多 500 项，请求 JSON 最多 8 MiB。读取每页最多 500 项，Item 记录 JSON 最多 15 MiB，完整响应最多 16 MiB；调用方跨页核对稳定摘要、总数、顺序、游标和完成标记，因此完整读取不受单页上限截断。source snapshot 是 opaque CAS 值，由 Assets 持有并在 patch 时重验；更新保留 Scene/frame、标定和无关 metadata，只改请求字段，尺寸只在目标相机尺寸不完整时成对回填。
 
 本地导入器通过 `AssetsOperatorGateway` 将这些函数绑定到自己的 SQL Session；nuScenes 路径与既有 Labeling、Workspace 和空间写入共用外层事务，函数不自行提交。它们不是 Source HTTP 工作流，没有 `ASSETS_SOURCE_URL` 远程选择或错误回退。对象存储上传、nuScenes 文件写入及必要的既有对象覆盖不属于 SQL 事务，回滚保留原始字节。专用 operator LOGIN 不读业务表，也不继承其他角色。完整边界与部署顺序见仓库 `DEV.md` 和 [ADR-0104](/dev/adr/0104-operator-source-registration)；SQL schema 在 `apps/api/alembic/sql/0218_assets_operator.schema.json`。
+
+图片导入的 `asset_operator_client` 另可执行 Identity 的 `read_first_seed_account()`，只返回现有账号的 ID 和邮箱，不筛选角色或启用状态；多个账号时不保证选择顺序。该能力不授予用户表或账号 profile 关系的读取权限，也不改变调用方事务。
+
+首次运行图片或 nuScenes 导入前，管理员须在与目标存储配置一致的环境中，以数据库 owner 和对象存储管理员身份单独运行 `python -m scripts.prepare_original_catalog`。命令要求显式提供 `DATABASE_URL`、`MINIO_ENDPOINT`、`MINIO_USE_SSL`、`MINIO_DATASETS_BUCKET`、`MINIO_ACCESS_KEY` 和 `MINIO_SECRET_KEY`，并使用其余已配置的 bucket 设置；它核对目录绑定、准备准确的 datasets bucket 并启用版本化，配置漂移时拒绝修改目标。随后导入进程仅使用各自的受限连接与对象存储身份，不接收数据库 owner URL 或存储管理员密钥；缺少或失效的目标不会被导入器自动修复。
 
 ## 持久连接器导入
 
@@ -522,7 +537,7 @@ Item、文件数、Labeling append、游标/计数、Jobs 进度和媒体派发�
 
 ## 空间素材状态与同事务组合
 
-场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 29 项 execute-only 能力，Source LOGIN 共 26 项。
+场景、帧组织、位姿、标定与 nuScenes 标定 provenance 使用二十项公开原生能力；完整合同见[空间素材协议](./assets-spatial)。Assets 新增不可变 `dataset_spatial_operations`，不保存 live-resource 外键。Catalog LOGIN 共 29 项 execute-only 能力，Source LOGIN 共 42 项。
 
 Assets 只通过 Labeling 当前相机/共享与受理范围、Workspace 当前项目访问和 Audit 事件能力组合跨 owner 状态，不读取其他 owner 私有表。标定更新与审计、回执、历史修订和元数据共同提交；需要同事务的建题导入继续在调用方同一 SQL 连接上组合公开能力。读取标定文件前不增加空间状态行锁，最终应用再检查来源快照和已受理作业/关联代次。普通远程故障不触发本地回退。
 

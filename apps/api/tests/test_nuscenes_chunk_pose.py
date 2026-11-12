@@ -30,6 +30,7 @@ from tests.test_import_nuscenes_lite import (
     _FakeS3Client,
     _use_distinct_sensor_files,
     _write_fake_nuscenes,
+    db_session as db_session,
     controlled_transport as controlled_transport,
 )
 

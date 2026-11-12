@@ -399,6 +399,10 @@ class Settings(BaseSettings):
     labeling_mask_gc_timeout_seconds: float = Field(default=300, gt=0, le=3600)
     preannotation_results_database_url: str = Field(default="", repr=False)
     preannotation_results_database_url_file: str = ""
+    jobs_publication_database_url: str = Field(default="", repr=False)
+    jobs_publication_database_url_file: str = ""
+    export_execution_database_url: str = Field(default="", repr=False)
+    export_execution_database_url_file: str = ""
 
     # 超大图不可变 tile pyramid。服务端可先发布 schema/API；自动入队默认关闭，
     # 待容量验收后再由部署显式打开。所有 byte/pixel/tile 限额均在 worker 实际生成前后复核。

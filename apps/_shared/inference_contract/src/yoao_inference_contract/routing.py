@@ -131,6 +131,42 @@ class _RoutingModel(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
 
 
+class RoutingPredictionExecutionProof(_RoutingModel):
+    """Current Jobs result-execution lease, not a saved metadata correlation."""
+
+    job_id: uuid.UUID
+    actor_id: uuid.UUID
+    project_id: uuid.UUID
+    request_digest: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+    generation: StrictInt = Field(ge=1, le=(1 << 63) - 1)
+    lease_token: uuid.UUID = Field(repr=False)
+
+    @field_validator("job_id", "actor_id", "project_id", "lease_token", mode="before")
+    @classmethod
+    def canonical_identity(cls, value):
+        if type(value) is uuid.UUID:
+            return value
+        if type(value) is not str or not _canonical_wire_uuid(value):
+            raise ValueError("Invalid prediction execution identity")
+        return uuid.UUID(value)
+
+
+class RoutingPredictionTestProof(_RoutingModel):
+    """The exact task whose synchronous prediction test owns this scope."""
+
+    project_id: uuid.UUID
+    task_id: uuid.UUID
+
+    @field_validator("project_id", "task_id", mode="before")
+    @classmethod
+    def canonical_identity(cls, value):
+        if type(value) is uuid.UUID:
+            return value
+        if type(value) is not str or not _canonical_wire_uuid(value):
+            raise ValueError("Invalid prediction test identity")
+        return uuid.UUID(value)
+
+
 class _AcquireBody(_RoutingModel):
     pool_id: uuid.UUID | None
     registry_id: uuid.UUID | None
@@ -140,6 +176,10 @@ class _AcquireBody(_RoutingModel):
     approved_registry_ids: list[uuid.UUID] | None = Field(default=None, max_length=1024)
     owner: StrictStr = Field(min_length=1, max_length=512)
     operation: StrictStr = Field(min_length=1, max_length=96)
+    prediction_execution: RoutingPredictionExecutionProof | None = Field(
+        default=None, repr=False
+    )
+    prediction_test: RoutingPredictionTestProof | None = Field(default=None, repr=False)
 
     @model_validator(mode="after")
     def unique_approved_registry_ids(self):
@@ -147,6 +187,32 @@ class _AcquireBody(_RoutingModel):
             self.approved_registry_ids
         ) != len(set(self.approved_registry_ids)):
             raise ValueError("approved registry ids must be unique")
+        if self.operation in {"image_batch_predict", "prediction_retry"}:
+            if (
+                self.prediction_execution is None
+                or self.project_id != self.prediction_execution.project_id
+            ):
+                raise ValueError("Prediction execution lease is required")
+            prefix = "batch" if self.operation == "image_batch_predict" else "retry"
+            owner_prefix = f"{prefix}:{self.prediction_execution.job_id}:stage:"
+            stage = self.owner.removeprefix(owner_prefix)
+            if (
+                not self.owner.startswith(owner_prefix)
+                or not stage.isascii()
+                or not stage.isdigit()
+            ):
+                raise ValueError("Prediction route owner differs from its execution")
+        elif self.prediction_execution is not None:
+            raise ValueError("Prediction execution lease is outside its route")
+        if self.operation == "predict_test":
+            if (
+                self.prediction_test is None
+                or self.project_id != self.prediction_test.project_id
+                or self.owner != f"api:predict-test:{self.prediction_test.task_id}"
+            ):
+                raise ValueError("Prediction test task is required")
+        elif self.prediction_test is not None:
+            raise ValueError("Prediction test task is outside its route")
         return self
 
 
@@ -773,11 +839,16 @@ def _validate_digest(value: str) -> None:
 
 
 def _command_wire(command: RoutingCommand) -> dict[str, Any]:
+    body = command.body.model_dump(mode="json", by_alias=True)
+    if body.get("prediction_execution") is None:
+        body.pop("prediction_execution", None)
+    if body.get("prediction_test") is None:
+        body.pop("prediction_test", None)
     return {
         "schema": command.schema_,
         "request_id": str(command.request_id),
         "operation": command.operation,
-        "body": command.body.model_dump(mode="json", by_alias=True),
+        "body": body,
     }
 
 

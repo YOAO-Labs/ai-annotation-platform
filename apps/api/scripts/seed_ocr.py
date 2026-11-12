@@ -69,7 +69,13 @@ async def _ensure_admin(db) -> uuid.UUID:
 
 
 async def seed_ocr(
-    db, *, owner_id: uuid.UUID, image: Path | None = None
+    db,
+    *,
+    owner_id: uuid.UUID,
+    image: Path | None = None,
+    fixture_scope: tuple[uuid.UUID, uuid.UUID] | None = None,
+    fixture_project_display_id: str | None = None,
+    fixture_dataset_display_id: str | None = None,
 ) -> dict | None:
     from PIL import Image
     from sqlalchemy import select
@@ -82,18 +88,27 @@ async def seed_ocr(
     from app.application.dataset_task_creation import DatasetTaskCreationWorkflow
     from app.services.storage import storage_service
 
+    if fixture_scope is not None and (
+        not fixture_project_display_id or not fixture_dataset_display_id
+    ):
+        raise ValueError("fixture OCR seed requires exact run-local display IDs")
+    project_display_id = fixture_project_display_id or PROJECT_DISPLAY_ID
+    dataset_display_id = fixture_dataset_display_id or DATASET_DISPLAY_ID
+
     existing = await db.scalar(
-        select(seed_projects).where(seed_projects.display_id == PROJECT_DISPLAY_ID)
+        select(seed_projects).where(seed_projects.display_id == project_display_id)
     )
     if existing is not None:
-        return {"project": PROJECT_DISPLAY_ID, "skipped": True}
+        if fixture_scope is not None:
+            raise ValueError("fixture OCR project display ID is already in use")
+        return {"project": project_display_id, "skipped": True}
 
     image = image or TEXT_IMG
     if not image.exists():
         raise FileNotFoundError(f"OCR 测试图缺失: {image}")
 
     ds = Dataset(
-        display_id=DATASET_DISPLAY_ID,
+        display_id=dataset_display_id,
         name="ocr-dev",
         data_type="image",
         description="RapidOCR ch_en_num 文字图 dev 夹具",
@@ -103,35 +118,83 @@ async def seed_ocr(
     project_id = await create_media_seed_project(
         db,
         kind="ocr",
-        display_id=PROJECT_DISPLAY_ID,
+        display_id=project_display_id,
         name="OCR 文本识别 (dev)",
         owner_id=owner_id,
         tool_bindings=OCR_TOOL_BINDINGS,
     )
+    if fixture_scope is not None:
+        from app.services import fixture_run_ownership as ownership
+
+        await db.flush()
+        await ownership.reserve_original_dataset(
+            db, fixture_scope[0], ds.id, logical_key="ocr_demo"
+        )
+        await ownership.publish_resource(db, fixture_scope[0], "dataset", ds.id)
+        await ownership.reserve(
+            db,
+            fixture_scope[0],
+            "project",
+            project_id,
+            logical_key="ocr_demo",
+            published=True,
+        )
+        await db.commit()
 
     bucket = storage_service.datasets_bucket
     with Image.open(image) as im:
         w_px, h_px = im.size
     key = f"{DATASET_FOLDER}/{image.name}"
     payload = image.read_bytes()
-    storage_service.client.put_object(
-        Bucket=bucket,
-        Key=key,
-        Body=payload,
-        ContentType="image/jpeg",
-    )
-    db.add(
-        DatasetItem(
+    if fixture_scope is None:
+        storage_service.client.put_object(
+            Bucket=bucket,
+            Key=key,
+            Body=payload,
+            ContentType="image/jpeg",
+        )
+        db.add(
+            DatasetItem(
+                dataset_id=ds.id,
+                file_name=image.name,
+                file_path=key,
+                file_type="image",
+                file_size=len(payload),
+                content_hash=hashlib.sha256(payload).hexdigest(),
+                width=w_px,
+                height=h_px,
+            )
+        )
+    else:
+        item_id = uuid.uuid4()
+        await ownership.reserve(
+            db, fixture_scope[0], "item", item_id, logical_key="ocr_demo/image"
+        )
+        await db.commit()
+        item = DatasetItem(
+            id=item_id,
             dataset_id=ds.id,
             file_name=image.name,
-            file_path=key,
+            file_path="",
             file_type="image",
-            file_size=image.stat().st_size,
-            content_hash=hashlib.sha256(payload).hexdigest(),
+            file_size=len(payload),
             width=w_px,
             height=h_px,
+            metadata_={"storage_relative_path": image.name},
         )
-    )
+        allocation, original = await ownership.create_original(
+            db,
+            run_id=fixture_scope[0],
+            admission_id=fixture_scope[1],
+            item=item,
+            logical_path=image.name,
+            payload=payload,
+            content_type="image/jpeg",
+            requested_by=owner_id,
+        )
+        item.content_hash = original.sha256
+        await ownership.attach_original(db, item, allocation, original)
+        await ownership.publish_resource(db, fixture_scope[0], "item", item_id)
     ds.file_count = 1
     db.add(ProjectDataset(project_id=project_id, dataset_id=ds.id))
     await db.flush()
@@ -139,7 +202,7 @@ async def seed_ocr(
     await DatasetTaskCreationWorkflow(db).create_tasks_for_linked_dataset(
         dataset_id=ds.id, project_id=project_id, actor_id=owner_id
     )
-    return {"project": PROJECT_DISPLAY_ID, "project_id": str(project_id)}
+    return {"project": project_display_id, "project_id": str(project_id)}
 
 
 async def main() -> None:

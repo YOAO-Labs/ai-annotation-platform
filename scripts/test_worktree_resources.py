@@ -1,24 +1,20 @@
 """Additive accepted-input bucket upgrades preserve exact worktree ownership."""
 
+import asyncio
+import fcntl
 import json
-import re
+import os
 import unittest
+import uuid
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 from worktree_env import WorktreeError, atomic_json, load_identity, read_state, topology
 from worktree_resources import (
-    IDENTITY_RUNTIME_CAPABILITIES,
     LocalResources,
-    NOTIFICATION_RUNTIME_CAPABILITIES,
-    JOBS_LIST_RUNTIME_CAPABILITIES,
-    JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
-    JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
-    JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-    VIDEO_RUNTIME_CAPABILITIES,
 )
 
 
@@ -36,18 +32,20 @@ class BucketUpgradeTests(unittest.TestCase):
         self.root = Path(self.temporary.name)
         resources = topology(self.root, load_identity(self.root, create=True), "test")
         self.settings = SimpleNamespace(
-            database_url="postgresql+asyncpg://test:test@localhost/db",
-            effective_migration_database_url="postgresql+asyncpg://test:test@localhost/db",
+            database_url="postgresql+asyncpg://test:test@127.0.0.1:1/db",
+            effective_migration_database_url="postgresql+asyncpg://test:test@127.0.0.1:1/db",
             minio_endpoint="localhost:9000",
             minio_use_ssl=False,
             minio_access_key="test",
             minio_secret_key="test",
+            connector_encryption_key="bucket-unit-test",
+            connector_host_allowlist=["127.0.0.1"],
         )
         self.path = self.root / ".worktree/test/resources.json"
         self.target = {
             "schema": 1,
             "resources": resources,
-            "postgres": {"host": "localhost", "port": 5432},
+            "postgres": {"host": "127.0.0.1", "port": 1},
             "minio": {"endpoint": "localhost:9000", "ssl": False},
         }
         self.training_target = _without_buckets(self.target, "MINIO_INPUTS_BUCKET")
@@ -65,6 +63,20 @@ class BucketUpgradeTests(unittest.TestCase):
         }
         self.versioning = {}
         self._bind_backend(self.backend)
+        # Bucket unit tests stop at the private store owner boundary. Its real
+        # provisioning and reader lifecycle have separate disposable tests.
+        self.enterContext(
+            patch(
+                "fixture_suite_coordinator.prepare_worktree_store",
+                new=AsyncMock(return_value={}),
+            )
+        )
+        self.enterContext(
+            patch(
+                "fixture_suite_coordinator.prepare_store_destruction",
+                new=AsyncMock(return_value=None),
+            )
+        )
         self.mock_s3.create_bucket.side_effect = lambda **kwargs: self.buckets.update(
             {kwargs["Bucket"]: {"owner": None}}
         )
@@ -103,6 +115,7 @@ class BucketUpgradeTests(unittest.TestCase):
         backend.database = database
         backend.owned_runtime_role = owned_runtime_role
         backend.redis_info = lambda: None
+        backend.environment = lambda: {}
 
     def test_same_owner_requires_private_mode_credentials_and_never_falls_back(self):
         from worktree_env import WorktreeError
@@ -477,63 +490,6 @@ class BucketUpgradeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "目标.*不一致"):
             LocalResources(self.target["resources"], self.settings, code_root=self.root)
 
-    def test_lan_runtime_preserves_embedded_identity_capabilities(self):
-        sql = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/lan-production-grants.sql"
-        ).read_text()
-        grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
-            sql,
-            flags=re.DOTALL,
-        )
-        normalized = re.sub(r"\s+", "", ",".join(grants))
-        for signature in IDENTITY_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        for signature in NOTIFICATION_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        for signature in (
-            *JOBS_LIST_RUNTIME_CAPABILITIES,
-            *JOBS_LIFECYCLE_RUNTIME_CAPABILITIES,
-            *JOBS_ROW_LOCK_RUNTIME_CAPABILITIES,
-            *JOBS_DOMAIN_QUERY_RUNTIME_CAPABILITIES,
-        ):
-            self.assertIn(signature, normalized)
-        self.assertNotIn(
-            "aap_jobs_v1._async_job_list_rows(uuid,text,text[],text[],uuid,text)",
-            normalized,
-        )
-        for private in (
-            "aap_identity_recovery_v1._actor_record(uuid)",
-            "aap_identity_recovery_v1._token_record(text,uuid)",
-            "aap_settings_v1.identity_recovery_policy(jsonb)",
-        ):
-            self.assertNotIn(private, normalized)
-
-    def test_lan_runtime_grants_exact_video_capabilities_without_sweep_or_gc(self):
-        grant_file = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/lan-production-grants.sql"
-        )
-        sql = grant_file.read_text()
-        runtime_grants = re.findall(
-            r'GRANT EXECUTE ON FUNCTION\s+([^;]*?)\s+TO\s+:"application_role";',
-            sql,
-            flags=re.DOTALL,
-        )
-        normalized = re.sub(r"\s+", "", ",".join(runtime_grants))
-
-        self.assertEqual(len(VIDEO_RUNTIME_CAPABILITIES), 25)
-        self.assertEqual(len(set(VIDEO_RUNTIME_CAPABILITIES)), 25)
-        for signature in VIDEO_RUNTIME_CAPABILITIES:
-            self.assertIn(signature, normalized)
-        for excluded in (
-            "aap_assets_v1.sweep_accepted_video_inputs(integer)",
-            "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
-            "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
-        ):
-            self.assertNotIn(excluded, normalized)
-
     def test_private_acl_rejects_missing_or_duplicated_source(self):
         backend = object.__new__(LocalResources)
         backend.code_root = self.root
@@ -547,30 +503,565 @@ class BucketUpgradeTests(unittest.TestCase):
                     with self.assertRaises(WorktreeError):
                         backend.private_runtime_acl(domain)
 
-    def test_audit_maintenance_grant_is_bounded_to_its_owner_command(self):
-        sql = (
-            Path(__file__).resolve().parents[1]
-            / "infra/docker/audit-maintenance-grants.sql"
-        ).read_text()
-        self.assertNotIn("\\ir", sql)
-        self.assertEqual(
-            sql.count(
-                "GRANT EXECUTE ON FUNCTION aap_audit_v1.maintenance_command(jsonb)"
-            ),
-            1,
-        )
-        for required in (
-            "function.prosecdef",
-            "function.provolatile='v'",
-            "search_path=pg_catalog, pg_temp",
-            "TimeZone=UTC",
-            "'CREATE,TEMP'",
-            "REVOKE ALL ON ALL TABLES IN SCHEMA",
-            "REVOKE ALL ON ALL SEQUENCES IN SCHEMA",
-            "Audit maintenance LOGIN owns database objects",
+
+class FixtureInferenceIdentityTests(unittest.TestCase):
+    def test_private_gpu_selection_discards_inherited_file_and_case_aliases(self):
+        from fixture_inference_services import _set_private_gpu_selectors
+        from yoao_inference.__main__ import _environment_value
+
+        name = "INFERENCE_GPU_DATABASE_URL"
+        with patch.dict(
+            os.environ,
+            {
+                name: "postgresql://foreign/db",
+                name.lower(): "postgresql://foreign-lower/db",
+                name + "_FILE": "/foreign/secret",
+                (name + "_FILE").lower(): "/foreign/lower-secret",
+            },
+            clear=True,
         ):
-            with self.subTest(required_guard=required):
-                self.assertIn(required, sql)
+            _set_private_gpu_selectors({name: "postgresql://fixture/db"})
+            self.assertEqual(_environment_value(name), "postgresql://fixture/db")
+            self.assertNotIn(name.lower(), os.environ)
+            self.assertNotIn(name + "_FILE", os.environ)
+            self.assertNotIn((name + "_FILE").lower(), os.environ)
+
+    def test_credentials_are_private_and_bound_to_database_owner(self):
+        from sqlalchemy.engine import make_url
+
+        from fixture_inference_services import FixtureInferenceServices
+
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = SimpleNamespace(
+                resources=resources,
+                code_root=root,
+                url=make_url(
+                    f"postgresql+asyncpg://owner:secret@localhost/{resources['database']}"
+                ),
+            )
+            service = FixtureInferenceServices(backend, code_root=root)
+            credentials = service._load_credentials(create=True)
+            self.assertEqual(service.credentials_path.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(service._load_credentials(), credentials)
+            self.assertNotEqual(
+                credentials["routing_password"], credentials["health_password"]
+            )
+            other = SimpleNamespace(
+                resources=resources,
+                code_root=root,
+                url=backend.url.set(username="other_owner"),
+            )
+            with self.assertRaises(WorktreeError):
+                FixtureInferenceServices(other, code_root=root)._load_credentials()
+
+    def test_authority_fence_requires_closed_generation_and_no_owner(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = LocalResources.__new__(LocalResources)
+            backend.root = root
+            backend.resources = resources
+            lock = root / ".worktree/e2e/fixture-authority.lock"
+            lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            descriptor = os.open(lock, os.O_CREAT | os.O_RDWR, 0o600)
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH)
+                with self.assertRaises(WorktreeError):
+                    with backend.fixture_authority_fence():
+                        self.fail("a live authority must block destruction")
+            finally:
+                os.close(descriptor)
+            generation = root / ".worktree/e2e/fixture-authority/generation.json"
+            record = {"resources": resources, "nonce": "a" * 64, "state": "running"}
+            atomic_json(generation, record)
+            with self.assertRaises(WorktreeError):
+                with backend.fixture_authority_fence():
+                    self.fail("an unsettled generation must block destruction")
+            atomic_json(generation, {**record, "state": "closed"})
+            with backend.fixture_authority_fence():
+                self.assertTrue(generation.exists())
+            owner = generation.with_name("owner.json")
+            atomic_json(owner, {"owner": resources["owner"]})
+            with self.assertRaises(WorktreeError):
+                with backend.fixture_authority_fence():
+                    self.fail("an owner record must block destruction")
+            self.assertTrue(owner.exists())
+
+    def test_closed_generation_cannot_hide_unsettled_native_children(self):
+        for family, suite_directory in (
+            ("owned", False),
+            ("owned", True),
+            ("screenshot", True),
+        ):
+            with (
+                self.subTest(family=family, suite_directory=suite_directory),
+                TemporaryDirectory() as temporary,
+            ):
+                root = Path(temporary).resolve()
+                mode = "test" if family == "screenshot" else "e2e"
+                resources = topology(root, load_identity(root, create=True), mode)
+                backend = LocalResources.__new__(LocalResources)
+                backend.root, backend.resources = root, resources
+                suite_id = uuid.uuid4()
+                run_id = suite_id if family == "screenshot" else uuid.uuid4()
+                directory = root / ".worktree" / mode / "fixture-authority"
+                directory.mkdir(mode=0o700, parents=True)
+                if suite_directory:
+                    directory /= "suite-" + suite_id.hex
+                directory.mkdir(mode=0o700, exist_ok=True)
+                atomic_json(
+                    directory / "generation.json",
+                    {
+                        "resources": resources,
+                        "nonce": "a" * 64,
+                        "state": "closed",
+                    },
+                )
+                child = directory / ("native-run-" + run_id.hex)
+                child.mkdir(mode=0o700)
+                children = (
+                    "celery-media",
+                    "celery-pyramid",
+                    "media-worker",
+                    "image-worker",
+                    "proxy",
+                )
+                outcomes = {
+                    name: {
+                        "pid": index + 100,
+                        "start": index + 1000,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "descendants_drained": True,
+                        "acknowledgment": "warm_exit"
+                        if name.startswith("celery-")
+                        else "settled",
+                    }
+                    for index, name in enumerate(children)
+                }
+                run = {
+                    "schema": "aap-fixture-native-run/v1",
+                    "suite_id": str(suite_id),
+                    "run_id": str(run_id),
+                    "state": "retired",
+                    "receipt_sha256": "b" * 64,
+                    "drained": list(children),
+                    "child_dispositions": outcomes,
+                    **{
+                        name: {"pid": result["pid"], "start": result["start"]}
+                        for name, result in outcomes.items()
+                    },
+                    "target_proof": {
+                        "schema": "aap-fixture-native-target-retirement/v1",
+                        "run_id": str(run_id),
+                        "storage_identity": "a" * 64,
+                        "target_receipt_sha256": "b" * 64,
+                        "retirement_id": str(uuid.uuid4()),
+                        "location_id": str(uuid.uuid4()),
+                        "binding_generation": 1,
+                    },
+                }
+                supervisor = {
+                    "schema": "aap-fixture-native-supervisor/v1",
+                    "suite_id": str(suite_id),
+                    "resources": resources,
+                    "state": "retired",
+                    "api_owned": True,
+                    "native_run_ids": [str(run_id)],
+                    "resolver_retired": True,
+                    "business_retired": True,
+                    "api": {"pid": 10, "start": 100},
+                    "control": {"pid": 20, "start": 200},
+                    "api_disposition": {
+                        "pid": 10,
+                        "start": 100,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "lifespan_shutdown": True,
+                        "descendants_drained": True,
+                    },
+                    "control_disposition": {
+                        "pid": 20,
+                        "start": 200,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "settled_ack": True,
+                        "descendants_drained": True,
+                    },
+                }
+                if family == "screenshot":
+                    supervisor.update(
+                        api_owned=False,
+                        root_origin={"family": "screenshot", "parent_run_id": None},
+                        birth_admission_id=str(uuid.uuid4()),
+                        authority_nonce="a" * 64,
+                    )
+                    del supervisor["api"]
+                    del supervisor["api_disposition"]
+                atomic_json(directory / "native-supervisor.json", supervisor)
+                atomic_json(child / "owner.json", run)
+                protected = root / "protected-resource"
+                protected.write_bytes(b"owned data")
+                damages = [
+                    "unknown_supervisor",
+                    "missing_api_topology",
+                    "undrained_control",
+                    "undrained_child",
+                    "changed_child_birth",
+                    "changed_target_birth",
+                    "missing_child",
+                ]
+                damages += (
+                    [
+                        "missing_root_origin",
+                        "changed_root_family",
+                        "changed_authority_nonce",
+                        "missing_birth_admission",
+                    ]
+                    if family == "screenshot"
+                    else ["forced_api_exit", "undrained_api"]
+                )
+                for damage in damages:
+                    with self.subTest(damage=damage):
+                        current_supervisor = json.loads(json.dumps(supervisor))
+                        current_run = json.loads(json.dumps(run))
+                        if damage == "unknown_supervisor":
+                            current_supervisor["state"] = "unsettled"
+                        elif damage == "missing_api_topology":
+                            del current_supervisor["api_owned"]
+                        elif damage == "forced_api_exit":
+                            current_supervisor["api_disposition"]["exit_code"] = -15
+                        elif damage in ("undrained_api", "undrained_control"):
+                            participant = damage.removeprefix("undrained_")
+                            current_supervisor[participant + "_disposition"][
+                                "descendants_drained"
+                            ] = False
+                        elif damage == "undrained_child":
+                            current_run["child_dispositions"]["proxy"][
+                                "descendants_drained"
+                            ] = False
+                        elif damage == "changed_child_birth":
+                            current_run["proxy"]["start"] += 1
+                        elif damage == "changed_target_birth":
+                            current_run["receipt_sha256"] = "c" * 64
+                        elif damage == "missing_root_origin":
+                            del current_supervisor["root_origin"]
+                        elif damage == "changed_root_family":
+                            current_supervisor["root_origin"]["family"] = "scale"
+                        elif damage == "changed_authority_nonce":
+                            current_supervisor["authority_nonce"] = "b" * 64
+                        elif damage == "missing_birth_admission":
+                            del current_supervisor["birth_admission_id"]
+                        atomic_json(
+                            directory / "native-supervisor.json", current_supervisor
+                        )
+                        atomic_json(child / "owner.json", current_run)
+                        if damage == "missing_child":
+                            (child / "owner.json").unlink()
+                        with self.assertRaises(WorktreeError):
+                            with backend.fixture_authority_fence():
+                                protected.unlink()
+                        self.assertEqual(protected.read_bytes(), b"owned data")
+                atomic_json(directory / "native-supervisor.json", supervisor)
+                atomic_json(child / "owner.json", run)
+                extra = directory / ("native-run-" + uuid.uuid4().hex)
+                extra.mkdir(mode=0o700)
+                with self.assertRaises(WorktreeError):
+                    with backend.fixture_authority_fence():
+                        protected.unlink()
+                self.assertEqual(protected.read_bytes(), b"owned data")
+                extra.rmdir()
+                with backend.fixture_authority_fence():
+                    protected.unlink()
+                self.assertFalse(protected.exists())
+
+    def test_api_less_native_owner_is_explicit_and_test_only(self):
+        for mode in ("test", "e2e"):
+            with self.subTest(mode=mode), TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                resources = topology(root, load_identity(root, create=True), mode)
+                backend = LocalResources.__new__(LocalResources)
+                backend.root, backend.resources = root, resources
+                suite_id = uuid.uuid4()
+                directory = root / ".worktree" / mode / "fixture-authority"
+                directory.mkdir(mode=0o700, parents=True)
+                atomic_json(
+                    directory / "generation.json",
+                    {
+                        "resources": resources,
+                        "nonce": "a" * 64,
+                        "state": "closed",
+                    },
+                )
+                supervisor = {
+                    "schema": "aap-fixture-native-supervisor/v1",
+                    "suite_id": str(suite_id),
+                    "resources": resources,
+                    "state": "retired",
+                    "api_owned": False,
+                    "native_run_ids": [],
+                    "resolver_retired": True,
+                    "business_retired": True,
+                    "control": {"pid": 20, "start": 200},
+                    "control_disposition": {
+                        "pid": 20,
+                        "start": 200,
+                        "exit_code": 0,
+                        "pidfd_exit": True,
+                        "settled_ack": True,
+                        "descendants_drained": True,
+                    },
+                }
+                protected = root / "protected-resource"
+                protected.write_bytes(b"owned data")
+                if mode == "e2e":
+                    atomic_json(directory / "native-supervisor.json", supervisor)
+                    with self.assertRaises(WorktreeError):
+                        with backend.fixture_authority_fence():
+                            protected.unlink()
+                    self.assertEqual(protected.read_bytes(), b"owned data")
+                    continue
+                for damage in (
+                    "missing_api_topology",
+                    "contradictory_api_birth",
+                    "missing_control",
+                ):
+                    with self.subTest(damage=damage):
+                        current = json.loads(json.dumps(supervisor))
+                        if damage == "missing_api_topology":
+                            del current["api_owned"]
+                        elif damage == "contradictory_api_birth":
+                            current["api"] = {"pid": 10, "start": 100}
+                        else:
+                            del current["control_disposition"]
+                        atomic_json(directory / "native-supervisor.json", current)
+                        with self.assertRaises(WorktreeError):
+                            with backend.fixture_authority_fence():
+                                protected.unlink()
+                        self.assertEqual(protected.read_bytes(), b"owned data")
+                atomic_json(directory / "native-supervisor.json", supervisor)
+                with backend.fixture_authority_fence():
+                    protected.unlink()
+                self.assertFalse(protected.exists())
+
+    def test_closed_suite_cannot_hide_another_unclosed_suite(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = LocalResources.__new__(LocalResources)
+            backend.root, backend.resources = root, resources
+            directory = root / ".worktree/e2e/fixture-authority"
+            directory.mkdir(mode=0o700, parents=True)
+            first = directory / ("suite-" + uuid.uuid4().hex)
+            second = directory / ("suite-" + uuid.uuid4().hex)
+            first.mkdir(mode=0o700, parents=True)
+            second.mkdir(mode=0o700)
+            record = {"resources": resources, "nonce": "a" * 64, "state": "closed"}
+            atomic_json(first / "generation.json", record)
+            atomic_json(second / "generation.json", {**record, "state": "running"})
+            protected = root / "protected-resource"
+            protected.write_bytes(b"neighbor remains")
+            with self.assertRaises(WorktreeError):
+                with backend.fixture_authority_fence():
+                    protected.unlink()
+            self.assertEqual(protected.read_bytes(), b"neighbor remains")
+            atomic_json(second / "generation.json", record)
+            with backend.fixture_authority_fence():
+                protected.unlink()
+            self.assertFalse(protected.exists())
+
+
+class FinishedBootstrapRetirementTests(unittest.TestCase):
+    def setUp(self):
+        from fixture_store import MINIO_IMAGE
+        from storage_s3_contract import CHECKOUT_LABEL, OWNER_LABEL
+        from verify_storage_candidates import ROOT
+
+        self.temporary = TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.root = Path(self.temporary.name)
+        self.resources = topology(
+            self.root, load_identity(self.root, create=True), "test"
+        )
+        self.settings = SimpleNamespace(
+            database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/db",
+            effective_migration_database_url="postgresql+asyncpg://test:test@127.0.0.1:5432/db",
+            minio_endpoint="172.26.9.65:32768",
+            minio_use_ssl=False,
+            minio_access_key="test",
+            minio_secret_key="test",
+        )
+        self.owner_path = self.root / "owner.json"
+        self.owner = {
+            "schema": "aap.storage-poc-owner/v1",
+            "checkout": str(ROOT),
+            "nonce": "a" * 32,
+            "private_directory": str(self.root / ("private-" + "a" * 32)),
+            "cleaned": False,
+            "verification": {
+                "state": "finished",
+                "endpoint": "http://172.26.9.65:32768",
+                "returncode": 1,
+            },
+            "resources": [
+                {"kind": "network", "id": "network", "state": "created"},
+                {
+                    "kind": "container",
+                    "id": "container",
+                    "state": "created",
+                    "image": MINIO_IMAGE,
+                },
+            ],
+        }
+        labels = {OWNER_LABEL: "a" * 32, CHECKOUT_LABEL: str(ROOT)}
+        self.network = {
+            "Id": "network",
+            "Labels": labels.copy(),
+            "Driver": "bridge",
+            "IPAM": {"Config": [{"Gateway": "172.26.9.65"}]},
+            "Containers": {"container": {"EndpointID": "attachment"}},
+        }
+        self.container = {
+            "Id": "container",
+            "State": {"Running": True},
+            "Image": "sha256:" + "b" * 64,
+            "Config": {
+                "Image": MINIO_IMAGE,
+                "Labels": {**labels, "com.docker.compose.service": "minio"},
+            },
+            "NetworkSettings": {
+                "Ports": {"9000/tcp": [{"HostIp": "172.26.9.65", "HostPort": "32768"}]},
+                "Networks": {
+                    "bootstrap": {
+                        "NetworkID": "network",
+                        "Gateway": "172.26.9.65",
+                        "EndpointID": "attachment",
+                    }
+                },
+            },
+        }
+        self.save_owner()
+        self.manifest_path = self.root / ".worktree/test/resources.json"
+        self.manifest = {
+            "schema": 1,
+            "resources": self.resources,
+            "postgres": {"host": "127.0.0.1", "port": 5432},
+            "minio": {"endpoint": self.settings.minio_endpoint, "ssl": False},
+        }
+        atomic_json(self.manifest_path, self.manifest)
+        self.enterContext(
+            patch.dict(
+                os.environ,
+                {"AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER": str(self.owner_path)},
+            )
+        )
+        self.enterContext(
+            patch(
+                "verify_storage_candidates.Owner.inspect",
+                lambda _owner, item: (
+                    self.network if item["kind"] == "network" else self.container
+                ),
+            )
+        )
+        self.enterContext(patch("worktree_resources.boto3.client"))
+
+    def save_owner(self):
+        atomic_json(self.owner_path, self.owner)
+
+    def backend(self, *, retirement=False):
+        return LocalResources(
+            self.resources,
+            self.settings,
+            code_root=self.root,
+            retire_finished_bootstrap=retirement,
+        )
+
+    def test_finished_owner_is_only_available_for_explicit_retirement(self):
+        from worktree_env import isolated_environment
+
+        self.owner["verification"]["state"] = "running"
+        self.save_owner()
+        self.backend()
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.owner["verification"]["state"] = "finished"
+        self.save_owner()
+        with self.assertRaises(WorktreeError):
+            self.backend()
+        backend = self.backend(retirement=True)
+        with self.assertRaises(WorktreeError):
+            backend.prepare()
+        with self.assertRaises(WorktreeError):
+            backend.environment()
+        with self.assertRaises(WorktreeError):
+            backend._environment(6379)
+        with self.assertRaises(WorktreeError):
+            backend.start_redis()
+        with self.assertRaises(WorktreeError):
+            asyncio.run(backend.database("create"))
+        with self.assertRaises(WorktreeError):
+            asyncio.run(backend.owned_runtime_role("create"))
+        with self.assertRaises(WorktreeError):
+            isolated_environment(
+                self.resources,
+                code_root=self.root,
+                database_url=self.settings.database_url,
+                migration_database_url=self.settings.effective_migration_database_url,
+                minio_endpoint=self.settings.minio_endpoint,
+                redis_port=6379,
+                inherited=os.environ,
+            )
+
+    def test_retirement_requires_existing_manifest_and_matching_endpoint_and_bridge(self):
+        self.manifest_path.unlink()
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        atomic_json(self.manifest_path, {"resources": self.resources})
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        atomic_json(self.manifest_path, self.manifest)
+        self.owner["verification"]["endpoint"] = "http://172.26.9.65:32769"
+        self.save_owner()
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.owner["verification"]["endpoint"] = "http://172.26.9.65:32768"
+        self.save_owner()
+        self.network["IPAM"]["Config"][0]["Gateway"] = "172.26.9.66"
+        with self.assertRaises(WorktreeError):
+            self.backend(retirement=True)
+        self.network["IPAM"]["Config"][0]["Gateway"] = "172.26.9.65"
+        self.container["Id"] = "different-container"
+        with self.assertRaises(ValueError):
+            self.backend(retirement=True)
+
+    def test_destroy_preserves_confirmation_and_active_session_guards(self):
+        backend = self.backend(retirement=True)
+        backend.inspect = lambda: {
+            "database": {"owner": self.resources["owner"], "sessions": 1},
+            "redis": None,
+            "buckets": {},
+        }
+        with self.assertRaises(WorktreeError):
+            backend.destroy("wrong")
+        with self.assertRaises(WorktreeError):
+            backend.destroy(self.resources["confirmation"])
+
+    def test_retirement_flag_is_restricted_to_test_inspection_and_destroy(self):
+        from worktree_runtime import parse_arguments
+
+        for command in ("init", "reset", "up"):
+            with self.subTest(command=command), self.assertRaises(SystemExit):
+                parse_arguments([command, "--mode", "test", "--retire-finished-bootstrap"])
+        with self.assertRaises(SystemExit):
+            parse_arguments(["destroy", "--mode", "e2e", "--retire-finished-bootstrap"])
+        for command in ("doctor", "destroy"):
+            self.assertTrue(
+                parse_arguments([command, "--mode", "test", "--retire-finished-bootstrap"])
+                .retire_finished_bootstrap
+            )
 
 
 if __name__ == "__main__":

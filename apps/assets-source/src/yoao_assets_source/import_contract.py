@@ -20,6 +20,8 @@ from pydantic import (
     model_validator,
 )
 
+IMPORT_COMPLETION_SCHEMA_RESOURCE = "0453_import_original_completion.schema.json"
+
 ImportFailureCode = Literal[
     "invalid_request",
     "invalid_source_object",
@@ -423,13 +425,14 @@ class ImportEntryCompletion(_Value):
         frozen=True,
         json_schema_extra={
             "x-invariants": [
-                "copied requires non-negative file_size, lowercase MD5 and paired optional dimensions",
+                "copied requires a verification operation, non-negative file_size, lowercase MD5 and paired optional dimensions",
                 "error requires only a bounded safe error_code",
             ]
         },
     )
 
     status: Literal["copied", "error"]
+    verification_operation_id: UUID | None = None
     file_size: Annotated[StrictInt, Field(ge=0, le=_MAX_BIGINT)] | None = None
     content_hash: Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{32}$")] | None = None
     width: Annotated[StrictInt, Field(gt=0, le=_MAX_INTEGER)] | None = None
@@ -449,15 +452,17 @@ class ImportEntryCompletion(_Value):
             if (
                 self.file_size is None
                 or self.content_hash is None
+                or self.verification_operation_id is None
                 or self.error_code is not None
             ):
-                raise ValueError("copied completion requires size and MD5 hash")
+                raise ValueError("copied completion requires verification operation, size and MD5 hash")
             if (self.width is None) != (self.height is None):
                 raise ValueError("width and height must be paired")
         elif (
             any(
                 value is not None
                 for value in (
+                    self.verification_operation_id,
                     self.file_size,
                     self.content_hash,
                     self.width,

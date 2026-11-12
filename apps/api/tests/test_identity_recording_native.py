@@ -11,23 +11,17 @@ import uuid
 
 import pytest
 from sqlalchemy import text
-from tests.test_workspace_consumer_profile_native import _world, _grants, _assert_closed
 from app.config import settings
 from scripts import screenshot_job_recovery_fixture as jobs
 from scripts import screenshot_review_reject_fixture as review
 from scripts import restore_screenshot_user_preferences as preferences
 from tests.identity_recording_fixture_helpers import (
-    ROOT,
-    RECORDER_EMAIL,
     INITIAL_PREFERENCES,
     recording_graph,
     recording_snapshot,
-    canonical,
+    recording_owner_session,
 )
 
-CAPTURE = os.getenv("AAP_IDENTITY_RECORDING_CAPTURE") == "1"
-ORACLE = ROOT / "apps/api/tests/fixtures/identity_recording_legacy.json"
-GOLDEN = {} if CAPTURE else json.loads(ORACLE.read_text())["snapshots"]
 pytestmark = [
     pytest.mark.asyncio,
     pytest.mark.skipif(
@@ -35,46 +29,6 @@ pytestmark = [
         reason="requires owned module-data verifier",
     ),
 ]
-
-
-def replay(name, value, record_property):
-    if CAPTURE:
-        directory = ROOT / ".worktree/identity-recording-baseline-cases"
-        directory.mkdir(parents=True, exist_ok=True)
-        (directory / f"{name}.json").write_text(
-            json.dumps(value, indent=2, ensure_ascii=False) + "\n"
-        )
-    else:
-        if value != GOLDEN[name]:
-            directory = ROOT / ".worktree/recording-replay-mismatches"
-            directory.mkdir(parents=True, exist_ok=True)
-            (directory / f"{name}.json").write_text(
-                json.dumps(
-                    {"actual": value, "expected": GOLDEN[name]},
-                    ensure_ascii=False,
-                    indent=2,
-                )
-                + "\n"
-            )
-        assert value == GOLDEN[name]
-    record_property("identity_recording_replay", name)
-
-
-@pytest.fixture
-async def recording_consumer(test_engine):
-    if CAPTURE:
-        yield test_engine.url, test_engine
-        return
-    async with _world(test_engine) as (_owner, consumer, role, url):
-        result = await _grants(
-            test_engine,
-            ROOT / "infra/docker/identity-recording-fixture-grants.sql",
-            role,
-        )
-        assert result.returncode == 0, result.stderr
-        async with consumer() as db:
-            await _assert_closed(db)
-        yield url, consumer.kw["bind"]
 
 
 async def outcome(operation):
@@ -103,33 +57,24 @@ async def outcome(operation):
         "bad_project",
         "unmanaged",
         "undeclared_task",
+        "bad_task_display",
         "bad_backend",
         "no_stage",
     ],
 )
-async def test_jobs_recording_identity(
-    test_engine, recording_consumer, monkeypatch, case, record_property
-):
+async def test_jobs_recording_identity(test_engine, case, record_property):
     async with recording_graph(test_engine) as ids:
-        monkeypatch.setattr(
-            settings,
-            "database_url",
-            recording_consumer[0].render_as_string(hide_password=False),
-        )
         args = SimpleNamespace(
             action="seed",
             project_id=ids["ocr_project"],
             task_id=ids["ocr_task"],
-            user_email=RECORDER_EMAIL,
+            user_email=ids["recorder_email"],
         )
-        if case in ("repeat", "cleanup", "missing_user"):
+        if case in ("repeat", "cleanup", "missing_user", "bad_task_display"):
             first = await jobs.run(args)
         async with test_engine.begin() as db:
             if case == "bad_project":
-                await db.execute(
-                    text("UPDATE projects SET display_id='P-UNMANAGED' WHERE id=:id"),
-                    {"id": ids["ocr_project"]},
-                )
+                args.project_id = uuid.uuid4()
             if case == "unmanaged":
                 await db.execute(
                     text("UPDATE datasets SET metadata='{}'::jsonb WHERE id=:id"),
@@ -139,6 +84,14 @@ async def test_jobs_recording_identity(
                 await db.execute(
                     text("UPDATE tasks SET file_path='outside.png' WHERE id=:id"),
                     {"id": ids["ocr_task"]},
+                )
+            if case == "bad_task_display":
+                await db.execute(
+                    text("UPDATE tasks SET display_id=:display_id WHERE id=:id"),
+                    {
+                        "id": ids["ocr_task"],
+                        "display_id": "T-SS-invalid-" + ids["ocr_task"].hex[:12],
+                    },
                 )
             if case == "bad_backend":
                 await db.execute(
@@ -160,19 +113,24 @@ async def test_jobs_recording_identity(
             args.user_email = None
         if case == "cleanup":
             args.action = "cleanup"
-        before = await recording_snapshot(test_engine)
+        before = await recording_snapshot(test_engine, ids)
         result = await outcome(jobs.run(args))
         assert ("result" in result) == (case in ("happy", "repeat", "cleanup")), result
-        snapshot, aliases = await recording_snapshot(test_engine, with_aliases=True)
+        snapshot = await recording_snapshot(test_engine, ids)
         if case == "repeat":
             assert result["result"]["async_job_id"] != first["async_job_id"]
         if "error" in result:
             assert snapshot == before
-        replay(
-            "jobs-" + case,
-            {"outcome": canonical(result, aliases), "state": snapshot},
-            record_property,
-        )
+        elif case == "cleanup":
+            assert snapshot["jobs"] == [] and snapshot["failed"] == []
+        else:
+            assert len(snapshot["jobs"]) == len(snapshot["failed"]) == 1
+            assert snapshot["jobs"][0]["kind"] == "batch_predict"
+            assert snapshot["jobs"][0]["status"] == "failed"
+            assert snapshot["jobs"][0]["user_id"] == "recorder"
+            assert snapshot["jobs"][0]["payload"]["task_id"] == "ocr_task"
+            assert snapshot["failed"][0]["error_type"] == "BackendTimeout"
+        record_property("identity_recording_case", "jobs-" + case)
 
 
 @pytest.mark.parametrize(
@@ -189,22 +147,16 @@ async def test_jobs_recording_identity(
         "bad_project",
         "unmanaged",
         "undeclared_task",
+        "bad_task_display",
     ],
 )
-async def test_review_recording_identity(
-    test_engine, recording_consumer, monkeypatch, case, record_property
-):
+async def test_review_recording_identity(test_engine, case, record_property):
     async with recording_graph(test_engine) as ids:
-        monkeypatch.setattr(
-            settings,
-            "database_url",
-            recording_consumer[0].render_as_string(hide_password=False),
-        )
         args = SimpleNamespace(
             action="cleanup" if case == "cleanup" else "prepare",
             project_id=ids["image_project"],
             task_id=ids["image_task"],
-            reviewer_email=RECORDER_EMAIL,
+            reviewer_email=ids["recorder_email"],
         )
         async with test_engine.begin() as db:
             if case == "self_review":
@@ -232,10 +184,7 @@ async def test_review_recording_identity(
                     {"id": ids["image_task"]},
                 )
             if case == "bad_project":
-                await db.execute(
-                    text("UPDATE projects SET display_id='P-UNMANAGED' WHERE id=:id"),
-                    {"id": ids["image_project"]},
-                )
+                args.project_id = uuid.uuid4()
             if case == "unmanaged":
                 await db.execute(
                     text("UPDATE datasets SET metadata='{}'::jsonb WHERE id=:id"),
@@ -246,21 +195,36 @@ async def test_review_recording_identity(
                     text("UPDATE tasks SET file_path='outside.png' WHERE id=:id"),
                     {"id": ids["image_task"]},
                 )
+            if case == "bad_task_display":
+                await db.execute(
+                    text("UPDATE tasks SET display_id=:display_id WHERE id=:id"),
+                    {
+                        "id": ids["image_task"],
+                        "display_id": "T-SS-invalid-" + ids["image_task"].hex[:12],
+                    },
+                )
         if case == "missing_user":
             args.reviewer_email = "missing@fixture.test"
         if case == "wrong_reviewer":
-            args.reviewer_email = "annotator@fixture.test"
+            args.reviewer_email = ids["annotator_email"]
         if case == "repeat":
             await review.restore(args)
-        before = await recording_snapshot(test_engine)
+        before = await recording_snapshot(test_engine, ids)
         result = await outcome(review.restore(args))
         assert ("result" in result) == (case in ("happy", "repeat", "cleanup")), result
-        snapshot = await recording_snapshot(test_engine)
+        snapshot = await recording_snapshot(test_engine, ids)
         if "error" in result:
             assert snapshot == before
-        replay(
-            "review-" + case, {"outcome": result, "state": snapshot}, record_property
-        )
+        else:
+            task = next(row for row in snapshot["tasks"] if row["id"] == "image_task")
+            assert task["status"] == "review"
+            assert task["review_contributor_ids"] == ["annotator"]
+            assert task["review_submitter_id"] == "annotator"
+            assert [row["body"] for row in snapshot["feedback"]] == [
+                "unrelated recording feedback"
+            ]
+            assert len(snapshot["notifications"]) == 1
+        record_property("identity_recording_case", "review-" + case)
 
 
 @pytest.mark.parametrize(
@@ -277,17 +241,18 @@ async def test_review_recording_identity(
         "missing_file",
         "missing_dsn",
         "wrong_database",
-        "preferred_dsn",
-        "fallback_dsn",
+        "ignored_screenshot_dsn",
+        "verified_runtime",
     ],
 )
 async def test_recording_preferences(
-    test_engine, recording_consumer, monkeypatch, tmp_path, case, record_property
+    test_engine, monkeypatch, tmp_path, case, record_property
 ):
     async with recording_graph(test_engine) as ids:
-        url = recording_consumer[0].render_as_string(hide_password=False)
-        monkeypatch.setenv("DATABASE_URL", url)
-        monkeypatch.delenv("SCREENSHOT_DATABASE_URL", raising=False)
+        runtime_url = (
+            os.environ.get("FIXTURE_RUNTIME_DATABASE_URL") or os.environ["DATABASE_URL"]
+        )
+        monkeypatch.setenv("FIXTURE_RUNTIME_DATABASE_URL", runtime_url)
         target = ids["recorder"]
         value = {
             "workbench": {
@@ -300,7 +265,7 @@ async def test_recording_preferences(
         if case == "same":
             value = copy.deepcopy(INITIAL_PREFERENCES)
         if case == "missing_user":
-            target = uuid.uuid5(uuid.NAMESPACE_URL, "missing-recording-user")
+            target = uuid.uuid4()
         if case == "null_user":
             target = None
         if case == "invalid_list":
@@ -314,43 +279,60 @@ async def test_recording_preferences(
         if case == "missing_file":
             path.unlink()
         if case == "missing_dsn":
-            monkeypatch.delenv("DATABASE_URL")
-            monkeypatch.delenv("SCREENSHOT_DATABASE_URL", raising=False)
+            monkeypatch.delenv("DATABASE_URL", raising=False)
+            monkeypatch.delenv("FIXTURE_RUNTIME_DATABASE_URL", raising=False)
         if case == "wrong_database":
             monkeypatch.setenv(
-                "DATABASE_URL",
+                "FIXTURE_RUNTIME_DATABASE_URL",
                 test_engine.url.set(database="never_connect_dev").render_as_string(
                     hide_password=False
                 ),
             )
-        if case == "preferred_dsn":
-            monkeypatch.setenv("SCREENSHOT_DATABASE_URL", url)
+        if case == "ignored_screenshot_dsn":
+            monkeypatch.setenv("SCREENSHOT_DATABASE_URL", "never-connect")
+        if case == "verified_runtime":
             monkeypatch.setenv("DATABASE_URL", "never-connect")
-        if case == "fallback_dsn":
-            monkeypatch.setenv("SCREENSHOT_DATABASE_URL", "")
-        calls = []
-        make_engine = preferences.create_async_engine
-
-        def real_engine(*args, **kwargs):
-            calls.append(kwargs)
-            return make_engine(*args, **kwargs)
-
-        monkeypatch.setattr(preferences, "create_async_engine", real_engine)
-        before = await recording_snapshot(test_engine)
+        before = await recording_snapshot(test_engine, ids)
         result = await outcome(preferences.restore(target, path))
         assert ("result" in result) == (
-            case in ("nested", "empty", "same", "preferred_dsn", "fallback_dsn")
+            case
+            in ("nested", "empty", "same", "ignored_screenshot_dsn", "verified_runtime")
         ), result
-        if result.get("error") == "FileNotFoundError":
-            result["message"] = "<missing preferences file>"
-        snapshot = await recording_snapshot(test_engine)
+        snapshot = await recording_snapshot(test_engine, ids)
         if "error" in result:
+            if case == "nan":
+                assert result["sqlstate"] == "22P02", result
+            else:
+                expected_error = {
+                    "missing_user": "RuntimeError",
+                    "null_user": "RuntimeError",
+                    "invalid_list": "ValueError",
+                    "invalid_json": "JSONDecodeError",
+                    "missing_file": "FileNotFoundError",
+                    "missing_dsn": "KeyError",
+                    "wrong_database": "FixtureSetupRefused",
+                }[case]
+                assert result["error"] == expected_error, result
             assert snapshot == before
-        replay(
-            "preferences-" + case,
-            {"outcome": result, "engine_options": calls, "users": snapshot["users"]},
-            record_property,
-        )
+        else:
+            for section in (
+                "jobs",
+                "failed",
+                "tasks",
+                "feedback",
+                "notifications",
+                "batches",
+            ):
+                assert snapshot[section] == before[section]
+            old_users = {user["id"]: user for user in before["users"]}
+            new_users = {user["id"]: user for user in snapshot["users"]}
+            assert set(new_users) == set(old_users)
+            for name, previous in old_users.items():
+                expected = dict(previous)
+                if name == "recorder":
+                    expected["preferences"] = value
+                assert new_users[name] == expected
+        record_property("identity_recording_case", "preferences-" + case)
 
 
 @pytest.mark.parametrize("kind", ["jobs", "review"])
@@ -359,34 +341,41 @@ async def test_recording_production_guards(monkeypatch, kind, record_property):
     buffer = io.StringIO()
     with redirect_stderr(buffer):
         code = (jobs if kind == "jobs" else review).main()
-    replay(
-        "guard-" + kind,
-        {"exit_code": code, "stderr": buffer.getvalue()},
-        record_property,
-    )
+    assert code == 2
+    record_property("identity_recording_production_guard", kind)
 
 
-async def test_jobs_cached_email_keeps_original_id(
-    test_engine, recording_consumer, record_property
-):
+async def test_jobs_seed_respects_borrowed_transaction_rollback(test_engine):
+    async with recording_graph(test_engine) as ids:
+        before = await recording_snapshot(test_engine, ids)
+        async with recording_owner_session() as db:
+            await jobs.seed(
+                db,
+                run_id=ids["run_id"],
+                project_id=ids["ocr_project"],
+                task_id=ids["ocr_task"],
+                user_email=ids["recorder_email"],
+            )
+            await db.rollback()
+        assert await recording_snapshot(test_engine, ids) == before
+
+
+async def test_jobs_cached_email_keeps_original_id(test_engine, record_property):
     from sqlalchemy import select
     from sqlalchemy.orm import aliased, load_only
-    from sqlalchemy.ext.asyncio import async_sessionmaker
     from app.db.models.user import User
     from app.services.identity_read_relations import account_profiles
 
     async with recording_graph(test_engine) as ids:
         profile = aliased(User, account_profiles, adapt_on_names=True)
-        async with async_sessionmaker(
-            recording_consumer[1], expire_on_commit=False
-        )() as db:
+        async with recording_owner_session() as db:
             cached = await db.scalar(
                 select(profile)
                 .options(load_only(profile.id, profile.email))
                 .where(profile.id == ids["recorder"])
             )
-            assert cached.email == RECORDER_EMAIL
-            changed_email = "changed-recording@fixture.test"
+            assert cached.email == ids["recorder_email"]
+            changed_email = f"changed-{ids['run_id'].hex}@fixture.test"
             async with test_engine.begin() as writer:
                 await writer.execute(
                     text("UPDATE public.users SET email=:email WHERE id=:id"),
@@ -394,30 +383,25 @@ async def test_jobs_cached_email_keeps_original_id(
                 )
             result = await jobs.seed(
                 db,
+                run_id=ids["run_id"],
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
                 user_email=changed_email,
             )
-            assert cached.email == RECORDER_EMAIL
+            assert result["project_id"] == str(ids["ocr_project"])
+            assert cached.email == ids["recorder_email"]
             await db.commit()
-        snapshot, aliases = await recording_snapshot(test_engine, with_aliases=True)
-        replay(
-            "jobs-cached-email",
-            {"result": canonical(result, aliases), "state": snapshot},
-            record_property,
-        )
+        snapshot = await recording_snapshot(test_engine, ids)
+        assert len(snapshot["jobs"]) == 1
+        assert snapshot["jobs"][0]["user_id"] == "recorder"
+        record_property("identity_recording_case", "jobs-cached-email")
 
 
-async def test_jobs_cached_project_preserves_original_pipeline_and_name(
-    test_engine, recording_consumer
-):
-    from sqlalchemy.ext.asyncio import async_sessionmaker
+async def test_jobs_cached_project_preserves_original_pipeline_and_name(test_engine):
     from app.services.project_access import get_workspace_project
 
     async with recording_graph(test_engine) as ids:
-        async with async_sessionmaker(
-            recording_consumer[1], expire_on_commit=False
-        )() as db:
+        async with recording_owner_session() as db:
             cached = await get_workspace_project(db, project_id=ids["ocr_project"])
             original_name = cached.name
             async with test_engine.begin() as writer:
@@ -429,9 +413,10 @@ async def test_jobs_cached_project_preserves_original_pipeline_and_name(
                 )
             result = await jobs.seed(
                 db,
+                run_id=ids["run_id"],
                 project_id=ids["ocr_project"],
                 task_id=ids["ocr_task"],
-                user_email=RECORDER_EMAIL,
+                user_email=ids["recorder_email"],
             )
             assert (
                 await get_workspace_project(db, project_id=ids["ocr_project"]) is cached

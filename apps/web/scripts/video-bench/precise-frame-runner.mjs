@@ -1,4 +1,5 @@
 import { chromium } from "@playwright/test";
+import { browserEnvironment } from "../../e2e/helpers/browser-environment.mjs";
 
 const STAGE_SELECTOR = '[data-testid="video-konva-stage"]';
 const VIDEO_SELECTOR = '[data-testid="video-konva-source"]';
@@ -1062,6 +1063,7 @@ export async function runPreciseFrameMeasurements(config, args) {
     headless: !args.headed,
     args: chromiumArgs,
     channel,
+    env: browserEnvironment(),
   });
   try {
     const browserGpuEnvironment = await readBrowserGpuEnvironment(browser);

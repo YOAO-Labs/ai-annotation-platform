@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 from pathlib import Path
 import re
 import subprocess
+import tempfile
 import time
 from urllib.parse import urlsplit
 import uuid
@@ -19,6 +21,11 @@ from sqlalchemy.exc import ArgumentError
 from tests.test_identity_admission_live import ROOT, _dsn
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_sessions_live import _verify_redis
+
+
+def create_retained_realm() -> Path:
+    """Keep cold Linux mount sources outside the checkout and automatic cleanup."""
+    return Path(tempfile.mkdtemp(prefix="aap-jobs-cold-", dir="/tmp"))
 
 
 _IDENTITY_DATABASES = {
@@ -118,6 +125,7 @@ _JOBS_QUEUE_IMAGE_ACCEPTANCE = "jobs-queue-runtime"
 _JOBS_QUEUE_IMAGE_ID = re.compile(r"sha256:[0-9a-f]{64}\Z")
 _JOBS_QUEUE_ACCEPTANCE_ID = re.compile(r"[0-9a-f]{24}\Z")
 _JOBS_QUEUE_SOURCE_REVISION = re.compile(r"[0-9a-f]{40}\Z")
+_BOOTSTRAP_MINIO_ALIAS = "labeling-cold-minio"
 _IDENTITY_OPTIONAL_SECRETS = {
     "IDENTITY_RUNTIME_ADMISSION_TOKEN_FILE": "identity_admission_token",
     "IDENTITY_RUNTIME_ACTOR_STATUS_DATABASE_URL_FILE": "identity_actor_status_database_url",
@@ -276,7 +284,7 @@ def _expected_secret_mount_names(
     }:
         result.add("notification_publication_token")
     if jobs_queue_enabled and service == "identity-api":
-        result.add("jobs_queue_token")
+        result.update({"jobs_queue_token", "jobs_publication_database_url"})
     return result
 
 
@@ -358,6 +366,7 @@ class IdentityModuleStack:
         jobs_queue_token: str | None = None,
     ) -> None:
         self.test_engine = test_engine
+        self._retention_guards = []
         self.directory = Path(directory).resolve()
         self._secret_directory = self.directory / "identity-module-secrets"
         self._compose_env_file = self._secret_directory / "compose.env"
@@ -506,6 +515,16 @@ class IdentityModuleStack:
         }
         self._database_name = str(test_engine.url.database or "")
         self._validate_database_name(self._database_name)
+        self._jobs_publication_database_url = (
+            verifier_database_url(
+                self._required_environment("AAP_MODULE_DATA_JOBS_PUBLICATION_URL"),
+                test_engine.url,
+                expected_role="jobs_publication_client",
+                container_name=self._postgres_name,
+            )
+            if self._jobs_queue_enabled
+            else None
+        )
         self._notifications_socket_database_url = (
             verifier_database_url(
                 notification_delivery_database_url,
@@ -563,6 +582,8 @@ class IdentityModuleStack:
         )
         self._api_origin = ""
         self._identity_origin = ""
+        self._minio = self._bootstrap_minio()
+        self._minio_attachment: tuple[str, str] | None = None
         self._verify_image(self._identity_image, self._identity)
         self._verify_image(self._api_image, self._api_identity)
         if getattr(self, "_notification_publication_enabled", False):
@@ -597,12 +618,49 @@ class IdentityModuleStack:
         return self._identity_origin
 
     @property
+    def jobs_queue_origin(self) -> str:
+        """Address only the live queue attachment on this verifier's owned network."""
+        network = self._dependency_network()
+        details = self._verify_project_ownership().get(_JOBS_QUEUE_SERVICE)
+        if network is None or details is None:
+            raise RuntimeError("Owned Jobs queue or network is unavailable")
+        state = details.get("State") or {}
+        attachments = (details.get("NetworkSettings") or {}).get("Networks") or {}
+        endpoint = attachments.get(network["Name"]) or {}
+        member = (network.get("Containers") or {}).get(details.get("Id")) or {}
+        if (
+            state.get("Running") is not True
+            or (state.get("Health") or {}).get("Status") != "healthy"
+            or set(attachments) != {network["Name"]}
+            or endpoint.get("NetworkID") != network["Id"]
+            or not endpoint.get("EndpointID")
+            or member.get("EndpointID") != endpoint["EndpointID"]
+        ):
+            raise RuntimeError("Jobs queue attachment is not the live owned endpoint")
+        try:
+            address = ipaddress.IPv4Address(endpoint["IPAddress"])
+            member_address = ipaddress.IPv4Interface(member["IPv4Address"]).ip
+        except (KeyError, ValueError):
+            raise RuntimeError("Jobs queue attachment has no valid IPv4 identity") from None
+        if address != member_address or address.is_unspecified or address.is_loopback:
+            raise RuntimeError("Jobs queue attachment address does not match its network")
+        return f"http://{address}:8190"
+
+    @property
     def service_ids(self) -> dict[str, str]:
         return dict(self._service_ids)
 
     @property
     def inspection_evidence(self) -> dict[str, dict]:
         return json.loads(json.dumps(self._inspection_evidence))
+
+    def retain_while(self, guard) -> None:
+        """Register an owner whose unproved work must keep the assembly intact."""
+        self._retention_guards.append(guard)
+
+    @property
+    def retention_required(self) -> bool:
+        return any(guard() for guard in self._retention_guards)
 
     def redact(self, value: str) -> str:
         values = [
@@ -619,6 +677,8 @@ class IdentityModuleStack:
             urls.append(self._notifications_socket_database_url)
         if self._actor_status_database_url is not None:
             urls.append(self._actor_status_database_url)
+        if self._jobs_publication_database_url is not None:
+            urls.append(self._jobs_publication_database_url)
         for url in urls:
             values.extend(
                 [url.render_as_string(hide_password=False), url.password or ""]
@@ -673,6 +733,22 @@ class IdentityModuleStack:
                     check=False,
                 )
                 records[service] = {
+                    "container_id": details.get("Id"),
+                    "image_id": details.get("Image"),
+                    "networks": {
+                        name: {
+                            "network_id": attachment.get("NetworkID"),
+                            "endpoint_id": attachment.get("EndpointID"),
+                            "address": attachment.get("IPAddress"),
+                        }
+                        for name, attachment in (
+                            (details.get("NetworkSettings") or {}).get("Networks") or {}
+                        ).items()
+                    },
+                    "mount_sources": [
+                        {"source": mount.get("Source"), "destination": mount.get("Destination")}
+                        for mount in details.get("Mounts") or []
+                    ],
                     "state": details.get("State"),
                     "logs": self.redact(result.stdout + result.stderr),
                 }
@@ -698,6 +774,8 @@ class IdentityModuleStack:
         self._refresh_inspection_evidence()
 
     async def stop(self) -> None:
+        if self.retention_required:
+            raise RuntimeError("Identity assembly retained: owner retirement is unproved")
         if not self._compose_env_file.is_file() or not self._override_file.is_file():
             return
         containers = self._verify_project_ownership()
@@ -707,6 +785,88 @@ class IdentityModuleStack:
         if containers:
             self._compose("down", timeout=90)
         self._service_ids = {}
+
+    def _bootstrap_minio(self) -> dict:
+        from app.config import settings
+        from tests.test_asset_storage_cleanup_runtime import (
+            _shared_bootstrap_minio,
+            _verified_resource_manifest,
+        )
+
+        resources = _verified_resource_manifest(self.test_engine, self.test_engine.url)
+        manifest_path = Path(self._required_environment("TMPDIR")).resolve().parents[
+            2
+        ] / (".worktree/test/resources.json")
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        minio = manifest.get("minio") or {}
+        if (
+            manifest.get("resources") != resources
+            or minio.get("endpoint") != settings.minio_endpoint
+            or minio.get("ssl") is not settings.minio_use_ssl
+        ):
+            raise RuntimeError("Bootstrap MinIO differs from the owned manifest")
+        endpoint = urlsplit(f"http://{settings.minio_endpoint}")
+        container_id = self._required_environment("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
+        shared = _shared_bootstrap_minio(settings, container_id=container_id)
+        if (
+            endpoint.port is None
+            or re.fullmatch(r"[0-9a-f]{64}", container_id) is None
+            or (
+                shared is None
+                and endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+            )
+        ):
+            raise RuntimeError("Bootstrap MinIO selector is invalid")
+        details = shared if shared is not None else self._inspect(container_id)
+        image_id = details.get("Image")
+        bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get(
+            "9000/tcp"
+        ) or []
+        if not (
+            details.get("Id") == container_id
+            and details.get("Name")
+            and isinstance(image_id, str)
+            and re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)
+            and details.get("State", {}).get("Running") is True
+            and (details.get("Config", {}).get("Labels") or {}).get(
+                "com.docker.compose.service"
+            )
+            == "minio"
+            and len(bindings) == 1
+            and (
+                shared is not None
+                or bindings[0].get("HostIp") in {"127.0.0.1", "::1"}
+            )
+            and bindings[0].get("HostPort") == str(endpoint.port)
+        ):
+            raise RuntimeError("Bootstrap MinIO identity or loopback binding differs")
+        return {
+            "id": container_id,
+            "name": details["Name"],
+            "image_id": image_id,
+            "host_port": endpoint.port,
+            "service_port": 9000,
+            "shared": shared is not None,
+            "endpoint": settings.minio_endpoint,
+        }
+
+    def _verify_bootstrap_minio(self, details):
+        if not self._minio["shared"]:
+            from tests.test_labeling_module_api_cold import _verify_minio_identity
+
+            _verify_minio_identity(details, self._minio)
+            return
+        from app.config import settings
+        from tests.test_asset_storage_cleanup_runtime import _shared_bootstrap_minio
+
+        shared = _shared_bootstrap_minio(settings, container_id=self._minio["id"])
+        if shared is None or any(
+            details.get(name) != shared.get(name) for name in ("Id", "Name", "Image")
+        ) or any(
+            details.get(name) != self._minio[key]
+            for name, key in (("Id", "id"), ("Name", "name"), ("Image", "image_id"))
+        ):
+            raise RuntimeError("Shared bootstrap MinIO identity changed")
 
     def _dependency_network(self):
         name = self.project_name + "_default"
@@ -729,7 +889,7 @@ class IdentityModuleStack:
             != self.project_name
         ):
             raise RuntimeError("Network is not owned by this Compose project")
-        return name
+        return record
 
     def _connect_dependencies(self):
         _verify_postgres(self.test_engine.url)
@@ -737,25 +897,81 @@ class IdentityModuleStack:
         network = self._dependency_network()
         if network is None:
             raise RuntimeError("Compose did not create its owned network")
+        network_name, network_id = network["Name"], network["Id"]
         for container in (self._postgres_container, self._redis_name):
             details = self._inspect(container)
-            if network not in details["NetworkSettings"]["Networks"]:
+            if network_name not in details["NetworkSettings"]["Networks"]:
                 self._docker(
-                    ["network", "connect", network, container],
+                    [
+                        "network",
+                        "connect",
+                        "--gw-priority",
+                        "-1",
+                        network_id,
+                        container,
+                    ],
                     operation="owned dependency attachment",
                 )
+        details = self._inspect(self._minio["id"])
+        self._verify_bootstrap_minio(details)
+        if network_name in details["NetworkSettings"]["Networks"]:
+            raise RuntimeError("Bootstrap MinIO already has an unowned attachment")
+        self._docker(
+            [
+                "network",
+                "connect",
+                "--gw-priority",
+                "-1",
+                "--alias",
+                _BOOTSTRAP_MINIO_ALIAS,
+                network_id,
+                self._minio["id"],
+            ],
+            operation="bootstrap storage attachment",
+        )
+        details = self._inspect(self._minio["id"])
+        self._verify_bootstrap_minio(details)
+        endpoint = details["NetworkSettings"]["Networks"].get(network_name) or {}
+        if (
+            endpoint.get("NetworkID") != network_id
+            or not endpoint.get("EndpointID")
+            or _BOOTSTRAP_MINIO_ALIAS not in (endpoint.get("Aliases") or [])
+        ):
+            raise RuntimeError("Bootstrap MinIO attachment was not verified")
+        self._minio_attachment = (network_id, endpoint["EndpointID"])
 
     def _disconnect_dependencies(self):
         network = self._dependency_network()
         if network is None:
             return
+        network_name, network_id = network["Name"], network["Id"]
+        details = self._inspect(self._minio["id"])
+        self._verify_bootstrap_minio(details)
+        endpoint = details["NetworkSettings"]["Networks"].get(network_name)
+        if endpoint:
+            if (
+                self._minio_attachment != (network_id, endpoint.get("EndpointID"))
+                or endpoint.get("NetworkID") != network_id
+                or not endpoint.get("EndpointID")
+                or _BOOTSTRAP_MINIO_ALIAS not in (endpoint.get("Aliases") or [])
+            ):
+                raise RuntimeError("Refusing to detach an uncertain MinIO attachment")
+            self._docker(
+                ["network", "disconnect", network_id, self._minio["id"]],
+                operation="bootstrap storage detachment",
+            )
+            detached = self._inspect(self._minio["id"])
+            self._verify_bootstrap_minio(detached)
+            if network_name in detached["NetworkSettings"]["Networks"]:
+                raise RuntimeError("Bootstrap MinIO remained attached")
+            self._minio_attachment = None
         _verify_postgres(self.test_engine.url)
         _verify_redis()
         for container in (self._postgres_container, self._redis_name):
             details = self._inspect(container)
-            if network in details["NetworkSettings"]["Networks"]:
+            if network_name in details["NetworkSettings"]["Networks"]:
                 self._docker(
-                    ["network", "disconnect", network, container],
+                    ["network", "disconnect", network_id, container],
                     operation="owned dependency detachment",
                 )
 
@@ -793,6 +1009,8 @@ class IdentityModuleStack:
         self._refresh_inspection_evidence()
 
     async def switch_database(self, database_name: str) -> None:
+        if self.retention_required:
+            raise RuntimeError("Identity assembly retained: owner retirement is unproved")
         database_name = self._validate_database_name(database_name)
         self._prepare_files()
         containers = self._verify_project_ownership()
@@ -872,6 +1090,13 @@ class IdentityModuleStack:
             assert self._jobs_queue_broker_url is not None
             self._write_secret("jobs_queue_token", self._jobs_queue_token)
             self._write_secret("jobs_queue_broker_url", self._jobs_queue_broker_url)
+            assert self._jobs_publication_database_url is not None
+            self._write_secret(
+                "jobs_publication_database_url",
+                self._jobs_publication_database_url.set(
+                    database=self._database_name
+                ).render_as_string(hide_password=False),
+            )
 
         self._write_environment_file(self._api_env_file, self._api_environment())
         compose_values = {
@@ -951,6 +1176,9 @@ class IdentityModuleStack:
                     "JOBS_QUEUE_TOKEN_SECRET_FILE": str(
                         self._secret_directory / "jobs_queue_token"
                     ),
+                    "JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE": str(
+                        self._secret_directory / "jobs_publication_database_url"
+                    ),
                 }
             )
         self._write_environment_file(self._compose_env_file, compose_values)
@@ -977,6 +1205,8 @@ class IdentityModuleStack:
             "JOBS_QUEUE_URL": "",
             "JOBS_QUEUE_TOKEN": "",
             "JOBS_QUEUE_TOKEN_FILE": "",
+            "JOBS_PUBLICATION_DATABASE_URL": "",
+            "JOBS_PUBLICATION_DATABASE_URL_FILE": "",
             "ALEMBIC_AUTO_UPGRADE": "false",
             "E2E_SEED_ENABLED": "false",
             "AUDIT_ASYNC": "true",
@@ -1014,6 +1244,7 @@ class IdentityModuleStack:
                 {
                     "JOBS_QUEUE_URL": "http://jobs-queue:8190",
                     "JOBS_QUEUE_TOKEN_FILE": "/run/secrets/jobs_queue_token",
+                    "JOBS_PUBLICATION_DATABASE_URL_FILE": "/run/secrets/jobs_publication_database_url",
                 }
             )
         for env_name, default in (
@@ -1031,11 +1262,24 @@ class IdentityModuleStack:
         ):
             values[env_name] = os.environ.get(env_name, default)
         public_url = os.environ.get("MINIO_PUBLIC_URL", "")
-        values["MINIO_PUBLIC_URL"] = (
-            self._docker_http_url(public_url)
-            if public_url.startswith("http")
-            else public_url
-        )
+        if self._minio["shared"]:
+            shared_url = (
+                f"{'https' if values['MINIO_USE_SSL'].lower() == 'true' else 'http'}://"
+                f"{self._minio['endpoint']}"
+            )
+            if public_url not in {"", "/minio", shared_url, shared_url + "/"}:
+                raise RuntimeError("Public MinIO URL differs from the shared bootstrap")
+            values["MINIO_PUBLIC_URL"] = shared_url
+        else:
+            values["MINIO_PUBLIC_URL"] = (
+                self._docker_http_url(public_url)
+                if public_url.startswith("http")
+                else public_url
+                or (
+                    f"{'https' if values['MINIO_USE_SSL'].lower() == 'true' else 'http'}://"
+                    f"{self._required_environment('MINIO_ENDPOINT')}"
+                )
+            )
         for name in _API_BINDING_NAMES + _API_DATABASE_FILE_NAMES:
             values[name] = ""
         values["IDENTITY_RECOVERY_MAIL_KEY"] = ""
@@ -1131,13 +1375,17 @@ class IdentityModuleStack:
       jobs-queue:
         condition: service_healthy
 """
-            api_secret_names.append("jobs_queue_token")
+            api_secret_names.extend(
+                ("jobs_queue_token", "jobs_publication_database_url")
+            )
             secret_definitions.extend(
                 [
                     """  jobs_queue_broker_url:
     file: ${JOBS_QUEUE_BROKER_URL_SECRET_FILE:?}""",
                     """  jobs_queue_token:
     file: ${JOBS_QUEUE_TOKEN_SECRET_FILE:?}""",
+                    """  jobs_publication_database_url:
+    file: ${JOBS_PUBLICATION_DATABASE_URL_SECRET_FILE:?}""",
                 ]
             )
         api_secrets = (
@@ -1700,10 +1948,18 @@ class IdentityModuleStack:
             expected_jobs_token_file = (
                 "/run/secrets/jobs_queue_token" if self._jobs_queue_enabled else ""
             )
+            expected_publication_database_file = (
+                "/run/secrets/jobs_publication_database_url"
+                if self._jobs_queue_enabled
+                else ""
+            )
             if (
                 env.get("JOBS_QUEUE_URL", "") != expected_jobs_url
                 or env.get("JOBS_QUEUE_TOKEN", "")
                 or env.get("JOBS_QUEUE_TOKEN_FILE", "") != expected_jobs_token_file
+                or env.get("JOBS_PUBLICATION_DATABASE_URL", "")
+                or env.get("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
+                != expected_publication_database_file
                 or (
                     self._jobs_queue_enabled
                     and any(value == self._jobs_queue_token for value in env.values())
@@ -1715,9 +1971,13 @@ class IdentityModuleStack:
             if self._jobs_queue_enabled and any(
                 mount.get("RW") is not False
                 for mount in mounts
-                if mount.get("Destination") == "/run/secrets/jobs_queue_token"
+                if mount.get("Destination")
+                in {
+                    "/run/secrets/jobs_queue_token",
+                    "/run/secrets/jobs_publication_database_url",
+                }
             ):
-                raise RuntimeError("API Jobs queue bearer mount must be read-only")
+                raise RuntimeError("API Jobs credential mounts must be read-only")
         elif service == _JOBS_QUEUE_SERVICE:
             expected_environment = {
                 "JOBS_QUEUE_BROKER_URL_FILE": "/run/secrets/jobs_queue_broker_url",
@@ -1851,17 +2111,17 @@ class IdentityModuleStack:
         except (TypeError, ValueError):
             raise ValueError("Verifier supplied an invalid service URL") from None
 
-    @staticmethod
-    def _docker_endpoint(value: str) -> str:
+    def _docker_endpoint(self, value: str) -> str:
         parsed = urlsplit(value if "://" in value else "http://" + value)
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Verifier supplied an invalid object storage endpoint")
-        port = parsed.port
-        return (
-            f"host.docker.internal:{port}"
-            if port is not None
-            else "host.docker.internal"
-        )
+        _ = parsed.port
+        if self._minio["shared"]:
+            if value != self._minio["endpoint"]:
+                raise ValueError("Shared bootstrap MinIO endpoint changed")
+            self._verify_bootstrap_minio(self._inspect(self._minio["id"]))
+            return value
+        return f"{_BOOTSTRAP_MINIO_ALIAS}:9000"
 
     @classmethod
     def _docker_http_url(cls, value: str) -> str:
@@ -1873,5 +2133,10 @@ class IdentityModuleStack:
             or parsed.password
         ):
             raise ValueError("Verifier supplied an invalid public object storage URL")
-        endpoint = cls._docker_endpoint(f"{parsed.scheme}://{parsed.netloc}")
+        port = parsed.port
+        endpoint = (
+            f"host.docker.internal:{port}"
+            if port is not None
+            else "host.docker.internal"
+        )
         return f"{parsed.scheme}://{endpoint}{parsed.path}"

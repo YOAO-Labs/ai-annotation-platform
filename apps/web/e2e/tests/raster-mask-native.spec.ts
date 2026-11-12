@@ -1,7 +1,10 @@
 import { openMaskSettings, closeMaskSettings } from "../fixtures/mask-toolbar";
 import { openSelectedMaskEditor } from "../helpers/mask-selection";
-import type { APIRequestContext, APIResponse, Page } from "@playwright/test";
-import { expect, test, type SeedAPI, type SeedData } from "../fixtures/seed";
+import { mergeTests, type APIRequestContext, type APIResponse, type Page } from "@playwright/test";
+import { expect, test as seedTest, type SeedAPI, type SeedData } from "../fixtures/seed";
+import { test as browserTest } from "../fixtures/raster-browser";
+
+const base = mergeTests(seedTest, browserTest);
 
 const API_BASE = process.env.PLAYWRIGHT_API_BASE ?? "http://127.0.0.1:8010";
 // The corrupt fixture pins its own saved object and then removes those bytes, so
@@ -106,7 +109,7 @@ async function getMaskContent(
   );
 }
 
-async function openTask(
+async function prepareTask(
   page: Page,
   seed: SeedAPI,
   data: SeedData,
@@ -119,7 +122,18 @@ async function openTask(
     toStatus: "pending",
     annotatorEmail: data.annotator_email,
   });
+  await seed.prepareRasterImages(data);
   await seed.injectToken(page, data.annotator_email);
+}
+
+async function openTask(
+  page: Page,
+  seed: SeedAPI,
+  data: SeedData,
+  taskId: string,
+  projectOptIn = true,
+): Promise<void> {
+  await prepareTask(page, seed, data, taskId, projectOptIn);
   await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
   await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 15_000 });
 }
@@ -144,12 +158,43 @@ async function beginRasterEdit(page: Page, annotationId: string): Promise<void> 
   await expect(page.getByTestId("mask-toolbar")).toContainText("\u5c31\u7eea", { timeout: 15_000 });
 }
 
+const test = base.extend<{
+  eightKCase: {
+    data: SeedData;
+    taskId: string;
+    annotationId: string;
+    token: string;
+  };
+}>({
+  eightKCase: [
+    async ({ page, seed }, provideFixture) => {
+      const data = await seed.owned(undefined, { imageCanvas: "8k" });
+      const taskId = data.task_ids[0];
+      const fixture = await seed.injectRasterMask({
+        taskId,
+        userEmail: data.annotator_email,
+        canvas: "8k",
+      });
+      const token = await seed.accessToken(data.annotator_email);
+      await prepareTask(page, seed, data, taskId);
+      await provideFixture({ data, taskId, annotationId: fixture.annotation_id, token });
+    },
+    { timeout: 120_000 },
+  ],
+});
+
 test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => {
   test("1. blank create, refresh and re-edit preserve the committed pixels", async ({
     page,
     request,
     seed,
   }) => {
+    const interactiveRequests: string[] = [];
+    page.on("request", (outgoing) => {
+      if (new URL(outgoing.url()).pathname.endsWith("/interactive-annotating")) {
+        interactiveRequests.push(outgoing.url());
+      }
+    });
     const data = await seed.owned();
     const taskId = data.task_ids[0];
     await openTask(page, seed, data, taskId);
@@ -207,6 +252,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     await page.reload();
     await expect(page.getByTestId(`box-list-item-${created.id}`)).toBeVisible({ timeout: 15_000 });
     expect(await getMaskContent(request, created.id, token)).toEqual(editedContent);
+    expect(interactiveRequests).toEqual([]);
   });
 
   test("2. one hole and three components survive persistence and refresh", async ({
@@ -516,14 +562,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     page,
     seed,
   }) => {
-    const data = await seed.owned();
-    const taskId = data.task_ids[0];
-    const healthy = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
-    const corrupt = await seed.injectRasterMask({
-      taskId,
-      userEmail: data.annotator_email,
-      variant: "corrupt",
-    });
+    const { data, taskId, healthy, corrupt } = await seed.preparedRasterFault("diagnosis");
     await openTask(page, seed, data, taskId);
 
     await expect(page.getByTestId(`box-list-item-${healthy.annotation_id}`)).toContainText("px", {
@@ -567,14 +606,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     page,
     seed,
   }) => {
-    const data = await seed.owned();
-    const taskId = data.task_ids[0];
-    const healthy = await seed.injectRasterMask({ taskId, userEmail: data.annotator_email });
-    const corrupt = await seed.injectRasterMask({
-      taskId,
-      userEmail: data.annotator_email,
-      variant: "corrupt",
-    });
+    const { data, taskId, healthy, corrupt } = await seed.preparedRasterFault("retry");
     const reads = new Map<string, number>();
     page.on("request", (request) => {
       for (const id of [healthy.annotation_id, corrupt.annotation_id]) {
@@ -601,21 +633,19 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
   test("13. 8K sparse Mask edits, saves and reloads through the tiled workbench", async ({
     page,
     request,
-    seed,
+    eightKCase: { data, taskId, annotationId, token },
   }) => {
-    const data = await seed.owned();
-    const taskId = data.task_ids[0];
-    const fixture = await seed.injectRasterMask({
-      taskId,
-      userEmail: data.annotator_email,
-      canvas: "8k",
-    });
-    await openTask(page, seed, data, taskId);
-    const token = await seed.accessToken(data.annotator_email);
-    const before = await getMaskContent(request, fixture.annotation_id, token);
+    await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
+    await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute(
+      "data-image-identity",
+      /\/pyramid/,
+    );
+    await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
+    const before = await getMaskContent(request, annotationId, token);
     expect(before.size).toEqual([8192, 8192]);
 
-    await beginRasterEdit(page, fixture.annotation_id);
+    await beginRasterEdit(page, annotationId);
     const toolbar = page.getByTestId("mask-toolbar");
     await expect(toolbar).toContainText("大画布分块模式");
     const advancedTools = toolbar.getByTitle("Mask 高级工具");
@@ -665,21 +695,21 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
 
     const updateResponse = page.waitForResponse(
       (response) =>
-        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations/${fixture.annotation_id}`) &&
+        response.url().endsWith(`/api/v1/tasks/${taskId}/annotations/${annotationId}`) &&
         response.request().method() === "PATCH" &&
         response.ok(),
     );
     await closeMaskSettings(page);
     await page.keyboard.press("Enter");
     await updateResponse;
-    const saved = await getMaskContent(request, fixture.annotation_id, token);
+    const saved = await getMaskContent(request, annotationId, token);
     expect(saved.size).toEqual([8192, 8192]);
     expect(saved.counts).not.toEqual(before.counts);
 
     await page.reload();
-    await beginRasterEdit(page, fixture.annotation_id);
+    await beginRasterEdit(page, annotationId);
     await expect(page.getByTestId("mask-toolbar")).toContainText("大画布分块模式");
-    expect(await getMaskContent(request, fixture.annotation_id, token)).toEqual(saved);
+    expect(await getMaskContent(request, annotationId, token)).toEqual(saved);
   });
 });
 

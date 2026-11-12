@@ -12,12 +12,17 @@ from typing import Any
 
 from yoao_jobs.dispatch_contract import (
     JOBS_DISPATCH_FUNCTIONS,
+    JOBS_MEDIA_PREPARE_FUNCTION,
     DispatchLease,
     DispatchPurpose,
     JobsDispatchRejected,
 )
 from yoao_jobs.dispatch_data import JobsDispatchDataClient
-from yoao_jobs.queue_contract import JobsQueueUnavailable, encode_dispatch_request
+from yoao_jobs.queue_contract import (
+    JobsQueueNotSent,
+    JobsQueueUnavailable,
+    encode_dispatch_request,
+)
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -26,7 +31,7 @@ from app.application.preannotation_contract import BatchPredictionRequest
 log = logging.getLogger(__name__)
 _JSON_FUNCTIONS = frozenset(
     JOBS_DISPATCH_FUNCTIONS[name] for name in ("prepare", "claim", "finish")
-)
+) | {JOBS_MEDIA_PREPARE_FUNCTION}
 
 
 def jobs_dispatch_data(db: AsyncSession) -> JobsDispatchDataClient:
@@ -149,11 +154,40 @@ async def publish_prepared_dispatch(
     if lease.state != "leased" or lease.lease_token is None:
         raise JobsDispatchRejected("lease_not_active")
     try:
-        result = publish()
-        if inspect.isawaitable(result):
-            result = await result
-        if result is not None and str(result) != lease.execution_id:
-            raise JobsQueueUnavailable()
+        from app.config import settings
+        from yoao_jobs.publication_postgres import (
+            publication_database_url,
+            publication_session,
+            refuse_publication,
+            settle_publication,
+        )
+
+        database_url = publication_database_url(
+            settings.jobs_publication_database_url,
+            settings.jobs_publication_database_url_file,
+        )
+        async with publication_session(database_url, lease) as (
+            connection,
+            arguments,
+            needs_publish,
+        ):
+            if needs_publish:
+                try:
+                    result = publish()
+                    if inspect.isawaitable(result):
+                        result = await result
+                except JobsQueueNotSent as exc:
+                    try:
+                        await refuse_publication(connection, arguments)
+                    except Exception as recording:
+                        raise ExceptionGroup(
+                            "Jobs pre-request refusal and owner recording failed",
+                            [exc, recording],
+                        ) from None
+                    raise
+                if result is not None and str(result) != lease.execution_id:
+                    raise JobsQueueUnavailable()
+                await settle_publication(connection, arguments)
     except asyncio.CancelledError:
         raise
     except Exception:

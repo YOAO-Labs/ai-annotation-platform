@@ -73,6 +73,7 @@ def _runtime(monkeypatch, connections):
 
     async def connect(*args, **kwargs):
         assert args == ("postgresql://observation-role@localhost/annotation_test",)
+        assert kwargs["user"] == "observation-role"
         assert kwargs["server_settings"] == {
             "application_name": "aap-inference-health-observation",
             "default_transaction_read_only": "on",
@@ -80,8 +81,8 @@ def _runtime(monkeypatch, connections):
         connection = connections[len(verified)]
         return connection
 
-    async def verify(connection, *, schema, functions):
-        verified.append((schema, functions))
+    async def verify(connection, *, schema, functions, role):
+        verified.append((schema, functions, role))
 
     monkeypatch.setitem(
         sys.modules,
@@ -127,7 +128,7 @@ async def test_provider_uses_only_the_three_provider_functions(monkeypatch):
         == _EVIDENCE
     )
 
-    assert verified == [(_SCHEMA, _FUNCTIONS)] * 3
+    assert verified == [(_SCHEMA, _FUNCTIONS, "observation-role")] * 3
     assert _FUNCTIONS == {
         ("health_observation_policy", ""),
         ("open_health_observation_subject", "text, uuid, uuid"),

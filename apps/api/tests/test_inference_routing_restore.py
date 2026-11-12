@@ -627,7 +627,9 @@ async def test_restored_routing_authority_is_quarantined_in_owned_clone(
         clone_transaction = clone_connection.transaction()
         await clone_transaction.start()
         with pytest.raises(RoutingUnavailable):
-            await RoutingPostgresData.bind(clone_connection)
+            await RoutingPostgresData.bind(
+                clone_connection, expected_login="inference_routing_client"
+            )
         # Core Native reads allow inspection without exposing copied receipts.
         for source_command in (world["begin_command"], world["acquire_command"]):
             status = await _step(

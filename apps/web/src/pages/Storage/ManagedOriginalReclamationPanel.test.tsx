@@ -54,6 +54,8 @@ function result(): ManagedOriginalReclamationPreview {
     items: [
       {
         id: "11111111-1111-4111-8111-111111111111",
+        owner_type: "dataset_asset",
+        auxiliary_original_id: null,
         asset_id: "22222222-2222-4222-8222-222222222222",
         dataset_id: "33333333-3333-4333-8333-333333333333",
         dataset_item_id: "44444444-4444-4444-8444-444444444444",
@@ -153,7 +155,7 @@ it("uses a centered detail modal with honest identity/retention labels and resto
   expect(within(dialog).getByText("未登记备份要求的覆盖仍未知")).toBeInTheDocument();
   expect(within(dialog).getByRole("heading", { name: "只读保留预演中的原因" })).toBeInTheDocument();
   expect(within(dialog).getByText(/准确版本回收须在“受控回收”内单独预览确认/)).toBeInTheDocument();
-  expect(within(dialog).getByText(result().items[0].asset_id)).toBeInTheDocument();
+  expect(within(dialog).getByText("22222222-2222-4222-8222-222222222222")).toBeInTheDocument();
   expect(within(dialog).getByText("原件完整核验", { selector: "summary" })).toBeInTheDocument();
   expect(api.get).toHaveBeenCalledTimes(1);
   expect(within(dialog).getByText("本次预演未核验现场对象及最小副本")).toBeInTheDocument();

@@ -5,18 +5,19 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from datetime import date
 from typing import Any
+from uuid import UUID
 
 from .maintenance_contract import (
     AuditMaintenanceUnavailable,
     AuditPartition,
     MAINTENANCE_PROTOCOL,
     _ArchiveEventRequest,
-    _CleanupFilteringFixtureEventsRequest,
+    _CleanupFixtureEventsRequest,
     _DropPartitionRequest,
     _EmptyData,
     _EnsureData,
     _EnsurePartitionRequest,
-    _FilteringFixtureCleanupData,
+    _FixtureCleanupData,
     _ListPartitionsRequest,
     _PartitionsData,
     _RefreshDailyRequest,
@@ -100,13 +101,13 @@ class AuditMaintenanceData:
             _EmptyData,
         )
 
-    async def cleanup_filtering_fixture_events(self, namespace: str | None) -> int:
+    async def cleanup_fixture_events(self, run_id: UUID) -> int:
         data = await self._invoke(
-            _CleanupFilteringFixtureEventsRequest(
+            _CleanupFixtureEventsRequest(
                 schema=MAINTENANCE_PROTOCOL,
-                operation="cleanup_filtering_fixture_events",
-                namespace=namespace,
+                operation="cleanup_fixture_events",
+                run_id=run_id,
             ),
-            _FilteringFixtureCleanupData,
+            _FixtureCleanupData,
         )
         return data.deleted_rows

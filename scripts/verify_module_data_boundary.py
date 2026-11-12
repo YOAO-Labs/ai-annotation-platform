@@ -83,6 +83,8 @@ NOTIFICATION_DELIVERY_READ_ROLE = "notification_delivery_read_client"
 JOBS_LIST_QUERY_ROLE = "jobs_list_query_client"
 JOBS_LIFECYCLE_ROLE = "jobs_lifecycle_client"
 JOBS_DISPATCH_RELAY_ROLE = "jobs_dispatch_relay_client"
+JOBS_PUBLICATION_ROLE = "jobs_publication_client"
+EXPORT_EXECUTION_ROLE = "export_execution_client"
 JOBS_DOMAIN_QUERY_FUNCTIONS = (
     "aap_jobs_v1.lock_cross_frame_singleflight(uuid,text)",
     "aap_jobs_v1.active_cross_frame_job(uuid,text)",
@@ -133,6 +135,24 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
+    "aap_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
+    "aap_assets_v1.reserve_import_original_read(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.cancel_unstarted_import_original_read(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.begin_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.record_import_original_read(jsonb,jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.finish_import_original_verification(jsonb,jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.recover_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.status_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.resume_import_original_verification(jsonb)": "0453_import_original_verification.sql",
+    "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)": "0453_import_original_verification.sql",
+    "aap_jobs_v1.retire_job_publications(uuid,text[])": "0451_jobs_publication_retirement.sql",
+    "aap_inference_routing_v1.video_execution_scope_step(text,text)": "0450_video_candidate_status_restore.sql",
+    "aap_jobs_v1._video_restore_route_snapshot(bytea,text)": "0450_video_candidate_status_restore.sql",
+    "aap_jobs_v1._video_execution_route_step(text,text)": "0405_video_tracker_asset_candidates.sql",
+    "aap_assets_v1.advance_image_backfill(uuid,bigint,uuid,integer,jsonb)": "0449_image_backfill_purpose.sql",
+    "aap_assets_v1.fail_image_media(uuid,bigint,uuid,text,text)": "0449_image_backfill_purpose.sql",
+    "aap_workspace_v1.delete_project(uuid,uuid,uuid,jsonb)": "0433_project_video_retirement.sql",
     "aap_assets_v1.lock_dataset_upload(uuid,uuid,uuid)": "0424_upload_publication_identity.sql",
     "aap_labeling_v1.e2e_fixture_command(jsonb)": "0362_labeling_e2e_fixture_writes.sql",
     "aap_labeling_v1.prepare_filtering_rendering(jsonb)": "0367_labeling_filtering_rendering.sql",
@@ -177,10 +197,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_gpu_v1.gpu_plugin_prepared_cancellation_valid(uuid,jsonb)": "0392_plugin_prepared_cancellation.sql",
     "aap_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
     "aap_inference_gpu_v1.gpu_plugin_retirement_closure(uuid,text,bigint)": "0395_plugin_gpu_retirement.sql",
-    "public.sync_gpu_backend_membership()": "0395_plugin_gpu_retirement.sql",
+    "public.sync_gpu_backend_membership()": "0433_gpu_membership_scalar_guard.sql",
     "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
     "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0395_plugin_gpu_retirement.sql",
-    "aap_labeling_v1.screenshot_operations_command(jsonb)": "0363_labeling_screenshot_operations.sql",
+    "aap_labeling_v1.screenshot_operations_command(jsonb)": "0432_labeling_screenshot_operations.sql",
     "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_tasks(text,uuid,uuid)": "0364_labeling_scale_seed_operations.sql",
@@ -245,8 +265,12 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_video_retry_job(uuid,uuid,text)": "0407_jobs_video_retry.sql",
     "aap_jobs_v1.lock_video_retry_jobs(uuid)": "0407_jobs_video_retry.sql",
-    "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0331_jobs_filter_fixtures.sql",
-    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0330_jobs_fixture_cleanup.sql",
+    "aap_jobs_v1.set_filter_fixture_job_outcomes(uuid,uuid)": "0432_jobs_fixture_presentation.sql",
+    "aap_jobs_v1.delete_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)": "0446_fixture_media_backfill_cleanup.sql",
+    "aap_jobs_v1.delete_fixture_presentation_jobs(uuid,uuid,uuid[])": "0432_jobs_fixture_guard.sql",
+    "aap_labeling_v1.guard_fixture_presentation_failures(uuid,uuid,uuid[])": "0432_labeling_fixture_retry_guard.sql",
+    "aap_labeling_v1.guard_fixture_project_retry_anchors(uuid[])": "0432_labeling_fixture_retry_guard.sql",
     "aap_labeling_v1.delete_fixture_project_rows(uuid[])": "0358_labeling_fixture_cleanup.sql",
     **{
         signature: "0329_jobs_domain_queries.sql"
@@ -278,7 +302,7 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in NOTIFICATION_DELIVERY_READ_FUNCTIONS
     },
     "aap_audit_v1.refresh_audit_bi_mv()": "0322_audit_daily_projection.sql",
-    "aap_audit_v1.maintenance_command(jsonb)": "0366_audit_fixture_cleanup.sql",
+    "aap_audit_v1.maintenance_command(jsonb)": "0438_fixture_audit_namespace.sql",
     "aap_notifications_v1.append_job_terminal_notification(jsonb)": "0321_notifications_terminal_append.sql",
     "aap_audit_v1.query_events(pg_catalog.jsonb)": "0317_audit_query.sql",
     **{
@@ -354,12 +378,21 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_identity_accounts_v1.mark_inactive_accounts_offline(timestamptz)",
             "aap_identity_recovery_v1.apply_recovery_command(jsonb)",
             "aap_identity_deactivation_v1.process_due_deactivations(jsonb)",
-            "aap_identity_invitations_v1.apply_invitation_command(jsonb)",
             "aap_identity_directory_v1.execute_directory_command(jsonb)",
             "aap_identity_suspensions_v1.execute_suspension_command(jsonb)",
             "aap_identity_deletions_v1.execute_deletion_command(jsonb)",
             "aap_identity_offboarding_v1.apply_offboarding_command(jsonb)",
             "aap_identity_fixture_v1.mark_manual_inactive(uuid,timestamptz,uuid)",
+        )
+    },
+    "aap_identity_invitations_v1.apply_invitation_command(jsonb)": "0432_identity_invitation_command.sql",
+    **{
+        signature: "0432_identity_fixture_invitations.sql"
+        for signature in (
+            "aap_identity_invitations_v1.bind_fixture_invitation()",
+            "aap_identity_invitations_v1.bind_fixture_invitation_birth(uuid,uuid)",
+            "aap_identity_invitations_v1.lock_fixture_invitation_run(uuid)",
+            "aap_identity_invitations_v1.guard_fixture_invitation_acceptance()",
         )
     },
     **{
@@ -436,6 +469,306 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
             "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
             "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
+        )
+    },
+    "aap_assets_v1.classify_fixture_original_reclaim(uuid,text)": "0432_assets_fixture_reclaim_guard.sql",
+    "aap_assets_v1.is_fixture_original_source(text,text)": "0432_assets_fixture_source_guard.sql",
+    "aap_assets_v1.guard_fixture_operator_source_receipt()": "0432_assets_fixture_source_guard.sql",
+    "aap_assets_v1.require_fixture_operator_manifest()": "0432_assets_fixture_auxiliary.sql",
+    "aap_assets_v1.guard_fixture_auxiliary_intent()": "0432_assets_fixture_auxiliary.sql",
+    "yoao_fixture_v1.retire_auxiliary_original(uuid,uuid,uuid)": "0440_fixture_auxiliary_retirement.sql",
+    "yoao_fixture_v1.guard_auxiliary_retirement()": "0440_fixture_auxiliary_retirement.sql",
+    "aap_assets_v1.guard_scale_fixture_originals(uuid,uuid[])": "0432_assets_scale_fixture_guard.sql",
+    "aap_labeling_v1.lock_task_original_pointer(uuid,text)": "0432_labeling_original_read.sql",
+    "aap_jobs_v1.guard_fixture_project_jobs(uuid[])": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.guard_fixture_dataset_jobs(uuid[])": "0446_fixture_media_dataset_guards.sql",
+    "aap_jobs_v1.fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)": "0437_fixture_reclaim_job_scope.sql",
+    "aap_jobs_v1.fixture_job_dataset_scope(uuid,text,jsonb,uuid,uuid)": "0444_image_export_dataset_scope.sql",
+    "aap_jobs_v1.create_filter_fixture_jobs(uuid,uuid,uuid,uuid,uuid,uuid,text,text)": "0432_jobs_fixture_presentation.sql",
+    "yoao_fixture_v1.guard_jobs_anchor()": "0436_fixture_jobs_join.sql",
+    "yoao_fixture_v1.guard_dataset_job_anchor()": "0446_fixture_media_dataset_guards.sql",
+    **{
+        signature: "0444_image_export_scope.sql"
+        for signature in (
+            "public.image_export_snapshot_datasets(jsonb)",
+            "public.prepare_image_export_scope(uuid,uuid,uuid,uuid,uuid[])",
+            "public.image_export_scope_matches(uuid,uuid)",
+            "public.guard_image_export_scope()",
+            "public.guard_image_export_scope_transition()",
+            "public.guard_image_export_job_birth()",
+            "public.guard_image_export_fixture_dataset_birth()",
+            "public.check_image_export_scope_committed()",
+        )
+    },
+    **{
+        signature: "0432_jobs_fixture_presentation.sql"
+        for signature in (
+            "yoao_fixture_v1.guard_presentation_job_update()",
+            "yoao_fixture_v1.guard_presentation_job_dispatch()",
+        )
+    },
+    **{
+        signature: "0432_fixture_dataset_identity.sql"
+        for signature in (
+            "yoao_fixture_v1.guard_original_target()",
+            "yoao_fixture_v1.validate_run_original_target()",
+            "yoao_fixture_v1.guard_dataset_storage_identity()",
+            "yoao_fixture_v1.guard_run_original_store()",
+            "yoao_fixture_v1.guard_maintenance_window()",
+        )
+    },
+    **{
+        signature: "0432_labeling_screenshot_operations.sql"
+        for signature in (
+            "aap_labeling_v1._fixture_screenshot_project(uuid)",
+            "aap_labeling_v1._fixture_screenshot_path(uuid,uuid)",
+            "aap_labeling_v1._fixture_screenshot_task(uuid,uuid)",
+            "aap_labeling_v1._fixture_screenshot_user(uuid,text,text)",
+        )
+    },
+    **{
+        signature: "0434_prediction_execution_routing.sql"
+        for signature in (
+            "aap_inference_routing_v1.prediction_scope_reserve(text)",
+            "aap_inference_routing_v1.prediction_test_scope_reserve(text)",
+            "aap_inference_routing_v1.guard_prediction_scope_insert()",
+            "aap_inference_routing_v1.guard_prediction_dispatch_start()",
+            "aap_inference_routing_v1.guard_prediction_managed_attempt()",
+            "aap_inference_routing_v1.fixture_prediction_scope_inventory(uuid,uuid[],uuid[])",
+            "aap_inference_routing_v1.fixture_prediction_tests_retired(uuid,uuid[],uuid[])",
+        )
+    },
+    **{
+        signature: "0434_prediction_output_ownership.sql"
+        for signature in (
+            "aap_jobs_v1.begin_prediction_mask_producer(jsonb,bigint,uuid)",
+            "aap_jobs_v1.bind_prediction_mask_object(uuid,uuid)",
+            "aap_jobs_v1.finish_prediction_mask_producer(uuid)",
+            "aap_jobs_v1.prediction_mask_object_retained(uuid)",
+            "aap_jobs_v1.record_fixture_prediction_job_birth()",
+            "aap_jobs_v1.prediction_fixture_open(uuid)",
+            "aap_jobs_v1.preserve_fixture_prediction_dispatches()",
+            "aap_jobs_v1.fixture_prediction_retired(uuid,uuid,uuid)",
+            "aap_jobs_v1.guard_fixture_prediction_ledgers(uuid,uuid)",
+            "aap_assets_v1.fixture_prediction_inputs_retired(uuid,uuid[])",
+        )
+    },
+    "public.guard_fixture_export_retention()": "0435_fixture_export_retention.sql",
+    **{
+        signature: "0435_fixture_export_zip_retirement.sql"
+        for signature in (
+            "public.guard_fixture_export_zip_state()",
+            "public.record_fixture_export_zip_creation()",
+            "public.guard_fixture_export_zip_receipt()",
+        )
+    },
+    "public.fixture_export_session_owns_job(uuid)": "0435_fixture_export_execution.sql",
+    **{
+        signature: "0447_export_fixture_rebind.sql"
+        for signature in (
+            "public.guard_fixture_export_execution()",
+            "public.record_fixture_export_execution()",
+            "public.guard_fixture_export_job_identity()",
+            "public.retire_fixture_export_execution(uuid,uuid,uuid)",
+            "public.fixture_export_execution_retired(uuid,uuid,uuid)",
+            "public.capture_fixture_native_export()",
+            "public.capture_fixture_native_export_output()",
+            "public.fixture_native_export_cleanup_eligible(uuid)",
+        )
+    },
+    **{
+        signature: "0435_fixture_native_export.sql"
+        for signature in (
+            "public.guard_fixture_native_export_evidence()",
+            "public.fixture_native_export_lifetime(uuid,uuid)",
+            "public.fixture_export_retired(uuid,uuid,uuid)",
+        )
+    },
+    "public.fixture_export_owner_session()": "0435_fixture_export_owner.sql",
+    "public.guard_fixture_export_private_retirement()": "0435_fixture_export_owner.sql",
+    "public.retire_fixture_native_export_output(uuid)": "0435_fixture_export_owner.sql",
+    **{
+        signature: "0442_fixture_export_zip_versions.sql"
+        for signature in (
+            "public.guard_export_zip_version_proof()",
+            "public.capture_fixture_export_zip_version()",
+            "public.guard_fixture_export_zip_version()",
+            "public.confirm_fixture_export_zip_absent(uuid)",
+            "public.guard_fixture_zip_retirement_proof()",
+        )
+    },
+    **{
+        signature: "0447_export_execution.sql"
+        for signature in (
+            "aap_export_v1.publications_retired(uuid)",
+            "aap_export_v1.capture_execution_birth()",
+            "aap_export_v1.capture_execution_delivery()",
+            "aap_export_v1.session_holds_lock(text,uuid,integer)",
+            "aap_export_v1.begin_execution(uuid,uuid,text,uuid,integer)",
+            "aap_export_v1.enter_execution_io(uuid,uuid)",
+            "aap_export_v1.quiesce_execution_io(uuid,uuid)",
+            "aap_export_v1.finish_execution(uuid,uuid)",
+            "aap_export_v1.retire_execution(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0447_jobs_publication_execution.sql"
+        for signature in (
+            "aap_jobs_v1.guard_publication_attempt()",
+            "aap_jobs_v1.guard_publication_retirement()",
+            "aap_jobs_v1.guard_publication_birth()",
+            "aap_jobs_v1.capture_publication_job_birth()",
+            "aap_jobs_v1.capture_publication_intent_birth()",
+            "aap_jobs_v1.job_publications_retired(uuid,text[])",
+            "aap_jobs_v1.job_publications_not_sent(uuid,text[])",
+            "aap_jobs_v1.publication_session_owns(uuid)",
+            "aap_jobs_v1.begin_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "aap_jobs_v1.finish_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "aap_jobs_v1.refuse_dispatch_publication(uuid,uuid,text,bigint,uuid)",
+            "aap_jobs_v1.retry_publication_intent(uuid,text,text,jsonb,jsonb)",
+            "aap_jobs_v1.begin_retry_publication(uuid,uuid,text,text,jsonb,jsonb,integer,uuid)",
+            "aap_jobs_v1.finish_retry_publication(uuid,uuid,text,integer,uuid)",
+            "aap_jobs_v1.guard_retired_dispatch()",
+        )
+    },
+    **{
+        signature: "0447_jobs_fixture_media_publication.sql"
+        for signature in (
+            "aap_jobs_v1.guard_fixture_media_publication_record()",
+            "aap_jobs_v1.guard_fixture_media_publication_attempt()",
+            "aap_jobs_v1.lock_fixture_media_run(uuid,boolean)",
+            "aap_jobs_v1.fixture_media_publisher_owns(uuid)",
+            "aap_jobs_v1.prepare_fixture_media_delivery(uuid,uuid,uuid,text,uuid,text,uuid,text,jsonb,jsonb)",
+            "aap_jobs_v1.fixture_media_delivery(uuid)",
+            "aap_jobs_v1.fixture_media_publication_accepted(uuid,uuid,text)",
+            "aap_jobs_v1.begin_fixture_media_publication(uuid,uuid)",
+            "aap_jobs_v1.finish_fixture_media_publication(uuid,uuid,text)",
+            "aap_jobs_v1.retire_fixture_media_publication(uuid,uuid,text)",
+            "aap_jobs_v1.fixture_media_publication_retired(uuid,uuid,text)",
+            "aap_jobs_v1.fixture_media_publication_retirement_outcome(uuid,uuid,text)",
+            "aap_jobs_v1.prepare_media_delivery(jsonb)",
+        )
+    },
+    "aap_jobs_v1.fixture_real_job_retired(uuid,uuid,uuid)": "0436_fixture_jobs_join.sql",
+    "aap_jobs_v1.preserve_fixture_export_dispatch()": "0436_fixture_jobs_join.sql",
+    **{
+        signature: "0432_assets_media_source_read.sql"
+        for signature in (
+            "aap_assets_v1._managed_reclaim_json_string(text)",
+            "aap_assets_v1._managed_reclaim_lock_identity(text,text)",
+        )
+    },
+    **{
+        signature: "0432_assets_media_source_admission.sql"
+        for signature in ("aap_assets_v1._begin_media_original_read(uuid,uuid,text)",)
+    },
+    "aap_assets_v1._finish_media_original_read(uuid,uuid)": "0445_assets_fixture_reader_completion.sql",
+    "aap_assets_v1.fixture_original_readers_empty(uuid)": "0446_fixture_original_readers.sql",
+    **{
+        signature: "0432_assets_spatial_original_admission.sql"
+        for signature in (
+            "aap_assets_v1.is_fixture_spatial_dataset(uuid)",
+            "aap_assets_v1.begin_spatial_calibration_original(uuid,uuid,text)",
+            "aap_assets_v1.finish_spatial_calibration_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_media_source_authority.sql"
+        for signature in (
+            "aap_assets_v1.begin_media_original_actor(uuid,uuid,uuid,text,text)",
+            "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_media_original_system(uuid,text,text)",
+            "aap_assets_v1.finish_media_original_read(uuid,uuid)",
+            "aap_assets_v1.finish_media_original_worker(uuid,uuid)",
+            "aap_assets_v1.finish_media_original_system(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_images_source_authority.sql"
+        for signature in (
+            "aap_assets_v1.begin_image_original_actor(uuid,uuid,uuid,text,text)",
+            "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_image_original_system(text,uuid,text,text)",
+            "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)",
+            "aap_assets_v1.finish_image_original_read(uuid,uuid)",
+            "aap_assets_v1.finish_image_original_worker(uuid,uuid)",
+            "aap_assets_v1.finish_image_original_system(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_inputs_source_authority.sql"
+        for signature in (
+            "aap_assets_v1.begin_accepted_image_original(uuid,bigint,uuid)",
+            "aap_assets_v1.finish_accepted_image_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_video_inputs_source_authority.sql"
+        for signature in (
+            "aap_assets_v1._begin_video_input_original(uuid,bigint,uuid,text)",
+            "aap_assets_v1.begin_accepted_video_original(uuid,bigint,uuid)",
+            "aap_assets_v1.begin_tracker_video_original(uuid,bigint,uuid)",
+            "aap_assets_v1.finish_accepted_video_original(uuid,uuid)",
+            "aap_assets_v1.finish_tracker_video_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_video_inputs_control_source.sql"
+        for signature in (
+            "aap_assets_v1.begin_video_member_original(uuid,uuid,uuid,text,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_video_control_original(uuid,uuid,uuid,uuid,text,text,text)",
+            "aap_assets_v1.finish_video_control_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0432_assets_tracker_control_source.sql"
+        for signature in (
+            "aap_assets_v1.begin_tracker_prepare_original(uuid,uuid,uuid,uuid,text,text,text)",
+            "aap_assets_v1.begin_tracker_control_original(uuid,uuid,uuid,uuid,text,text,text,text)",
+            "aap_assets_v1.finish_tracker_control_original(uuid,uuid)",
+        )
+    },
+    **{
+        signature: "0446_fixture_native_media_sources.sql"
+        for signature in (
+            "aap_assets_v1.begin_image_original_worker(uuid,bigint,uuid,text,text)",
+            "aap_assets_v1.begin_media_original_worker(uuid,bigint,uuid,text,text)",
+        )
+    },
+    "aap_assets_v1.begin_image_original_backfill(uuid,bigint,uuid,uuid,text,uuid,text,text)": "0446_fixture_native_media_backfill_source.sql",
+    **{
+        signature: "0446_fixture_native_media_scans.sql"
+        for signature in (
+            "aap_assets_v1.scan_image_backfill(jsonb,text,uuid,integer)",
+            "aap_assets_v1.scan_video_backfill(jsonb,uuid,integer)",
+            "aap_assets_v1._media_backfill_snapshot(jsonb,timestamptz)",
+            "aap_assets_v1.advance_video_backfill(uuid,bigint,uuid,integer)",
+            "aap_labeling_v1.scan_image_task_sources(jsonb,uuid,integer)",
+        )
+    },
+    **{
+        signature: "0446_fixture_native_media_claims.sql"
+        for signature in (
+            "aap_assets_v1.claim_image_media(uuid,uuid,integer,text[])",
+            "aap_assets_v1.claim_video_media(uuid,uuid,integer,text[])",
+        )
+    },
+    **{
+        signature: "0446_fixture_native_media_garbage.sql"
+        for signature in (
+            "aap_assets_v1.claim_image_garbage(uuid,integer,integer)",
+            "aap_assets_v1.claim_video_media_garbage(uuid,integer,integer)",
+        )
+    },
+    **{
+        signature: "0448_fixture_external_pyramid_reuse.sql"
+        for signature in (
+            "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
+            "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
+            "aap_assets_v1.fixture_external_image_attempt_sources_settled(uuid,uuid,uuid,uuid,bigint,uuid)",
+            "aap_jobs_v1.bind_fixture_media_child_generation(uuid,uuid,uuid,integer)",
+            "aap_assets_v1.bind_fixture_independent_pyramid(uuid,uuid,uuid,integer)",
+            "aap_assets_v1.fixture_dataset_media_producers_quiescent(uuid,uuid)",
         )
     },
 }
@@ -791,6 +1124,17 @@ READ_RELATION_SPECS = {
             ("height", "integer"),
         ],
     },
+    "aap_assets_v1.fixture_screenshot_item_facts": {
+        "sql": "0432_assets_screenshot_facts.sql",
+        "owner": "assets_code",
+        "columns": [
+            ("run_id", "uuid"),
+            ("id", "uuid"),
+            ("dataset_id", "uuid"),
+            ("file_path", "character varying(1000)"),
+            ("relative_path", "text"),
+        ],
+    },
     "aap_assets_v1.scale_seed_dataset_item_facts": {
         "sql": "0364_labeling_scale_seed_operations.sql",
         "owner": "assets_code",
@@ -1039,8 +1383,16 @@ MODULE_ROLES = (
     JOBS_LIST_QUERY_ROLE,
     JOBS_LIFECYCLE_ROLE,
     JOBS_DISPATCH_RELAY_ROLE,
+    JOBS_PUBLICATION_ROLE,
+    EXPORT_EXECUTION_ROLE,
     *IDENTITY_CLIENT_ROLES.values(),
 )
+JOBS_SQL_ARTIFACTS = (
+    "0447_jobs_publication_execution.sql",
+    "0447_jobs_fixture_media_publication.sql",
+    "0451_jobs_publication_retirement.sql",
+)
+ASSETS_SOURCE_SQL_ARTIFACTS = ("0453_import_original_verification.sql",)
 SQL_ARTIFACTS = (
     "0190_workspace_data_contract.sql",
     "0191_dataset_task_append_contract.sql",
@@ -1314,6 +1666,9 @@ SQL_ARTIFACTS = (
     "0399_plugin_terminal_hold.sql",
     "0400_plugin_routing_replacement.sql",
     "0402_plugin_terminal_drain_route.sql",
+    "0403_plugin_asset_approval.sql",
+    "0404_route_scope_supersession.sql",
+    "0405_video_tracker_asset_candidates.sql",
     "0406_labeling_mask_decision_lock.sql",
     "0407_jobs_video_retry.sql",
     "0409_video_execution_settlement.sql",
@@ -1337,8 +1692,128 @@ SQL_ARTIFACTS = (
     "0428_video_export_core_reads.sql",
     "0429_video_export_pair.sql",
     "0431_labeling_mask_staging.sql",
+    "0432_fixture_run_ownership_schema.sql",
+    "0432_labeling_fixture_retry_guard.sql",
+    "0432_jobs_fixture_guard.sql",
+    "0432_jobs_fixture_dataset_guard.sql",
+    "0432_fixture_jobs_anchor.sql",
+    "0432_fixture_dataset_jobs_anchor.sql",
+    "0432_fixture_dataset_identity.sql",
+    "0432_assets_fixture_auxiliary.sql",
+    "0432_assets_screenshot_facts.sql",
+    "0432_identity_fixture_invitations.sql",
+    "0432_identity_invitation_command.sql",
+    "0432_labeling_screenshot_operations.sql",
+    "0432_jobs_fixture_presentation.sql",
+    "0432_assets_fixture_source_guard.sql",
+    "0432_assets_fixture_reclaim_guard.sql",
+    "0432_assets_scale_fixture_guard.sql",
+    "0432_labeling_original_read.sql",
+    "0432_assets_media_source_read.sql",
+    "0432_assets_media_source_admission.sql",
+    "0432_assets_spatial_original_admission.sql",
+    "0432_assets_media_source_authority.sql",
+    "0432_assets_images_source_authority.sql",
+    "0432_assets_inputs_source_authority.sql",
+    "0432_assets_video_inputs_source_authority.sql",
+    "0432_assets_video_inputs_control_source.sql",
+    "0432_assets_tracker_control_source.sql",
+    "0433_gpu_membership_scalar_guard.sql",
+    "0433_project_video_retirement.sql",
+    "0434_prediction_execution_routing.sql",
+    "0434_prediction_output_ownership.sql",
+    "0435_fixture_export_retention.sql",
+    "0435_fixture_export_zip_retirement.sql",
+    "0435_fixture_export_retired.sql",
+    "0435_fixture_export_execution.sql",
+    "0435_fixture_native_export.sql",
+    "0435_fixture_export_owner.sql",
+    "0436_fixture_jobs_join.sql",
+    "0437_fixture_audit_receipts.sql",
+    "0437_fixture_audit_cleanup.sql",
+    "0437_fixture_reclaim_job_scope.sql",
+    "0438_fixture_audit_namespace.sql",
+    "0439_inference_fixture_health_retirement.sql",
+    "0440_fixture_auxiliary_retirement.sql",
+    "0441_fixture_presentation_dataset_guard.sql",
+    "0442_fixture_export_zip_versions.sql",
+    "0443_fixture_dataset_retired_jobs.sql",
+    "0444_image_export_scope.sql",
+    "0444_image_export_dataset_scope.sql",
+    "0445_assets_fixture_reader_completion.sql",
+    "0446_fixture_media_births.sql",
+    "0446_fixture_original_readers.sql",
+    "0446_fixture_independent_source.sql",
+    "0446_media_producer_binding.sql",
+    "0446_fixture_independent_birth.sql",
+    "0446_fixture_native_source_ownership.sql",
+    "0446_fixture_native_media_jobs.sql",
+    "0446_fixture_media_references.sql",
+    "0446_fixture_media_jobs.sql",
+    "0446_fixture_media_execution.sql",
+    "0446_fixture_native_media_admissions.sql",
+    "0446_fixture_native_media_sources.sql",
+    "0446_fixture_native_media_outputs.sql",
+    "0446_fixture_native_target_fence.sql",
+    "0446_fixture_native_target_references.sql",
+    "0446_fixture_native_media_execution.sql",
+    "0446_fixture_native_media_scan.sql",
+    "0446_fixture_native_media_scans.sql",
+    "0446_fixture_native_media_backfill_source.sql",
+    "0446_fixture_native_media_claims.sql",
+    "0446_fixture_native_media_reads.sql",
+    "0446_fixture_native_runtime_ready.sql",
+    "0446_fixture_native_media_resolver.sql",
+    "0446_fixture_native_media_garbage.sql",
+    "0446_fixture_media_children.sql",
+    "0446_fixture_media_pyramid_attempts.sql",
+    "0446_fixture_native_pyramid.sql",
+    "0446_fixture_media_video_attempts.sql",
+    "0446_fixture_media_dispatch.sql",
+    "0446_fixture_media_versions.sql",
+    "0446_fixture_independent_execution.sql",
+    "0446_fixture_legacy_birth_admission.sql",
+    "0446_fixture_screenshot_producer.sql",
+    "0446_fixture_independent_pyramids.sql",
+    "0446_fixture_independent_video.sql",
+    "0446_fixture_screenshot_output_receipt.sql",
+    "0446_media_native_stages.sql",
+    "0446_fixture_media_permit_fence.sql",
+    "0446_fixture_media_retirement.sql",
+    "0446_fixture_independent_retirement.sql",
+    "0446_fixture_native_media_retirement.sql",
+    "0446_fixture_native_job_retirement.sql",
+    "0446_fixture_media_output_permits.sql",
+    "0446_fixture_media_version_retirement.sql",
+    "0446_fixture_media_output_inventory.sql",
+    "0446_fixture_media_output_fence.sql",
+    "0446_fixture_media_no_birth.sql",
+    "0446_fixture_media_retired.sql",
+    "0446_fixture_media_jobs_retired.sql",
+    "0446_fixture_native_target_retirement.sql",
+    "0446_fixture_video_anchors.sql",
+    "0446_fixture_native_target_ack.sql",
+    "0446_fixture_media_dataset_guards.sql",
+    *JOBS_SQL_ARTIFACTS,
+    "0447_export_execution.sql",
+    "0447_export_fixture_rebind.sql",
+    "0448_fixture_external_pyramid_reuse.sql",
+    "0449_image_backfill_purpose.sql",
+    "0450_video_candidate_status_restore.sql",
+    *ASSETS_SOURCE_SQL_ARTIFACTS,
+    "0454_identity_first_seed_account.sql",
+)
+ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
+    "0453_import_original_completion.schema.json",
+    "import_verification_contract.schema.json",
 )
 SCHEMA_ARTIFACTS = (
+    "0445_assets_fixture_reader_completion.schema.json",
+    "0437_fixture_audit_cleanup.schema.json",
+    "0434_prediction_execution_routing.schema.json",
+    "0434_prediction_output_ownership.schema.json",
+    "0444_fixture_jobs.schema.json",
+    "0432_labeling_screenshot_operations.schema.json",
     "0419_dataset_ingest_authority.schema.json",
     "0371_assets_owner_main_integration.schema.json",
     "0371_assets_managed_originals.schema.json",
@@ -1533,6 +2008,8 @@ SCHEMA_ARTIFACTS = (
     "0348_labeling_ai_mask_accept.schema.json",
     "0349_labeling_scene_read.schema.json",
     "0366_audit_fixture_cleanup.schema.json",
+    "0454_identity_first_seed_account.schema.json",
+    *ASSETS_SOURCE_SCHEMA_ARTIFACTS,
 )
 TEST_FILES = (
     "tests/test_video_frame_service.py",
@@ -1544,6 +2021,7 @@ TEST_FILES = (
     "tests/test_labeling_annotation_transfer_native.py",
     "tests/test_labeling_core_read_native.py",
     "tests/test_labeling_export_core_locks_native.py",
+    "tests/test_image_export_scope_native.py",
     "tests/test_labeling_mask_quality_native.py",
     "tests/test_labeling_spatial_quality_native.py",
     "tests/test_labeling_task_maintenance_native.py",
@@ -1566,6 +2044,8 @@ TEST_FILES = (
     "tests/test_identity_role_audit_live.py",
     "tests/test_identity_seed_selection_live.py",
     "tests/test_identity_seed_selection_native.py",
+    "tests/test_image_import_identity_profile.py",
+    "tests/test_fixture_auxiliary_retirement.py",
     "tests/test_media_seed_identity_live.py",
     "tests/test_media_seed_identity_native.py",
     "tests/test_seed_parent_operator_live.py",
@@ -1586,7 +2066,6 @@ TEST_FILES = (
     "tests/test_video_deletion_retirement_bindings.py",
     "tests/test_video_deletion_retirement_http_native.py",
     "tests/test_workspace_dataset_unlink_native.py",
-    "tests/test_labeling_counter_deltas_legacy.py",
     "tests/test_labeling_counter_deltas_native.py",
     "tests/test_labeling_counter_deltas_workflows_native.py",
     "tests/test_workspace_project_facts_legacy.py",
@@ -1913,7 +2392,6 @@ TEST_FILES = (
     "tests/test_mask_gc_native.py",
     "tests/test_mask_gc_protocol_native.py",
     "tests/test_mask_gc_migration.py",
-    "tests/test_mask_gc_roles.py",
     "tests/test_mask_gc_bindings.py",
     "tests/test_mask_gc_live.py",
     "tests/test_mask_gc_preview_native.py",
@@ -1989,6 +2467,11 @@ def _arguments(argv: list[str] | None = None) -> argparse.Namespace:
         help="explicit JUnit XML path (defaults beside --output)",
     )
     parser.add_argument(
+        "--retain-failed-runtime",
+        action="store_true",
+        help="retain the outer database, storage identities and evidence after failure; test-managed processes may still stop",
+    )
+    parser.add_argument(
         "--test-file",
         dest="test_files",
         action="append",
@@ -2033,6 +2516,11 @@ def _retire_resource_root(resource_root: Path, cleanup: dict) -> None:
     directory = state_path(resource_root, "test")
     receipts = sorted(directory.glob("fixture-original-receipt-*.json"))
     journals = sorted(directory.glob("fixture-store-owner-*.json"))
+    legacy_journal = state_path(
+        resource_root, "test", "legacy-original-retirement.json"
+    )
+    if legacy_journal.exists():
+        journals.append(legacy_journal)
     if receipts or journals:
         cleanup["fixture_evidence"] = [
             {
@@ -2048,6 +2536,8 @@ def _retire_resource_root(resource_root: Path, cleanup: dict) -> None:
 
 
 _STRICT_PROFILE_TARGETS = {
+    "tests/test_image_import_identity_profile.py": "identity-image-import",
+    "tests/test_fixture_auxiliary_retirement.py": "fixture-auxiliary-retirement",
     "tests/test_audit_maintenance_native.py": "audit-maintenance-native",
     "tests/test_audit_maintenance_module_live.py": "audit-maintenance-module",
     "tests/test_audit_consumers_cold.py": "audit-consumers-cold",
@@ -2131,9 +2621,18 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
     }
     _write_evidence(output, evidence)
     exit_code = 1
+    diagnostic_arguments = (
+        ["--retain-failed-runtime"] if args.retain_failed_runtime else []
+    )
     try:
         collection_output = directory / "collection.json"
-        if main(["--output", str(collection_output)], collect_only=True) != 0:
+        if (
+            main(
+                ["--output", str(collection_output), *diagnostic_arguments],
+                collect_only=True,
+            )
+            != 0
+        ):
             raise RuntimeError("Acceptance default collection stage failed")
         collected = json.loads(
             collection_output.with_name("collection.collection.json").read_text(
@@ -2175,7 +2674,7 @@ def _run_strict_default(args: argparse.Namespace, selected: tuple[str, ...]) -> 
             evidence["phase"] = f"profile-{name}"
             _write_evidence(output, evidence)
             profile_output = directory / f"{name}.json"
-            arguments = ["--output", str(profile_output)]
+            arguments = ["--output", str(profile_output), *diagnostic_arguments]
             for target in targets:
                 arguments.extend(("--test-file", target))
             result = main(arguments, partition_default=False)
@@ -2392,26 +2891,34 @@ def _node_failure_diagnostic(
 
 
 def _cleanup_storage_scope(backend) -> dict:
-    from worktree_resources import docker
+    from worktree_resources import docker, verified_shared_bootstrap_minio
 
-    endpoint = urlsplit(f"http://{backend.settings.minio_endpoint}")
+    scheme = "https" if backend.settings.minio_use_ssl else "http"
+    endpoint_url = f"{scheme}://{backend.settings.minio_endpoint}"
+    endpoint = urlsplit(endpoint_url)
+    shared = verified_shared_bootstrap_minio(endpoint_url)
     matches = []
-    for candidate in docker(
-        "ps",
-        "--filter",
-        "label=com.docker.compose.service=minio",
-        "--format",
-        "{{.ID}}",
-    ).splitlines():
-        observed = json.loads(docker("inspect", candidate))[0]
-        bindings = (observed.get("NetworkSettings", {}).get("Ports") or {}).get(
-            "9000/tcp"
-        ) or []
-        if any(
-            int(binding.get("HostPort", 0)) == (endpoint.port or 9000)
-            for binding in bindings
-        ):
-            matches.append(observed)
+    if shared is not None:
+        matches.append(shared)
+    else:
+        if endpoint.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise RuntimeError("The local MinIO endpoint must be loopback-only")
+        for candidate in docker(
+            "ps",
+            "--filter",
+            "label=com.docker.compose.service=minio",
+            "--format",
+            "{{.ID}}",
+        ).splitlines():
+            observed = json.loads(docker("inspect", candidate))[0]
+            bindings = (observed.get("NetworkSettings", {}).get("Ports") or {}).get(
+                "9000/tcp"
+            ) or []
+            if any(
+                int(binding.get("HostPort", 0)) == (endpoint.port or 9000)
+                for binding in bindings
+            ):
+                matches.append(observed)
     if len(matches) != 1:
         raise RuntimeError("The local MinIO admin container is not uniquely identified")
     bucket = backend.resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
@@ -2464,7 +2971,7 @@ def _restricted_s3_client(backend, scope: dict):
             signature_version="s3v4",
             connect_timeout=3,
             read_timeout=10,
-            retries={"max_attempts": 1},
+            retries={"total_max_attempts": 1},
             s3={"addressing_style": "path"},
         ),
     )
@@ -2725,9 +3232,939 @@ def _enable_owned_bucket_versioning(backend, bucket: str) -> None:
         raise RuntimeError("The owned image source bucket is not versioned")
 
 
+async def _retire_image_import_preparation(backend, birth_oid, user_id, project_id):
+    """Retire only this verifier's completed cross-module probes."""
+    import asyncpg
+
+    from worktree_env import read_state, state_path
+
+    resources = backend.resources
+    manifest = read_state(state_path(Path(resources["root"]), "test", "resources.json"))
+    if (
+        manifest != backend.manifest
+        or manifest.get("postgres", {}).get("database_oid") != birth_oid
+        or type(birth_oid) is not int
+        or birth_oid <= 0
+        or backend.url.username != "owner"
+        or backend.url.database != resources["database"]
+    ):
+        raise RuntimeError("Image-import preparation birth identity is unproven")
+    user_id, project_id = UUID(user_id), UUID(project_id)
+    connection = await asyncpg.connect(
+        backend.url.set(drivername="postgresql").render_as_string(hide_password=False),
+        timeout=5,
+    )
+    try:
+        async with connection.transaction():
+            identity = await connection.fetchrow(
+                "SELECT d.oid::bigint, d.datname, "
+                "pg_catalog.pg_get_userbyid(d.datdba), "
+                "pg_catalog.shobj_description(d.oid,'pg_database'), "
+                "current_user, session_user FROM pg_catalog.pg_database d "
+                "WHERE d.datname=current_database()"
+            )
+            if tuple(identity) != (
+                birth_oid,
+                resources["database"],
+                "owner",
+                resources["owner"],
+                "owner",
+                "owner",
+            ):
+                raise RuntimeError("Image-import preparation database identity changed")
+            await connection.execute("SET LOCAL lock_timeout = '5s'")
+            await connection.execute(
+                "LOCK TABLE public.users, public.projects, public.datasets "
+                "IN ACCESS EXCLUSIVE MODE"
+            )
+            if await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_stat_activity "
+                "WHERE datid=(SELECT oid FROM pg_catalog.pg_database "
+                "WHERE datname=current_database()) "
+                "AND backend_type='client backend' AND pid<>pg_backend_pid())"
+            ):
+                raise RuntimeError(
+                    "Image-import preparation has other database clients"
+                )
+            users = await connection.fetch(
+                "SELECT id,email,name,password_hash,role,is_active FROM public.users"
+            )
+            projects = await connection.fetch(
+                "SELECT id,owner_id,name FROM public.projects"
+            )
+            members = await connection.fetch(
+                "SELECT project_id,user_id,role,assigned_by FROM public.project_members"
+            )
+            if (
+                [tuple(row) for row in users]
+                != [
+                    (
+                        user_id,
+                        f"notification-preference-{user_id}@test.invalid",
+                        "Preference owner fixture",
+                        "module-data-fixture",
+                        "employee",
+                        True,
+                    )
+                ]
+                or [tuple(row) for row in projects]
+                != [(project_id, user_id, "Delivery read Node fixture")]
+                or [tuple(row) for row in members]
+                != [(project_id, user_id, "reviewer", user_id)]
+                or await connection.fetchval(
+                    "SELECT EXISTS (SELECT 1 FROM public.datasets)"
+                )
+            ):
+                raise RuntimeError("Image-import preparation contains unexpected rows")
+            # Unknown cascading or SET NULL dependents must not be modified.
+            allowed = {
+                ("public", "users"),
+                ("public", "projects"),
+                ("public", "project_members"),
+                ("public", "notifications"),
+                ("public", "notification_preferences"),
+                ("public", "identity_account_presence"),
+                ("public", "identity_account_preferences"),
+            }
+            references = await connection.fetch(
+                "SELECT n.nspname, c.relname, "
+                "pg_catalog.quote_ident(n.nspname) AS schema_name, "
+                "pg_catalog.quote_ident(c.relname) AS table_name, "
+                "pg_catalog.quote_ident(a.attname) AS column_name, "
+                "fk.confrelid='public.users'::regclass AS is_user, "
+                "array_length(fk.conkey,1) AS child_columns, "
+                "array_length(fk.confkey,1) AS parent_columns, parent.attname AS parent_column "
+                "FROM pg_catalog.pg_constraint fk "
+                "JOIN pg_catalog.pg_class c ON c.oid=fk.conrelid "
+                "JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace "
+                "JOIN pg_catalog.pg_attribute a ON a.attrelid=c.oid AND a.attnum=fk.conkey[1] "
+                "JOIN pg_catalog.pg_attribute parent ON parent.attrelid=fk.confrelid "
+                "AND parent.attnum=fk.confkey[1] "
+                "WHERE fk.contype='f' AND fk.confdeltype IN ('c','n','d') "
+                "AND fk.confrelid IN ('public.users'::regclass,'public.projects'::regclass)"
+            )
+            for ref in references:
+                if (ref["nspname"], ref["relname"]) in allowed:
+                    continue
+                if (
+                    ref["child_columns"] != 1
+                    or ref["parent_columns"] != 1
+                    or ref["parent_column"] != "id"
+                ):
+                    raise RuntimeError(
+                        "Image-import preparation has an unknown cascading reference"
+                    )
+                if await connection.fetchval(
+                    f"SELECT EXISTS (SELECT 1 FROM {ref['schema_name']}.{ref['table_name']} "
+                    f"WHERE {ref['column_name']}=$1)",
+                    user_id if ref["is_user"] else project_id,
+                ):
+                    raise RuntimeError(
+                        "Image-import preparation has an unexpected dependent"
+                    )
+            if (
+                await connection.execute(
+                    "DELETE FROM public.projects WHERE id=$1 AND owner_id=$2",
+                    project_id,
+                    user_id,
+                )
+                != "DELETE 1"
+            ):
+                raise RuntimeError("Image-import preparation project retirement failed")
+            if (
+                await connection.execute(
+                    "DELETE FROM public.users WHERE id=$1", user_id
+                )
+                != "DELETE 1"
+            ):
+                raise RuntimeError("Image-import preparation user retirement failed")
+            if await connection.fetchval(
+                "SELECT EXISTS (SELECT 1 FROM public.users) "
+                "OR EXISTS (SELECT 1 FROM public.projects) "
+                "OR EXISTS (SELECT 1 FROM public.datasets)"
+            ):
+                raise RuntimeError("Image-import preparation is not empty")
+    finally:
+        await connection.close()
+    return {
+        "database_oid": birth_oid,
+        "database": resources["database"],
+        "database_owner": "owner",
+        "owner_marker": resources["owner"],
+        "user_id": str(user_id),
+        "project_id": str(project_id),
+        "completed_probe_retired": True,
+        "other_clients_absent": True,
+        "account_project_dataset_empty": True,
+    }
+
+
+async def _fence_image_import_legacy_storage(backend) -> dict:
+    """Fence the exact legacy target and inspect its durable physical ledger."""
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db.models.dataset_asset import StorageBinding, StorageLocation
+    from app.services import storage_access, storage_maintenance
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.storage_usage_accounting import scope_key
+    from worktree_resources import require_owner
+
+    resources = backend.resources
+    bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    if not require_owner(bucket, backend.bucket_info(bucket), resources["owner"]):
+        raise RuntimeError("Image-import bucket ownership is unproven")
+    if backend.s3.get_bucket_versioning(Bucket=bucket).get("Status") != "Enabled":
+        raise RuntimeError("Image-import bucket versioning changed")
+    endpoint = (
+        f"{'https' if backend.settings.minio_use_ssl else 'http'}://"
+        f"{backend.settings.minio_endpoint}"
+    ).rstrip("/")
+    identity = managed_storage_identity(endpoint, bucket)
+    usage_scope = scope_key(endpoint, bucket)
+    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as db:
+            database = (
+                await db.execute(
+                    text(
+                        "SELECT d.oid,d.datname,"
+                        "pg_catalog.shobj_description(d.oid,'pg_database'),current_user "
+                        "FROM pg_catalog.pg_database d WHERE d.datname=current_database()"
+                    )
+                )
+            ).one()
+            if not (
+                database[1] == resources["database"] == backend.url.database
+                and database[2] == resources["owner"]
+                and database[3] == backend.url.username
+            ):
+                raise RuntimeError("Image-import database ownership is unproven")
+            await db.rollback()
+            await storage_access.ensure(db, LEGACY_LOCATION_ID)
+            async with db.begin():
+                location = await db.scalar(
+                    select(StorageLocation)
+                    .where(StorageLocation.id == LEGACY_LOCATION_ID)
+                    .with_for_update(nowait=True)
+                )
+                binding = await db.scalar(
+                    select(StorageBinding)
+                    .where(StorageBinding.purpose == "datasets")
+                    .with_for_update(nowait=True)
+                )
+                if not (
+                    location is not None
+                    and location.enabled
+                    and location.kind == "s3"
+                    and location.connection_id is None
+                    and location.config_revision == 1
+                    and location.config
+                    == {
+                        "endpoint": backend.settings.minio_endpoint,
+                        "use_ssl": backend.settings.minio_use_ssl,
+                    }
+                    and binding is not None
+                    and binding.location_id == LEGACY_LOCATION_ID
+                    and binding.generation == 1
+                    and binding.bucket == bucket
+                ):
+                    raise RuntimeError("Image-import legacy storage identity changed")
+                gate = await storage_maintenance.lock_gate(db, LEGACY_LOCATION_ID)
+                if gate is None or gate.state != "active":
+                    raise RuntimeError("Image-import admission gate is not active")
+                gate.state = storage_maintenance.TRANSITIONS[("active", "drain")]
+                gate.revision += 1
+                gate.changed_at = await db.scalar(text("SELECT statement_timestamp()"))
+                gate.changed_by = None
+                revision = gate.revision
+            async with db.begin():
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
+                        "WHERE datname=current_database() AND pid<>pg_backend_pid() "
+                        "AND backend_type='client backend')"
+                    )
+                ):
+                    raise RuntimeError("Image-import database sessions remain")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_operations "
+                        "WHERE location_id=:location)"
+                    ),
+                    {"location": LEGACY_LOCATION_ID},
+                ):
+                    raise RuntimeError("Legacy storage operations remain unsettled")
+                rows = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT id,bucket,storage_identity,status,error_code,"
+                                "prepared,receipt,write_started_at,settled_at,object_key,version_id "
+                                "FROM public.managed_original_creations "
+                                "WHERE location_id=:location ORDER BY id"
+                            ),
+                            {"location": LEGACY_LOCATION_ID},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                for row in rows:
+                    verified = (
+                        row["status"] == "verified"
+                        and row["bucket"] == bucket
+                        and row["storage_identity"] == identity
+                        and row["settled_at"] is not None
+                        and row["object_key"] not in (None, "")
+                        and row["version_id"] not in (None, "", "null")
+                    )
+                    refused_before_io = (
+                        row["status"] == "failed"
+                        and row["error_code"] == "storage_unavailable"
+                        and row["prepared"] is None
+                        and row["receipt"] is None
+                        and row["write_started_at"] is None
+                    )
+                    if not (verified or refused_before_io):
+                        raise RuntimeError("Legacy creation outcome is unproven")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_usage_mutations "
+                        "WHERE scope_key=:scope AND state IN ('pending','unknown'))"
+                    ),
+                    {"scope": usage_scope},
+                ):
+                    raise RuntimeError("Legacy storage accounting is unsettled")
+        for page in backend.s3.get_paginator("list_multipart_uploads").paginate(
+            Bucket=bucket
+        ):
+            if page.get("Uploads"):
+                raise RuntimeError("Image-import multipart uploads remain")
+        if not require_owner(bucket, backend.bucket_info(bucket), resources["owner"]):
+            raise RuntimeError("Image-import bucket ownership changed")
+        return {
+            "database_oid": database[0],
+            "location_id": str(LEGACY_LOCATION_ID),
+            "storage_identity": identity,
+            "usage_scope": usage_scope,
+            "gate_revision": revision,
+            "creations": len(rows),
+            "verified_creations": [
+                {
+                    "id": str(row["id"]),
+                    "key": row["object_key"],
+                    "version": row["version_id"],
+                }
+                for row in rows
+                if row["status"] == "verified"
+            ],
+        }
+    finally:
+        await engine.dispose()
+
+
+async def _probe_image_import_guard(backend, scope) -> dict:
+    """Prove a real open permit fences retirement without touching its versions."""
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db.models.storage_maintenance import StorageOperation
+    from app.services import storage_access, storage_maintenance
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from worktree_env import atomic_json
+
+    bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+
+    def versions():
+        return {
+            (item["Key"], item["VersionId"])
+            for page in backend.s3.get_paginator("list_object_versions").paginate(
+                Bucket=bucket
+            )
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+        }
+
+    before = versions()
+    journal, path = scope["journal"], scope["journal_path"]
+    journal["phase"] = "guard_probe_admitting"
+    atomic_json(path, journal)
+    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+    try:
+        async with factory() as db:
+            permit = await storage_access.acquire(
+                db, LEGACY_LOCATION_ID, "image_import_retirement_probe"
+            )
+        journal["probe_operation"] = str(permit.id)
+        journal["phase"] = "guard_probe_open"
+        atomic_json(path, journal)
+        try:
+            await _fence_image_import_legacy_storage(backend)
+        except RuntimeError as error:
+            if str(error) != "Legacy storage operations remain unsettled":
+                raise
+        else:
+            raise RuntimeError("An open legacy permit failed to block retirement")
+        async with factory() as db:
+            operation = await db.get(StorageOperation, permit.id)
+            if (
+                operation is None
+                or operation.location_id != LEGACY_LOCATION_ID
+                or operation.revision != permit.revision
+                or versions() != before
+            ):
+                raise RuntimeError("Open-permit guard changed owned storage")
+        # This probe never starts physical I/O; its exact permit can be settled.
+        await permit.__aexit__(None, None, None)
+        async with factory.begin() as db:
+            gate = await storage_maintenance.lock_gate(db, LEGACY_LOCATION_ID)
+            if (
+                gate is None
+                or gate.state != "draining"
+                or await db.scalar(
+                    select(StorageOperation.id)
+                    .where(StorageOperation.location_id == LEGACY_LOCATION_ID)
+                    .limit(1)
+                )
+                is not None
+            ):
+                raise RuntimeError("Probe settlement or gate identity changed")
+            from app.services.managed_original_reclaim_fence import require_resumable
+            from app.services.storage_migration_cutovers import require_target_resumable
+
+            await require_resumable(db, LEGACY_LOCATION_ID)
+            await require_target_resumable(db, LEGACY_LOCATION_ID)
+            gate.state = storage_maintenance.TRANSITIONS[("draining", "resume")]
+            gate.revision += 1
+            gate.changed_at = await db.scalar(text("SELECT statement_timestamp()"))
+            gate.changed_by = None
+        journal["phase"] = "identity_ready"
+        journal["guard_probe"] = {
+            "operation_id": str(permit.id),
+            "blocked": True,
+            "versions_unchanged": True,
+        }
+        atomic_json(path, journal)
+        return journal["guard_probe"]
+    finally:
+        await engine.dispose()
+
+
+async def _retire_image_import_bucket(backend, prepared, scope, proof) -> None:
+    """Retire only this fenced bucket while its database ledger is still locked."""
+    from botocore.exceptions import ClientError
+    from sqlalchemy import select, text
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.db.models.dataset_asset import StorageBinding, StorageLocation
+    from app.db.models.storage_maintenance import StorageMaintenanceGate
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from app.services.managed_original_retirement import managed_storage_identity
+    from app.services.storage_usage_accounting import scope_key
+    from worktree_env import atomic_json, read_state
+    from worktree_resources import require_owner
+
+    backend._require_destroy_preparation(prepared, "prepared")
+    journal = scope["journal"]
+    path = scope["journal_path"]
+    bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    endpoint = (
+        f"{'https' if backend.settings.minio_use_ssl else 'http'}://"
+        f"{backend.settings.minio_endpoint}"
+    ).rstrip("/")
+    if (
+        read_state(path) != journal
+        or journal.get("phase") not in {"identity_disabled", "retiring_versions"}
+        or (
+            journal.get("phase") == "identity_disabled"
+            and journal.get("partial_probe", {}).get("state") != "canary_created"
+        )
+        or (
+            journal.get("phase") == "retiring_versions"
+            and (
+                "pending" not in journal
+                or journal["pending"] is not None
+                or journal.get("partial_probe", {}).get("state") != "retired"
+            )
+        )
+        or journal.get("resources") != backend.resources
+        or journal.get("bucket") != bucket
+        or journal.get("fence") != proof
+        or proof.get("storage_identity") != managed_storage_identity(endpoint, bucket)
+        or proof.get("usage_scope") != scope_key(endpoint, bucket)
+    ):
+        raise RuntimeError("Image-import retirement journal changed")
+    engine = create_async_engine(backend.url, poolclass=NullPool, hide_parameters=True)
+    try:
+        async with async_sessionmaker(engine, expire_on_commit=False)() as db:
+            async with db.begin():
+                database = (
+                    await db.execute(
+                        text(
+                            "SELECT d.oid,d.datname,"
+                            "pg_catalog.shobj_description(d.oid,'pg_database'),current_user "
+                            "FROM pg_catalog.pg_database d WHERE d.datname=current_database()"
+                        )
+                    )
+                ).one()
+                if not (
+                    database[0] == proof["database_oid"]
+                    and database[1] == backend.resources["database"]
+                    and database[2] == backend.resources["owner"]
+                    and database[3] == backend.url.username
+                ):
+                    raise RuntimeError("Image-import database identity changed")
+                location = await db.scalar(
+                    select(StorageLocation)
+                    .where(StorageLocation.id == LEGACY_LOCATION_ID)
+                    .with_for_update(read=True, nowait=True)
+                )
+                binding = await db.scalar(
+                    select(StorageBinding)
+                    .where(StorageBinding.purpose == "datasets")
+                    .with_for_update(read=True, nowait=True)
+                )
+                gate = await db.scalar(
+                    select(StorageMaintenanceGate)
+                    .where(StorageMaintenanceGate.location_id == LEGACY_LOCATION_ID)
+                    .with_for_update(read=True, nowait=True)
+                )
+                if not (
+                    str(LEGACY_LOCATION_ID) == proof["location_id"]
+                    and location is not None
+                    and location.enabled
+                    and location.kind == "s3"
+                    and location.connection_id is None
+                    and location.config_revision == 1
+                    and location.config
+                    == {
+                        "endpoint": backend.settings.minio_endpoint,
+                        "use_ssl": backend.settings.minio_use_ssl,
+                    }
+                    and binding is not None
+                    and binding.location_id == LEGACY_LOCATION_ID
+                    and binding.generation == 1
+                    and binding.bucket == bucket
+                    and gate is not None
+                    and gate.state == "draining"
+                    and gate.revision == proof["gate_revision"]
+                ):
+                    raise RuntimeError("Image-import admission or target changed")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity "
+                        "WHERE datname=current_database() AND pid<>pg_backend_pid() "
+                        "AND backend_type='client backend')"
+                    )
+                ):
+                    raise RuntimeError("Image-import database sessions remain")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_operations "
+                        "WHERE location_id=:location)"
+                    ),
+                    {"location": LEGACY_LOCATION_ID},
+                ):
+                    raise RuntimeError("Legacy storage operations remain unsettled")
+                if (
+                    await db.scalar(
+                        text(
+                            "SELECT count(*) FROM public.managed_original_creations "
+                            "WHERE location_id=:location"
+                        ),
+                        {"location": LEGACY_LOCATION_ID},
+                    )
+                    != proof["creations"]
+                ):
+                    raise RuntimeError("Legacy creation ledger changed")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.managed_original_creations "
+                        "WHERE storage_identity=:identity AND location_id<>:location)"
+                    ),
+                    {
+                        "identity": proof["storage_identity"],
+                        "location": LEGACY_LOCATION_ID,
+                    },
+                ):
+                    raise RuntimeError("Legacy bucket has a different registered owner")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.managed_original_creations "
+                        "WHERE location_id=:location AND (("
+                        "status='verified' AND bucket=:bucket AND storage_identity=:identity "
+                        "AND settled_at IS NOT NULL AND object_key IS NOT NULL "
+                        "AND object_key <> '' AND version_id IS NOT NULL "
+                        "AND version_id NOT IN ('','null')) OR "
+                        "(status='failed' AND error_code='storage_unavailable' "
+                        "AND prepared IS NULL AND receipt IS NULL AND write_started_at IS NULL)) "
+                        "IS NOT TRUE)"
+                    ),
+                    {
+                        "location": LEGACY_LOCATION_ID,
+                        "bucket": bucket,
+                        "identity": proof["storage_identity"],
+                    },
+                ):
+                    raise RuntimeError("Legacy creation outcome changed")
+                verified_rows = (
+                    (
+                        await db.execute(
+                            text(
+                                "SELECT id,object_key,version_id FROM public.managed_original_creations "
+                                "WHERE location_id=:location AND status='verified' ORDER BY id"
+                            ),
+                            {"location": LEGACY_LOCATION_ID},
+                        )
+                    )
+                    .mappings()
+                    .all()
+                )
+                verified_creations = [
+                    {
+                        "id": str(row["id"]),
+                        "key": row["object_key"],
+                        "version": row["version_id"],
+                    }
+                    for row in verified_rows
+                ]
+                if verified_creations != proof["verified_creations"]:
+                    raise RuntimeError("Legacy verified creation identities changed")
+                if await db.scalar(
+                    text(
+                        "SELECT EXISTS(SELECT 1 FROM public.storage_usage_mutations "
+                        "WHERE scope_key=:scope AND state IN ('pending','unknown'))"
+                    ),
+                    {"scope": proof["usage_scope"]},
+                ):
+                    raise RuntimeError("Legacy storage accounting became unsettled")
+                if not require_owner(
+                    bucket, backend.bucket_info(bucket), backend.resources["owner"]
+                ):
+                    raise RuntimeError("Image-import bucket identity changed")
+                if (
+                    backend.s3.get_bucket_versioning(Bucket=bucket).get("Status")
+                    != "Enabled"
+                ):
+                    raise RuntimeError("Image-import bucket versioning changed")
+                for page in backend.s3.get_paginator("list_multipart_uploads").paginate(
+                    Bucket=bucket
+                ):
+                    if page.get("Uploads"):
+                        raise RuntimeError("Image-import multipart uploads remain")
+                versions = []
+                for page in backend.s3.get_paginator("list_object_versions").paginate(
+                    Bucket=bucket
+                ):
+                    for item in page.get("Versions", []) + page.get(
+                        "DeleteMarkers", []
+                    ):
+                        key, version = item.get("Key"), item.get("VersionId")
+                        if not isinstance(key, str) or version in (None, "", "null"):
+                            raise RuntimeError(
+                                "Image-import object identity is unproven"
+                            )
+                        versions.append({"key": key, "version": version})
+                if len({(item["key"], item["version"]) for item in versions}) != len(
+                    versions
+                ):
+                    raise RuntimeError("Image-import object inventory is inconsistent")
+                retired = []
+                if journal["phase"] == "retiring_versions":
+                    recorded, retired = journal.get("versions"), journal.get("retired")
+                    if (
+                        not isinstance(recorded, list)
+                        or not isinstance(retired, list)
+                        or retired != recorded[: len(retired)]
+                        or {(item["key"], item["version"]) for item in versions}
+                        != {
+                            (item["key"], item["version"])
+                            for item in recorded[len(retired) :]
+                        }
+                    ):
+                        raise RuntimeError("Image-import retirement inventory changed")
+                inventory = {(item["key"], item["version"]) for item in versions}
+                acknowledged = {(item["key"], item["version"]) for item in retired}
+                accounted = inventory | acknowledged
+                missing = [
+                    item
+                    for item in verified_creations
+                    if (item["key"], item["version"]) not in accounted
+                ]
+                if missing:
+                    journal["missing_verified_versions"] = missing
+                    atomic_json(path, journal)
+                    raise RuntimeError("Legacy verified creation version is missing")
+                if journal["phase"] == "identity_disabled":
+                    journal.update(
+                        phase="retiring_versions",
+                        versions=versions,
+                        retired=[],
+                        pending=None,
+                    )
+                    atomic_json(path, journal)
+                else:
+                    versions = recorded[len(retired) :]
+                for item in versions:
+                    journal["pending"] = item
+                    atomic_json(path, journal)
+                    try:
+                        result = backend.s3.delete_object(
+                            Bucket=bucket, Key=item["key"], VersionId=item["version"]
+                        )
+                    except ClientError as error:
+                        response = error.response
+                        if response.get("ResponseMetadata", {}).get(
+                            "HTTPStatusCode"
+                        ) == 403 and response.get("Error", {}).get("Code") in {
+                            "403",
+                            "AccessDenied",
+                        }:
+                            # An explicit denial proves this version was not
+                            # removed; unknown outcomes keep their pending intent.
+                            journal["pending"] = None
+                            journal["last_denial"] = item
+                            atomic_json(path, journal)
+                        raise
+                    if (
+                        result.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                        not in (200, 204)
+                        or result.get("VersionId") != item["version"]
+                    ):
+                        raise RuntimeError(
+                            "Image-import version retirement is unproven"
+                        )
+                    journal["retired"].append(item)
+                    journal["pending"] = None
+                    atomic_json(path, journal)
+                for page in backend.s3.get_paginator("list_object_versions").paginate(
+                    Bucket=bucket
+                ):
+                    if page.get("Versions") or page.get("DeleteMarkers"):
+                        raise RuntimeError(
+                            "Image-import bucket still contains versions"
+                        )
+                if not require_owner(
+                    bucket, backend.bucket_info(bucket), backend.resources["owner"]
+                ):
+                    raise RuntimeError("Image-import bucket identity changed")
+                journal["phase"] = "bucket_delete_intent"
+                atomic_json(path, journal)
+                response = backend.s3.delete_bucket(Bucket=bucket)
+                if (
+                    response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+                    not in (
+                        200,
+                        204,
+                    )
+                    or backend.bucket_info(bucket) is not None
+                ):
+                    raise RuntimeError("Image-import bucket retirement is unproven")
+                journal["phase"] = "bucket_retired"
+                atomic_json(path, journal)
+    finally:
+        await engine.dispose()
+
+
+def _probe_image_import_partial_retirement(backend, prepared, scope, proof) -> dict:
+    """Prove a real denied second delete keeps the live ledger and journal."""
+    from botocore.exceptions import ClientError
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from app.services.dataset_assets import LEGACY_LOCATION_ID
+    from worktree_env import atomic_json, read_state
+    from worktree_resources import require_owner
+
+    journal, path = scope["journal"], scope["journal_path"]
+    bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    key = "!aap-retirement-probe/" + uuid4().hex
+    probe = _cleanup_storage_scope(backend)
+    record = {
+        "state": "identity_creating",
+        "access_key": probe["access_key"],
+        "secret_key": probe["secret_key"],
+        "policy": probe["policy"],
+        "config": probe["config"],
+        "container": probe["container"],
+        "key": key,
+    }
+    journal["partial_probe"] = record
+    atomic_json(path, journal)
+    _cleanup_mc(
+        probe,
+        ["admin", "user", "add", "scoped", probe["access_key"], probe["secret_key"]],
+    )
+    probe["user_created"] = True
+    record["state"] = "identity_created"
+    atomic_json(path, journal)
+    bucket_arn = f"arn:aws:s3:::{bucket}"
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:ListBucket",
+                    "s3:ListBucketVersions",
+                    "s3:ListBucketMultipartUploads",
+                    "s3:GetBucketLocation",
+                    "s3:GetBucketTagging",
+                    "s3:GetBucketVersioning",
+                ],
+                "Resource": [bucket_arn],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObjectVersion"],
+                "Resource": [f"{bucket_arn}/{key}"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:DeleteObject"],
+                "Resource": [f"{bucket_arn}/{key}"],
+                "Condition": {
+                    "StringLike": {"s3:versionid": "*?*"},
+                    "StringNotEquals": {"s3:versionid": "null"},
+                },
+            },
+        ],
+    }
+    _cleanup_mc(
+        probe,
+        ["admin", "policy", "create", "scoped", probe["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    probe["policy_created"] = True
+    record["state"] = "policy_created"
+    atomic_json(path, journal)
+    _cleanup_mc(
+        probe,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            probe["policy"],
+            "--user",
+            probe["access_key"],
+        ],
+    )
+    record["state"] = "canary_put_intent"
+    atomic_json(path, journal)
+    response = backend.s3.put_object(Bucket=bucket, Key=key, Body=b"retirement probe")
+    version = response.get("VersionId")
+    if version in (None, "", "null"):
+        raise RuntimeError("Retirement probe has no immutable version")
+    record["version"] = version
+    record["state"] = "canary_created"
+    atomic_json(path, journal)
+
+    def versions():
+        return [
+            {"key": item["Key"], "version": item["VersionId"]}
+            for page in backend.s3.get_paginator("list_object_versions").paginate(
+                Bucket=bucket
+            )
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+        ]
+
+    before = versions()
+    canary = {"key": key, "version": version}
+    if len(before) < 2 or before[0] != canary:
+        raise RuntimeError("Retirement probe inventory is not independently ordered")
+    restricted = _restricted_s3_client(backend, probe)
+    administrator = backend.s3
+    try:
+        backend.s3 = restricted
+        try:
+            asyncio.run(_retire_image_import_bucket(backend, prepared, scope, proof))
+        except ClientError as error:
+            if not (
+                error.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 403
+                and error.response.get("Error", {}).get("Code")
+                in {"403", "AccessDenied"}
+            ):
+                raise
+        else:
+            raise RuntimeError(
+                "Retirement probe unexpectedly deleted a foreign version"
+            )
+    finally:
+        backend.s3 = administrator
+        restricted.close()
+    if not (
+        journal.get("phase") == "retiring_versions"
+        and journal.get("pending") is None
+        and journal.get("versions") == before
+        and journal.get("retired") == [canary]
+        and journal.get("last_denial") == before[1]
+        and versions() == before[1:]
+        and require_owner(
+            bucket, backend.bucket_info(bucket), backend.resources["owner"]
+        )
+    ):
+        raise RuntimeError("Partial retirement did not retain exact owned evidence")
+    if read_state(path) != journal:
+        raise RuntimeError("Partial retirement journal was not retained")
+    for account, expected in ((scope, "disabled"), (probe, "enabled")):
+        info = json.loads(
+            _cleanup_mc(
+                account, ["admin", "user", "info", "scoped", account["access_key"]]
+            )
+        )
+        if info.get("userStatus") != expected:
+            raise RuntimeError("Partial retirement identity changed")
+
+    async def ledger_is_live():
+        engine = create_async_engine(
+            backend.url, poolclass=NullPool, hide_parameters=True
+        )
+        try:
+            async with engine.connect() as db:
+                return (
+                    await db.execute(
+                        text(
+                            "SELECT d.oid,g.state,g.revision FROM pg_catalog.pg_database d "
+                            "JOIN public.storage_maintenance_gates g ON g.location_id=:location "
+                            "WHERE d.datname=current_database()"
+                        ),
+                        {"location": LEGACY_LOCATION_ID},
+                    )
+                ).one()
+        finally:
+            await engine.dispose()
+
+    ledger = asyncio.run(ledger_is_live())
+    if (ledger[0], ledger[1], ledger[2]) != (
+        proof["database_oid"],
+        "draining",
+        proof["gate_revision"],
+    ):
+        raise RuntimeError("Partial retirement lost its database or admission fence")
+    record["state"] = "identity_removing"
+    atomic_json(path, journal)
+    _destroy_cleanup_storage_scope(probe)
+    record.pop("secret_key")
+    record["state"] = "retired"
+    atomic_json(path, journal)
+    return {
+        "deleted_probe_version": True,
+        "next_version_denied": True,
+        "ledger_live": True,
+    }
+
+
 def _cleanup_mc(
     scope: dict, arguments: list[str], *, payload: str | None = None
-) -> None:
+) -> str:
     from worktree_resources import docker
 
     observed = json.loads(docker("inspect", scope["container"]))[0]
@@ -2762,6 +4199,7 @@ def _cleanup_mc(
     )
     if result.returncode:
         raise RuntimeError("MinIO cleanup identity administration failed")
+    return result.stdout
 
 
 def _cleanup_storage_policy(scope: dict) -> dict:
@@ -3269,6 +4707,58 @@ def _create_image_storage_scope(scope: dict) -> None:
     )
 
 
+def _create_image_import_storage_scope(scope: dict) -> None:
+    """Give this exclusive profile only managed-original creation and readback."""
+    from worktree_env import atomic_json
+
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    scope["journal"]["phase"] = "identity_created"
+    atomic_json(scope["journal_path"], scope["journal"])
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:AbortMultipartUpload",
+                ],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['datasets_bucket']}/__aap_managed_datasets__/*"
+                ],
+            }
+        ],
+    }
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    scope["journal"]["phase"] = "policy_created"
+    atomic_json(scope["journal_path"], scope["journal"])
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+    scope["journal"]["phase"] = "identity_ready"
+    atomic_json(scope["journal_path"], scope["journal"])
+
+
 def _create_source_storage_scope(scope: dict) -> None:
     _cleanup_mc(
         scope,
@@ -3289,6 +4779,13 @@ def _create_source_storage_scope(scope: dict) -> None:
                 "Effect": "Allow",
                 "Action": ["s3:GetObject"],
                 "Resource": [f"arn:aws:s3:::{scope['datasets_bucket']}/*"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObjectVersion"],
+                "Resource": [
+                    f"arn:aws:s3:::{scope['datasets_bucket']}/dataset-sources/*"
+                ],
             },
             {
                 "Effect": "Allow",
@@ -3574,6 +5071,16 @@ def _assert_psql_permission_denied(
     )
 
 
+def _sql_artifact_path(name: str) -> Path:
+    if name in JOBS_SQL_ARTIFACTS:
+        directory = ROOT / "apps/jobs/src/yoao_jobs/sql"
+    elif name in ASSETS_SOURCE_SQL_ARTIFACTS:
+        directory = ROOT / "apps/assets-source/src/yoao_assets_source"
+    else:
+        directory = ROOT / "apps/api/alembic/sql"
+    return directory / name
+
+
 def _installed_function_body_sha256(
     container_id: str,
     container_name: str,
@@ -3584,7 +5091,13 @@ def _installed_function_body_sha256(
     signature: str,
     sql_name: str,
 ) -> str:
-    source = (ROOT / "apps/api/alembic/sql" / sql_name).read_text(encoding="utf-8")
+    base_sql_name = {
+        "0405_video_tracker_asset_candidates.sql": "0281_video_execution.sql",
+        "0450_video_candidate_status_restore.sql": "0284_video_restore.sql",
+    }.get(sql_name, sql_name)
+    if signature == "aap_assets_v1.complete_dataset_import_entry(uuid,uuid,bigint,uuid,jsonb)":
+        base_sql_name = "0214_dataset_import_core.sql"
+    source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
     function_name = re.escape(signature.split("(", 1)[0])
     match = re.search(
         rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
@@ -3595,6 +5108,33 @@ def _installed_function_body_sha256(
     if match is None:
         raise RuntimeError(f"frozen SQL has no function body: {sql_name}")
     expected = match.group(1)
+    if base_sql_name != sql_name:
+        patch_source = _sql_artifact_path(sql_name).read_text(encoding="utf-8")
+        tags = ("before", "after")
+        if sql_name == "0450_video_candidate_status_restore.sql":
+            tags += ("guard", "candidates")
+        if sql_name == "0453_import_original_verification.sql":
+            tags += ("fields_before", "fields_after", "validation_before", "validation_after")
+        literals = {}
+        for tag in tags:
+            matches = re.findall(
+                rf"\${tag}\$(.*?)\${tag}\$", patch_source, re.DOTALL
+            )
+            if len(matches) != 1:
+                raise RuntimeError(f"frozen SQL patch literal is not unique: {sql_name}")
+            literals[tag] = matches[0]
+        replacements = [(literals["before"], literals["after"])]
+        if "fields_before" in literals:
+            replacements.insert(0, (literals["fields_before"], literals["fields_after"]))
+            replacements.insert(1, (literals["validation_before"], literals["validation_after"]))
+        if "guard" in literals:
+            replacements.append(
+                (literals["guard"], literals["guard"] + literals["candidates"])
+            )
+        for before, after in replacements:
+            if expected.count(before) != 1 or after in expected:
+                raise RuntimeError(f"frozen SQL patch source differs: {signature}")
+            expected = expected.replace(before, after, 1)
     if signature == "aap_labeling_v1.mask_edit_command(jsonb)":
         # Revision bo0430 derives the installed owner from this frozen body.
         marker = "    v_operation := p_request ->> 'operation';\n"
@@ -4304,6 +5844,8 @@ def _create_module_roles(
     jobs_list_query_password: str,
     jobs_lifecycle_password: str,
     jobs_dispatch_relay_password: str,
+    jobs_publication_password: str,
+    export_execution_password: str,
 ) -> None:
     _psql(
         container_id,
@@ -4414,6 +5956,12 @@ def _create_module_roles(
             f"CREATE ROLE {JOBS_DISPATCH_RELAY_ROLE} LOGIN "
             f"PASSWORD '{jobs_dispatch_relay_password}' NOSUPERUSER NOCREATEDB "
             "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {JOBS_PUBLICATION_ROLE} LOGIN "
+            f"PASSWORD '{jobs_publication_password}' NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
+            f"CREATE ROLE {EXPORT_EXECUTION_ROLE} LOGIN "
+            f"PASSWORD '{export_execution_password}' NOSUPERUSER NOCREATEDB "
+            "NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;\n"
             'REVOKE TEMPORARY ON DATABASE :"expected_database" FROM PUBLIC;\n'
             'GRANT CONNECT ON DATABASE :"expected_database" TO '
             f'"{NOTIFICATION_READ_ROLE}", "{AUDIT_READ_ROLE}", '
@@ -4448,6 +5996,8 @@ def _create_module_roles(
                         JOBS_LIST_QUERY_ROLE,
                         JOBS_LIFECYCLE_ROLE,
                         JOBS_DISPATCH_RELAY_ROLE,
+                        JOBS_PUBLICATION_ROLE,
+                        EXPORT_EXECUTION_ROLE,
                         VIDEO_EXECUTION_ROLE,
                         INFERENCE_REGISTRY_INGRESS_ROLE,
                         INFERENCE_ROUTING_ROLE,
@@ -4805,6 +6355,7 @@ def _install_and_rollback_frozen_sql(
         sql=(
             "SELECT current_database() = :'expected_database' "
             "AND to_regnamespace('aap_identity_v1') IS NULL "
+            "AND to_regnamespace('yoao_fixture_v1') IS NULL "
             "AND to_regnamespace('aap_identity_accounts_v1') IS NULL "
             "AND to_regnamespace('aap_identity_recovery_v1') IS NULL "
             "AND to_regnamespace('aap_identity_groups_v1') IS NULL "
@@ -5211,6 +6762,7 @@ def main(
     media_control_storage = None
     media_worker_storage = None
     image_worker_storage = None
+    image_import_storage = None
     api_bootstrap_storage = None
     audit_archive_writer_storage = None
     audit_archive_reader_storage = None
@@ -5222,6 +6774,21 @@ def main(
 
     try:
         selected_test_paths = {name.split("::", 1)[0] for name in test_files}
+        physical_retirement_profiles = {
+            "tests/test_image_import_identity_profile.py",
+            "tests/test_identity_seed_selection_live.py",
+        }
+        physical_retirement_profile = bool(
+            selected_test_paths & physical_retirement_profiles
+        )
+        if (
+            not collect_only
+            and physical_retirement_profile
+            and len(selected_test_paths) != 1
+        ):
+            raise RuntimeError(
+                "Managed-original retirement requires an exclusive runtime profile"
+            )
         missing_tests = sorted(
             name
             for name in selected_test_paths
@@ -5705,6 +7272,7 @@ def main(
         jobs_list_query_grants_path = ROOT / "infra/docker/jobs-list-query-grants.sql"
         jobs_lifecycle_grants_path = ROOT / "infra/docker/jobs-lifecycle-grants.sql"
         jobs_dispatch_grants_path = ROOT / "infra/docker/jobs-dispatch-grants.sql"
+        execution_grants_path = ROOT / "infra/docker/module-execution-grants.sql"
         identity_recovery_grants_path = (
             ROOT / "infra/docker/identity-recovery-grants.sql"
         )
@@ -5712,11 +7280,13 @@ def main(
         identity_consumer_grants_path = (
             ROOT / "infra/docker/identity-consumer-grants.sql"
         )
-        artifacts = tuple(
-            ROOT / "apps/api/alembic/sql" / name for name in SQL_ARTIFACTS
-        )
+        phase = "preflight-contract-artifacts"
+        artifacts = tuple(_sql_artifact_path(name) for name in SQL_ARTIFACTS)
         schema_paths = tuple(
-            ROOT / "apps/api/alembic/sql" / name for name in SCHEMA_ARTIFACTS
+            (ROOT / "apps/assets-source/src/yoao_assets_source" / name)
+            if name in ASSETS_SOURCE_SCHEMA_ARTIFACTS
+            else (ROOT / "apps/api/alembic/sql" / name)
+            for name in SCHEMA_ARTIFACTS
         )
         if (
             not grants_path.is_file()
@@ -5746,6 +7316,7 @@ def main(
             or not jobs_list_query_grants_path.is_file()
             or not jobs_lifecycle_grants_path.is_file()
             or not jobs_dispatch_grants_path.is_file()
+            or not execution_grants_path.is_file()
             or not identity_group_grants_path.is_file()
             or not identity_invitation_grants_path.is_file()
             or not identity_directory_grants_path.is_file()
@@ -6013,7 +7584,7 @@ def main(
         from sqlalchemy.engine import URL, make_url
 
         from app.config import settings
-        from worktree_env import load_identity, topology
+        from worktree_env import load_identity, read_state, state_path, topology
         from worktree_resources import (
             LocalResources,
             docker,
@@ -6054,6 +7625,8 @@ def main(
         jobs_list_query_password = f"jobs-list-{secrets.token_hex(16)}"
         jobs_lifecycle_password = f"jobs-lifecycle-{secrets.token_hex(16)}"
         jobs_dispatch_relay_password = secrets.token_hex(24)
+        jobs_publication_password = secrets.token_hex(24)
+        export_execution_password = secrets.token_hex(24)
         inference_registry_ingress_password = secrets.token_hex(24)
         inference_routing_password = secrets.token_hex(24)
         inference_owner_passwords = {
@@ -6140,6 +7713,43 @@ def main(
         phase = "prepare-owned-test-resources"
         backend.prepare()
         database = resources["database"]
+        manifest = read_state(state_path(resource_root, "test", "resources.json"))
+        birth_oid = manifest.get("postgres", {}).get("database_oid")
+        if manifest != backend.manifest or type(birth_oid) is not int or birth_oid <= 0:
+            raise RuntimeError("Owned test database birth identity is unproven")
+
+        async def observe_owned_database():
+            import asyncpg
+
+            connection = await asyncpg.connect(
+                backend.url.set(drivername="postgresql").render_as_string(
+                    hide_password=False
+                ),
+                timeout=5,
+            )
+            try:
+                return dict(
+                    await connection.fetchrow(
+                        "SELECT d.oid::bigint AS oid,d.datname AS name,"
+                        "pg_catalog.shobj_description(d.oid,'pg_database') AS marker,"
+                        "current_user AS current_user,session_user AS session_user "
+                        "FROM pg_catalog.pg_database d WHERE d.datname=current_database()"
+                    )
+                )
+            finally:
+                await connection.close()
+
+        database_identity = asyncio.run(observe_owned_database())
+        if not (
+            database_identity.get("oid") == birth_oid
+            and database_identity.get("name") == database == backend.url.database
+            and database_identity.get("marker") == resources["owner"]
+            and database_identity.get("current_user") == backend.url.username == "owner"
+            and database_identity.get("session_user") == "owner"
+        ):
+            raise RuntimeError("Owned test database identity is unproven")
+        database_oid = database_identity["oid"]
+        evidence["database_oid"] = database_oid
         evidence["database"] = database
         _, heads = migration_graph(ROOT)
         if len(heads) != 1:
@@ -6175,17 +7785,29 @@ def main(
         )
         phase = "prepare-fresh-main-base"
         frozen_database = f"{database.removesuffix('_test')}_frozen_test"
-        _psql(
-            container_id,
-            container_name,
-            container_identity,
-            username="owner",
-            password=owner_password,
-            database="postgres",
-            sql='CREATE DATABASE :"frozen_database" OWNER owner;',
-            variables={"frozen_database": frozen_database},
+        frozen_identity = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database="postgres",
+                sql=(
+                    'CREATE DATABASE :"frozen_database" OWNER owner;\n'
+                    "COMMENT ON DATABASE :\"frozen_database\" IS :'marker';\n"
+                    "SELECT json_build_object('name', datname, 'oid', oid::bigint, "
+                    "'marker', shobj_description(oid, 'pg_database')) "
+                    "FROM pg_database WHERE datname = :'frozen_database';"
+                ),
+                variables={
+                    "frozen_database": frozen_database,
+                    "marker": f"module-data-frozen:{container_identity}",
+                },
+            )
         )
         evidence["migrations"]["frozen_database"] = frozen_database
+        evidence["migrations"]["frozen_database_identity"] = frozen_identity
         base_revision = evidence["migrations"]["base_revision"]
         # Security migrations need not restore obsolete write capabilities.
         # Compare frozen SQL against a second fresh database in the same owned
@@ -6272,6 +7894,38 @@ def main(
             raise RuntimeError(
                 "installed SQL function bodies differ after fresh-base upgrade"
             )
+        # This database has hosted only the completed schema probes, never a
+        # business process. Retire its exact identity before admitting tests.
+        phase = "retire-frozen-sql-database"
+        observed_frozen_identity = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database="postgres",
+                sql=(
+                    "SELECT json_build_object('name', datname, 'oid', oid::bigint, "
+                    "'marker', shobj_description(oid, 'pg_database')) "
+                    "FROM pg_database WHERE datname = :'frozen_database';"
+                ),
+                variables={"frozen_database": frozen_database},
+            )
+        )
+        if observed_frozen_identity != frozen_identity:
+            raise RuntimeError("Frozen schema database identity changed; retain it")
+        _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database="postgres",
+            sql='DROP DATABASE :"frozen_database";',
+            variables={"frozen_database": frozen_database},
+        )
+        evidence["migrations"]["frozen_database_retired"] = True
         _container_details(
             container_id, container_name, container_identity, require_running=True
         )
@@ -6405,6 +8059,22 @@ def main(
             port=port,
             database=database,
         ).render_as_string(hide_password=False)
+        jobs_publication_url = URL.create(
+            "postgresql+asyncpg",
+            username=JOBS_PUBLICATION_ROLE,
+            password=jobs_publication_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
+        export_execution_url = URL.create(
+            "postgresql+asyncpg",
+            username=EXPORT_EXECUTION_ROLE,
+            password=export_execution_password,
+            host="127.0.0.1",
+            port=port,
+            database=database,
+        ).render_as_string(hide_password=False)
         audit_append_url = URL.create(
             "postgresql",
             username=AUDIT_APPEND_ROLE,
@@ -6494,6 +8164,8 @@ def main(
             jobs_list_query_password,
             jobs_lifecycle_password,
             jobs_dispatch_relay_password,
+            jobs_publication_password,
+            export_execution_password,
         )
         phase = "create-video-execution-client-role"
         _psql(
@@ -6759,6 +8431,25 @@ def main(
                 },
             )
 
+        def apply_execution_grants() -> None:
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=execution_grants_path.read_text(encoding="utf-8"),
+                variables={
+                    "expected_database": database,
+                    "migration_role": "owner",
+                    "jobs_owner": "jobs_code",
+                    "export_owner": "export_code",
+                    "jobs_publication_role": JOBS_PUBLICATION_ROLE,
+                    "export_execution_role": EXPORT_EXECUTION_ROLE,
+                },
+            )
+
         def apply_identity_actor_status_grants() -> None:
             _psql(
                 container_id,
@@ -6905,6 +8596,198 @@ def main(
         apply_jobs_lifecycle_grants()
         phase = "install-jobs-dispatch-grants"
         apply_jobs_dispatch_grants()
+        phase = "install-execution-grants"
+        apply_execution_grants()
+
+        async def verify_execution_and_fixture_roles() -> None:
+            import asyncpg
+            from fixture_media_control import _ASSETS, _JOBS
+            from fixture_native_read_control import (
+                _READER_FUNCTIONS,
+                _RESOLVER_FUNCTIONS,
+            )
+            from yoao_owner_data.postgres import verify_function_only_role
+
+            profiles = (
+                (
+                    jobs_publication_url,
+                    JOBS_PUBLICATION_ROLE,
+                    "aap_jobs_v1",
+                    {
+                        (
+                            "begin_dispatch_publication",
+                            "uuid, uuid, text, bigint, uuid",
+                        ),
+                        (
+                            "finish_dispatch_publication",
+                            "uuid, uuid, text, bigint, uuid",
+                        ),
+                        (
+                            "refuse_dispatch_publication",
+                            "uuid, uuid, text, bigint, uuid",
+                        ),
+                        ("retry_publication_intent", "uuid, text, text, jsonb, jsonb"),
+                        (
+                            "begin_retry_publication",
+                            "uuid, uuid, text, text, jsonb, jsonb, integer, uuid",
+                        ),
+                        ("finish_retry_publication", "uuid, uuid, text, integer, uuid"),
+                        ("begin_fixture_media_publication", "uuid, uuid"),
+                        ("finish_fixture_media_publication", "uuid, uuid, text"),
+                    },
+                ),
+                (
+                    export_execution_url,
+                    EXPORT_EXECUTION_ROLE,
+                    "aap_export_v1",
+                    {
+                        ("begin_execution", "uuid, uuid, text, uuid, integer"),
+                        ("enter_execution_io", "uuid, uuid"),
+                        ("quiesce_execution_io", "uuid, uuid"),
+                        ("finish_execution", "uuid, uuid"),
+                    },
+                ),
+            )
+            for url, role, schema, signatures in profiles:
+                connection = await asyncpg.connect(
+                    url.replace("postgresql+asyncpg://", "postgresql://", 1), timeout=5
+                )
+                try:
+                    await verify_function_only_role(
+                        connection, schema=schema, functions=signatures, role=role
+                    )
+                finally:
+                    await connection.close()
+
+            connection = await asyncpg.connect(
+                host="127.0.0.1",
+                port=port,
+                user="owner",
+                password=owner_password,
+                database=database,
+                timeout=5,
+            )
+            try:
+                private_signatures = (
+                    _JOBS
+                    + _ASSETS
+                    + _READER_FUNCTIONS
+                    + _RESOLVER_FUNCTIONS
+                    + (
+                        "aap_jobs_v1.delete_fixture_media_backfills(uuid,uuid)",
+                        "aap_assets_v1.record_fixture_external_pyramid_reuse(text,uuid,uuid,uuid,integer)",
+                        "aap_assets_v1.fixture_external_image_attempt_sources_proven(uuid,uuid,uuid,uuid,bigint,uuid)",
+                    )
+                )
+                if await connection.fetchval(
+                    """SELECT EXISTS (
+                        SELECT FROM pg_catalog.unnest($1::text[]) AS signature
+                        WHERE pg_catalog.has_function_privilege(
+                            'legacy_runtime',pg_catalog.to_regprocedure(signature),'EXECUTE')
+                    )""",
+                    list(private_signatures),
+                ):
+                    raise RuntimeError(
+                        "ordinary API can execute private fixture capabilities"
+                    )
+                transaction = connection.transaction()
+                await transaction.start()
+                try:
+                    for role, schemas, signatures in (
+                        (
+                            "fixture_media_acl_probe",
+                            ("aap_jobs_v1", "aap_assets_v1"),
+                            _JOBS + _ASSETS,
+                        ),
+                        (
+                            "fixture_reader_acl_probe",
+                            ("aap_assets_v1",),
+                            _READER_FUNCTIONS,
+                        ),
+                        (
+                            "fixture_resolver_acl_probe",
+                            ("aap_assets_v1",),
+                            _RESOLVER_FUNCTIONS,
+                        ),
+                    ):
+                        await connection.execute(
+                            f"CREATE ROLE {role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB "
+                            "NOCREATEROLE NOREPLICATION NOBYPASSRLS"
+                        )
+                        await connection.execute(
+                            f"GRANT USAGE ON SCHEMA {','.join(schemas)} TO {role}"
+                        )
+                        await connection.execute(
+                            f"GRANT EXECUTE ON FUNCTION {','.join(signatures)} TO {role}"
+                        )
+                        expected = await connection.fetch(
+                            """SELECT p.oid, n.nspname, pg_catalog.pg_get_userbyid(p.proowner) AS owner
+                            FROM pg_catalog.unnest($1::text[]) AS signature
+                            LEFT JOIN pg_catalog.pg_proc AS p
+                              ON p.oid=pg_catalog.to_regprocedure(signature)
+                            LEFT JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace""",
+                            list(signatures),
+                        )
+                        if any(
+                            row["owner"]
+                            != {
+                                "aap_assets_v1": "assets_code",
+                                "aap_jobs_v1": "jobs_code",
+                            }.get(row["nspname"])
+                            for row in expected
+                        ):
+                            raise RuntimeError(
+                                f"fixture capability owner differs: {role}"
+                            )
+                        expected_oids = {row["oid"] for row in expected}
+                        actual = await connection.fetch(
+                            """SELECT p.oid FROM pg_catalog.pg_proc AS p
+                            JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace
+                            WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+                              AND n.nspname NOT LIKE 'pg_toast%'
+                              AND n.nspname NOT LIKE 'pg_temp_%'
+                              AND (n.nspname LIKE 'aap\\_%' ESCAPE '\\'
+                                   OR n.nspname='yoao_fixture_v1' OR p.prosecdef)
+                              AND p.prorettype NOT IN (
+                                  'pg_catalog.trigger'::pg_catalog.regtype,
+                                  'pg_catalog.event_trigger'::pg_catalog.regtype)
+                              AND NOT EXISTS (
+                                  SELECT FROM pg_catalog.pg_depend AS d
+                                  WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass
+                                    AND d.objid=p.oid
+                                    AND d.refclassid='pg_catalog.pg_extension'::pg_catalog.regclass
+                                    AND d.deptype='e')
+                              AND pg_catalog.has_function_privilege($1,p.oid,'EXECUTE')""",
+                            role,
+                        )
+                        if None in expected_oids or expected_oids != {
+                            row["oid"] for row in actual
+                        }:
+                            raise RuntimeError(
+                                f"fixture capability profile differs: {role}"
+                            )
+                        if await connection.fetchval(
+                            """SELECT EXISTS (
+                                SELECT FROM pg_catalog.pg_class AS c
+                                JOIN pg_catalog.pg_namespace AS n ON n.oid=c.relnamespace
+                                WHERE n.nspname NOT IN ('pg_catalog','information_schema')
+                                  AND n.nspname NOT LIKE 'pg_toast%'
+                                  AND n.nspname NOT LIKE 'pg_temp_%'
+                                  AND c.relkind IN ('r','p','v','m','f')
+                                  AND (pg_catalog.has_table_privilege($1,c.oid,'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER')
+                                    OR pg_catalog.has_any_column_privilege($1,c.oid,'SELECT,INSERT,UPDATE,REFERENCES'))
+                            )""",
+                            role,
+                        ):
+                            raise RuntimeError(
+                                f"fixture role has relation privileges: {role}"
+                            )
+                finally:
+                    await transaction.rollback()
+            finally:
+                await connection.close()
+
+        asyncio.run(verify_execution_and_fixture_roles())
         evidence["jobs_list_query"]["function_only_grants"] = True
         phase = "install-notification-delivery-read-grants"
         apply_notification_delivery_read_grants()
@@ -7828,17 +9711,20 @@ def main(
         phase = "verify-jobs-notification-scope-node"
         jobs_scope_id = str(uuid4())
         jobs_scope_kind = "🧪" * 40
-        _psql(
-            container_id,
-            container_name,
-            container_identity,
-            username="owner",
-            password=owner_password,
-            database=database,
-            sql=(
-                "INSERT INTO public.async_jobs(id,kind,status,payload,result) VALUES ("
-                f"'{jobs_scope_id}'::uuid,'{jobs_scope_kind}','completed','{{}}'::jsonb,'{{}}'::jsonb);"
-            ),
+        jobs_scope_snapshot = json.loads(
+            _psql(
+                container_id,
+                container_name,
+                container_identity,
+                username="owner",
+                password=owner_password,
+                database=database,
+                sql=(
+                    "INSERT INTO public.async_jobs(id,kind,status,payload,result) VALUES ("
+                    f"'{jobs_scope_id}'::uuid,'{jobs_scope_kind}','completed','{{}}'::jsonb,'{{}}'::jsonb) "
+                    "RETURNING to_jsonb(async_jobs);"
+                ),
+            )
         )
         api_jobs_fact = _psql(
             container_id,
@@ -7948,6 +9834,43 @@ def main(
             node_diagnostic = _node_failure_diagnostic(phase, delivery_node_result)
             raise RuntimeError("Node Notifications delivery-read check failed")
         evidence["notification_delivery_read"]["node_contract_check"] = True
+
+        # Both read-only consumers have exited. Dispose only our unchanged,
+        # never-dispatched probe before any fixture dataset can be published.
+        phase = "retire-jobs-notification-probe"
+        retired_probe = _psql(
+            container_id,
+            container_name,
+            container_identity,
+            username="owner",
+            password=owner_password,
+            database=database,
+            sql="""
+WITH original AS (
+    SELECT id FROM public.async_jobs AS job
+    WHERE id = :'probe_id'::uuid AND to_jsonb(job) = :'probe_row'::jsonb
+    FOR UPDATE
+), removed AS (
+    DELETE FROM public.async_jobs AS job USING original
+    WHERE job.id = original.id
+      AND NOT EXISTS (
+          SELECT 1 FROM aap_jobs_v1.dispatch_intents AS intent
+          WHERE intent.job_id = job.id
+      )
+    RETURNING job.id
+)
+SELECT id FROM removed;
+""",
+            variables={
+                "probe_id": jobs_scope_id,
+                "probe_row": json.dumps(jobs_scope_snapshot, ensure_ascii=False),
+            },
+        )
+        if retired_probe.strip() != jobs_scope_id:
+            raise RuntimeError("Jobs notification probe changed or was dispatched")
+        evidence["jobs_notification_scope"]["unchanged_undispatched_probe_removed"] = (
+            True
+        )
 
         phase = "install-mask-gc-grants"
         _psql(
@@ -8958,6 +10881,7 @@ def main(
             },
         )
         resource_environment = backend.environment()
+        resource_environment["AAP_MODULE_DATA_PG_DATABASE_OID"] = str(database_oid)
         resource_environment.update(
             {
                 (
@@ -9404,8 +11328,6 @@ def main(
                     )
                 if identity_seed_selection_live or identity_recording_live:
                     profiles = ["workspace-consumer-grants.sql"]
-                    if identity_seed_selection_live:
-                        profiles.append("workspace-scale-seed-grants.sql")
                     for profile in profiles:
                         _psql(
                             container_id,
@@ -9424,8 +11346,30 @@ def main(
                                 "consumer_role": "legacy_runtime",
                             },
                         )
+                    if identity_seed_selection_live:
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database=database,
+                            sql="""
+GRANT EXECUTE ON FUNCTION
+    aap_assets_v1.begin_operator_auxiliary(jsonb),
+    aap_assets_v1.record_operator_original_prepared(uuid,jsonb),
+    aap_assets_v1.mark_operator_original_writing(uuid),
+    aap_assets_v1.record_operator_original_written(uuid,jsonb),
+    aap_assets_v1.record_operator_original_verified(uuid,jsonb),
+    aap_assets_v1.fail_operator_original(uuid,text,text,jsonb),
+    aap_assets_v1.publish_operator_item_original(jsonb),
+    aap_assets_v1.open_operator_storage_operation(uuid),
+    aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)
+    TO legacy_runtime;
+""",
+                        )
                     evidence[
-                        "workspace_scale_seed_operator"
+                        "workspace_seed_selection_consumer"
                         if identity_seed_selection_live
                         else "workspace_recording_consumer"
                     ] = {
@@ -9726,6 +11670,34 @@ SELECT pg_catalog.jsonb_build_object(
             resources["buckets"]["MINIO_BUCKET"],
         }:
             _enable_owned_bucket_versioning(backend, bucket)
+        if not collect_only and physical_retirement_profile:
+            image_import_storage = _cleanup_storage_scope(backend)
+            image_import_storage["datasets_bucket"] = resources["buckets"][
+                "MINIO_DATASETS_BUCKET"
+            ]
+            from worktree_env import atomic_json, state_path
+
+            journal_path = state_path(
+                resource_root, "test", "legacy-original-retirement.json"
+            )
+            if journal_path.exists():
+                raise RuntimeError("Image-import retirement journal already exists")
+            image_import_storage["journal_path"] = journal_path
+            image_import_storage["journal"] = {
+                "schema": 1,
+                "resources": resources,
+                "endpoint": backend.settings.minio_endpoint,
+                "use_ssl": backend.settings.minio_use_ssl,
+                "bucket": image_import_storage["datasets_bucket"],
+                "container": image_import_storage["container"],
+                "access_key": image_import_storage["access_key"],
+                "secret_key": image_import_storage["secret_key"],
+                "policy": image_import_storage["policy"],
+                "config": image_import_storage["config"],
+                "phase": "identity_creating",
+            }
+            atomic_json(journal_path, image_import_storage["journal"], exclusive=True)
+            _create_image_import_storage_scope(image_import_storage)
         cleanup_storage = _cleanup_storage_scope(backend)
         _create_cleanup_storage_scope(cleanup_storage)
         catalog_storage = _cleanup_storage_scope(backend)
@@ -9849,6 +11821,9 @@ SELECT pg_catalog.jsonb_build_object(
             "tests/test_audit_consumers_cold.py",
         }:
             api_bootstrap_storage = _cleanup_storage_scope(backend)
+            # The exported immutable selector must identify this bootstrap owner too.
+            if api_bootstrap_storage["container"] != cleanup_storage["container"]:
+                raise RuntimeError("API bootstrap and verifier MinIO identities differ")
             api_bootstrap_storage["buckets"] = resources["buckets"]
             api_bootstrap_storage["policy"] = "aap-api-bootstrap-" + secrets.token_hex(
                 8
@@ -9947,6 +11922,8 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_MODULE_DATA_JOBS_LIST_QUERY_URL": jobs_list_query_url,
                 "AAP_MODULE_DATA_JOBS_LIFECYCLE_URL": jobs_lifecycle_url,
                 "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL": jobs_dispatch_relay_url,
+                "AAP_MODULE_DATA_JOBS_PUBLICATION_URL": jobs_publication_url,
+                "AAP_MODULE_DATA_EXPORT_EXECUTION_URL": export_execution_url,
                 "AAP_MODULE_DATA_ASSET_CLEANUP_URL": cleanup_url,
                 "AAP_MODULE_DATA_ASSET_CATALOG_URL": catalog_url,
                 "AAP_MODULE_DATA_ASSET_SOURCE_URL": source_url,
@@ -10055,6 +12032,17 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_MODULE_DATA_PG_CONTAINER_IDENTITY": container_identity,
             }
         )
+        if image_import_storage is not None:
+            resource_environment.update(
+                {
+                    "AAP_IMAGE_IMPORT_S3_ACCESS_KEY": image_import_storage[
+                        "access_key"
+                    ],
+                    "AAP_IMAGE_IMPORT_S3_SECRET_KEY": image_import_storage[
+                        "secret_key"
+                    ],
+                }
+            )
         if api_bootstrap_storage is not None:
             resource_environment.update(
                 {
@@ -10127,6 +12115,7 @@ SELECT pg_catalog.jsonb_build_object(
             prepare_owned_resources = backend.prepare
 
             def prepare_fenced_resources(*, skip_migrations=False):
+                nonlocal phase
                 prepare_owned_resources(skip_migrations=skip_migrations)
                 if workspace_import_cli_fence is not None:
                     workspace_import_cli_fence()
@@ -10139,15 +12128,34 @@ SELECT pg_catalog.jsonb_build_object(
                 apply_jobs_list_query_grants()
                 apply_jobs_lifecycle_grants()
                 apply_jobs_dispatch_grants()
+                apply_execution_grants()
                 apply_identity_actor_status_grants()
                 apply_audit_append_grants()
                 apply_notification_read_grants(NOTIFICATION_READ_ROLE)
                 apply_audit_read_grants()
                 apply_audit_maintenance_grants()
                 apply_jobs_scope_grants()
+                private_fixture_statements = (
+                    "SELECT * FROM yoao_fixture_v1.fixture_runs LIMIT 1",
+                    "SELECT * FROM yoao_fixture_v1.fixture_native_media_work_intents LIMIT 1",
+                    "SELECT aap_assets_v1.fixture_native_admission_current('media',NULL::uuid,NULL::uuid)",
+                    "SELECT aap_assets_v1.fixture_screenshot_output_receipt(NULL::uuid,NULL::uuid,NULL::uuid,NULL::text)",
+                    "SELECT * FROM aap_assets_v1.fixture_screenshot_item_facts LIMIT 1",
+                    "SELECT aap_labeling_v1.screenshot_operations_command('{}'::jsonb)",
+                    "SELECT aap_identity_invitations_v1.bind_fixture_invitation_birth(NULL::uuid,NULL::uuid)",
+                    "SELECT aap_identity_invitations_v1.lock_fixture_invitation_run(NULL::uuid)",
+                    "SELECT aap_labeling_v1._fixture_screenshot_user(NULL::uuid,NULL::text,NULL::text)",
+                    "SELECT aap_labeling_v1.create_scale_seed_tasks(NULL::text,NULL::uuid,NULL::uuid)",
+                    "SELECT aap_jobs_v1.delete_fixture_project_jobs(ARRAY[]::uuid[])",
+                    "SELECT aap_jobs_v1.delete_fixture_media_backfills(NULL::uuid,NULL::uuid)",
+                    "SELECT aap_jobs_v1.delete_fixture_presentation_jobs(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
+                    "SELECT aap_labeling_v1.guard_fixture_presentation_failures(NULL::uuid,NULL::uuid,ARRAY[]::uuid[])",
+                    "SELECT aap_labeling_v1.guard_fixture_project_retry_anchors(ARRAY[]::uuid[])",
+                )
                 for statement in (
                     *notification_private_statements,
                     notification_fact_read_statement,
+                    *private_fixture_statements,
                 ):
                     _assert_psql_permission_denied(
                         container_id,
@@ -10158,6 +12166,12 @@ SELECT pg_catalog.jsonb_build_object(
                         database=database,
                         statement=statement,
                     )
+                evidence["private_fixture_runtime_boundary"] = {
+                    "role": "legacy_runtime",
+                    "statements": list(private_fixture_statements),
+                    "sqlstate": "42501",
+                    "after_launcher_prepare": True,
+                }
                 notification_fact = _psql(
                     container_id,
                     container_name,
@@ -10202,6 +12216,23 @@ SELECT pg_catalog.jsonb_build_object(
                     )
                 )
                 evidence["audit_maintenance"]["after_launcher_prepare"] = True
+                if not collect_only and physical_retirement_profile:
+                    phase = "retire-image-import-preparation"
+                    _container_details(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        require_running=True,
+                    )
+                    evidence["image_import_preparation_retirement"] = asyncio.run(
+                        _retire_image_import_preparation(
+                            backend,
+                            database_oid,
+                            notification_preference_user_id,
+                            delivery_project_id,
+                        )
+                    )
+                    phase = "pytest"
                 evidence["phase"] = "pytest-collection" if collect_only else "pytest"
                 _write_evidence(output, evidence)
 
@@ -10247,28 +12278,248 @@ SELECT pg_catalog.jsonb_build_object(
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
         raise
     finally:
+        # prepare arms touched before publishing or mutating any owned resource.
+        # If guarded destruction fails, retain the identity root and PostgreSQL.
+        local_resources_destroyed = backend is None or not backend.touched
+        if backend is not None and backend.touched:
+            try:
+                if not collect_only and physical_retirement_profile and exit_code != 0:
+                    evidence["cleanup"]["retention_reason"] = (
+                        "failed_image_import_runtime"
+                    )
+                    raise RuntimeError("Retain the failed image-import runtime")
+                if args.retain_failed_runtime and exit_code != 0:
+                    evidence["cleanup"]["retention_reason"] = "requested_failed_runtime"
+                    raise RuntimeError(
+                        "Failed diagnostic run retained for explicit owner inspection"
+                    )
+                if container_id:
+                    _container_details(
+                        container_id,
+                        container_name,
+                        container_identity,
+                        require_running=True,
+                    )
+                    database_catalog = json.loads(
+                        _psql(
+                            container_id,
+                            container_name,
+                            container_identity,
+                            username="owner",
+                            password=owner_password,
+                            database="postgres",
+                            sql=(
+                                "SELECT COALESCE(json_agg(json_build_object("
+                                "'name', datname, 'oid', oid::bigint) ORDER BY datname), "
+                                "'[]'::json) FROM pg_database "
+                                "WHERE NOT datistemplate AND datname <> 'postgres';"
+                            ),
+                        )
+                    )
+                    retained_databases = [
+                        item
+                        for item in database_catalog
+                        if item["name"] != backend.resources["database"]
+                    ]
+                    evidence["cleanup"]["retained_databases"] = retained_databases
+                    if retained_databases:
+                        raise RuntimeError(
+                            "Child or unknown databases remain; retain the "
+                            "enclosing PostgreSQL, storage and credentials"
+                        )
+                if not collect_only and physical_retirement_profile:
+                    from worktree_env import atomic_json, read_state
+
+                    scope = image_import_storage
+                    if not container_id or scope is None:
+                        raise RuntimeError(
+                            "Image-import runtime identity is unavailable"
+                        )
+                    journal, journal_path = scope["journal"], scope["journal_path"]
+                    if (
+                        read_state(journal_path) != journal
+                        or journal.get("phase") != "identity_ready"
+                        or journal.get("resources") != backend.resources
+                    ):
+                        raise RuntimeError("Image-import ownership journal changed")
+                    with backend.fixture_authority_fence():
+                        with backend._prepare_owned_destruction(
+                            backend.resources["confirmation"]
+                        ) as prepared:
+                            evidence["cleanup"]["legacy_storage_guard_probe"] = (
+                                asyncio.run(_probe_image_import_guard(backend, scope))
+                            )
+                            journal["phase"] = "gate_fencing"
+                            atomic_json(journal_path, journal)
+                            proof = asyncio.run(
+                                _fence_image_import_legacy_storage(backend)
+                            )
+                            if proof["database_oid"] != database_oid:
+                                raise RuntimeError(
+                                    "Managed-original database birth changed"
+                                )
+                            if (
+                                "tests/test_identity_seed_selection_live.py"
+                                in selected_test_paths
+                            ):
+                                creations = proof["verified_creations"]
+                                if (
+                                    len(creations) != 4
+                                    or len({row["key"] for row in creations}) != 4
+                                ):
+                                    raise RuntimeError(
+                                        "Scale-seed verified original ledger is incomplete"
+                                    )
+                            databases = [
+                                item
+                                for item in database_catalog
+                                if item["name"] == backend.resources["database"]
+                            ]
+                            if (
+                                len(databases) != 1
+                                or databases[0]["oid"] != proof["database_oid"]
+                            ):
+                                raise RuntimeError(
+                                    "Image-import database birth changed"
+                                )
+                            journal["fence"] = proof
+                            journal["phase"] = "gate_fenced"
+                            atomic_json(journal_path, journal)
+                            evidence["cleanup"]["legacy_storage_fence"] = proof
+                            journal["phase"] = "identity_disabling"
+                            atomic_json(journal_path, journal)
+                            user_info = [
+                                "admin",
+                                "user",
+                                "info",
+                                "scoped",
+                                scope["access_key"],
+                            ]
+                            if (
+                                json.loads(_cleanup_mc(scope, user_info)).get(
+                                    "userStatus"
+                                )
+                                != "enabled"
+                            ):
+                                raise RuntimeError(
+                                    "Image-import identity was not enabled"
+                                )
+                            _cleanup_mc(
+                                scope,
+                                [
+                                    "admin",
+                                    "user",
+                                    "disable",
+                                    "scoped",
+                                    scope["access_key"],
+                                ],
+                            )
+                            if (
+                                json.loads(_cleanup_mc(scope, user_info)).get(
+                                    "userStatus"
+                                )
+                                != "disabled"
+                            ):
+                                raise RuntimeError(
+                                    "Image-import identity fence is unproven"
+                                )
+                            journal["phase"] = "identity_disabled"
+                            atomic_json(journal_path, journal)
+                            evidence["cleanup"]["legacy_storage_partial_probe"] = (
+                                _probe_image_import_partial_retirement(
+                                    backend, prepared, scope, proof
+                                )
+                            )
+                            asyncio.run(
+                                _retire_image_import_bucket(
+                                    backend, prepared, scope, proof
+                                )
+                            )
+                            if (
+                                read_state(journal_path) != journal
+                                or journal.get("phase") != "bucket_retired"
+                                or backend.bucket_info(journal["bucket"]) is not None
+                            ):
+                                raise RuntimeError(
+                                    "Image-import bucket retirement changed"
+                                )
+                            backend._accept_legacy_original_retirement(
+                                prepared, journal, proof
+                            )
+                            evidence["cleanup"]["legacy_storage_retirement"] = {
+                                "bucket_retired": True,
+                                "versions_retired": len(journal["retired"]),
+                                "ledger_live_through_retirement": True,
+                            }
+                            backend._destroy_prepared_database(prepared)
+                            backend._destroy_prepared_services(prepared)
+                            backend._destroy_prepared_buckets(prepared)
+                            backend._finish_prepared_destruction(prepared)
+                            journal["phase"] = "runtime_retired"
+                            atomic_json(journal_path, journal)
+                else:
+                    cleanup_backend = backend
+                    if (
+                        container_id
+                        and "tests/test_legacy_video_fence_live.py" in selected_test_paths
+                        and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
+                    ):
+                        # This fixture deliberately disables every ordinary LOGIN.
+                        cleanup_backend = LocalResources(
+                            backend.resources,
+                            backend.settings.model_copy(
+                                update={
+                                    "database_url": backend.url.render_as_string(
+                                        hide_password=False
+                                    )
+                                }
+                            ),
+                            code_root=ROOT,
+                        )
+                    cleanup_backend.destroy(backend.resources["confirmation"])
+                evidence["cleanup"]["local_resources_destroyed"] = True
+                local_resources_destroyed = True
+            except Exception as error:
+                if not collect_only and physical_retirement_profile:
+                    evidence["cleanup"].setdefault(
+                        "retention_reason", "image_import_retirement_unproven"
+                    )
+                evidence["cleanup"]["errors"].append(
+                    {"resource": "local-resources", "error_type": type(error).__name__}
+                )
+                exit_code = 1
         for label, scope in (
             ("audit_archive_writer", audit_archive_writer_storage),
             ("audit_archive_reader", audit_archive_reader_storage),
             ("mask_content", mask_content_storage),
             ("mask_cleanup", mask_cleanup_storage),
             ("api_bootstrap", api_bootstrap_storage),
+            ("image_import", image_import_storage),
             ("image_worker", image_worker_storage),
             ("media_worker", media_worker_storage),
             ("media_control", media_control_storage),
             ("import", import_storage),
             ("import_source", import_source_storage),
         ):
-            if scope is not None:
+            if scope is not None and local_resources_destroyed:
                 try:
+                    if label == "image_import":
+                        from worktree_env import atomic_json
+
+                        scope["journal"]["phase"] = "identity_removing"
+                        atomic_json(scope["journal_path"], scope["journal"])
                     _destroy_cleanup_storage_scope(scope)
+                    if label == "image_import":
+                        scope["journal"].pop("secret_key")
+                        scope["journal"]["phase"] = "complete"
+                        atomic_json(scope["journal_path"], scope["journal"])
                     evidence["cleanup"][label + "_storage_identity_removed"] = True
                 except Exception as error:
                     evidence["cleanup"]["errors"].append(
                         {label + "_storage_identity": type(error).__name__}
                     )
                     exit_code = 1
-        if source_storage is not None:
+        if source_storage is not None and local_resources_destroyed:
             try:
                 _destroy_cleanup_storage_scope(source_storage)
                 evidence["cleanup"]["source_storage_identity_removed"] = True
@@ -10277,7 +12528,7 @@ SELECT pg_catalog.jsonb_build_object(
                     {"source_storage_identity": type(error).__name__}
                 )
                 exit_code = 1
-        if catalog_storage is not None:
+        if catalog_storage is not None and local_resources_destroyed:
             try:
                 _destroy_cleanup_storage_scope(catalog_storage)
                 evidence["cleanup"]["catalog_storage_identity_removed"] = True
@@ -10286,51 +12537,13 @@ SELECT pg_catalog.jsonb_build_object(
                     {"catalog_storage_identity": type(error).__name__}
                 )
                 exit_code = 1
-        if cleanup_storage is not None:
+        if cleanup_storage is not None and local_resources_destroyed:
             try:
                 _destroy_cleanup_storage_scope(cleanup_storage)
                 evidence["cleanup"]["storage_identity_removed"] = True
             except Exception as error:
                 evidence["cleanup"]["errors"].append(
                     {"storage_identity": type(error).__name__}
-                )
-                exit_code = 1
-        # prepare arms touched before publishing or mutating any owned resource.
-        # If guarded destruction fails, retain the identity root and PostgreSQL.
-        local_resources_destroyed = backend is None or not backend.touched
-        if backend is not None and backend.touched:
-            try:
-                if container_id:
-                    _container_details(
-                        container_id,
-                        container_name,
-                        container_identity,
-                        require_running=True,
-                    )
-                cleanup_backend = backend
-                if (
-                    container_id
-                    and "tests/test_legacy_video_fence_live.py" in selected_test_paths
-                    and os.environ.get("AAP_LEGACY_VIDEO_FENCE_LIVE") == "1"
-                ):
-                    # This fixture deliberately disables every ordinary LOGIN.
-                    cleanup_backend = LocalResources(
-                        backend.resources,
-                        backend.settings.model_copy(
-                            update={
-                                "database_url": backend.url.render_as_string(
-                                    hide_password=False
-                                )
-                            }
-                        ),
-                        code_root=ROOT,
-                    )
-                cleanup_backend.destroy(backend.resources["confirmation"])
-                evidence["cleanup"]["local_resources_destroyed"] = True
-                local_resources_destroyed = True
-            except Exception as error:
-                evidence["cleanup"]["errors"].append(
-                    {"resource": "local-resources", "error_type": type(error).__name__}
                 )
                 exit_code = 1
         # Keep the verified database reachable when cleanup needs another pass.

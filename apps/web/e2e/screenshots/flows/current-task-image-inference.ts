@@ -26,7 +26,7 @@ export async function runCurrentTaskImageInference(
   const hasE2e = (backend?.capabilities.models ?? []).some((model) => model.id === "ocr-e2e");
   if (!backend?.name.toLowerCase().includes("rapidocr") || !hasE2e) {
     throw new Error(
-      "[current-task-image-inference] P-OCR 未绑定含 ocr-e2e 的真实 RapidOCR backend",
+      `[current-task-image-inference] ${project.display_id} 未绑定含 ocr-e2e 的真实 RapidOCR backend`,
     );
   }
 

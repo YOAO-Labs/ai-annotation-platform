@@ -217,6 +217,19 @@
           "title": "Status",
           "type": "string"
         },
+        "verification_operation_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verification Operation Id"
+        },
         "file_size": {
           "anyOf": [
             {
@@ -291,7 +304,7 @@
       "title": "ImportEntryCompletion",
       "type": "object",
       "x-invariants": [
-        "copied requires non-negative file_size, lowercase MD5 and paired optional dimensions",
+        "copied requires a verification operation, non-negative file_size, lowercase MD5 and paired optional dimensions",
         "error requires only a bounded safe error_code"
       ]
     },
@@ -641,5 +654,6 @@
   ],
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:aap:dataset-import:v1",
-  "title": "Assets Dataset connector import values"
+  "title": "Assets Dataset connector import values",
+  "x-completion-schema-resource": "0453_import_original_completion.schema.json"
 }

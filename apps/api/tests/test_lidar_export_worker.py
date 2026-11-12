@@ -5,11 +5,13 @@ this fixture keeps SQL migrations, frozen serialization and cache coupling real.
 """
 
 from contextlib import nullcontext
+from datetime import datetime, timedelta, timezone
 import hashlib
 import io
 import json
 from pathlib import Path
 from unittest.mock import AsyncMock
+from types import SimpleNamespace
 import uuid
 import zipfile
 
@@ -22,7 +24,12 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.services import export_media_storage as physical
-from app.services import export_outputs, export_storage, storage_access
+from app.services import (
+    export_execution_context,
+    export_outputs,
+    export_storage,
+    storage_access,
+)
 from app.services.content_snapshot import ContentError
 from app.services.exporting import lidar_delivery, lidar_jobs, output_authority
 from app.services.exporting.lidar_frozen import FrozenLidar
@@ -66,6 +73,10 @@ class Harness:
         self.guard = None
         self.built_paths = []
         self.notices = []
+        self.takeover = False
+        self.execution_entries = 0
+        self.unsettled = False
+        monkeypatch.setattr(export_execution_context, "current", lambda: self)
 
         async def authorize(db, *_args, **_kwargs):
             if self.revoked:
@@ -165,6 +176,16 @@ class Harness:
             },
         )
 
+    async def enter_io(self):
+        self.execution_entries += 1
+
+    async def settle_io(self):
+        self.execution_entries -= 1
+
+    @property
+    def entered(self):
+        return self.execution_entries != 0
+
 
 async def request(db, project, *, targets=None, axis_frame=None):
     targets = targets or ["pointmask", "native_json"]
@@ -200,6 +221,28 @@ async def request(db, project, *, targets=None, axis_frame=None):
 async def state(db, model, identifier):
     await db.rollback()
     return await db.get(model, identifier, populate_existing=True)
+
+
+def test_cache_reuse_respects_fixture_lifetimes():
+    created = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    ordinary_old = SimpleNamespace(
+        fixture_run_id=None, expires_at=created + timedelta(days=7)
+    )
+    ordinary_new = SimpleNamespace(
+        fixture_run_id=None, expires_at=created + timedelta(days=8)
+    )
+    fixture_first = SimpleNamespace(
+        fixture_run_id=uuid.uuid4(), expires_at=created + timedelta(minutes=15)
+    )
+    fixture_repeat = SimpleNamespace(
+        fixture_run_id=fixture_first.fixture_run_id,
+        expires_at=created + timedelta(minutes=16),
+    )
+    assert worker._cache_reusable(ordinary_new, ordinary_old)
+    assert not worker._cache_reusable(ordinary_old, ordinary_new)
+    assert not worker._cache_reusable(fixture_first, ordinary_old)
+    assert not worker._cache_reusable(ordinary_new, fixture_first)
+    assert not worker._cache_reusable(fixture_repeat, fixture_first)
 
 
 async def test_real_zip_publication_then_verified_cache_preserves_original_deadline(

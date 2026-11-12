@@ -101,6 +101,7 @@ def configured_app(config):
         inputs_bucket=config.storage.inputs_bucket,
         access_key=config.storage.access_key,
         secret_key=config.storage.secret_key,
+        additional_original=config.storage.additional_original,
         connect_timeout=config.storage.connect_timeout,
         read_timeout=config.storage.read_timeout,
         max_attempts=config.storage.max_attempts,
@@ -120,19 +121,30 @@ def configured_app(config):
         try:
             if not await check_capabilities(pool, "control"):
                 raise RuntimeError("Media control SQL capability qualification failed")
+            from .fixture_cache_resolver import FixtureCacheResolver
+
+            fixture_cache = await FixtureCacheResolver.open(
+                pool,
+                connect_timeout=config.storage.connect_timeout,
+                read_timeout=config.storage.read_timeout,
+            )
+            state["fixture_cache_resolver"] = fixture_cache
+            storage_values = asdict(config.storage)
+            storage_values["additional_original"] = config.storage.additional_original
             state["control"] = MediaControl(
                 AsyncpgMediaDatabase(pool, allowed_roles={"control", "system"}),
                 S3MediaStorage(
+                    fixture_cache_resolver=fixture_cache,
                     **{
                         key: value
-                        for key, value in asdict(config.storage).items()
+                        for key, value in storage_values.items()
                         if key != "inputs_bucket"
                     }
                 ),
             )
             state["image_control"] = ImageControl(
                 AsyncpgImageDatabase(pool, allowed_roles={"control", "system"}),
-                S3ImageStorage(image_storage),
+                S3ImageStorage(image_storage, fixture_cache_resolver=fixture_cache),
                 image_policy,
                 wakeup=None,
             )
@@ -182,8 +194,23 @@ def configured_app(config):
                     if image_control is not None:
                         await image_control.close()
             finally:
-                state.clear()
-                await pool.close()
+                try:
+                    control = state.get("control")
+                    close_original = getattr(
+                        getattr(control, "storage", None),
+                        "close_additional_original",
+                        None,
+                    )
+                    if callable(close_original):
+                        close_original()
+                finally:
+                    try:
+                        fixture_cache = state.get("fixture_cache_resolver")
+                        if fixture_cache is not None:
+                            await fixture_cache.close()
+                    finally:
+                        state.clear()
+                        await pool.close()
 
     app.router.lifespan_context = lifespan
     return app

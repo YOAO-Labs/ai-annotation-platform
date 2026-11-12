@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class ManagedOriginalReclamationCoverage(BaseModel):
@@ -74,11 +74,9 @@ ReclamationBlocker = Literal[
 ]
 
 
-class ManagedOriginalReclamationItem(BaseModel):
+class _ManagedOriginalReclamationItemFields(BaseModel):
     id: uuid.UUID
-    asset_id: uuid.UUID
     dataset_id: uuid.UUID
-    dataset_item_id: uuid.UUID
     retired_at: datetime
     policy_revision: int
     retain_until: datetime | None
@@ -93,6 +91,29 @@ class ManagedOriginalReclamationItem(BaseModel):
     policy_candidate: bool
     roots: ManagedOriginalReclamationRoots
     blockers: list[ReclamationBlocker]
+
+
+class ManagedOriginalDatasetAssetReclamationItem(_ManagedOriginalReclamationItemFields):
+    owner_type: Literal["dataset_asset"]
+    dataset_item_id: uuid.UUID
+    asset_id: uuid.UUID
+    auxiliary_original_id: None
+
+
+class ManagedOriginalDatasetAuxiliaryReclamationItem(
+    _ManagedOriginalReclamationItemFields
+):
+    owner_type: Literal["dataset_auxiliary"]
+    dataset_item_id: None
+    asset_id: None
+    auxiliary_original_id: uuid.UUID
+
+
+ManagedOriginalReclamationItem = Annotated[
+    ManagedOriginalDatasetAssetReclamationItem
+    | ManagedOriginalDatasetAuxiliaryReclamationItem,
+    Field(discriminator="owner_type"),
+]
 
 
 class ManagedOriginalReclamationPreview(BaseModel):

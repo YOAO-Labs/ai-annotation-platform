@@ -236,9 +236,15 @@ class GPUAuthorityPostgresData(_BorrowedGPUData):
     """Function-only authority RPC bound to a caller-owned PostgreSQL transaction."""
 
     @classmethod
-    async def bind(cls, connection: Any) -> GPUAuthorityPostgresData:
+    async def bind(
+        cls, connection: Any, *, expected_role: str
+    ) -> GPUAuthorityPostgresData:
         try:
-            if connection.is_in_transaction() is not True:
+            if (
+                type(expected_role) is not str
+                or not expected_role
+                or connection.is_in_transaction() is not True
+            ):
                 raise GPUAuthorityUnavailable()
             from yoao_owner_data.postgres import verify_function_only_role
 
@@ -246,7 +252,7 @@ class GPUAuthorityPostgresData(_BorrowedGPUData):
                 connection,
                 schema=GPU_AUTHORITY_SCHEMA,
                 functions=_AUTHORITY_FUNCTIONS,
-                role="inference_gpu_authority_client",
+                role=expected_role,
             )
             policy = _decode_object(
                 await connection.fetchval(_AUTHORITY_POLICY_SQL),
@@ -311,14 +317,19 @@ class GPUCallerPostgresData(_BorrowedGPUData):
 class GPUAuthorityPoolData:
     """Open one short caller-owned transaction for each runtime Native action."""
 
-    def __init__(self, pool: Any) -> None:
+    def __init__(self, pool: Any, *, expected_role: str) -> None:
+        if type(expected_role) is not str or not expected_role:
+            raise ValueError("GPU authority expected role is required")
         self._pool = pool
+        self._expected_role = expected_role
 
     @asynccontextmanager
     async def transaction(self) -> AsyncIterator[GPUAuthorityData]:
         async with self._pool.acquire() as connection:
             async with connection.transaction():
-                yield await GPUAuthorityPostgresData.bind(connection)
+                yield await GPUAuthorityPostgresData.bind(
+                    connection, expected_role=self._expected_role
+                )
 
     async def step(
         self,

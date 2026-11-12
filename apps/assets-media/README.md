@@ -13,6 +13,31 @@ four input functions, its own SQL LOGIN and its own S3 credentials. The image wo
 Pillow for small thumbnails and the bounded libvips child process for pyramid
 generation. Neither worker imports the API ORM, Celery or Redis.
 
+Original-read permits and cache-output ownership are separate: an ordinary
+image or video job can read a fixture-owned original while writing only to its
+ordinary cache. Each output write requires its worker's matching execution
+scope; fixture-native executions require the fixture writer and its private
+target. Missing or mismatched output authority fails closed, and fixture source
+reads retain their existing settlement and uncertainty fences.
+
+`ready_source_reference` is the strict reference path for callers that have
+already admitted and verified output work. Its video and image HTTP routes are
+`/v1/ready-source-reference` and `/v1/images/ready-source-reference`. A stale
+publication or missing cached object fails without invalidating or scheduling
+repair work. Ordinary `source_reference` retains its existing lazy-repair
+behavior. Fixture originals deliberately have no ordinary original URL;
+fixture callers verify original bytes through their existing scoped owner.
+
+Image backfill uses `only_missing` to check the selected output before admitting
+work. A thumbnail job probes unknown dimensions itself and publishes the
+thumbnail and dimensions together. For known pyramid-eligible dimensions,
+thumbnail backfill preserves automatic pyramid generation when enabled; its
+`only_missing` check uses the current pyramid generation. Without that policy,
+an ineligible thumbnail job terminates with `not_eligible`. A pyramid overview
+is a separate generation output and does not itself publish a thumbnail path.
+Backfill `ready` means the scan and child admission finished, not that all
+children succeeded; consumers must inspect the child or its current output.
+
 The image worker also materializes accepted input bytes into the dedicated,
 versioned `ASSETS_MEDIA_INPUTS_BUCKET`. Its normal poll processes both lanes;
 `--once` processes at most one claim, preferring an input claim. `--job-id` selects

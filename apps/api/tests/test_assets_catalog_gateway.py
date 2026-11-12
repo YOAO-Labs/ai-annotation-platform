@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -25,19 +26,16 @@ from yoao_assets_catalog import (
     UpdateDatasetRequest,
 )
 from yoao_assets_images.contract import ImageOwner, ImageSource, ObjectIdentity
-from yoao_assets_images.contract import (
-    AcceptedImageWork,
-    ImageBackfillSpec,
-    ImageWorkReference,
-)
-from yoao_assets_images.policy import ImagePolicy
 from yoao_assets_images.transport import ImageSourceReference
 from yoao_assets_media.contract import MediaSource
 from yoao_assets_media.transport import SourceReference
 from app.services import assets_catalog
-from app.services.dataset import DatasetService
 from app.api.v1 import datasets as dataset_routes
 from app.schemas.dataset import DatasetCreate, DatasetUpdate
+from tests.identity_e2e_support import (
+    e2e_consumer as e2e_consumer,
+    fenced_http as fenced_http,
+)
 
 
 def _dataset_payload(
@@ -509,30 +507,6 @@ def _image_source_reference(
     )
 
 
-def _accepted_backfill(request, *, job_id: uuid.UUID) -> AcceptedImageWork:
-    accepted_before = datetime.now(UTC)
-    spec = request.spec.model_copy(
-        update={
-            "selection": request.spec.selection.model_copy(
-                update={"accepted_before": accepted_before}
-            )
-        }
-    )
-    return AcceptedImageWork(
-        operation_id=request.operation_id,
-        source=None,
-        work=ImageWorkReference(
-            job_id=job_id,
-            generation=1,
-            owner=None,
-            source_generation=0,
-            kind="image_backfill",
-            status="pending",
-        ),
-        spec=spec,
-    )
-
-
 @pytest.mark.parametrize("remote", [False, True])
 @pytest.mark.asyncio
 async def test_catalog_video_links_always_use_owner_reference(monkeypatch, remote):
@@ -706,176 +680,639 @@ async def test_catalog_image_links_withhold_unverified_urls_without_storage_fall
     assert signed == []
 
 
-@pytest.mark.parametrize("mismatch", [False, True])
-@pytest.mark.asyncio
-async def test_dataset_service_image_links_use_verified_owner_reference(
-    monkeypatch, mismatch
-):
-    actor_id, dataset_id, item_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
-    item = SimpleNamespace(
-        id=item_id,
-        dataset_id=dataset_id,
-        file_name="image.jpg",
-        file_path=f"source/{item_id}",
-        file_type="image",
-        file_size=1,
-        content_hash=None,
-        width=12,
-        height=8,
-        blurhash="stale-blurhash",
-        metadata_={},
-        created_at=datetime.now(UTC),
-    )
-    db = AsyncMock(spec=AsyncSession)
-    count_result = SimpleNamespace(scalar=lambda: 1)
-    item_result = SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: [item]))
-    db.execute.side_effect = [count_result, item_result]
-    signed = []
-    monkeypatch.setattr(
-        assets_catalog.storage_service,
-        "generate_download_url",
-        lambda key, *, bucket: signed.append((key, bucket)) or "unsafe:direct-sign",
+_RETAINED_BACKFILL_RUNTIME = []
+
+
+def _backfill_worker_scope(resources, store):
+    """Use only the fixture test's existing cache-output storage domain."""
+    import secrets
+    from types import SimpleNamespace
+
+    from app.config import settings
+    from verify_module_data_boundary import (
+        _cleanup_mc,
+        _cleanup_storage_scope,
+        _destroy_cleanup_storage_scope,
     )
 
-    async def owner_references(_db, requests):
-        assert requests[0].actor_id == actor_id
-        return [
-            _image_source_reference(
-                item_id,
-                dataset_id,
-                actor_id=actor_id,
-                file_path="source/changed" if mismatch else item.file_path,
-            )
-        ]
-
-    monkeypatch.setattr(
-        "app.services.dataset.image_source_references", owner_references
+    scope = _cleanup_storage_scope(
+        SimpleNamespace(settings=settings, resources=resources, s3=store)
     )
-
-    result, total = await DatasetService(db).list_items(dataset_id, actor_id=actor_id)
-
-    assert total == 1
-    assert signed == []
-    if mismatch:
-        assert result[0]["file_url"] is None
-        assert result[0]["thumbnail_url"] is None
-        assert result[0]["blurhash"] is None
-        assert (result[0]["width"], result[0]["height"]) == (12, 8)
-    else:
-        assert result[0]["file_url"] == f"https://browser.test/image/{item_id}"
-        assert result[0]["thumbnail_url"] == (
-            "https://browser.test/verified-image-thumbnail"
+    scope["policy"] = "fixture-backfill-writer-" + secrets.token_hex(8)
+    cache = f"arn:aws:s3:::{resources['buckets']['MINIO_MEDIA_CACHE_BUCKET']}"
+    policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject"],
+                "Resource": [f"{cache}/thumbnails/objects/*"],
+            }
+        ],
+    }
+    try:
+        _cleanup_mc(
+            scope,
+            [
+                "admin",
+                "user",
+                "add",
+                "scoped",
+                scope["access_key"],
+                scope["secret_key"],
+            ],
         )
-        assert result[0]["blurhash"] == "verified-image-blurhash"
-        assert (result[0]["width"], result[0]["height"]) == (16, 9)
+        scope["user_created"] = True
+        _cleanup_mc(
+            scope,
+            ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+            payload=json.dumps(policy),
+        )
+        scope["policy_created"] = True
+        _cleanup_mc(
+            scope,
+            [
+                "admin",
+                "policy",
+                "attach",
+                "scoped",
+                scope["policy"],
+                "--user",
+                scope["access_key"],
+            ],
+        )
+        return scope
+    except BaseException:
+        _destroy_cleanup_storage_scope(scope)
+        raise
 
 
 @pytest.mark.asyncio
-async def test_dimension_backfill_accepts_a_durable_bounded_job(monkeypatch):
-    actor_id, dataset_id, operation_id, job_id = (uuid.uuid4() for _ in range(4))
-    requests = []
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1"
+    or not os.environ.get("AAP_WORKSPACE_MODULE_API_IMAGE"),
+    reason="requires the owned verifier and qualified installed API worker",
+)
+@pytest.mark.parametrize(
+    ("route", "purpose"),
+    [("backfill-dimensions", "dimensions"), ("backfill-media", "thumbnail")],
+)
+async def test_dataset_backfill_accepts_cutoff_and_retires_real_delivery(
+    fenced_http, test_engine, monkeypatch, tmp_path, route, purpose
+):
+    import hashlib
+    import secrets
+    import subprocess
+    import sys
+    import tempfile
+    from contextlib import closing
+    from pathlib import Path
 
-    class ImageOwner:
-        async def __aenter__(self):
-            return self
+    import boto3
+    from botocore.config import Config
+    from celery import Celery
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import async_sessionmaker
 
-        async def __aexit__(self, *_args):
-            return None
+    from app.config import settings
+    from app.services import image_pyramid_originals as originals
 
-        async def call(self, operation, request):
-            assert operation == "schedule_image_media"
-            requests.append(request)
-            return _accepted_backfill(request, job_id=job_id)
-
-    monkeypatch.setattr(dataset_routes, "image_gateway", lambda: ImageOwner())
-    monkeypatch.setattr(dataset_routes, "image_policy", ImagePolicy)
-    response = Response()
-    result = await dataset_routes.backfill_dimensions(
-        dataset_id,
-        response,
-        batch=200,
-        current_user=SimpleNamespace(id=actor_id),
-        idempotency_key=operation_id,
+    from tests.identity_e2e_support import fixture_routing_owner
+    from tests.project_guide_asset_owner_helpers import (
+        assert_workspace_identity,
+        endpoint_url,
     )
-
-    assert len(requests) == 1
-    request = requests[0]
-    assert request.operation_id == operation_id
-    assert request.owner_kind is request.owner_id is None
-    assert isinstance(request.spec, ImageBackfillSpec)
-    assert request.spec.selection.owner_kind == "dataset_item"
-    assert request.spec.selection.dataset_id == dataset_id
-    assert request.spec.selection.purpose == "dimensions"
-    assert request.spec.selection.only_missing is True
-    assert result.job_id == job_id
-    assert result.operation_id == operation_id
-    assert result.status == "pending"
-    assert result.accepted_before.tzinfo is not None
-    assert response.headers["Idempotency-Key"] == str(operation_id)
-    route = next(
-        route
-        for route in dataset_routes.router.routes
-        if route.endpoint is dataset_routes.backfill_dimensions
+    from tests.seed_owned_scenarios import _build_owned, _cleanup_owned
+    from tests.seed_owner_support import (
+        OwnedSuite,
+        _fixture_versions,
+        _read_versions,
+        fixture_original_reader,
     )
-    assert route.status_code == 202
-
-
-@pytest.mark.asyncio
-async def test_media_backfill_keeps_video_owner_and_accepts_image_owner(monkeypatch):
-    actor_id, dataset_id, operation_id, job_id = (uuid.uuid4() for _ in range(4))
-    image_requests = []
-    video_requests = []
-
-    class ImageOwner:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def call(self, operation, request):
-            assert operation == "schedule_image_media"
-            image_requests.append(request)
-            return _accepted_backfill(request, job_id=job_id)
-
-    class VideoOwner:
-        async def __aenter__(self):
-            return self
-
-        async def __aexit__(self, *_args):
-            return None
-
-        async def call(self, operation, request):
-            video_requests.append((operation, request))
-
-    monkeypatch.setattr(dataset_routes, "image_gateway", lambda: ImageOwner())
-    monkeypatch.setattr(dataset_routes, "image_policy", ImagePolicy)
-    monkeypatch.setattr(dataset_routes, "media_gateway", lambda: VideoOwner())
-
-    class CatalogGateway:
-        def __init__(self, _db):
-            pass
-
-        async def get(self, request):
-            assert request.actor_id == actor_id
-            assert request.dataset_id == dataset_id
-
-    monkeypatch.setattr(dataset_routes, "AssetsCatalogGateway", CatalogGateway)
-    response = Response()
-    result = await dataset_routes.backfill_media_endpoint(
-        dataset_id,
-        response,
-        db=object(),
-        current_user=SimpleNamespace(id=actor_id),
-        idempotency_key=operation_id,
+    from tests.test_assets_media_live import _guard_role_url
+    from tests.test_fixture_inference_retirement_live import (
+        _eventually,
+        _login,
+        _PreservedSeedOwner,
+        _start_media_runtime,
+        _stop_media_runtime,
     )
+    from tests.test_workspace_worker_assembly_live import (
+        _delete_owned_queue,
+        _wait_broker_ack,
+        _wait_worker_ready,
+    )
+    from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
 
-    assert len(image_requests) == 1
-    assert image_requests[0].operation_id == operation_id
-    assert image_requests[0].spec.selection.purpose == "thumbnail"
-    assert video_requests[0][0] == "request_video_media"
-    assert video_requests[0][1].operation_id == operation_id
-    assert video_requests[0][1].spec.selection.dataset_id == dataset_id
-    assert result.operation_id == operation_id
-    assert result.job_id == job_id
-    assert response.headers["Idempotency-Key"] == str(operation_id)
+    root = Path(__file__).resolve().parents[3]
+    if str(root / "scripts") not in sys.path:
+        sys.path.insert(0, str(root / "scripts"))
+    import fixture_media_control
+    from fixture_suite_coordinator import _resource_root, _verified_database, state_path
+    from verify_module_data_boundary import _destroy_cleanup_storage_scope
+    from verify_playwright_fixture_teardown import (
+        observe_native_absence,
+        observe_native_birth,
+    )
+    from yoao_assets_media_runtime.fixture_native_outputs import load_target_file
+
+    publication_url = (
+        _guard_role_url(
+            "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+            "jobs_publication_client",
+            test_engine,
+        )
+        .set(drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
+    monkeypatch.setattr(settings, "jobs_publication_database_url", publication_url)
+    monkeypatch.setattr(settings, "jobs_publication_database_url_file", "")
+    monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL", publication_url)
+    monkeypatch.setenv("JOBS_PUBLICATION_DATABASE_URL_FILE", "")
+    monkeypatch.setattr(settings, "jobs_queue_url", "")
+    routing = fixture_routing_owner(test_engine, monkeypatch)
+    owner = suite = media = worker = sender = scope = store = output_store = (
+        owner_log
+    ) = None
+    run = neighbor = job_id = None
+    completed = False
+    try:
+        await routing.__aenter__()
+        media = await _start_media_runtime(test_engine, tmp_path)
+        media_url = str(media.control_client.base_url).rstrip("/")
+        monkeypatch.setattr(settings, "assets_media_url", media_url)
+        monkeypatch.setattr(settings, "assets_media_token", media.control_token)
+        monkeypatch.setenv("ASSETS_MEDIA_URL", media_url)
+        monkeypatch.setenv("ASSETS_MEDIA_TOKEN", media.control_token)
+        monkeypatch.setenv("ASSETS_MEDIA_TOKEN_FILE", "")
+        suite_id = uuid.uuid4()
+        owner_environment = {
+            **os.environ,
+            "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
+            "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(suite_id),
+            "PLAYWRIGHT_FIXTURE_RUN_ID": str(suite_id),
+        }
+        owner_log = tempfile.TemporaryFile()
+        process = subprocess.Popen(
+            [sys.executable, str(root / "apps/web/e2e/fixtures/seed-request.py")],
+            cwd=root / "apps/api",
+            env=owner_environment,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=owner_log,
+            close_fds=True,
+            start_new_session=True,
+            bufsize=0,
+        )
+        owner = _PreservedSeedOwner(process, owner_log)
+        suite = OwnedSuite(owner, suite_id)
+        await owner.verify_suite(suite_id, "owned")
+        run = suite.new_run("bf" + uuid.uuid4().hex[:8])
+        neighbor = suite.new_run("nb" + uuid.uuid4().hex[:8])
+        world = await _build_owned(owner, run)
+        await _build_owned(owner, neighbor)
+        async with test_engine.connect() as db:
+            dataset_id = await db.scalar(
+                text(
+                    "SELECT item.dataset_id FROM aap_labeling_v1.task_rows AS task "
+                    "JOIN public.dataset_items AS item ON item.id=task.dataset_item_id "
+                    "WHERE task.id=:task"
+                ),
+                {"task": uuid.UUID(world["task_ids"][0])},
+            )
+        assert dataset_id is not None
+        seed_payload = {**run.payload(), "dataset_id": str(dataset_id)}
+        before = await owner.post(
+            "/api/v1/__test/seed/backfill-image", json=seed_payload
+        )
+        assert before.status_code == 200, before.text
+        existing_item = uuid.UUID(before.json()["item_id"])
+
+        secret_path = await fixture_media_control.receipt_path(run.run_id)
+        control_url = await fixture_media_control.load_control(run.run_id, secret_path)
+        native_target = await fixture_media_control.native_target(run.run_id)
+        _, fixture_resources, fixture_identity = await _verified_database()
+        owner_path = state_path(
+            _resource_root(fixture_resources),
+            fixture_resources["mode"],
+            "fixture-store-owner.json",
+        )
+        birth = await asyncio.to_thread(
+            observe_native_birth, owner_path, fixture_identity, run.run_id
+        )
+        target_reader = load_target_file(
+            native_target["reader_file"],
+            control_url.render_as_string(hide_password=False),
+            "aap_fixture_media_",
+        )
+        output_store = boto3.client(
+            "s3",
+            endpoint_url=target_reader["endpoint"],
+            aws_access_key_id=target_reader["access_key"],
+            aws_secret_access_key=target_reader["secret_key"],
+            region_name="us-east-1",
+            config=Config(signature_version="s3v4"),
+        )
+        resources, _, store = await assert_workspace_identity(test_engine)
+        scope = await asyncio.to_thread(_backfill_worker_scope, resources, store)
+        sender = Celery(
+            "fixture-backfill-verifier",
+            broker=settings.effective_celery_broker,
+            backend=settings.effective_celery_broker,
+        )
+        # Keep the owner's qualified worker alive but prevent it racing the
+        # installed worker before the post-cutoff item has been created.
+        native_node = f"aap-fixture-{run.run_id.hex}-media@127.0.0.1"
+        native_queue = f"aap_workspace_worker_{run.run_id.hex}_media"
+        paused = await asyncio.to_thread(
+            sender.control.cancel_consumer,
+            native_queue,
+            destination=[native_node],
+            reply=True,
+        )
+        assert paused and any(
+            native_node in reply and "ok" in reply[native_node] for reply in paused
+        )
+        inspect = sender.control.inspect(timeout=2, destination=[native_node])
+        queues = await asyncio.to_thread(inspect.active_queues)
+        assert queues and native_node in queues
+        assert native_queue not in {row["name"] for row in queues[native_node]}
+        headers = await _login(owner, world)
+        operation_id = uuid.uuid4()
+        headers["Idempotency-Key"] = str(operation_id)
+        path = f"/api/v1/datasets/{dataset_id}/{route}"
+        missing = await fenced_http.post(
+            f"/api/v1/datasets/{uuid.uuid4()}/{route}", headers=headers
+        )
+        assert missing.status_code == 404, missing.text
+        accepted = await fenced_http.post(path, headers=headers)
+        assert accepted.status_code == 202, accepted.text
+        repeated = await fenced_http.post(path, headers=headers)
+        assert repeated.status_code == 202, repeated.text
+        assert repeated.json() == accepted.json()
+        assert accepted.headers["Idempotency-Key"] == str(operation_id)
+        receipt = accepted.json()
+        assert receipt["dataset_id"] == str(dataset_id)
+        assert receipt["operation_id"] == str(operation_id)
+        assert receipt["purpose"] == purpose and receipt["status"] == "pending"
+        cutoff = datetime.fromisoformat(receipt["accepted_before"])
+        job_id = uuid.UUID(receipt["job_id"])
+        other_route = (
+            "backfill-media" if purpose == "dimensions" else "backfill-dimensions"
+        )
+        conflict = await fenced_http.post(
+            f"/api/v1/datasets/{dataset_id}/{other_route}", headers=headers
+        )
+        assert conflict.status_code == 409, conflict.text
+
+        after = await owner.post(
+            "/api/v1/__test/seed/backfill-image", json=seed_payload
+        )
+        assert after.status_code == 200, after.text
+        late_item = uuid.UUID(after.json()["item_id"])
+        async with test_engine.connect() as db:
+            rows = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT id,created_at,width,height,thumbnail_path "
+                            "FROM public.dataset_items WHERE id=ANY(:ids)"
+                        ),
+                        {"ids": [existing_item, late_item]},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            items = {row["id"]: dict(row) for row in rows}
+            assert (
+                items[existing_item]["created_at"]
+                <= cutoff
+                < items[late_item]["created_at"]
+            )
+            job = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT kind,project_id,payload FROM public.async_jobs WHERE id=:job"
+                        ),
+                        {"job": job_id},
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert job["kind"] == "media_backfill" and job["project_id"] is None
+            assert job["payload"]["dataset_id"] == str(dataset_id)
+            assert job["payload"]["purpose"] == purpose
+            assert job["payload"]["operation_id"] == str(operation_id)
+            assert datetime.fromisoformat(job["payload"]["accepted_before"]) == cutoff
+            dispatches = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT execution_id,envelope FROM aap_jobs_v1.dispatch_intents "
+                            "WHERE job_id=:job"
+                        ),
+                        {"job": job_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+            assert len(dispatches) == 1
+            assert dispatches[0]["execution_id"] == str(job_id)
+            envelope = dispatches[0]["envelope"]
+            assert envelope["task_name"] == "app.workers.media.run_media_backfill"
+            assert envelope["args"] == [str(job_id)]
+            assert envelope["options"] == {
+                "queue": f"aap_workspace_worker_{run.run_id.hex}_media"
+            }
+
+        worker = WorkspaceCeleryWorker(
+            test_engine,
+            tmp_path / "media-worker",
+            backend_token=secrets.token_urlsafe(32),
+            object_store_endpoint=endpoint_url(),
+            object_store_bucket=resources["buckets"]["MINIO_BUCKET"],
+            object_store_use_ssl=endpoint_url().startswith("https://"),
+            object_store_access_key=scope["access_key"],
+            object_store_secret_key=scope["secret_key"],
+            object_store_buckets=resources["buckets"],
+            queue_name="fixture-media",
+            fixture_run_id=run.run_id,
+        )
+        await worker.configure_fixture_original_reader(
+            media_url=media_url, media_token=media.control_token
+        )
+        worker.configure_fixture_media_control(
+            control_url, output_file=native_target["writer_file"]
+        )
+        worker.start()
+        await _wait_worker_ready(sender, worker)
+
+        async def settled():
+            async with test_engine.connect() as db:
+                return await db.scalar(
+                    text(
+                        "SELECT state='settled' FROM aap_jobs_v1.fixture_media_backfills "
+                        "WHERE job_id=:job AND run_id=:run AND dataset_id=:dataset"
+                    ),
+                    {"job": job_id, "run": run.run_id, "dataset": dataset_id},
+                )
+
+        await _eventually("exact backfill execution settled", settled, timeout=180)
+        await _wait_broker_ack(sender, worker, job_id)
+        async with test_engine.connect() as db:
+            status = await db.scalar(
+                text("SELECT status FROM public.async_jobs WHERE id=:job"),
+                {"job": job_id},
+            )
+            assert status == "completed"
+            observed = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT id,width,height,thumbnail_path FROM public.dataset_items WHERE id=ANY(:ids)"
+                        ),
+                        {"ids": [existing_item, late_item]},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        async with test_engine.connect() as db:
+            versions = (
+                (
+                    await db.execute(
+                        text(
+                            "SELECT version.id,version.object_key,version.version_id,"
+                            "version.sha256,version.size_bytes,output.storage_ref->>'bucket' AS bucket "
+                            "FROM aap_assets_v1.fixture_media_versions AS version "
+                            "JOIN public.thumbnail_outputs AS output ON output.id=version.owner_id "
+                            "WHERE version.run_id=:run AND version.dataset_id=:dataset "
+                            "AND version.owner_kind='thumbnail' AND version.state='verified'"
+                        ),
+                        {"run": run.run_id, "dataset": dataset_id},
+                    )
+                )
+                .mappings()
+                .all()
+            )
+        assert versions
+        for version in versions:
+            assert version["bucket"] == native_target["bucket"]
+            params = {"Bucket": version["bucket"], "Key": version["object_key"]}
+            if version["version_id"] is not None:
+                params["VersionId"] = version["version_id"]
+            response = await asyncio.to_thread(output_store.get_object, **params)
+            with closing(response["Body"]) as body:
+                payload = await asyncio.to_thread(body.read)
+            assert len(payload) == version["size_bytes"]
+            assert hashlib.sha256(payload).hexdigest() == version["sha256"]
+        observed = {row["id"]: dict(row) for row in observed}
+        assert (
+            observed[existing_item]["width"],
+            observed[existing_item]["height"],
+        ) == (64, 48)
+        assert observed[existing_item]["thumbnail_path"] is not None
+        assert (
+            observed[late_item]["width"] is None
+            and observed[late_item]["height"] is None
+        )
+        assert observed[late_item]["thumbnail_path"] is None
+        async with test_engine.connect() as db:
+            completed_generation = await db.scalar(
+                text(
+                    "SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                ),
+                {"job": job_id},
+            )
+        mismatch_id = uuid.uuid4()
+        sender.send_task(
+            "app.workers.media.run_media_backfill",
+            args=[str(job_id)],
+            queue=worker.queue,
+            task_id=str(mismatch_id),
+        )
+        await _wait_broker_ack(sender, worker, mismatch_id)
+        async with test_engine.connect() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT generation FROM aap_jobs_v1.fixture_media_backfills WHERE job_id=:job"
+                    ),
+                    {"job": job_id},
+                )
+                == completed_generation
+            )
+
+        neighbor_versions = await _fixture_versions(test_engine, neighbor)
+        with closing(fixture_original_reader()) as reader:
+            neighbor_bytes = await asyncio.to_thread(
+                _read_versions, reader, neighbor_versions
+            )
+            factory = async_sessionmaker(test_engine, expire_on_commit=False)
+            async with factory() as db:
+                source = await originals.pin(
+                    db, "task", uuid.UUID(world["task_ids"][0])
+                )
+                authority = await originals.delegated(
+                    db,
+                    originals.system_authorization(
+                        "task", uuid.UUID(world["task_ids"][0]), source
+                    ),
+                )
+                await db.rollback()
+                async with originals.media(db, authority, source) as stage:
+                    async with test_engine.connect() as observer:
+                        held = await observer.scalar(
+                            text(
+                                "SELECT count(*) FROM public.storage_operations "
+                                "WHERE purpose=:purpose AND node_id='aap-assets-media'"
+                            ),
+                            {
+                                "purpose": f"media_original_{source.replica_facts.creation_id.hex}"
+                            },
+                        )
+                        generation = await observer.scalar(
+                            text(
+                                "SELECT generation FROM aap_jobs_v1.fixture_media_backfills "
+                                "WHERE job_id=:job"
+                            ),
+                            {"job": job_id},
+                        )
+                    assert held == 1
+                    assert os.pread(stage.file.fileno(), 4, 0)
+                    blocked = await _cleanup_owned(owner, run)
+                    assert blocked.status_code == 409, blocked.text
+                    async with test_engine.connect() as observer:
+                        assert await observer.scalar(
+                            text(
+                                "SELECT state='sealing' FROM yoao_fixture_v1.fixture_runs WHERE id=:run"
+                            ),
+                            {"run": run.run_id},
+                        )
+                    await asyncio.to_thread(sender.AsyncResult(str(job_id)).forget)
+                    sender.send_task(
+                        "app.workers.media.run_media_backfill",
+                        args=[str(job_id)],
+                        queue=worker.queue,
+                        task_id=str(job_id),
+                    )
+                    await _wait_broker_ack(sender, worker, job_id)
+                    async with test_engine.connect() as observer:
+                        assert (
+                            await observer.scalar(
+                                text(
+                                    "SELECT generation FROM aap_jobs_v1.fixture_media_backfills "
+                                    "WHERE job_id=:job"
+                                ),
+                                {"job": job_id},
+                            )
+                            == generation
+                        )
+                        assert (
+                            await observer.scalar(
+                                text(
+                                    "SELECT count(*) FROM public.storage_operations "
+                                    "WHERE purpose=:purpose AND node_id='aap-assets-media'"
+                                ),
+                                {
+                                    "purpose": f"media_original_{source.replica_facts.creation_id.hex}"
+                                },
+                            )
+                            == 1
+                        )
+                    assert (
+                        await asyncio.to_thread(
+                            _read_versions, reader, neighbor_versions
+                        )
+                        == neighbor_bytes
+                    )
+            installed_birth = worker.assert_runtime()
+            await asyncio.to_thread(
+                worker._docker, "kill", "--signal", "TERM", worker.container_id
+            )
+            installed_exit = await asyncio.to_thread(
+                worker._docker, "wait", worker.container_id, timeout=20
+            )
+            assert installed_exit.strip() == "0"
+            installed_stopped = worker._inspect(worker.container_id)
+            worker._verify_container_record(installed_stopped)
+            assert (
+                installed_stopped["State"]["StartedAt"] == installed_birth["started_at"]
+            )
+            assert installed_stopped["State"]["Running"] is False
+            assert installed_stopped["State"]["ExitCode"] == 0
+            worker.stop()
+            cleaned = await _cleanup_owned(owner, run)
+            assert cleaned.status_code == 200, cleaned.text
+            await asyncio.to_thread(
+                observe_native_absence, owner_path, fixture_identity, run.run_id, birth
+            )
+            async with test_engine.connect() as observer:
+                assert await observer.scalar(
+                    text(
+                        "SELECT state='retired' FROM aap_jobs_v1.fixture_media_backfills "
+                        "WHERE job_id=:job AND run_id=:run AND dataset_id=:dataset"
+                    ),
+                    {"job": job_id, "run": run.run_id, "dataset": dataset_id},
+                )
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM aap_assets_v1.fixture_media_versions AS version "
+                            "LEFT JOIN aap_assets_v1.fixture_media_version_retirements AS retirement "
+                            "ON retirement.version_id=version.id "
+                            "WHERE version.run_id=:run AND version.dataset_id=:dataset "
+                            "AND retirement.state IS DISTINCT FROM 'absent'"
+                        ),
+                        {"run": run.run_id, "dataset": dataset_id},
+                    )
+                    == 0
+                )
+            assert (
+                await asyncio.to_thread(_read_versions, reader, neighbor_versions)
+                == neighbor_bytes
+            )
+        cleaned_neighbor = await _cleanup_owned(owner, neighbor)
+        assert cleaned_neighbor.status_code == 200, cleaned_neighbor.text
+        await suite.finish()
+        await owner.retire_native_suite()
+        await asyncio.to_thread(_delete_owned_queue, sender, worker.queue)
+        await asyncio.to_thread(sender.AsyncResult(str(job_id)).forget)
+        await asyncio.to_thread(sender.AsyncResult(str(mismatch_id)).forget)
+        sender.close()
+        await asyncio.to_thread(_destroy_cleanup_storage_scope, scope)
+        await owner.shutdown_authority(suite.suite_id)
+        owner.process.stdin.close()
+        await asyncio.to_thread(owner.process.wait, timeout=30)
+        assert owner.process.returncode == 0
+        owner_log.close()
+        await _stop_media_runtime(media)
+        await routing.__aexit__(None, None, None)
+        store.close()
+        output_store.close()
+        completed = True
+    finally:
+        if not completed:
+            _RETAINED_BACKFILL_RUNTIME.append(
+                (
+                    owner,
+                    suite,
+                    media,
+                    worker,
+                    sender,
+                    scope,
+                    store,
+                    output_store,
+                    owner_log,
+                    routing,
+                )
+            )
+            print(
+                f"Retained unsettled media backfill run={run} neighbor={neighbor} "
+                f"job={job_id} worker={worker.container_id if worker else None}",
+                flush=True,
+            )

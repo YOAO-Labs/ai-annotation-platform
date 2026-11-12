@@ -523,3 +523,17 @@ async def resolve_task_raw(db, task_id, *, lock=False):
 
 async def resolve_scene_map(db, task_id, *, lock=False):
     return await _resolve_task(db, task_id, "map", lock)
+
+
+async def retire_fixture_owners(db, *, run_id, dataset_id, owner_ids):
+    """Remove exact current owners only after their typed retirements and Dataset deletion."""
+    for owner_id in sorted(set(owner_ids)):
+        removed = await db.scalar(
+            text(
+                "SELECT yoao_fixture_v1.retire_auxiliary_original("
+                "CAST(:run AS uuid), CAST(:dataset AS uuid), CAST(:owner AS uuid))"
+            ),
+            {"run": run_id, "dataset": dataset_id, "owner": owner_id},
+        )
+        if not removed:
+            reject("fixture_retirement_unqualified")

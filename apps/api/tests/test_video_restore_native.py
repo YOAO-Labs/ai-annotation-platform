@@ -216,7 +216,15 @@ async def _create_restored_database(
     await _revoke_public_temp(admin, test_engine, database)
     _postgres_tool(
         test_engine,
-        ["pg_restore", "-U", "owner", "--exit-on-error", "--dbname", database],
+        [
+            "pg_restore",
+            "-U",
+            "owner",
+            "--exit-on-error",
+            "--single-transaction",
+            "--dbname",
+            database,
+        ],
         body=dump.read_bytes(),
     )
     engine = create_async_engine(

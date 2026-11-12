@@ -2,8 +2,10 @@
 
 from copy import deepcopy
 from dataclasses import dataclass, field, replace
+import hashlib
 import re
 import uuid
+from botocore.exceptions import ClientError
 
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError
@@ -176,6 +178,40 @@ async def target_for(db, location, *, require_enabled=True):
 
 async def allocate(db, logical_prefix):
     logical = _logical(logical_prefix)
+    from app.services import fixture_media_execution
+
+    execution = fixture_media_execution.current()
+    if execution is not None:
+        binding = await execution.target()
+        try:
+            location_id = uuid.UUID(binding["location_id"])
+        except (ValueError, TypeError, AttributeError):
+            _reject("media_cache_storage_binding_unproven")
+        location = await db.scalar(
+            select(StorageLocation)
+            .where(StorageLocation.id == location_id)
+            .with_for_update(read=True, nowait=True)
+            .execution_options(populate_existing=True)
+        )
+        target = await target_for(db, location)
+        if (
+            target.endpoint_url != binding["endpoint"] or target.bucket != binding["bucket"]
+            or target.key_prefix != MANAGED_NAMESPACE
+            or managed_storage_identity(target.endpoint_url, target.bucket) != binding["storage_identity"]
+        ):
+            _reject("media_cache_storage_binding_unproven")
+        await storage_access.check(db, location.id, lock=True)
+        return resolve_ref(
+            {
+                "schema": 2, "purpose": "media-cache", "location_id": str(location.id),
+                "config_revision": location.config_revision,
+                "binding_generation": binding["binding_generation"],
+                "endpoint_url": target.endpoint_url, "bucket": target.bucket,
+                "key_prefix": target.key_prefix, "prefix": target.key_prefix + logical,
+                "storage_identity": binding["storage_identity"],
+            },
+            expected_prefix=logical,
+        ).ref
     connection = await db.connection()
     savepoint = await connection.begin_nested()
     try:
@@ -261,4 +297,165 @@ async def target_for_ref(db, ref, *, require_enabled=True):
         or target.key_prefix != owner.key_prefix
     ):
         _reject()
+    from app.services import fixture_media_execution
+
+    execution = fixture_media_execution.current()
+    if execution is not None:
+        binding = await execution.target()
+        if str(owner.location_id) == binding["location_id"]:
+            if (
+                owner.bucket != binding["bucket"] or ref["endpoint_url"] != binding["endpoint"]
+                or ref["storage_identity"] != binding["storage_identity"]
+                or ref["binding_generation"] != binding["binding_generation"]
+            ):
+                _reject()
+            from app.services.source_readers.s3 import ScopedS3Access
+            from yoao_assets_media_runtime.fixture_native_outputs import load_target
+
+            control_url = fixture_media_execution._control_url().render_as_string(hide_password=False)
+            writer = load_target(
+                "AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE", control_url, "aap_fixture_media_"
+            )
+            if any(writer[name] != binding[name] for name in (
+                "run_id", "endpoint", "bucket", "storage_identity", "receipt_sha256",
+            )):
+                _reject()
+            access = target._access
+            if access is None:
+                _reject()
+            target = replace(
+                target,
+                _access=ScopedS3Access(
+                    access.config,
+                    writer,
+                    access.allowlist,
+                ),
+            )
     return target
+
+
+def retire_fixture_versions(client, owner, versions, checkpoint):
+    """Retire only native-recorded object versions at this exact owned root."""
+    from app.services.content_snapshot import ContentError
+
+    expected = {}
+    for receipt in versions:
+        if receipt["storage_ref"] != owner.ref:
+            raise ContentError("fixture_media_owner_changed", 409)
+        key, version = receipt["key"], receipt["version_id"]
+        owner.contains(key)
+        identity = (key, version if version is not None else "null")
+        if identity in expected:
+            raise ContentError("fixture_media_version_conflict", 409)
+        expected[identity] = receipt
+
+    found = set()
+    marker = {}
+    visited = set()
+    while True:
+        page = client.list_object_versions(Bucket=owner.bucket, Prefix=owner.prefix, **marker)
+        if (
+            page.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+            or type(page.get("IsTruncated")) is not bool
+            or not isinstance(page.get("Versions", []), list)
+            or not isinstance(page.get("DeleteMarkers", []), list)
+        ):
+            raise ContentError("fixture_media_version_unproven", 503)
+        if page.get("DeleteMarkers"):
+            raise ContentError("fixture_media_version_untracked", 409)
+        for value in page.get("Versions", []):
+            identity = (value.get("Key"), value.get("VersionId"))
+            if identity in found or identity not in expected:
+                raise ContentError("fixture_media_version_untracked", 409)
+            if expected[identity]["state"] != "prepared":
+                raise ContentError("fixture_media_version_changed", 409)
+            found.add(identity)
+        if not page["IsTruncated"]:
+            break
+        key_marker = page.get("NextKeyMarker")
+        version_marker = page.get("NextVersionIdMarker")
+        cursor = (key_marker, version_marker)
+        if not isinstance(key_marker, str) or cursor in visited:
+            raise ContentError("fixture_media_version_unproven", 503)
+        visited.add(cursor)
+        marker = {"KeyMarker": key_marker}
+        if version_marker is not None:
+            marker["VersionIdMarker"] = version_marker
+
+    def absent(exc):
+        return isinstance(exc, ClientError) and exc.response.get("Error", {}).get("Code") in {
+            "NoSuchKey", "NoSuchVersion", "NotFound", "404",
+        }
+
+    for identity, receipt in expected.items():
+        state = receipt["state"]
+        params = {"Bucket": owner.bucket, "Key": receipt["key"]}
+        if receipt["version_id"] is not None:
+            params["VersionId"] = receipt["version_id"]
+        if state == "prepared":
+            if identity not in found:
+                raise ContentError("fixture_media_version_unproven", 409)
+            if receipt["version_id"] is None:
+                versioning = client.get_bucket_versioning(Bucket=owner.bucket)
+                if versioning.get("Status") is not None:
+                    raise ContentError("fixture_media_version_unproven", 409)
+            head = client.head_object(**params, IfMatch=receipt["etag"])
+            if (
+                head.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+                or head.get("ContentRange") is not None
+                or head.get("ETag") != receipt["etag"]
+                or head.get("VersionId") != receipt["version_id"]
+                or head.get("ContentLength") != receipt["size_bytes"]
+                or head.get("DeleteMarker")
+            ):
+                raise ContentError("fixture_media_version_changed", 409)
+            response = client.get_object(**params, IfMatch=receipt["etag"])
+            body = response["Body"]
+            digest, size = hashlib.sha256(), 0
+            try:
+                while True:
+                    chunk = body.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    size += len(chunk)
+                    if size > receipt["size_bytes"]:
+                        raise ContentError("fixture_media_version_changed", 409)
+                    digest.update(chunk)
+            finally:
+                storage_access.close_registered(body)
+            if (
+                response.get("ResponseMetadata", {}).get("HTTPStatusCode") != 200
+                or response.get("ContentRange") is not None
+                or response.get("ContentLength") != receipt["size_bytes"]
+                or response.get("ETag") != receipt["etag"]
+                or response.get("VersionId") != receipt["version_id"]
+                or size != receipt["size_bytes"]
+                or digest.hexdigest() != receipt["sha256"]
+            ):
+                raise ContentError("fixture_media_version_changed", 409)
+            checkpoint(receipt["id"], "submitted")
+            try:
+                deleted = client.delete_object(**params, IfMatch=receipt["etag"])
+                if (
+                    deleted.get("ResponseMetadata", {}).get("HTTPStatusCode") not in (200, 204)
+                    or deleted.get("DeleteMarker")
+                    or deleted.get("VersionId", receipt["version_id"]) != receipt["version_id"]
+                ):
+                    raise ContentError("fixture_media_delete_unproven", 503)
+            except BaseException as exc:
+                raise storage_access.mark_unsettled(exc)
+            checkpoint(receipt["id"], "deleted")
+            state = "deleted"
+        if state in {"deleted", "absent"}:
+            try:
+                client.head_object(**params)
+            except ClientError as exc:
+                if not absent(exc):
+                    raise
+            else:
+                raise ContentError("fixture_media_delete_unproven", 503)
+            if state == "deleted":
+                checkpoint(receipt["id"], "absent")
+        else:
+            raise ContentError("fixture_media_version_unsettled", 409)
+    return len(versions)

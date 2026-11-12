@@ -11,7 +11,7 @@ import uuid
 
 from fastapi import HTTPException
 from jose import jwt, JWTError
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import DBAPIError
@@ -111,7 +111,7 @@ async def _target(db, context):
     if not creation:
         return None, blockers + ["reclaim_creation_unproven"]
     if (
-        creation.get("owner_kind") != "dataset"
+        creation.get("owner_kind") not in {"dataset", "dataset_auxiliary"}
         or creation.get("status") != "verified"
         or not creation.get("settled_at")
         or not creation.get("write_started_at")
@@ -192,6 +192,46 @@ async def _target(db, context):
             raise ValueError()
     except (ValueError, KeyError, TypeError, ContentError, HTTPException):
         return None, list(dict.fromkeys(blockers + ["reclaim_configuration_changed"]))
+    fixture_scope = await db.scalar(
+        text(
+            "SELECT aap_assets_v1.classify_fixture_original_reclaim("
+            "CAST(:creation AS uuid), CAST(:identity AS text))"
+        ),
+        {"creation": creation["id"], "identity": saved.storage_identity},
+    )
+    if fixture_scope not in {"ordinary", "qualified", "blocked"}:
+        raise RuntimeError("invalid fixture original reclaim classification")
+    if creation.get("owner_kind") == "dataset_auxiliary":
+        if (
+            fixture_scope != "qualified"
+            or anchor.get("owner_type") != "dataset_auxiliary"
+            or str(anchor.get("auxiliary_original_id")) != str(creation["id"])
+        ):
+            blockers.append("reclaim_creation_unproven")
+    elif anchor.get("owner_type") != "dataset_asset":
+        blockers.append("reclaim_creation_unproven")
+    if fixture_scope == "blocked":
+        blockers.append("fixture_original_store_unqualified")
+    elif fixture_scope == "qualified":
+        from app.db.models.fixture_run import FixtureOriginalTarget
+
+        try:
+            evidence = creation["configuration"]["fixture_original_target"]
+            binding = await db.get(
+                FixtureOriginalTarget, uuid.UUID(evidence["id"]), populate_existing=True
+            )
+            if (
+                binding is None
+                or binding.location_id != saved.location_id
+                or binding.bucket != saved.bucket
+                or binding.generation != saved.binding_generation
+                or binding.generation != evidence["generation"]
+                or binding.storage_identity != saved.storage_identity
+                or binding.store_receipt_sha256 != evidence["store_receipt_sha256"]
+            ):
+                raise ValueError()
+        except (ValueError, KeyError, TypeError):
+            blockers.append("fixture_original_storage_changed")
     return {
         "location_id": str(saved.location_id),
         "creation_id": str(creation["id"]),

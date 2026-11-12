@@ -40,22 +40,46 @@ closure or runtime recovery.
 
 ## Test project fixture cleanup
 
-`aap-jobs-fixture-cleanup/v1` publishes the fixed
-`aap_jobs_v1.delete_fixture_project_jobs(uuid[])` capability. It deletes exactly
-current `project_id = ANY(project_ids)` rows of every kind and status, returns a
-nonnegative native bigint, preserves retained/unrelated rows, and borrows the
-caller transaction. Empty scope returns zero; duplicate IDs count each row once.
-The function is granted to ordinary runtime roles only in actual databases whose
-names end in `_test` or `_e2e`, and checks that suffix again inside the definer.
+The `aap-jobs-fixture-guard/v1` contract exposes
+`aap_jobs_v1.guard_fixture_project_jobs(uuid[])` and
+`aap_jobs_v1.delete_fixture_project_jobs(uuid[])`. They lock the exact sealed
+fixture projects and their Jobs, retain the Workspace video guard, and require
+the native prediction or Export retirement proofs before deleting a real Job.
+Undelivered presentation Jobs require their own birth proof; unmatched Jobs,
+retry ledgers or active execution remain blockers. A terminal Job status alone
+does not prove physical work stopped. Retry attempts and delivery tombstones
+remain independent of the deleted Job. Before an exact retired Export Job is
+deleted, Jobs preserves each complete dispatch intent as a private receipt so
+the Job's foreign-key cascade cannot erase its envelope or acknowledgement.
+These are test-database-only owner capabilities, not product APIs.
 
-The owner calls Workspace's existing `guard_project_cleanup` in the same
-transaction and validates its exact reply. NULL scopes or malformed guard
-replies return `22023`, project NOWAIT contention returns `55P03`, and an
-unretired video returns `23514`. Original constraints and DELETE triggers remain
-active. The E2E route keeps its earlier fixture gates, namespace/project selection,
-savepoint, and final commit; owner failures stop cleanup rather than skip Jobs.
-This capability cannot substitute for job-ID cleanup in schema-owner screenshot
-tools or for a production retention operation.
+NULL scopes or malformed Workspace replies return `22023`, project NOWAIT
+contention returns `55P03`, and an unretired video or unproved Jobs row returns
+`23514`. The guard borrows the caller transaction and preserves original
+constraints and DELETE triggers.
+
+The typed dataset classifier receives Job ID, kind, payload, project ID and actor ID. Its packaged signature is `fixture_dataset_job_scope(uuid,text,jsonb,uuid,uuid)`; unknown scope remains a cleanup blocker. The database suffix is an additional environment restriction, not authority to grant private fixture capabilities to the ordinary runtime.
+
+The current migration-bound contract is
+`apps/api/alembic/sql/0443_fixture_jobs.schema.json`, matching the installed
+`yoao_jobs/fixture_guard.schema.json`. Native acceptance checks every declared
+function's arguments, result, volatility and parallel safety against PostgreSQL.
+Historical SQL stays unchanged; reclaim classification advances through
+`0437_fixture_reclaim_job_scope.sql`, not a rewrite of the `0432` input.
+
+Native cleanup acceptance connects through the verified private fixture owner,
+including the Node bigint and transaction checks. A separate ordinary API LOGIN
+must remain denied both direct Jobs deletion and private fixture cleanup; a
+test database suffix does not grant that caller authority.
+
+Dataset-scoped fixture media backfills use the private
+`aap_jobs_v1.delete_fixture_media_backfills(run_id,dataset_id)` capability before
+the Dataset is deleted. It locks the exact sealed run and Dataset, requires each
+recorded Job's Jobs and Assets retirement proofs, and preserves immutable
+publication and execution evidence. A missing Dataset, foreign run, active
+reader or unretired Job does not authorize deletion; ordinary callers cannot
+execute this fixture-owner capability. The caller's transaction owns the
+deletion and rollback.
 
 ## Filtering fixture outcomes
 
@@ -67,12 +91,13 @@ status/progress/error. Both retain all other fields, including null lifecycle
 timestamps and the failed result. Updates keep the mapper's ascending UUID
 order, original `UPDATE OF` masks and `updated_at=now()` behavior.
 
-Only actual `_test`/`_e2e` databases receive the runtime grant, and the definer
-checks the database name again. Null or duplicate IDs return `22023`; a missing
-row returns `P0002` and rolls back the entire function statement. The API keeps
-its preceding invitation flush, original final full flush, audit and commit
-order; it synchronizes the cached fields and expires `updated_at`. No general
-record-edit capability, runtime role or credential selector was added.
+The verified private fixture owner invokes this test-only capability; ordinary
+API and worker identities remain denied even on `_test`/`_e2e` databases. The
+definer also checks the database name. Null or duplicate IDs return `22023`; a
+missing row returns `P0002` and rolls back the entire function statement.
+Private fixture setup retains its invitation flush, final full flush, audit
+and commit order, synchronizes cached fields and expires `updated_at`. No
+general record-edit capability or ordinary-runtime credential was added.
 
 ## Transactional row locks and refreshes
 
@@ -237,13 +262,24 @@ and `dispatch.schema.json` define the Native ABI:
 - API: `prepare_dispatch(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
 - Relay: `claim_dispatches(jsonb)`, `finish_dispatch(jsonb)`, `dispatch_status(uuid)`.
 
-Preparation borrows the caller transaction and never commits it. Publication
-happens only after acceptance commits; a separate short transaction records
-the fenced acknowledgement. Unknown publication or a lost acknowledgement
-keeps the same envelope and IDs recoverable. The separate relay claims one
-item immediately before publishing, so queued items do not lose their lease
-while waiting behind network calls. Expired generations cannot acknowledge
-new claims. Confirmed submissions are not automatically replayed.
+Preparation borrows the caller transaction and never commits it. Jobs and
+immutable dispatch births are recorded in that transaction; historical Jobs and
+intents are not backfilled with invented no-publication proof. Publication
+happens only after acceptance commits, under a separate function-only,
+session-held publication fence. Each generation records physical entry before
+the broker call and settles only on the publisher's positive acknowledgement.
+A proved socket connection refusal or DNS `EAI_NONAME` / `EAI_AGAIN` failure
+before the HTTP request is recorded separately as `not_sent`, never as acceptance.
+Classification follows typed causes, including the original socket error retained
+as an HTTP transport exception argument; error text alone is not evidence.
+Later exact replay is still required for an accepted dispatch. Other connection
+failures, HTTP errors, lost responses and cancellations remain unknown.
+The relay claims one item immediately before publishing. A later valid generation
+may replay the exact frozen envelope and IDs while an earlier attempt remains
+unknown; replay or lease expiry does not settle that earlier physical obligation.
+If a prior generation already has a positive publication receipt, the relay
+reconciles the same intent without another broker call. Expired generations
+cannot acknowledge new dispatch leases.
 
 The API's input admission and domain failure policies remain authoritative:
 unfinished HTTP input admission is not reconstructed from summary metadata;
@@ -252,20 +288,72 @@ unsubmitted intents, while tracker retirement has the narrow canonical proof
 above. A lease timeout never proves physical execution stopped.
 
 The relay uses the same immutable image with the `yoao-jobs-dispatch-relay`
-entrypoint. Install `infra/docker/jobs-dispatch-grants.sql` for an explicit
-database and distinct function-only relay LOGIN, then combine
-`docker-compose.jobs-dispatch-relay.yml` with the queue assembly. Queue secrets
-are broker plus bearer; relay secrets are the narrow DSN plus bearer, never
-broker or API/migration credentials. Neither role has direct ledger access.
+entrypoint. Install the Jobs owner grants for distinct function-only dispatch
+and publication LOGINs, then combine `docker-compose.jobs-dispatch-relay.yml`
+with the queue assembly. The queue holds broker plus bearer; the relay holds
+both narrow database credentials plus bearer, never broker or migration
+credentials. Neither database LOGIN has direct ledger access.
 
 Outside Compose, set `JOBS_DISPATCH_RELAY_ENABLED=true`,
-`JOBS_DISPATCH_RELAY_DATABASE_URL[_FILE]`, `JOBS_QUEUE_URL` and
-`JOBS_QUEUE_TOKEN[_FILE]`. Direct and file selectors conflict. Optional bounded
-settings are `JOBS_DISPATCH_RELAY_BATCH_SIZE`, `JOBS_DISPATCH_RELAY_LEASE_SECONDS`
+`JOBS_DISPATCH_RELAY_DATABASE_URL[_FILE]`, `JOBS_PUBLICATION_DATABASE_URL[_FILE]`,
+`JOBS_QUEUE_URL` and `JOBS_QUEUE_TOKEN[_FILE]`. Direct and file selectors conflict.
+Optional bounded settings are `JOBS_DISPATCH_RELAY_BATCH_SIZE`, `JOBS_DISPATCH_RELAY_LEASE_SECONDS`
 and `JOBS_DISPATCH_RELAY_POLL_SECONDS`. Frame recovery reuses the frozen logical
 segment IDs and completes only from the full canonical receipt set, not from
 duplicate chord header results. This is at-least-once publication, not
 exactly-once execution or a general historical-writer retirement system.
+
+Retirement is separate from replay: the owner must fence the exact Job and all
+delivery identities, then obtain a Jobs publication tombstone. Every entered
+generation and Celery retry must have its own positive settlement; a later
+successful replay never settles or erases an earlier unknown attempt. An
+explicit terminal `not_sent` tombstone is also possible when every intent has
+only positively refused attempts or has never entered publication, with no
+accepted or entered attempt or retry. Both paths require immutable births, the
+complete execution set and exclusive publication fences; missing historical
+birth evidence cannot establish no publication. The tombstone permanently fences
+later publication without claiming acceptance. Timeouts and lost responses do
+not establish that outcome. Preserve the
+associated queue, results, objects, credentials and evidence until the remaining
+physical obligations are resolved.
+
+A complete Job can mix positively published intents with proved unsent intents,
+for example after cancellation during a queue outage. Retirement verifies each
+intent separately and retains the complete set, including attempts absent from
+the broker. Any published intent makes the Job tombstone `published`, never
+`not_sent`; an entered or unknown attempt still blocks the whole retirement.
+This settles publication only, not the associated physical execution.
+
+Standalone media producers call `prepare_media_delivery` in the existing
+business transaction with their actual subject, original receipt, delivery ID
+and ordinary v2 envelope. The Assets owner validates and locks the source and
+establishes either ordinary ownership or one exact open fixture run; unknown,
+ambiguous, sealed and mismatched ownership is refused. Ordinary ownership
+preserves the original envelope and publication path. For fixture ownership,
+Jobs selects the private queue, preserves the remaining options and atomically
+records the publication with its Assets execution birth. Neither a fixture run
+nor a private queue or executor credential is accepted from the producer.
+The packaged `media_preparation.schema.json` describes the finite request and
+result; derivative batches additionally bind every output ID to its actual
+original receipt.
+
+Fixture-owned pyramid, thumbnail and video deliveries without an AsyncJob use
+the same Jobs publication-control credential but a separate immutable delivery
+record. The producer transaction binds the actual run, DatasetItem or
+TaskOriginal subject, source receipt, private queue and complete v2 envelope;
+Assets validates the source and payload before Jobs records it. The worker
+waits on the same publication fence and requires a positive accepted receipt
+before Assets admits physical work. An earlier unknown publication attempt
+does not prevent admission of a later accepted replay of the same delivery,
+but it remains evidence that prevents physical retirement. A sealed run can
+retire an exact delivery only after all its publication attempts have definite
+outcomes; no attempts or any unknown attempt remain blocked. Assets reads the
+exact, shared-fenced retirement outcome for the run, delivery and envelope
+digest: `accepted` still
+requires positive settlement of the matching physical execution, while
+`not_sent` requires positive proof that no execution started. A missing or
+mismatched tombstone, or any entered publication attempt, yields no outcome;
+the publication tombstone alone never proves execution or no-start.
 
 ## Package verification
 

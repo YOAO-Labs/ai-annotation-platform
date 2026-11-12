@@ -32,6 +32,7 @@ def owner(**changes):
     values = model_tests._values()
     values.update(
         lease_token=None,
+        fixture_run_id=None,
         lease_expires_at=None,
         published_at=None,
         retired_at=None,
@@ -50,7 +51,7 @@ class PolicyDB:
     async def get(self, *args, **kwargs):
         return self.job
 
-    async def execute(self, statement):
+    async def execute(self, statement, params=None):
         self.statements.append(statement)
         return SimpleNamespace(one_or_none=lambda: self.replacement)
 
@@ -280,6 +281,77 @@ async def test_failure_keeps_committed_retiring_inventory_and_retry_leaves_tombs
         and row.retired_at == retired
         and row.inventory == original
     )
+
+
+async def test_private_fixture_inventory_requires_owner_before_physical_deletion(
+    monkeypatch,
+):
+    created = datetime.now(timezone.utc)
+    row = owner(
+        fixture_run_id=uuid.uuid4(),
+        created_at=created,
+        expires_at=created + timedelta(minutes=15),
+    )
+    client = Client()
+    for key in row.inventory["objects"]:
+        client.add(key, b"x" * row.inventory["objects"][key]["size_bytes"])
+    db = PolicyDB()
+    monkeypatch.setattr(retirement, "lock_owner", AsyncMock(return_value=row))
+    monkeypatch.setattr(retirement, "has_operations", AsyncMock(return_value=False))
+    session = AsyncMock(return_value=False)
+    monkeypatch.setattr(retirement, "fixture_owner_session", session)
+    permit = SimpleNamespace(
+        id=uuid.uuid4(), location_id=physical.LEGACY_LOCATION_ID, revision=1
+    )
+    monkeypatch.setattr(transfer, "_acquire", AsyncMock(return_value=permit))
+    monkeypatch.setattr(transfer, "_settle", AsyncMock())
+    monkeypatch.setattr(retirement, "_guard", AsyncMock())
+    monkeypatch.setattr(physical, "create_client", lambda: client)
+    monkeypatch.setattr(retirement.removal, "recorder", lambda *args: None)
+
+    assert not await retirement._cleanup_one(db, row.id)
+    assert row.state == "building"
+    assert all(client.rows[key] for key in row.inventory["objects"])
+    assert not client.calls
+
+    session.return_value = True
+    assert await retirement._cleanup_one(db, row.id)
+    assert row.state == "deleted"
+    assert all(not client.rows[key] for key in row.inventory["objects"])
+    assert any(action == "delete" for action, _ in client.calls)
+
+
+@pytest.mark.parametrize("native", [False, True])
+async def test_scheduled_fixture_zip_stops_before_physical_io(monkeypatch, native):
+    bundle = owner(fixture_run_id=uuid.uuid4())
+    output = SimpleNamespace(
+        id=bundle.zip_output_id,
+        project_id=bundle.project_id,
+        job_id=bundle.job_id,
+        state="ready",
+    )
+    db = PolicyDB()
+    monkeypatch.setattr(
+        export_outputs,
+        "_cleanup_locked",
+        AsyncMock(return_value=(output, None if native else bundle)),
+    )
+    monkeypatch.setattr(
+        export_outputs,
+        "fixture_native_lifetime",
+        AsyncMock(return_value=object() if native else None),
+    )
+    monkeypatch.setattr(
+        retirement, "fixture_owner_session", AsyncMock(return_value=False)
+    )
+
+    def forbid_delete(*args, **kwargs):
+        raise AssertionError("ordinary cleanup reached physical ZIP deletion")
+
+    monkeypatch.setattr(export_storage, "delete", forbid_delete)
+    monkeypatch.setattr(retirement, "delete_zip", forbid_delete)
+    assert not await export_outputs._cleanup_one(db, output.id, {"removed": 0})
+    assert output.state == "ready"
 
 
 @pytest.mark.parametrize(

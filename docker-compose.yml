@@ -1,3 +1,19 @@
+x-jobs-publication-secret: &jobs-publication-secret
+  type: bind
+  source: ${JOBS_PUBLICATION_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/jobs_publication_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-export-execution-secret: &export-execution-secret
+  type: bind
+  source: ${EXPORT_EXECUTION_DATABASE_URL_FILE:-/dev/null}
+  target: /run/secrets/export_execution_database_url
+  read_only: true
+  bind:
+    create_host_path: false
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -120,6 +136,7 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q default,media,cleanup,audit --concurrency=4
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
       MIGRATION_DATABASE_URL: ""
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
@@ -151,6 +168,7 @@ services:
       # v0.10.16 · DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
+      - *jobs-publication-secret
       # v0.10.16 · DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
       - ./data/duckdb:/var/lib/duckdb
       # v0.11.16 · Paramiko RejectPolicy 需要预置信任的 SFTP host key；本地文件 gitignored。
@@ -306,6 +324,7 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q ml,gpu --concurrency=${CELERY_GPU_CONCURRENCY:-2}
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
@@ -326,6 +345,7 @@ services:
       # 只改宿主机变量但 GPU worker 仍使用镜像内默认值。
       VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES: ${VIDEO_TRACKER_SAM3_WINDOW_SIZE_FRAMES:-16}
     volumes:
+      - *jobs-publication-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
       - ./apps/api:/app
@@ -361,6 +381,7 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q ml.cpu --concurrency=${CELERY_CPU_CONCURRENCY:-4}
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
@@ -376,6 +397,7 @@ services:
       GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS: ${GPU_ARBITER_ADMISSION_TIMEOUT_SECONDS:-30}
       GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS: ${GPU_ARBITER_RESIDENCY_COOLDOWN_SECONDS:-30}
     volumes:
+      - *jobs-publication-secret
       - ./data/duckdb:/var/lib/duckdb
       - ./config/ssh/known_hosts:/root/.ssh/known_hosts:ro
       - ./apps/api:/app
@@ -405,6 +427,8 @@ services:
     command: celery -A app.workers.celery_app worker -l info -Q export --concurrency=2
     environment:
       DATABASE_URL: ${DATABASE_URL_DOCKER:-postgresql+asyncpg://user:pass@postgres:5432/annotation}
+      JOBS_PUBLICATION_DATABASE_URL_FILE: /run/secrets/jobs_publication_database_url
+      EXPORT_EXECUTION_DATABASE_URL_FILE: /run/secrets/export_execution_database_url
       ALEMBIC_AUTO_UPGRADE: "false"
       ML_MANAGED_BACKEND_URLS: '${ML_MANAGED_BACKEND_URLS:-{"yolo":"http://172.17.0.1:8003","onnxtools":"http://172.17.0.1:8004","rapidocr":"http://172.17.0.1:8005"}}'
       REDIS_URL: redis://redis:6379/0
@@ -420,6 +444,8 @@ services:
       # v0.10.16 · DuckDB 离线分析视图 (ROADMAP §1.6); host ./data/duckdb 挂到容器 /var/lib/duckdb
       DUCKDB_PATH: /var/lib/duckdb/analytics.duckdb
     volumes:
+      - *jobs-publication-secret
+      - *export-execution-secret
       # v0.10.16 · DuckDB 文件 bind mount, worker 写 / API 跑 host 时只读
       - ./data/duckdb:/var/lib/duckdb
       # v0.10.25 · dev 源码热挂载: 改 worker 业务码 / 加 alembic 迁移只需 docker restart, 不必 rebuild。

@@ -313,6 +313,11 @@ async def test_seed_entrypoints_run_through_the_fenced_api_image(
     await _assert_operational_role(test_engine)
     await _assert_seed_privileges(test_engine)
     await _assert_empty_owned_rows(test_engine)
+    from app.services import managed_original_creation
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    async with AsyncSession(test_engine) as owner:
+        await managed_original_creation.bootstrap(owner)
 
     resources, _main_bucket, owner_s3 = await assert_workspace_identity(test_engine)
     bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]

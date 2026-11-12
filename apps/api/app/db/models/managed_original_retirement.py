@@ -45,6 +45,12 @@ class ManagedOriginalRetirement(Base):
             "policy_revision >= 1 AND dataset_lifecycle_revision >= 1",
             name="ck_managed_retirement_revisions",
         ),
+        CheckConstraint(
+            "(owner_type = 'dataset_asset' AND dataset_item_id IS NOT NULL AND asset_id IS NOT NULL AND auxiliary_original_id IS NULL) OR "
+            "(owner_type = 'dataset_auxiliary' AND dataset_item_id IS NULL AND asset_id IS NULL AND auxiliary_original_id IS NOT NULL "
+            "AND creation_id IS NOT NULL AND creation_id = auxiliary_original_id)",
+            name="ck_managed_retirement_source_owner",
+        ),
         Index("ix_managed_retirement_location", "location_id", "retired_at", "id"),
         Index("ix_managed_retirement_asset", "asset_id"),
         Index(
@@ -62,10 +68,14 @@ class ManagedOriginalRetirement(Base):
     )
     # No business FKs: cascades must not erase retired locator responsibility.
     dataset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    dataset_item_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
-    asset_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
+    dataset_item_id: Mapped[uuid.UUID | None] = mapped_column()
+    asset_id: Mapped[uuid.UUID | None] = mapped_column()
     creation_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("managed_original_creations.id", ondelete="RESTRICT")
+    )
+    auxiliary_original_id: Mapped[uuid.UUID | None] = mapped_column()
+    owner_type: Mapped[str] = mapped_column(
+        String(24), nullable=False, server_default="dataset_asset"
     )
     location_id: Mapped[uuid.UUID] = mapped_column(nullable=False)
     bucket: Mapped[str] = mapped_column(String(255), nullable=False)

@@ -32,7 +32,7 @@ export async function runSecondaryInferenceAttribute(
   );
   if (!backend?.name.toLowerCase().includes("rapidocr") || !hasCropRecognition) {
     throw new Error(
-      "[secondary-inference-attribute] P-OCR 未绑定含 crop/ocr-rec 的真实 RapidOCR backend",
+      `[secondary-inference-attribute] ${project.display_id} 未绑定含 crop/ocr-rec 的真实 RapidOCR backend`,
     );
   }
 

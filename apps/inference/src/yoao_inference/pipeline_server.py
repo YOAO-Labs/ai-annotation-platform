@@ -300,6 +300,15 @@ class PipelineHttpServer:
         self.read_timeout_seconds = float(read_timeout_seconds)
         self._active = 0
         self._server = None
+        self._draining = False
+        self._handlers: set[asyncio.Task] = set()
+        self._close_task: asyncio.Task | None = None
+        self._lifecycle_lock = asyncio.Lock()
+
+    def _accept(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+        task = asyncio.create_task(self._handle(reader, writer))
+        self._handlers.add(task)
+        task.add_done_callback(self._handlers.discard)
 
     def _reserve_request(self) -> bool:
         if self._active >= self.max_concurrency:
@@ -308,15 +317,18 @@ class PipelineHttpServer:
         return True
 
     async def start(self):
-        if self._server is not None:
+        async with self._lifecycle_lock:
+            if self._draining:
+                raise RuntimeError("Inference owner is draining")
+            if self._server is not None:
+                return self._server
+            self._server = await asyncio.start_server(
+                self._accept,
+                self.host,
+                self.port,
+                limit=_MAX_HEADER_BYTES,
+            )
             return self._server
-        self._server = await asyncio.start_server(
-            self._handle,
-            self.host,
-            self.port,
-            limit=_MAX_HEADER_BYTES,
-        )
-        return self._server
 
     async def serve_forever(self) -> None:
         server = await self.start()
@@ -324,23 +336,45 @@ class PipelineHttpServer:
             await server.serve_forever()
 
     async def close(self) -> None:
-        server, self._server = self._server, None
-        if server is not None:
-            server.close()
-            await server.wait_closed()
+        if self._close_task is None:
+            self._draining = True
+            self._close_task = asyncio.create_task(self._drain())
+        await asyncio.shield(self._close_task)
+
+    async def _drain(self) -> None:
+        async with self._lifecycle_lock:
+            server, self._server = self._server, None
+            if server is not None:
+                server.close()
+                await server.wait_closed()
+        # Let already accepted callbacks register before checking the handler set.
+        await asyncio.sleep(0)
+        while self._handlers:
+            batch = tuple(self._handlers)
+            await asyncio.gather(*batch, return_exceptions=True)
+            self._handlers.difference_update(batch)
 
     async def _handle(
         self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter
     ) -> None:
-        if not self._reserve_request():
-            await self._write_json(
-                writer, 503, {"detail": "Inference pipeline owner busy"}
-            )
+        if self._draining:
             writer.close()
             try:
                 await writer.wait_closed()
             except (ConnectionError, OSError):
                 pass
+            return
+        if not self._reserve_request():
+            try:
+                await self._write_json(
+                    writer, 503, {"detail": "Inference pipeline owner busy"}
+                )
+            finally:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except (ConnectionError, OSError):
+                    pass
             return
         try:
             path = ""

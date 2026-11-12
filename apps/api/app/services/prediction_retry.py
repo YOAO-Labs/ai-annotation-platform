@@ -22,7 +22,7 @@ class PredictionRetryDispatcher(Protocol):
         actor_id: uuid.UUID,
         *,
         execution_queue: str,
-        job_id: uuid.UUID | None = None,
+        job_id: uuid.UUID,
     ) -> None:
         """Dispatch one retry to the execution queue selected before claim commit."""
         ...
@@ -32,7 +32,7 @@ class PredictionRetryDispatcher(Protocol):
         failed_id: uuid.UUID,
         actor_id: uuid.UUID,
         *,
-        job_id: uuid.UUID | None = None,
+        job_id: uuid.UUID,
     ) -> None:
         """Dispatch a recorded batch failure using the existing default placement."""
         ...

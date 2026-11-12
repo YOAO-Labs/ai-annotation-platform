@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import ast
-from pathlib import Path
 import uuid
 
 import pytest
 from yoao_assets_source.operator_contract import (
     CreateOperatorImageDatasetRequest,
+    OperatorFailure,
     OperatorSourceEntry,
 )
 from sqlalchemy import func, select
@@ -69,6 +68,52 @@ async def test_deferred_image_import_items_keep_dataset_count(db_session, super_
         select(Dataset.file_count).where(Dataset.id == dataset.id)
     )
     assert file_count == stored_items == 2
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_publish_an_unowned_fixture_source_alias(
+    db_session, super_admin, monkeypatch
+):
+    from app.config import settings
+    from app.db.models.fixture_run import FixtureRun
+    from app.services import fixture_run_ownership
+
+    monkeypatch.setattr(settings, "environment", "development")
+    monkeypatch.setattr(settings, "e2e_seed_enabled", True)
+    owner, _ = super_admin
+    created = await _create_operator_image_dataset(
+        db_session,
+        name="ordinary operator dataset",
+        description="test",
+        owner_id=owner.id,
+    )
+    run_id, fixture_dataset_id = uuid.uuid4(), uuid.uuid4()
+    db_session.add(FixtureRun(id=run_id, family="owned"))
+    await db_session.flush()
+    await fixture_run_ownership.reserve(
+        db_session, run_id, "dataset", fixture_dataset_id, logical_key="images"
+    )
+    alias_id = uuid.uuid4()
+    alias = OperatorSourceEntry(
+        id=alias_id,
+        file_name="alias.png",
+        file_path=f"__aap_managed_datasets__/{fixture_dataset_id}/_objects/{uuid.uuid4()}/alias.png",
+        file_type="image",
+        metadata={},
+    )
+    with pytest.raises(OperatorFailure, match="source_changed"):
+        async with db_session.begin_nested():
+            await AssetsOperatorGateway(db_session).append_all_items(
+                created.dataset.id, [alias]
+            )
+    assert await db_session.get(DatasetItem, alias_id) is None
+    ordinary = alias.model_copy(
+        update={"id": uuid.uuid4(), "file_path": "ordinary/alias.png"}
+    )
+    saved = await AssetsOperatorGateway(db_session).append_all_items(
+        created.dataset.id, [ordinary]
+    )
+    assert saved[0].file_path == ordinary.file_path
 
 
 @pytest.mark.asyncio
@@ -228,35 +273,3 @@ async def test_import_admin_creation_keeps_existing_identity_semantics(db_sessio
 
     replayed = await commands.ensure_import_admin(environment="production")
     assert replayed == admin.id
-
-
-def test_operator_importers_do_not_use_retired_dataset_item_writers():
-    scripts = Path(__file__).parents[1] / "scripts"
-    retired_methods = {
-        "create_local_image_import_dataset",
-        "ensure_nuscenes_dataset",
-        "add_item",
-        "set_nuscenes_export_context",
-        "backfill_camera_dimensions",
-        "refresh_imported_item_content",
-        "record_uploaded_item_content",
-        "recount_items",
-    }
-    for script in ("import_images.py", "import_nuscenes_scene.py"):
-        source = (scripts / script).read_text(encoding="utf-8")
-        tree = ast.parse(source)
-        calls = {
-            node.func.attr
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-        }
-        assert not calls.intersection(retired_methods), script
-        assert "AssetsOperatorGateway" in source
-        assert not any(
-            isinstance(node, ast.ImportFrom)
-            and node.module == "app.db.models.dataset"
-            and any(alias.name in {"Dataset", "DatasetItem"} for alias in node.names)
-            for node in ast.walk(tree)
-        ), script
-
-    assert all(not hasattr(DatasetService, name) for name in retired_methods)

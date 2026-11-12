@@ -11,6 +11,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 
 from app.services import async_job as jobs
+from app.services import storage_access
 from app.services.content_snapshot import ContentError
 from app.services.dataset_content import key_authority
 from app.services.dataset_references import reference_context, reference_snapshot
@@ -357,6 +358,11 @@ class ReferenceExportMedia:
                 raise ContentError("image_size_mismatch")
             await self._authorize_task(self.db, task, actor)
             return snapshot
-        except BaseException:
-            snapshot.close()
+        except BaseException as original:
+            try:
+                storage_access.close_registered(snapshot)
+            except BaseException as closing:
+                raise BaseExceptionGroup(
+                    "Reference validation and snapshot close failed", [original, closing]
+                ) from None
             raise

@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from contextlib import aclosing, closing
+import errno
+import socket
 from typing import Any
 from urllib.parse import urlsplit
 
 from .queue_contract import (
     JOBS_QUEUE_PATH,
     JobsQueueContractError,
+    JobsQueueNotSent,
     JobsQueueUnavailable,
     QueueRevoke,
     decode_queue_reply,
@@ -64,6 +68,25 @@ async def _bounded_async(chunks, *, limit: int) -> bytes:
     return bytes(body)
 
 
+def _connection_not_sent(exc: BaseException) -> bool:
+    cause = exc
+    while cause is not None:
+        if isinstance(cause, ConnectionRefusedError) and cause.errno == errno.ECONNREFUSED:
+            return True
+        if isinstance(cause, socket.gaierror) and cause.errno in {
+            socket.EAI_NONAME,
+            socket.EAI_AGAIN,
+        }:
+            return True
+        # httpcore also preserves the original socket error as its sole argument.
+        cause = cause.__cause__ or (
+            cause.args[0]
+            if len(cause.args) == 1 and isinstance(cause.args[0], BaseException)
+            else None
+        )
+    return False
+
+
 def _post_sync(origin: str, token: str, body: bytes, execution_id: str) -> None:
     try:
         import httpx
@@ -73,7 +96,7 @@ def _post_sync(origin: str, token: str, body: bytes, execution_id: str) -> None:
             follow_redirects=False,
             trust_env=False,
         ) as client:
-            with client.stream(
+            request = client.build_request(
                 "POST",
                 f"{origin}{JOBS_QUEUE_PATH}",
                 headers={
@@ -81,7 +104,14 @@ def _post_sync(origin: str, token: str, body: bytes, execution_id: str) -> None:
                     "Content-Type": "application/json",
                 },
                 content=body,
-            ) as response:
+            )
+            try:
+                response = client.send(request, stream=True)
+            except httpx.ConnectError as exc:
+                if _connection_not_sent(exc):
+                    raise JobsQueueNotSent() from None
+                raise
+            with closing(response):
                 response_body = _bounded(response.iter_bytes(), limit=_MAX_REPLY_BYTES)
                 status_code = response.status_code
         reply = decode_queue_reply(response_body)
@@ -120,7 +150,7 @@ class JobsQueueClient:
                 follow_redirects=False,
                 trust_env=False,
             ) as client:
-                async with client.stream(
+                request = client.build_request(
                     "POST",
                     f"{self.origin}{JOBS_QUEUE_PATH}",
                     headers={
@@ -128,7 +158,14 @@ class JobsQueueClient:
                         "Content-Type": "application/json",
                     },
                     content=body,
-                ) as response:
+                )
+                try:
+                    response = await client.send(request, stream=True)
+                except httpx.ConnectError as exc:
+                    if _connection_not_sent(exc):
+                        raise JobsQueueNotSent() from None
+                    raise
+                async with aclosing(response):
                     response_body = await _bounded_async(
                         response.aiter_bytes(), limit=_MAX_REPLY_BYTES
                     )

@@ -2,6 +2,7 @@ import { chromium, type BrowserContext, type Page } from "@playwright/test";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { browserEnvironment } from "../helpers/browser-environment.mjs";
 
 /**
  * Chromium creates its POSIX singleton socket at
@@ -13,7 +14,7 @@ import { join } from "node:path";
  * 84-byte path and passed with the same arguments. The shorter prefix below
  * keeps the browser process within that bound; `close` removes it on
  * launch failure and normal close. Windows uses named pipes without this limit
- * and keeps the inherited environment.
+ * and retains the browser's allowlisted temporary-directory settings.
  */
 async function makeBrowserTempDirectory(): Promise<string | undefined> {
   if (process.platform === "win32") return undefined;
@@ -73,14 +74,12 @@ export async function launchNativeBrowserZoom(
 
   const directory = await mkdtemp(join(tmpdir(), "browser-zoom-profile-"));
   const browserTempDirectory = await makeBrowserTempDirectory();
-  const browserEnv = browserTempDirectory
-    ? {
-        ...process.env,
-        TMPDIR: browserTempDirectory,
-        TMP: browserTempDirectory,
-        TEMP: browserTempDirectory,
-      }
-    : process.env;
+  const browserEnv = {
+    ...browserEnvironment(),
+    ...(browserTempDirectory
+      ? { TMPDIR: browserTempDirectory, TMP: browserTempDirectory, TEMP: browserTempDirectory }
+      : {}),
+  };
   let context: BrowserContext | undefined;
   let closing: Promise<void> | undefined;
   const close = (): Promise<void> => {

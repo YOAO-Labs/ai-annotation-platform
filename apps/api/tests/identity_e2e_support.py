@@ -2,36 +2,33 @@
 
 from __future__ import annotations
 
-import asyncio
-from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
 import json
 import os
-from pathlib import Path
-import re
-import sys
-import tempfile
 import uuid
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import httpx
 import pytest
-from sqlalchemy import event, text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import async_sessionmaker
-
+from app.config import settings
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.project import Project
 from app.db.models.user import User
 from app.db.models.user_invitation import UserInvitation
 from app.deps import get_db
-from tests import seed_owned_scenarios as owned_cases
+from sqlalchemy import event, text
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import async_sessionmaker
+
 from tests import seed_router_scenarios as seed_cases
+from tests.seed_owner_support import private_owned_suite
+from tests.test_identity_admission_live import _dsn
 from tests.test_labeling_counter_deltas_workflows_native import _configure_actual_api
 from tests.test_workspace_consumer_profile_native import _grants, _world
 
 ROOT = Path(__file__).resolve().parents[3]
-CAPTURE = os.getenv("AAP_IDENTITY_E2E_CAPTURE") == "1"
 STAMP = datetime(2025, 2, 3, 4, 5, 6, tzinfo=UTC)
 IDS = {
     name: uuid.uuid5(uuid.NAMESPACE_URL, "identity-e2e-replay:" + name)
@@ -50,22 +47,26 @@ def scenario_rle_bindings(request):
 
 @pytest.fixture
 async def e2e_consumer(test_engine):
-    if CAPTURE:
-        yield test_engine
-    else:
-        async with _world(test_engine, apply=False) as (_owner, consumer, role, _url):
-            # Match the trusted worktree operator's existing spatial capability.
-            async with test_engine.begin() as db:
-                await db.execute(
-                    text(
-                        f'GRANT EXECUTE ON FUNCTION aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb), aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
-                    )
+    async with _world(test_engine, apply=True) as (_owner, consumer, role, _url):
+        # These are ordinary spatial product capabilities, not fixture writes.
+        async with test_engine.begin() as db:
+            await db.execute(
+                text(
+                    f'GRANT EXECUTE ON FUNCTION aap_assets_v1.create_spatial_scene(uuid,uuid,uuid,text,text,jsonb,uuid), aap_assets_v1.assign_spatial_items(uuid,uuid,jsonb), aap_assets_v1.upsert_spatial_poses(uuid,uuid,jsonb) TO "{role}"'
                 )
-            result = await _grants(
-                test_engine, ROOT / "infra/docker/identity-e2e-fixture-grants.sql", role
             )
-            assert result.returncode == 0, result.stderr
-            yield consumer.kw["bind"]
+        yield consumer.kw["bind"]
+
+
+@pytest.fixture
+async def fixture_operator(test_engine):
+    """A separate operator LOGIN for explicit fixture capability tests only."""
+    async with _world(test_engine, apply=True) as (_owner, consumer, role, _url):
+        result = await _grants(
+            test_engine, ROOT / "infra/docker/identity-e2e-fixture-grants.sql", role
+        )
+        assert result.returncode == 0, result.stderr
+        yield consumer.kw["bind"]
 
 
 @asynccontextmanager
@@ -219,6 +220,10 @@ async def fenced_http(
     dataset_dispatcher,
 ):
     _configure_actual_api(test_engine, monkeypatch)
+    monkeypatch.setattr(settings, "identity_invitation_database_url_file", "")
+    monkeypatch.setattr(
+        settings, "identity_invitation_database_url", _dsn("INVITATION", test_engine)
+    )
     original = app_module.dependency_overrides.get(get_db)
     maker = async_sessionmaker(e2e_consumer, expire_on_commit=False)
 
@@ -240,8 +245,43 @@ async def fenced_http(
                 app_module.dependency_overrides[get_db] = original
 
 
+@asynccontextmanager
+async def fixture_routing_owner(test_engine, monkeypatch):
+    """Keep the actual function-only routing owner alive through fixture retirement."""
+    from app.config import settings
+
+    from tests.inference_health_observation_helpers import observation_provider
+    from tests.test_ml_routing_admin_pool_api import _routing_owner_http
+
+    target = test_engine.url
+    routing = make_url(os.environ["AAP_MODULE_DATA_INFERENCE_ROUTING_URL"])
+    if (routing.host, routing.port or 5432, routing.database) != (
+        target.host,
+        target.port or 5432,
+        target.database,
+    ):
+        raise RuntimeError("Fixture routing owner targets a different database")
+    with monkeypatch.context() as patch:
+        patch.setattr(settings, "ml_backend_router_mode", "enforce")
+        patch.setenv("ML_BACKEND_ROUTER_MODE", "enforce")
+        async with (
+            _routing_owner_http(test_engine, patch),
+            observation_provider(test_engine.url) as (health_url, health_token),
+        ):
+            patch.setattr(settings, "inference_health_observation_url", health_url)
+            patch.setattr(settings, "inference_health_observation_token", health_token)
+            patch.setattr(settings, "inference_health_observation_token_file", "")
+            patch.setenv("INFERENCE_HEALTH_OBSERVATION_URL", health_url)
+            patch.setenv("INFERENCE_HEALTH_OBSERVATION_TOKEN", health_token)
+            patch.setenv("INFERENCE_HEALTH_OBSERVATION_TOKEN_FILE", "")
+            patch.setenv("INFERENCE_ROUTING_URL", settings.inference_routing_url)
+            patch.setenv("INFERENCE_ROUTING_TOKEN", settings.inference_routing_token)
+            patch.setenv("INFERENCE_ROUTING_TOKEN_FILE", "")
+            yield
+
+
 @pytest.fixture
-async def fixture_and_fenced_http(fenced_http, test_engine):
+async def fixture_and_fenced_http(fenced_http, test_engine, monkeypatch):
     """Route only seed requests to the guarded owner process, never on error."""
     owner = make_url(os.environ["PLAYWRIGHT_E2E_DATABASE_URL"])
     target = test_engine.url
@@ -251,92 +291,50 @@ async def fixture_and_fenced_http(fenced_http, test_engine):
         target.database,
     ), "Fixture owner and test engine must use the same disposable database"
 
-    process = None
-    lock = asyncio.Lock()
-    with tempfile.TemporaryFile() as errors:
+    async with (
+        fixture_routing_owner(test_engine, monkeypatch),
+        private_owned_suite() as suite,
+    ):
 
         class CompositeClient:
+            owner_suite = suite
+
             async def post(self, path, **kwargs):
-                nonlocal process
                 if not path.startswith("/api/v1/__test/seed/"):
                     return await fenced_http.post(path, **kwargs)
-                async with lock:
-                    if process is None:
-                        process = await asyncio.create_subprocess_exec(
-                            sys.executable,
-                            str(ROOT / "apps/web/e2e/fixtures/seed-request.py"),
-                            cwd=ROOT / "apps/api",
-                            stdin=asyncio.subprocess.PIPE,
-                            stdout=asyncio.subprocess.PIPE,
-                            stderr=errors,
-                            limit=16 * 1024 * 1024,
-                        )
-                    payload = {
-                        "path": path,
-                        "data": kwargs.pop("json", None),
-                        "headers": kwargs.pop("headers", None),
-                    }
-                    if kwargs:
-                        raise TypeError(
-                            f"Unsupported fixture request options: {list(kwargs)}"
-                        )
-                    process.stdin.write((json.dumps(payload) + "\n").encode())
-                    await process.stdin.drain()
-                    line = await asyncio.wait_for(process.stdout.readline(), timeout=30)
-                    if not line:
-                        await process.wait()
-                        errors.seek(0)
-                        failure = re.findall(
-                            rb"^Fixture setup failed: (\w+)$",
-                            errors.read(),
-                            re.MULTILINE,
-                        )
-                        kind = (
-                            failure[-1].decode()
-                            if failure
-                            else f"exit {process.returncode}"
-                        )
-                        raise RuntimeError(f"Fixture owner process failed: {kind}")
-                    result = json.loads(line)
-                    return httpx.Response(
-                        result["status"],
-                        text=result["body"],
-                        request=httpx.Request("POST", "http://fixture.local" + path),
+                data = kwargs.pop("json", None)
+                headers = kwargs.pop("headers", None)
+                if kwargs:
+                    raise TypeError(
+                        f"Unsupported fixture request options: {list(kwargs)}"
                     )
+                return await suite.owner.post(path, json=data, headers=headers)
 
             async def get(self, path, **kwargs):
                 if path.startswith("/api/v1/__test/seed/"):
                     raise ValueError("The fixture owner supports POST requests only")
                 return await fenced_http.get(path, **kwargs)
 
-        try:
-            yield CompositeClient()
-        finally:
-            if process is not None:
-                if process.returncode is None:
-                    process.stdin.close()
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=15)
-                    except TimeoutError:
-                        process.kill()
-                        await process.wait()
-                        raise RuntimeError(
-                            "Fixture owner process did not shut down"
-                        ) from None
-                if process.returncode:
-                    raise RuntimeError(
-                        f"Fixture owner process exited with status {process.returncode}"
-                    )
+            async def delete(self, path, **kwargs):
+                if path.startswith("/api/v1/__test/seed/"):
+                    raise ValueError("The fixture owner supports POST requests only")
+                return await fenced_http.delete(path, **kwargs)
+
+        yield CompositeClient()
 
 
 @pytest.fixture
-async def owner_fault_http(test_engine):
+async def owner_fault_http(test_engine, monkeypatch):
     """Keep in-process fault injection on a fixture-only app, not business HTTP."""
+    from app.api.v1._test_seed import router
+    from app.config import settings
+    from app.services.e2e_fixture_backend import FixtureBackends
     from fastapi import FastAPI
 
-    from app.api.v1._test_seed import router
+    monkeypatch.setattr(settings, "storage_maintenance_protocol_enabled", True)
 
     owner_app = FastAPI()
+    owner_app.state.fixture_backends = FixtureBackends()
     owner_app.include_router(router, prefix="/api/v1/__test")
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
 
@@ -349,7 +347,9 @@ async def owner_fault_http(test_engine):
         transport=httpx.ASGITransport(app=owner_app),
         base_url="http://fixture.local",
     ) as client:
+        client.fixture_app = owner_app
         yield client
+    await owner_app.state.fixture_backends.close()
 
 
 @asynccontextmanager
@@ -381,13 +381,7 @@ async def _committed_owner(engine, fixture_http):
                         db.sync_session, "persistent_to_transient", rolled_back
                     )
     finally:
-        for namespace in (seed_cases.NAMESPACE, owned_cases.A, owned_cases.B):
-            response = await fixture_http.post(
-                "/api/v1/__test/seed/owned-cleanup", json={"namespace": namespace}
-            )
-            assert response.status_code == 200, response.text
-        response = await fixture_http.post("/api/v1/__test/seed/cleanup")
-        assert response.status_code == 200, response.text
+        await fixture_http.owner_suite.finish()
         # Keeper rows prove product cleanup preserves ordinary data. The test
         # owner removes only the exact rows this case created after that proof.
         added = {

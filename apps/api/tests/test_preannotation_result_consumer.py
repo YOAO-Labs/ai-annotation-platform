@@ -1,6 +1,7 @@
 """Recoverable persistence must not turn accepted inference into a failed member."""
 
 import asyncio
+import os
 from dataclasses import replace
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -313,77 +314,85 @@ async def test_complete_selection_never_reselects_current_tasks():
 
 
 @pytest.mark.asyncio
+@pytest.mark.skipif(
+    os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1",
+    reason="requires the owned module-data verifier",
+)
 @pytest.mark.parametrize("failure_code", ["storage_unavailable", "invalid_response"])
 async def test_captured_mask_result_survives_byte_provider_outage(
-    monkeypatch, failure_code
+    test_engine, monkeypatch, failure_code
 ):
+    from sqlalchemy import text
     from yoao_assets_mask_content.contract import MaskContentFailure
+
     from app.application import durable_preannotation as workflow
-    from app.services import batch_result_masks
+    from app.config import settings
+    from app.services import raster_mask_storage
+    from app.services.prediction import PredictionService
+    from tests.test_batch_result_consumers_native import _counts, _world
 
-    _task, scope, request, member, _result = facts()
-    member.state = "captured"
-    member.manifest_member = None
-    result = SimpleNamespace(
-        raw_complete=True,
-        prepared_complete=False,
-        state="captured",
-        context={"task_id": str(member.task_id), "total_cost": "1.25"},
-    )
+    async with _world(test_engine, result_count=1, masks=True) as world:
+        monkeypatch.setattr(settings, "raster_mask_read_enabled", True)
+        monkeypatch.setattr(settings, "raster_mask_create_enabled", True)
+        shape = {
+            "type": "raster_mask",
+            "class_name": "object",
+            "geometry": {
+                "type": "raster_mask",
+                "mask": {
+                    "encoding": "coco_rle",
+                    "size": [2048, 2048],
+                    "counts": [1, 4194303],
+                },
+            },
+            "tool_unit_id": "region",
+            "attributes": {},
+        }
+        requests = (replace(world.requests[0], result=[shape]),)
+        context = {"task_id": str(world.task_id), "total_cost": "1.25"}
+        await world.execution.capture(1, requests, stage="raw", context=context)
 
-    async def members(**_values):
-        yield member
+        async def unavailable(rle):
+            assert rle == shape["geometry"]["mask"]
+            raise MaskContentFailure(failure_code)
 
-    execution = SimpleNamespace(
-        scope={
-            "job_id": scope.job_id,
-            "actor_id": scope.actor_id,
-            "project_id": scope.project_id,
-        },
-        progress=SimpleNamespace(selection_complete=True, next_ordinal=member.ordinal),
-        ensure_owned=lambda: None,
-        call=AsyncMock(),
-        members=members,
-        read_result=AsyncMock(return_value=SimpleNamespace(result=result)),
-        load=AsyncMock(return_value=(result, (request,))),
-        capture=AsyncMock(),
-    )
-    monkeypatch.setattr(workflow, "_actor_available", AsyncMock(return_value=True))
-    monkeypatch.setattr(workflow, "_cancel_requested", AsyncMock(return_value=False))
-    monkeypatch.setattr(
-        batch_result_masks,
-        "normalize_batch_prediction_masks",
-        AsyncMock(side_effect=MaskContentFailure(failure_code)),
-    )
-    infer = AsyncMock()
-    writer = SimpleNamespace(create_failed=AsyncMock())
-    db = SimpleNamespace(commit=AsyncMock(), rollback=AsyncMock())
+        monkeypatch.setattr(raster_mask_storage, "store_coco_rle", unavailable)
+        infer = AsyncMock()
 
-    async def entries():
-        raise AssertionError("saved members must not be reselected")
-        yield
+        async def entries():
+            raise AssertionError("saved members must not be reselected")
+            yield
 
-    with pytest.raises(PreannotationResultDeferred, match=failure_code):
-        await workflow.run_durable_batch(
-            execution,
-            db,
-            BatchPredictionRequest(
-                project_id=str(scope.project_id),
-                ml_backend_id=str(uuid4()),
-                predict_mode="append",
-            ),
-            entries=entries(),
-            accepted_input=None,
-            infer=infer,
-            writer=writer,
-            job_meta={},
-            result_extra={},
-        )
-    infer.assert_not_awaited()
-    writer.create_failed.assert_not_awaited()
-    execution.capture.assert_not_awaited()
-    assert result.state == "captured"
-    assert result.context["total_cost"] == "1.25"
+        async with world.writers() as db:
+            with pytest.raises(PreannotationResultDeferred, match=failure_code):
+                await workflow.run_durable_batch(
+                    world.execution,
+                    db,
+                    world.request,
+                    entries=entries(),
+                    accepted_input=None,
+                    infer=infer,
+                    writer=PredictionService(db),
+                    job_meta={},
+                    result_extra={},
+                )
+        infer.assert_not_awaited()
+        result, retained = await world.execution.load(1, stage="raw")
+        assert result.raw_complete and not result.prepared_complete
+        assert result.context == context
+        assert retained[0].result == [shape]
+        assert await _counts(world) == (0, 0, 0, 0)
+        async with world.owner_factory() as owner:
+            states = (
+                await owner.execute(
+                    text(
+                        "SELECT state FROM aap_jobs_v1.prediction_mask_producers "
+                        "WHERE job_id=:job_id AND ordinal=1"
+                    ),
+                    {"job_id": world.execution.scope["job_id"]},
+                )
+            ).scalars().all()
+        assert states == ["pending"]
 
 
 def test_mask_verification_outage_is_retryable_for_the_actual_writer():

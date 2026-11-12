@@ -12,6 +12,8 @@ from app.services.raster_mask_storage import (
     RasterMaskContractError,
     build_rle_reference,
 )
+from app.services.raster_mask_storage import store_coco_rle
+from app.services.storage_access import failure_unsettled, mark_unsettled
 from app.services.raster_object_storage import RasterObjectStorageError
 
 
@@ -125,3 +127,56 @@ async def test_plain_validation_error_keeps_existing_service_contract(
         await _exercise(monkeypatch, boundary, ValueError("invalid mask input"))
     assert caught.value.status_code == status
     assert caught.value.detail["reason"] == reason
+
+
+async def test_unsettled_owner_failure_remains_unsettled_at_store_boundary(monkeypatch):
+    from app.services import raster_mask_objects
+
+    failure = mark_unsettled(RasterObjectStorageError("unavailable"))
+    monkeypatch.setattr(raster_mask_objects, "store", AsyncMock(side_effect=failure))
+    with pytest.raises(RasterMaskContractError) as caught:
+        await store_coco_rle(RLE)
+    assert caught.value.status_code == 503
+    assert failure_unsettled(caught.value)
+    assert caught.value.__cause__ is failure
+
+
+def test_raster_physical_close_preserves_original_failure_and_uncertainty(monkeypatch):
+    from app.services import raster_object_storage as physical
+
+    failure = RuntimeError("physical read failed")
+
+    class Context:
+        def __enter__(self):
+            return object()
+
+        def __exit__(self, *_args):
+            raise OSError("physical close failed")
+
+    location_id = uuid.uuid4()
+    target = SimpleNamespace(
+        location_id=location_id,
+        endpoint_url="http://localhost",
+        bucket="fixture",
+        key_prefix="",
+        client=lambda **_kwargs: Context(),
+    )
+    owner = SimpleNamespace(
+        bucket="fixture",
+        ref={
+            "location_id": str(location_id),
+            "endpoint_url": "http://localhost",
+            "key_prefix": "",
+        },
+    )
+    monkeypatch.setattr(physical, "resolve", lambda _record: owner)
+
+    def read_fails(*_args, **_kwargs):
+        raise failure
+
+    monkeypatch.setattr(physical, "read", read_fails)
+    with pytest.raises(BaseExceptionGroup) as caught:
+        physical.run_io(target, None, "read", object())
+    assert caught.value.exceptions[0] is failure
+    assert caught.value.exceptions[1].code == "raster_object_storage_unavailable"
+    assert failure_unsettled(caught.value)

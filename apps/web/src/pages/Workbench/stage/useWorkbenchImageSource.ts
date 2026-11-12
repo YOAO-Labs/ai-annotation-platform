@@ -290,9 +290,7 @@ export function useWorkbenchImageSource(
     !!task &&
     query.data?.width != null &&
     query.data.height != null &&
-    (!task.file_url ||
-      task.image_width !== query.data.width ||
-      task.image_height !== query.data.height);
+    (task.image_width !== query.data.width || task.image_height !== query.data.height);
   useEffect(() => {
     if ((!referenceChanged && !needsTaskMedia) || !task?.id) return;
     void queryClient.invalidateQueries({ queryKey: ["task", task.id] });

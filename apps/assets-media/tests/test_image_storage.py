@@ -1,20 +1,52 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import datetime, timezone
 import gzip
 from hashlib import sha256
 from io import BytesIO
+import json
 import logging
+from types import SimpleNamespace
 from uuid import uuid4
 
 import httpx
 import pytest
 import pytest_asyncio
 
-from yoao_assets_images.contract import ImageFailure, ImageOwner, ImageSource
+from yoao_assets_images.contract import (
+    ImageFailure,
+    ImageOwner,
+    ImageSource,
+    OriginalRead,
+)
 from yoao_assets_images_runtime.config import ImageStorageConfig
-from yoao_assets_images_runtime.storage import S3ImageStorage
+from yoao_assets_images_runtime.storage import S3ImageStorage as NativeImageStorage
+from yoao_assets_media_runtime.additional_original import (
+    AdditionalOriginalConfig,
+    physical_identity,
+)
+from yoao_assets_media_runtime.fixture_native_outputs import native_execution, output_scope
+
+
+class S3ImageStorage(NativeImageStorage):
+    def _ordinary(self, source):
+        return self.bind_original(
+            OriginalRead(ownership="ordinary", object_key=source.file_path)
+        )
+
+    async def head_source(self, source):
+        return await self._ordinary(source).head_source(source)
+
+    async def read_source_header(self, source):
+        return await self._ordinary(source).read_source_header(source)
+
+    async def download_source(self, source, destination):
+        return await self._ordinary(source).download_source(source, destination)
+
+    async def sign_source(self, source, expires_in=3600):
+        return await self._ordinary(source).sign_source(source, expires_in)
 
 
 class _Body(BytesIO):
@@ -356,6 +388,13 @@ def _storage(client=None, signer=None, http_client=None):
     )
 
 
+async def _ordinary_upload(storage, path, key):
+    claim = SimpleNamespace(job_id=uuid4())
+    async with native_execution(None, "image", claim.job_id):
+        async with output_scope(None, storage, claim, "image", None):
+            return await storage.upload_cache(path, key)
+
+
 def _source(data, *, legacy=False, content_hash=None, etag="source-etag"):
     owner_id = uuid4()
     owner = (
@@ -498,6 +537,170 @@ async def test_signed_source_url_pins_captured_version():
     )
     await storage.sign_source(unversioned)
     assert "VersionId" not in signer.calls[-1][1]
+
+
+@pytest.mark.asyncio
+async def test_fixture_original_reads_exact_version_without_issuing_a_url(tmp_path):
+    class VersionedS3(_S3):
+        meta = SimpleNamespace(endpoint_url="http://s3.internal")
+
+        def head_object(self, *, Bucket, Key, VersionId=None):
+            if VersionId != "v1":
+                raise _S3Error("NoSuchVersion", 404)
+            return super().head_object(Bucket=Bucket, Key=Key)
+
+    payload = b"fixture image bytes"
+    source = _source(payload)
+    client, signer = VersionedS3(), _Signer()
+    client.set_object("datasets", source.file_path, payload)
+    storage, _config = _storage(client, signer)
+    permit = OriginalRead(
+        ownership="fixture",
+        object_key=source.file_path,
+        creation_id=uuid4(),
+        operation_id=uuid4(),
+        location_id=uuid4(),
+        endpoint_url="http://s3.internal",
+        storage_identity=sha256(
+            json.dumps(["http://s3.internal", "datasets"]).encode()
+        ).hexdigest(),
+        bucket="datasets",
+        version_id="v1",
+        etag="source-etag",
+        size_bytes=len(payload),
+        sha256=sha256(payload).hexdigest(),
+    )
+    admitted = storage.bind_original(permit)
+    assert await admitted.head_source(source) == source.object_identity
+    assert (await admitted.read_source_header(source)).data == payload
+    destination = tmp_path / "fixture.png"
+    downloaded = await admitted.download_source(source, destination)
+    assert downloaded.sha256 == sha256(payload).hexdigest()
+    assert destination.read_bytes() == payload
+    assert await admitted.sign_source(source, 60) is None
+    assert signer.calls == []
+    assert all(call[4] == "v1" for call in client.calls if call[0] == "get")
+
+
+@pytest.mark.asyncio
+async def test_fixture_original_uses_only_explicitly_admitted_ordinary_image_output(
+    tmp_path, monkeypatch
+):
+    from yoao_assets_images_runtime.original_read import admitted_original
+
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
+
+    class VersionedS3(_S3):
+        meta = SimpleNamespace(endpoint_url="http://s3.internal")
+
+        def head_object(self, *, Bucket, Key, VersionId=None):
+            if VersionId not in (None, "v1"):
+                raise _S3Error("NoSuchVersion", 404)
+            return super().head_object(Bucket=Bucket, Key=Key)
+
+    client = VersionedS3()
+    source_bytes = b"fixture original"
+    source = _source(source_bytes)
+    client.set_object("datasets", source.file_path, source_bytes)
+    storage, config = _storage(client, _Signer())
+    permit = OriginalRead(
+        ownership="fixture",
+        object_key=source.file_path,
+        creation_id=uuid4(),
+        operation_id=uuid4(),
+        location_id=uuid4(),
+        endpoint_url=config.endpoint,
+        storage_identity=physical_identity(config.endpoint, config.datasets_bucket),
+        bucket=config.datasets_bucket,
+        version_id="v1",
+        etag="source-etag",
+        size_bytes=len(source_bytes),
+        sha256=sha256(source_bytes).hexdigest(),
+    )
+
+    class Reader:
+        def __init__(self):
+            self.finished = []
+
+        async def call(self, operation, request):
+            if operation == "begin_image_original_worker":
+                return permit
+            assert operation == "finish_image_original_worker"
+            self.finished.append((request.creation_id, request.operation_id))
+
+    reader = Reader()
+    claim = SimpleNamespace(job_id=uuid4())
+    key = f"image-assets/{claim.job_id}/g1/a{uuid4()}/thumbnail.webp"
+    artifact = tmp_path / "thumbnail.webp"
+    artifact.write_bytes(b"ordinary output")
+    async with native_execution(reader, "image", claim.job_id):
+        async with admitted_original(
+            reader, storage, "begin_image_original_worker", None,
+            "finish_image_original_worker",
+        ) as original:
+            with pytest.raises(RuntimeError):
+                await storage.upload_cache(artifact, key)
+            assert (config.cache_bucket, key) not in client.objects
+            with pytest.raises(RuntimeError):
+                async with output_scope(
+                    reader, storage, SimpleNamespace(job_id=uuid4()), "image", permit
+                ):
+                    await storage.upload_cache(artifact, key)
+            assert (config.cache_bucket, key) not in client.objects
+            async with output_scope(reader, storage, claim, "image", permit):
+                download = await original.download_source(
+                    source, tmp_path / "original.png"
+                )
+                result = await storage.upload_cache(artifact, key)
+            assert download.sha256 == sha256(source_bytes).hexdigest()
+            assert result.sha256 == sha256(b"ordinary output").hexdigest()
+    assert client.objects[(config.cache_bucket, key)][0] == b"ordinary output"
+    assert any(call[0] == "get" and call[4] == "v1" for call in client.calls)
+    assert reader.finished == [(permit.creation_id, permit.operation_id)]
+
+
+@pytest.mark.asyncio
+async def test_ordinary_collision_blocks_only_the_owned_physical_store():
+    source = _source(b"ordinary source")
+    client, signer = _S3(), _Signer()
+    client.meta = SimpleNamespace(endpoint_url="http://s3.internal")
+    client.set_object("datasets", source.file_path, b"ordinary source")
+    storage, _ = _storage(client, signer)
+    owned = sha256(json.dumps(["http://s3.internal", "datasets"]).encode()).hexdigest()
+    other = sha256(
+        json.dumps(["http://s3.internal", "other-bucket"]).encode()
+    ).hexdigest()
+    permitted = storage.bind_original(
+        OriginalRead(
+            ownership="ordinary",
+            object_key=source.file_path,
+            blocked_storage_identities=(other,),
+            source_storage_identity=owned,
+        )
+    )
+    assert await permitted.head_source(source) == source.object_identity
+    assert await permitted.sign_source(source, 60)
+    denied = storage.bind_original(
+        OriginalRead(
+            ownership="ordinary",
+            object_key=source.file_path,
+            blocked_storage_identities=(owned,),
+        )
+    )
+    with pytest.raises(ImageFailure, match="source_changed"):
+        await denied.sign_source(source, 60)
+    with pytest.raises(ImageFailure, match="source_changed"):
+        await denied.head_source(source)
+    wrong_saved_location = storage.bind_original(
+        OriginalRead(
+            ownership="ordinary",
+            object_key=source.file_path,
+            source_storage_identity=other,
+        )
+    )
+    with pytest.raises(ImageFailure, match="source_changed"):
+        await wrong_saved_location.sign_source(source, 60)
+    assert len(signer.calls) == 1
 
 
 @pytest.mark.asyncio
@@ -726,6 +929,7 @@ async def test_cache_put_cancellation_closes_local_stream_and_returns_promptly(
     monkeypatch, tmp_path
 ):
     import yoao_assets_images_runtime.storage as storage_module
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
 
     client = _S3()
     transport = _BlockingPutTransport()
@@ -744,7 +948,7 @@ async def test_cache_put_cancellation_closes_local_stream_and_returns_promptly(
         body_closed.set()
 
     monkeypatch.setattr(storage_module._FileBody, "aclose", watched_close)
-    upload = asyncio.create_task(storage.upload_cache(path, key))
+    upload = asyncio.create_task(_ordinary_upload(storage, path, key))
 
     await asyncio.wait_for(transport.started.wait(), timeout=1)
     upload.cancel()
@@ -778,7 +982,8 @@ async def test_range_identity_mismatch_closes_body_and_rejects_stale_bytes():
 
 
 @pytest.mark.asyncio
-async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path):
+async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path, monkeypatch):
+    monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     client = _S3()
     signer = _Signer()
     storage, config = _storage(client, signer)
@@ -787,7 +992,7 @@ async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path)
     job, attempt = uuid4(), uuid4()
     key = f"image-assets/{job}/g1/a{attempt}/thumbnail.webp"
 
-    artifact = await storage.upload_cache(path, key)
+    artifact = await _ordinary_upload(storage, path, key)
     url = await storage.sign_cache(key, expires_in=90)
 
     assert artifact.key == key
@@ -797,7 +1002,7 @@ async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path)
     manifest = tmp_path / "manifest.json"
     manifest.write_text('{"schema":"aap-image-pyramid/v1"}', encoding="utf-8")
     manifest_key = f"image-pyramids/{uuid4()}/g1/a{attempt}/manifest.json"
-    manifest_artifact = await storage.upload_cache(manifest, manifest_key)
+    manifest_artifact = await _ordinary_upload(storage, manifest, manifest_key)
     assert manifest_artifact.key == manifest_key
     uploads = [call for call in client.calls if call[0] == "upload"]
     assert uploads[0][1:3] == (config.cache_bucket, key)
@@ -878,3 +1083,57 @@ async def test_orphan_listing_rejects_repeated_continuation_tokens():
 
     with pytest.raises(ImageFailure, match="invalid_response"):
         _ = [row async for row in storage.iter_orphan_generations()]
+
+
+@pytest.mark.asyncio
+async def test_image_additional_target_pins_head_range_and_full_read(tmp_path):
+    class VersionedS3(_S3):
+        def head_object(self, *, Bucket, Key, VersionId=None):
+            if VersionId != "v1":
+                raise RuntimeError("unexpected version")
+            return super().head_object(Bucket=Bucket, Key=Key)
+
+    primary, extra, signer = VersionedS3(), VersionedS3(), _Signer()
+    primary.meta = SimpleNamespace(endpoint_url="http://s3.internal")
+    extra.meta = SimpleNamespace(endpoint_url="http://fixture.internal")
+    _, base = _storage(primary, signer)
+    extra_config = AdditionalOriginalConfig(
+        "http://fixture.internal", "fixture-originals", "reader", "secret"
+    )
+    storage = S3ImageStorage(
+        replace(base, additional_original=extra_config),
+        client=primary,
+        signer=signer,
+        additional_original_client=extra,
+    )
+    body = b"fixture image payload"
+    source = _source(body)
+    extra.set_object(extra_config.bucket, source.file_path, body)
+    permit = OriginalRead(
+        ownership="fixture",
+        creation_id=uuid4(),
+        operation_id=uuid4(),
+        location_id=uuid4(),
+        endpoint_url=extra_config.endpoint,
+        storage_identity=physical_identity(extra_config.endpoint, extra_config.bucket),
+        bucket=extra_config.bucket,
+        object_key=source.file_path,
+        version_id="v1",
+        etag="source-etag",
+        size_bytes=len(body),
+        sha256=sha256(body).hexdigest(),
+    )
+    bound = storage.bind_original(permit)
+    assert await bound.head_source(source) == source.object_identity
+    assert (await bound.read_source_header(source)).data == body
+    destination = tmp_path / "source.png"
+    assert (await bound.download_source(source, destination)).sha256 == sha256(
+        body
+    ).hexdigest()
+    assert destination.read_bytes() == body and not primary.calls and not signer.calls
+    assert await bound.sign_source(source, 60) is None
+    with pytest.raises(ImageFailure, match="source_changed"):
+        storage.bind_original(permit.model_copy(update={"bucket": "other-originals"}))
+    with pytest.raises(ImageFailure, match="source_changed"):
+        storage.bind_original(permit.model_copy(update={"storage_identity": "f" * 64}))
+    await storage.close()

@@ -12,7 +12,7 @@ from app.config import settings
 from app.db.models.storage_connection import StorageConnection
 from app.services import connector_guard, storage_access
 from app.services.dataset_assets import LEGACY_LOCATION_ID
-from app.services.source_readers.s3 import S3Access
+from app.services.source_readers.s3 import S3Access, ScopedS3Access
 
 PURPOSES = {
     "avatars",
@@ -156,7 +156,9 @@ class Target:
     bucket: str
     key_prefix: str
     purpose: str = field(default="avatars", repr=False, compare=False)
-    _access: S3Access | None = field(default=None, repr=False, compare=False)
+    _access: S3Access | ScopedS3Access | None = field(
+        default=None, repr=False, compare=False
+    )
     _legacy_client: object = field(default=None, repr=False, compare=False)
 
     @property

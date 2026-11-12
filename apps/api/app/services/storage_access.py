@@ -39,6 +39,15 @@ def mark_unsettled(exc):
     return exc
 
 
+def failure_unsettled(exc: BaseException) -> bool:
+    """Keep an admission open when any retained physical failure is uncertain."""
+    if getattr(exc, "storage_operation_unsettled", False):
+        return True
+    return isinstance(exc, BaseExceptionGroup) and any(
+        failure_unsettled(child) for child in exc.exceptions
+    )
+
+
 def close_registered(resource):
     """A failed close is not proof that a registered physical handle ended."""
     try:
@@ -176,18 +185,18 @@ class Permit:
         self._settled = True
 
     async def __aexit__(self, exc_type, exc, traceback):
-        if getattr(exc, "storage_operation_unsettled", False):
+        if failure_unsettled(exc):
             return False
         if not self._settled:
             task = asyncio.create_task(self._settle())
-            cancelled = False
+            cancelled = None
             try:
                 try:
                     await asyncio.shield(task)
-                except asyncio.CancelledError:
-                    cancelled = True
+                except asyncio.CancelledError as interrupted:
+                    cancelled = interrupted
                     await finish(task)
-            except Exception:
+            except BaseException:
                 # An unresolved record must remain visible; do not print paths,
                 # exception payloads, connection strings, or driver credentials.
                 logger.error(
@@ -195,10 +204,20 @@ class Permit:
                     self.location_id,
                     self.id,
                 )
-                if exc_type is None:
-                    raise error("storage_operation_unsettled", 503) from None
-            if cancelled and exc_type is None:
-                raise asyncio.CancelledError()
+                unsettled = mark_unsettled(error("storage_operation_unsettled", 503))
+                if exc is not None:
+                    raise BaseExceptionGroup(
+                        "Storage operation and permit settlement failed",
+                        [exc, unsettled],
+                    ) from None
+                raise unsettled from None
+            if cancelled is not None:
+                if exc is not None:
+                    raise BaseExceptionGroup(
+                        "Storage operation and permit settlement were interrupted",
+                        [exc, cancelled],
+                    ) from None
+                raise cancelled
         return False
 
 
@@ -253,23 +272,53 @@ async def run(
     **kwargs,
 ):
     """Persist optional owner evidence before starting registered executor I/O."""
-    async with await acquire(
+    from app.services import export_execution_context
+
+    owner = export_execution_context.current_optional()
+    permit = await acquire(
         db, location_id, purpose, expected_revision=expected_revision, node_id=node_id
-    ) as permit:
-        if on_acquired is not None:
-            await on_acquired(permit)
-        future = asyncio.get_running_loop().run_in_executor(
-            None, copy_context().run, partial(call, *args, **kwargs)
-        )
-        try:
-            if timeout is None:
-                return await asyncio.shield(future)
-            return await asyncio.wait_for(asyncio.shield(future), timeout)
-        except (asyncio.CancelledError, TimeoutError) as interrupted:
-            # Cancellation of an await is not evidence the physical handle closed.
+    )
+    entered, future, failure = False, None, None
+    try:
+        async with permit:
+            if on_acquired is not None:
+                await on_acquired(permit)
+            if owner is not None:
+                await owner.enter_io()
+                entered = True
             try:
-                await finish(future)
-            except BaseException as late:
-                if getattr(late, "storage_operation_unsettled", False):
-                    mark_unsettled(interrupted)
-            raise
+                future = asyncio.get_running_loop().run_in_executor(
+                    None, copy_context().run, partial(call, *args, **kwargs)
+                )
+            except BaseException as exc:
+                if owner is not None:
+                    raise mark_unsettled(exc)
+                raise
+            try:
+                if timeout is None:
+                    return await asyncio.shield(future)
+                return await asyncio.wait_for(asyncio.shield(future), timeout)
+            except (asyncio.CancelledError, TimeoutError) as interrupted:
+                try:
+                    await finish(future)
+                except BaseException as late:
+                    if owner is not None and late is not interrupted:
+                        raise BaseExceptionGroup(
+                            "Storage operation and drained physical work failed",
+                            [interrupted, late],
+                        ) from None
+                    if failure_unsettled(late):
+                        mark_unsettled(interrupted)
+                raise
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        if (
+            entered
+            and permit._settled
+            and future is not None
+            and future.done()
+            and (failure is None or not failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)

@@ -119,7 +119,7 @@ PYTHONPATH=. uv run python scripts/seed.py --profile online-training
 ```bash
 # 单元测试与端到端测试
 pnpm test                  # 前端 Vitest 单元测试
-pnpm test:e2e              # 前端 Playwright E2E 测试
+pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 前端 Playwright E2E 测试
 cd apps/api && uv run pytest
 cd apps/training-executor && uv run pytest
 

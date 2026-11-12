@@ -84,7 +84,7 @@ async def test_image_healthcheck_follows_the_selected_service_port(
             network,
         )
         created = True
-        _docker("network", "connect", network, pg)
+        _docker("network", "connect", "--gw-priority", "-1", network, pg)
         connected = True
         container = _docker(
             "run",

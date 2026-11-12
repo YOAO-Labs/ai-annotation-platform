@@ -26762,6 +26762,353 @@
         "title": "ManagedModelCompatibility",
         "type": "object"
       },
+      "ManagedOriginalDatasetAssetReclamationItem": {
+        "properties": {
+          "asset_id": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          },
+          "auxiliary_original_id": {
+            "title": "Auxiliary Original Id",
+            "type": "null"
+          },
+          "blockers": {
+            "items": {
+              "enum": [
+                "current_asset_location",
+                "current_dataset_item",
+                "current_task",
+                "current_task_dataset_link",
+                "retained_training_version",
+                "active_learning_history",
+                "indefinite_retention",
+                "retention_window",
+                "related_indefinite_retention",
+                "related_retention_window",
+                "declared_backup_hold",
+                "declared_migration_hold",
+                "storage_identity_unknown",
+                "storage_identity_mismatch",
+                "content_identity_unverified",
+                "locator_unverified",
+                "unsupported_training_snapshot",
+                "unsupported_active_learning_snapshot",
+                "legacy_task_bucket_unknown",
+                "exclusive_ownership_unproven",
+                "backup_holds_unknown",
+                "migration_holds_unknown",
+                "object_presence_not_checked"
+              ],
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "format": "uuid",
+            "title": "Dataset Item Id",
+            "type": "string"
+          },
+          "declared_backup_holds": {
+            "title": "Declared Backup Holds",
+            "type": "integer"
+          },
+          "declared_migration_holds": {
+            "title": "Declared Migration Holds",
+            "type": "integer"
+          },
+          "effective_retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Retain Until"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_state": {
+            "enum": [
+              "current",
+              "unknown",
+              "mismatch"
+            ],
+            "title": "Identity State",
+            "type": "string"
+          },
+          "indefinite_retention": {
+            "title": "Indefinite Retention",
+            "type": "boolean"
+          },
+          "owner_type": {
+            "const": "dataset_asset",
+            "title": "Owner Type",
+            "type": "string"
+          },
+          "peer_assertions": {
+            "title": "Peer Assertions",
+            "type": "integer"
+          },
+          "policy_candidate": {
+            "title": "Policy Candidate",
+            "type": "boolean"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
+          },
+          "retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Until"
+          },
+          "retired_at": {
+            "format": "date-time",
+            "title": "Retired At",
+            "type": "string"
+          },
+          "roots": {
+            "$ref": "#/components/schemas/ManagedOriginalReclamationRoots"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "status": {
+            "enum": [
+              "retained",
+              "protected",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dataset_id",
+          "retired_at",
+          "policy_revision",
+          "retain_until",
+          "effective_retain_until",
+          "indefinite_retention",
+          "peer_assertions",
+          "declared_backup_holds",
+          "declared_migration_holds",
+          "size_bytes",
+          "identity_state",
+          "status",
+          "policy_candidate",
+          "roots",
+          "blockers",
+          "owner_type",
+          "dataset_item_id",
+          "asset_id",
+          "auxiliary_original_id"
+        ],
+        "title": "ManagedOriginalDatasetAssetReclamationItem",
+        "type": "object"
+      },
+      "ManagedOriginalDatasetAuxiliaryReclamationItem": {
+        "properties": {
+          "asset_id": {
+            "title": "Asset Id",
+            "type": "null"
+          },
+          "auxiliary_original_id": {
+            "format": "uuid",
+            "title": "Auxiliary Original Id",
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "enum": [
+                "current_asset_location",
+                "current_dataset_item",
+                "current_task",
+                "current_task_dataset_link",
+                "retained_training_version",
+                "active_learning_history",
+                "indefinite_retention",
+                "retention_window",
+                "related_indefinite_retention",
+                "related_retention_window",
+                "declared_backup_hold",
+                "declared_migration_hold",
+                "storage_identity_unknown",
+                "storage_identity_mismatch",
+                "content_identity_unverified",
+                "locator_unverified",
+                "unsupported_training_snapshot",
+                "unsupported_active_learning_snapshot",
+                "legacy_task_bucket_unknown",
+                "exclusive_ownership_unproven",
+                "backup_holds_unknown",
+                "migration_holds_unknown",
+                "object_presence_not_checked"
+              ],
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "dataset_id": {
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "dataset_item_id": {
+            "title": "Dataset Item Id",
+            "type": "null"
+          },
+          "declared_backup_holds": {
+            "title": "Declared Backup Holds",
+            "type": "integer"
+          },
+          "declared_migration_holds": {
+            "title": "Declared Migration Holds",
+            "type": "integer"
+          },
+          "effective_retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective Retain Until"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "identity_state": {
+            "enum": [
+              "current",
+              "unknown",
+              "mismatch"
+            ],
+            "title": "Identity State",
+            "type": "string"
+          },
+          "indefinite_retention": {
+            "title": "Indefinite Retention",
+            "type": "boolean"
+          },
+          "owner_type": {
+            "const": "dataset_auxiliary",
+            "title": "Owner Type",
+            "type": "string"
+          },
+          "peer_assertions": {
+            "title": "Peer Assertions",
+            "type": "integer"
+          },
+          "policy_candidate": {
+            "title": "Policy Candidate",
+            "type": "boolean"
+          },
+          "policy_revision": {
+            "title": "Policy Revision",
+            "type": "integer"
+          },
+          "retain_until": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retain Until"
+          },
+          "retired_at": {
+            "format": "date-time",
+            "title": "Retired At",
+            "type": "string"
+          },
+          "roots": {
+            "$ref": "#/components/schemas/ManagedOriginalReclamationRoots"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "status": {
+            "enum": [
+              "retained",
+              "protected",
+              "blocked"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "dataset_id",
+          "retired_at",
+          "policy_revision",
+          "retain_until",
+          "effective_retain_until",
+          "indefinite_retention",
+          "peer_assertions",
+          "declared_backup_holds",
+          "declared_migration_holds",
+          "size_bytes",
+          "identity_state",
+          "status",
+          "policy_candidate",
+          "roots",
+          "blockers",
+          "owner_type",
+          "dataset_item_id",
+          "asset_id",
+          "auxiliary_original_id"
+        ],
+        "title": "ManagedOriginalDatasetAuxiliaryReclamationItem",
+        "type": "object"
+      },
       "ManagedOriginalReclaimApply": {
         "additionalProperties": false,
         "properties": {
@@ -27328,169 +27675,6 @@
         "title": "ManagedOriginalReclamationCoverage",
         "type": "object"
       },
-      "ManagedOriginalReclamationItem": {
-        "properties": {
-          "asset_id": {
-            "format": "uuid",
-            "title": "Asset Id",
-            "type": "string"
-          },
-          "blockers": {
-            "items": {
-              "enum": [
-                "current_asset_location",
-                "current_dataset_item",
-                "current_task",
-                "current_task_dataset_link",
-                "retained_training_version",
-                "active_learning_history",
-                "indefinite_retention",
-                "retention_window",
-                "related_indefinite_retention",
-                "related_retention_window",
-                "declared_backup_hold",
-                "declared_migration_hold",
-                "storage_identity_unknown",
-                "storage_identity_mismatch",
-                "content_identity_unverified",
-                "locator_unverified",
-                "unsupported_training_snapshot",
-                "unsupported_active_learning_snapshot",
-                "legacy_task_bucket_unknown",
-                "exclusive_ownership_unproven",
-                "backup_holds_unknown",
-                "migration_holds_unknown",
-                "object_presence_not_checked"
-              ],
-              "type": "string"
-            },
-            "title": "Blockers",
-            "type": "array"
-          },
-          "dataset_id": {
-            "format": "uuid",
-            "title": "Dataset Id",
-            "type": "string"
-          },
-          "dataset_item_id": {
-            "format": "uuid",
-            "title": "Dataset Item Id",
-            "type": "string"
-          },
-          "declared_backup_holds": {
-            "title": "Declared Backup Holds",
-            "type": "integer"
-          },
-          "declared_migration_holds": {
-            "title": "Declared Migration Holds",
-            "type": "integer"
-          },
-          "effective_retain_until": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effective Retain Until"
-          },
-          "id": {
-            "format": "uuid",
-            "title": "Id",
-            "type": "string"
-          },
-          "identity_state": {
-            "enum": [
-              "current",
-              "unknown",
-              "mismatch"
-            ],
-            "title": "Identity State",
-            "type": "string"
-          },
-          "indefinite_retention": {
-            "title": "Indefinite Retention",
-            "type": "boolean"
-          },
-          "peer_assertions": {
-            "title": "Peer Assertions",
-            "type": "integer"
-          },
-          "policy_candidate": {
-            "title": "Policy Candidate",
-            "type": "boolean"
-          },
-          "policy_revision": {
-            "title": "Policy Revision",
-            "type": "integer"
-          },
-          "retain_until": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Retain Until"
-          },
-          "retired_at": {
-            "format": "date-time",
-            "title": "Retired At",
-            "type": "string"
-          },
-          "roots": {
-            "$ref": "#/components/schemas/ManagedOriginalReclamationRoots"
-          },
-          "size_bytes": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Size Bytes"
-          },
-          "status": {
-            "enum": [
-              "retained",
-              "protected",
-              "blocked"
-            ],
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "id",
-          "asset_id",
-          "dataset_id",
-          "dataset_item_id",
-          "retired_at",
-          "policy_revision",
-          "retain_until",
-          "effective_retain_until",
-          "indefinite_retention",
-          "peer_assertions",
-          "declared_backup_holds",
-          "declared_migration_holds",
-          "size_bytes",
-          "identity_state",
-          "status",
-          "policy_candidate",
-          "roots",
-          "blockers"
-        ],
-        "title": "ManagedOriginalReclamationItem",
-        "type": "object"
-      },
       "ManagedOriginalReclamationPreview": {
         "properties": {
           "counts": {
@@ -27511,7 +27695,21 @@
           },
           "items": {
             "items": {
-              "$ref": "#/components/schemas/ManagedOriginalReclamationItem"
+              "discriminator": {
+                "mapping": {
+                  "dataset_asset": "#/components/schemas/ManagedOriginalDatasetAssetReclamationItem",
+                  "dataset_auxiliary": "#/components/schemas/ManagedOriginalDatasetAuxiliaryReclamationItem"
+                },
+                "propertyName": "owner_type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ManagedOriginalDatasetAssetReclamationItem"
+                },
+                {
+                  "$ref": "#/components/schemas/ManagedOriginalDatasetAuxiliaryReclamationItem"
+                }
+              ]
             },
             "title": "Items",
             "type": "array"
@@ -94284,7 +94482,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/interactive-annotating-frame": {
       "post": {
-        "description": "视频当前帧的**交互式** SAM 提示 (point / interactive_box / exemplar)。\n\n与 ``interactive-annotating`` 同一个 backend 契约（兼容 ``context`` 透传，显式\n原生 Mask 请求会经过能力预检与响应校验，见 ``InteractiveRequest.context``），\n唯一差别是**图从哪来**: 图片 task 由服务端\n``_resolve_task_url(task)`` 取, 而视频 task 的 ``file_path`` 是整段 mp4, SAM 吃不到帧。\n故前端把当前帧解成 JPEG 随 multipart 传入 (复用 ``predict-frame`` 的 client 供图机制:\n上传 import 桶换 presigned URL, 通用 http URL, 不走 ``data:`` 捷径)。\n\n与 ``predict-frame`` 的区别: 那条走**批量 ``/predict`` 协议**(text prompt → box, 结果落\nPrediction 待采纳); 本条走 ``predict_interactive``, 候选**瞬态返回不落库**, 由前端\nstate 持有, 采纳时直接建 Annotation (对齐图片侧交互链路)。\n\n``mask_input_next`` 原样回传, 支撑同一帧多次点击的 low-res logits 回灌精修。",
+        "description": "视频当前帧的**交互式** SAM 提示 (point / interactive_box / exemplar)。\n\n与 ``interactive-annotating`` 同一个 backend 契约（兼容 ``context`` 透传，显式\n原生 Mask 请求会经过能力预检与响应校验，见 ``InteractiveRequest.context``），\n唯一差别是**图从哪来**：图片 task 使用受管原件输入，而视频 task 的\n``file_path`` 是整段 mp4，SAM 吃不到帧。\n故前端把当前帧解成 JPEG 随 multipart 传入 (复用 ``predict-frame`` 的 client 供图机制:\n上传 import 桶换 presigned URL, 通用 http URL, 不走 ``data:`` 捷径)。\n\n与 ``predict-frame`` 的区别: 那条走**批量 ``/predict`` 协议**(text prompt → box, 结果落\nPrediction 待采纳); 本条走 ``predict_interactive``, 候选**瞬态返回不落库**, 由前端\nstate 持有, 采纳时直接建 Annotation (对齐图片侧交互链路)。\n\n``mask_input_next`` 原样回传, 支撑同一帧多次点击的 low-res logits 回灌精修。",
         "operationId": "interactive_annotating_frame_api_v1_projects__project_id__ml_backends__backend_id__interactive_annotating_frame_post",
         "parameters": [
           {
@@ -94353,7 +94551,7 @@
     },
     "/api/v1/projects/{project_id}/ml-backends/{backend_id}/predict-frame": {
       "post": {
-        "description": "v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。\n\n视频 task 的 ``file_path`` 是整段 mp4, 图像 backend 从 task URL 取不到帧 (见\n``_resolve_task_url``)。故前端把当前帧解成 JPEG 随 multipart 传入; 服务端上传 import 桶换\npresigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走\n``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有\n``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。\n\n与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。",
+        "description": "v0.21.4 · 对客户端传入的「视频当前帧」JPEG 跑图像 backend, 落单帧 ``video_bbox`` 候选。\n\n视频 task 的 ``file_path`` 是整段 mp4，图像 backend 不能直接读取单帧。\n因此前端把当前帧解成 JPEG 随 multipart 传入；服务端上传 import 桶换\npresigned URL 投递 (``upload_crop_bytes``, **通用**——gsam2/sam3 全支持 http URL, 不走\n``data:`` 捷径); 结果逐框改写成 ``video_bbox(frame_index)`` 落一条 Prediction, 采纳复用既有\n``/predictions/{id}/accept`` 机制 → ``VideoBboxGeometry``。\n\n与批量预标 (整段视频投 signed URL 走 worker) 是两条路: 本路同步、单帧、client 供图。",
         "operationId": "predict_frame_api_v1_projects__project_id__ml_backends__backend_id__predict_frame_post",
         "parameters": [
           {
@@ -107586,6 +107784,7 @@
     },
     "/api/v1/storage/managed-original-reclamation": {
       "get": {
+        "description": "查看已登记的原件退休声明，不授予物理删除权限。\n\nitems 按 owner_type 区分互斥身份：dataset_asset 必须包含 dataset_item_id\n和 asset_id，auxiliary_original_id 为 null；dataset_auxiliary 必须包含\nauxiliary_original_id，dataset_item_id 和 asset_id 均为 null。\n辅助原件不是 DatasetItem；历史未登记对象不会被自动认领。",
         "operationId": "managed_original_reclamation_api_v1_storage_managed_original_reclamation_get",
         "parameters": [
           {

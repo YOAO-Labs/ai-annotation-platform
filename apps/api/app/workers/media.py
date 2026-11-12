@@ -1,6 +1,8 @@
 import asyncio
+import builtins
 import io
 from datetime import datetime
+import sys
 import uuid
 from pathlib import Path
 from typing import Any
@@ -61,7 +63,7 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
     import gc
 
     from app.services.image_pyramid import ImagePyramidError, validate_dimensions
-    from app.services.storage_access import mark_unsettled
+    from app.services.storage_access import failure_unsettled, mark_unsettled
 
     try:
         import pyvips
@@ -85,12 +87,17 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
         dimensions = width, height
     except ImagePyramidError as exc:
         failure = ImagePyramidError(exc.code)
-        if getattr(exc, "storage_operation_unsettled", False):
+        failure.add_note(f"Image probe failed: {type(exc).__name__}")
+        if failure_unsettled(exc):
             mark_unsettled(failure)
     except Exception as exc:
         failure = ImagePyramidError("decode_failed")
-        if getattr(exc, "storage_operation_unsettled", False):
+        failure.add_note(f"Image probe failed: {type(exc).__name__}")
+        if failure_unsettled(exc):
             mark_unsettled(failure)
+    except asyncio.CancelledError as exc:
+        failure = mark_unsettled(asyncio.CancelledError())
+        failure.add_note(f"Image probe interrupted: {type(exc).__name__}")
     except BaseException as exc:
         failure = mark_unsettled(exc)
     finally:
@@ -100,8 +107,17 @@ def _pyramid_dimensions_from_stage(stage) -> tuple[int, int]:
             pyvips.cache_set_max_mem(0)
             pyvips.cache_set_max_files(0)
             gc.collect()
-        except BaseException:
-            failure = mark_unsettled(ImagePyramidError("decode_failed"))
+        except BaseException as exc:
+            cleanup = mark_unsettled(ImagePyramidError("decode_failed"))
+            cleanup.add_note(f"Image probe cleanup failed: {type(exc).__name__}")
+            if failure is None:
+                failure = cleanup
+            elif isinstance(failure, asyncio.CancelledError):
+                failure.__cause__ = cleanup
+            else:
+                failure = BaseExceptionGroup(
+                    "Image probe and native cleanup failed", [failure, cleanup]
+                )
     if failure is not None:
         # An exception raised inside a libvips method may retain its image in
         # traceback frames. Export only the stable error after those frames end.
@@ -113,6 +129,11 @@ async def _pyramid_dimensions(db, kind, identifier) -> tuple[int, int]:
     from app.services import image_pyramid_originals as originals
 
     source = await originals.pin(db, kind, identifier)
+    from app.services import fixture_media_execution
+
+    execution = fixture_media_execution.current()
+    if execution is not None:
+        execution.require_source(originals.receipt(source))
     authority = await originals.delegated(
         db, originals.system_authorization(kind, identifier, source)
     )
@@ -206,12 +227,14 @@ def transcode_video_for_browser(
 
 async def _generate_thumbnail(item_id: str) -> None:
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.services import storage_access
     from app.services.ordinary_thumbnails import generate
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
     try:
-        async with SessionLocal() as db:
+        db = SessionLocal()
+        try:
             await generate(
                 db,
                 "dataset_item",
@@ -220,8 +243,30 @@ async def _generate_thumbnail(item_id: str) -> None:
                 dimensions_probe=_pyramid_dimensions,
                 max_source_bytes=THUMBNAIL_MAX_SOURCE_BYTES,
             )
+        finally:
+            failure = sys.exception()
+            try:
+                await db.close()
+            except BaseException as close_error:
+                storage_access.mark_unsettled(close_error)
+                if failure is not None:
+                    raise builtins.BaseExceptionGroup(
+                        "Thumbnail generation and session close failed",
+                        [failure, close_error],
+                    ) from None
+                raise
     finally:
-        await engine.dispose()
+        failure = sys.exception()
+        try:
+            await engine.dispose()
+        except BaseException as disposal_error:
+            storage_access.mark_unsettled(disposal_error)
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Thumbnail generation and database shutdown failed",
+                    [failure, disposal_error],
+                ) from None
+            raise
 
 
 async def _generate_video_metadata(item_id: str, *, delegation=None) -> None:
@@ -250,56 +295,67 @@ async def _backfill_media(
         async_sessionmaker,
         AsyncSession,
     )
-    from app.services import media_item_reads
+    from app.services import media_item_reads, storage_access
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
         engine, class_=AsyncSession, expire_on_commit=False
     )
 
-    async with SessionLocal() as db:
-        candidates = await media_item_reads.read_dataset_items(
-            db, uuid.UUID(dataset_id)
-        )
-        links = await media_item_reads.read_video_derivative_links(
-            db, [row.id for row in candidates]
-        )
-        items = []
-        for row in candidates:
-            if accepted_before is not None and row.created_at > accepted_before:
-                continue
-            if row.file_path.startswith("__aap_reference__/"):
-                continue
-            if purpose == "dimensions":
-                if row.file_type == "image" and (
-                    row.width is None or row.height is None
-                ):
+    try:
+        async with SessionLocal() as db:
+            candidates = await media_item_reads.read_dataset_items(
+                db, uuid.UUID(dataset_id)
+            )
+            links = await media_item_reads.read_video_derivative_links(
+                db, [row.id for row in candidates]
+            )
+            items = []
+            for row in candidates:
+                if accepted_before is not None and row.created_at > accepted_before:
+                    continue
+                if row.file_path.startswith("__aap_reference__/"):
+                    continue
+                if purpose == "dimensions":
+                    if row.file_type == "image" and (
+                        row.width is None or row.height is None
+                    ):
+                        items.append((str(row.id), row.file_type))
+                    continue
+                if row.file_type == "image" and row.thumbnail_path is None:
                     items.append((str(row.id), row.file_type))
-                continue
-            if row.file_type == "image" and row.thumbnail_path is None:
-                items.append((str(row.id), row.file_type))
-            elif row.file_type == "video":
-                video = (
-                    row.metadata.get("video")
-                    if isinstance(row.metadata, dict)
-                    else None
-                )
-                missing_metadata = (
-                    not isinstance(video, dict) or video.get("frame_count") is None
-                )
-                # poster(缩略图)缺失也需回填:seed 同步填了 video metadata
-                # (frame_count 非空)但从未生成 poster,thumbnail_path 仍为 NULL,
-                # 仅按 frame_count 判定会漏掉这类视频。_generate_video_metadata
-                # 幂等(重建 timetable + poster),重复回填安全。
-                if (
-                    missing_metadata
-                    or row.thumbnail_path is None
-                    or links.get(row.id) is None
-                    or links[row.id].video_output_id is None
-                ):
-                    items.append((str(row.id), row.file_type))
-
-    await engine.dispose()
+                elif row.file_type == "video":
+                    video = (
+                        row.metadata.get("video")
+                        if isinstance(row.metadata, dict)
+                        else None
+                    )
+                    missing_metadata = (
+                        not isinstance(video, dict) or video.get("frame_count") is None
+                    )
+                    # poster(缩略图)缺失也需回填:seed 同步填了 video metadata
+                    # (frame_count 非空)但从未生成 poster,thumbnail_path 仍为 NULL,
+                    # 仅按 frame_count 判定会漏掉这类视频。_generate_video_metadata
+                    # 幂等(重建 timetable + poster),重复回填安全。
+                    if (
+                        missing_metadata
+                        or row.thumbnail_path is None
+                        or links.get(row.id) is None
+                        or links[row.id].video_output_id is None
+                    ):
+                        items.append((str(row.id), row.file_type))
+    finally:
+        failure = sys.exception()
+        try:
+            await engine.dispose()
+        except BaseException as dispose_error:
+            storage_access.mark_unsettled(dispose_error)
+            if failure is not None:
+                raise builtins.BaseExceptionGroup(
+                    "Media backfill selection and database shutdown failed",
+                    [failure, dispose_error],
+                ) from None
+            raise
 
     for item_id, file_type in items:
         if file_type == "image":
@@ -319,6 +375,7 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
     )
 
     from app.services import async_job as async_job_svc
+    from app.services import storage_access
 
     engine = create_async_engine(settings.database_url, echo=False)
     SessionLocal = async_sessionmaker(
@@ -365,13 +422,21 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
                 video_delegations=video_delegations,
             )
         except BaseException as exc:
-            async with SessionLocal() as db:
-                await async_job_svc.mark_failed(
-                    db,
-                    job_id,
-                    error=(str(exc) or type(exc).__name__)[:4000],
-                )
-                await db.commit()
+            if not isinstance(exc, Exception) or storage_access.failure_unsettled(exc):
+                raise
+            try:
+                async with SessionLocal() as db:
+                    await async_job_svc.mark_failed(
+                        db,
+                        job_id,
+                        error=(str(exc) or type(exc).__name__)[:4000],
+                    )
+                    await db.commit()
+            except BaseException as settlement_error:
+                raise builtins.BaseExceptionGroup(
+                    "Media backfill and job settlement both failed",
+                    [exc, settlement_error],
+                ) from None
             raise
         async with SessionLocal() as db:
             await async_job_svc.mark_complete(
@@ -381,7 +446,20 @@ async def _run_media_backfill_job(job_id: uuid.UUID) -> None:
             )
             await db.commit()
     finally:
-        await engine.dispose()
+        failure = sys.exception()
+        try:
+            await engine.dispose()
+        except BaseException as dispose_error:
+            storage_access.mark_unsettled(dispose_error)
+            if failure is not None:
+                combined = builtins.BaseExceptionGroup(
+                    "Media backfill and database shutdown both failed",
+                    [failure, dispose_error],
+                )
+                if storage_access.failure_unsettled(failure):
+                    combined.storage_operation_unsettled = True
+                raise combined from None
+            raise
 
 
 async def _generate_task_thumbnail(task_id: str, *, allow_pyramid: bool = True) -> None:
@@ -558,30 +636,62 @@ async def _refresh_video_asset_bytes(db) -> None:
     VIDEO_FRAME_ASSET_BYTES.labels(asset_type="chunk").set(chunk_bytes)
 
 
+async def _dispatch_independent_media(task_name, delivery_id, queue, args, kwargs, run, *, soft_time_limit=None):
+    from app.services import fixture_media_execution
+
+    if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_media"):
+        async with fixture_media_execution.admitted_independent(
+            delivery_id, task_name, queue, args, kwargs, soft_time_limit=soft_time_limit
+        ) as started:
+            if started:
+                await run()
+        return
+    if await fixture_media_execution.is_fixture("independent", delivery_id):
+        raise RuntimeError("fixture_media_scope_untracked")
+    await run()
+
+
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_thumbnail(self, item_id: str) -> None:
-    asyncio.run(_generate_thumbnail(item_id))
+    from app.services.fixture_media_execution import request_soft_limit
+    asyncio.run(_dispatch_independent_media(
+        "app.workers.media.generate_thumbnail", self.request.id,
+        self.request.delivery_info.get("routing_key"), [item_id], {},
+        lambda: _generate_thumbnail(item_id), soft_time_limit=request_soft_limit(self.request),
+    ))
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_video_metadata(self, item_id: str, delegation=None) -> None:
-    asyncio.run(_generate_video_metadata(item_id, delegation=delegation))
+    from app.services.fixture_media_execution import request_soft_limit
+    asyncio.run(_dispatch_independent_media(
+        "app.workers.media.generate_video_metadata", self.request.id,
+        self.request.delivery_info.get("routing_key"), [item_id], {"delegation": delegation},
+        lambda: _generate_video_metadata(item_id, delegation=delegation), soft_time_limit=request_soft_limit(self.request),
+    ))
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60, queue="media")
 def generate_task_thumbnail(self, task_id: str) -> None:
-    asyncio.run(_generate_task_thumbnail(task_id))
+    from app.services.fixture_media_execution import request_soft_limit
+    asyncio.run(_dispatch_independent_media(
+        "app.workers.media.generate_task_thumbnail", self.request.id,
+        self.request.delivery_info.get("routing_key"), [task_id], {},
+        lambda: _generate_task_thumbnail(task_id), soft_time_limit=request_soft_limit(self.request),
+    ))
 
 
-@celery_app.task(bind=True, max_retries=1, queue="media")
-def backfill_media(
-    self, dataset_id: str, purpose: str = "thumbnail", video_delegations=None
-) -> None:
-    asyncio.run(
-        _backfill_media(
-            dataset_id, purpose=purpose, video_delegations=video_delegations
-        )
-    )
+async def _dispatch_media_backfill(job_id, delivery_id, queue):
+    from app.services import fixture_media_execution
+
+    if not await fixture_media_execution.is_fixture("backfill", job_id):
+        await _run_media_backfill_job(job_id)
+        return
+    async with fixture_media_execution.admitted(
+        "backfill", job_id, queue, delivery_id=delivery_id
+    ) as started:
+        if started:
+            await _run_media_backfill_job(job_id)
 
 
 @celery_app.task(
@@ -589,7 +699,13 @@ def backfill_media(
 )
 def run_media_backfill(self, async_job_id: str) -> None:
     """Jobs-owned durable dataset media backfill; the row is the only queue."""
-    asyncio.run(_run_media_backfill_job(uuid.UUID(async_job_id)))
+    asyncio.run(
+        _dispatch_media_backfill(
+            uuid.UUID(async_job_id),
+            self.request.id,
+            self.request.delivery_info.get("routing_key"),
+        )
+    )
 
 
 @celery_app.task(bind=True, max_retries=1, queue="media")
@@ -616,10 +732,30 @@ def cleanup_video_frame_assets(self) -> None:
     asyncio.run(_cleanup_video_frame_assets())
 
 
+async def _dispatch_video_outputs(delivery_id, queue, output_ids, soft_time_limit):
+    from app.services import fixture_media_execution
+    from app.workers.media_derivatives import run_outputs
+
+    if isinstance(queue, str) and queue.startswith("aap_workspace_worker_") and queue.endswith("_media"):
+        async with fixture_media_execution.admitted_independent(
+            delivery_id, "app.workers.media.generate_video_derivatives", queue,
+            [output_ids], {}, soft_time_limit=soft_time_limit,
+        ) as started:
+            if started:
+                await run_outputs(output_ids, propagate_failure=True)
+        return
+    if await fixture_media_execution.is_fixture("independent", delivery_id):
+        raise RuntimeError("fixture_media_scope_untracked")
+    await run_outputs(output_ids)
+
+
 @celery_app.task(
     bind=True, max_retries=0, queue="media", soft_time_limit=1800, time_limit=0
 )
 def generate_video_derivatives(self, output_ids: list[str]) -> None:
-    from app.workers.media_derivatives import run_outputs
+    from app.services.fixture_media_execution import request_soft_limit
 
-    asyncio.run(run_outputs(output_ids))
+    asyncio.run(_dispatch_video_outputs(
+        self.request.id, self.request.delivery_info.get("routing_key"),
+        output_ids, request_soft_limit(self.request),
+    ))

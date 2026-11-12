@@ -79,7 +79,6 @@ def _assert_input(snapshot, expected):
 
 async def _new_job(db, *, state, project, actor, storage, expected):
     from app.config import settings
-    from app.db.models.async_job import AsyncJob
     from app.services.exporting import image_jobs, output_authority
 
     selection = [uuid.UUID(identifier) for identifier in sorted(expected)]
@@ -87,13 +86,15 @@ async def _new_job(db, *, state, project, actor, storage, expected):
         state=SimpleNamespace(api_key_id=None, api_key_scopes=None),
         headers={},
     )
-    job = AsyncJob(
-        id=job_identifier(state),
-        kind="export",
-        project_id=project.id,
-        user_id=actor.id,
-        status="pending",
-        celery_task_id=attempt_identifier(state),
+    job, receipt = await image_jobs.create_scoped_job(
+        db,
+        project,
+        actor_id=actor.id,
+        job_id=job_identifier(state),
+        batch_id=None,
+        targets=TARGETS,
+        opts=OPTIONS,
+        task_ids=selection,
         payload={
             "project_id": str(project.id),
             "project_display_id": project.display_id,
@@ -116,19 +117,11 @@ async def _new_job(db, *, state, project, actor, storage, expected):
                 "expected": expected,
             },
         },
-        result={},
     )
-    db.add(job)
+    from app.services import async_job
+
+    async_job.bind_execution_id(job, attempt_identifier(state))
     await db.flush()
-    receipt = await image_jobs.capture_job(
-        db,
-        job,
-        project,
-        batch_id=None,
-        targets=TARGETS,
-        opts=OPTIONS,
-        task_ids=selection,
-    )
     _assert_input(receipt.input_snapshot, expected)
     # The physical transfer and publisher use independent, freshly authorized
     # sessions. Every source row and newly allocated responsibility must exist
@@ -142,11 +135,13 @@ async def _interrupt_after_pending_zip(db, receipt):
     from app.db.models.export_output import ExportOutput
     from app.services import async_job as jobs, export_media_bundles as bundles
     from app.services import export_outputs, export_storage
-    from app.services.exporting import image_delivery, image_inputs
+    from app.services.exporting import image_delivery, image_inputs, image_jobs
     from app.services.exporting.packaging import build_export_zip
     from app.services.exporting.reference_media import check_cancelled
     from app.workers import lidar_export as publisher
 
+    job = await jobs.get_job(db, receipt.job_id)
+    await image_jobs.assert_scope_binding(db, job, receipt)
     claimed = await bundles.claim(db, receipt.id)
     assert claimed is not None
     invocation = attempt_identifier("building")
@@ -318,6 +313,7 @@ async def verify_image_exports(db, *, storage, raw_by_task):
     from app.db.models.export_output import ExportOutput
     from app.services import export_media_bundles as bundles
     from app.services import export_media_storage as physical, export_storage
+    from app.services.exporting import image_jobs
     from app.services.exporting.image_media_paths import logical_sources
 
     expected = _expected(raw_by_task)
@@ -340,6 +336,7 @@ async def verify_image_exports(db, *, storage, raw_by_task):
         assert (row.published_at is not None) == (state == "ready")
         assert row.expires_at - row.created_at == timedelta(days=7)
         frozen = bundles.snapshot(row)
+        await image_jobs.assert_scope_binding(db, job, frozen)
         assert frozen.input_digest == job.payload["image_media"]["input_digest"]
         _assert_input(frozen.input_snapshot, expected)
         owner = physical.resolve(frozen)

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from hashlib import sha256
 import asyncio
 import json
@@ -20,6 +20,7 @@ from yoao_assets_video_inputs.tracker import TrackerSourceReferenceRequest
 from yoao_inference.pipeline_server import PipelineHttpServer
 from yoao_inference.routing_runtime import RoutingRuntime
 from yoao_inference_contract.routing import make_routing_command
+from yoao_labeling.video_control_contract import ReadWorkerJob
 from yoao_protocol_v2.routing import ROUTE_ADMISSION_HEADER
 from fastapi import FastAPI, HTTPException, Request
 import httpx
@@ -31,8 +32,10 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.config import settings
 from app.services.ml_backend import MLBackendService
+from app.services.video_tracking.control import video_control_job
 from app.services.video_tracking.execution import TrackerExecutionDeferred
 from app.services.video_tracking.runner import run_tracker_job
+from tests.inference_health_observation_helpers import select_binding
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_assets_media_live import (
     _free_loopback_port,
@@ -40,6 +43,10 @@ from tests.test_assets_media_live import (
 )
 from tests.test_inference_routing_video import (
     _verify_restricted_routing_dsn,
+)
+from tests.test_inference_routing_owner_integration import (
+    _start_model_execution_owner,
+    _stop_process as _stop_execution_owner,
 )
 from tests.test_tracker_input_live import (
     _prepared,
@@ -98,6 +105,7 @@ async def _checkpoint_cpu_backend(
     context_mode: str,
     artifact: dict,
     weights_sha256: str,
+    retain=None,
 ):
     app = FastAPI()
     storage = httpx.AsyncClient(timeout=15, trust_env=False)
@@ -313,13 +321,14 @@ async def _checkpoint_cpu_backend(
             entered=entered,
             release=release,
             sessions=sessions,
-            origin=f"http://127.0.0.1:{listener.getsockname()[1]}",
+            origin=f"http://{listener.getsockname()[0]}:{listener.getsockname()[1]}",
             server_task=task,
             stop=stop_peer,
             is_stopped=lambda: stopped,
         )
     finally:
-        await stop_peer()
+        if retain is None or not retain():
+            await stop_peer()
 
 
 def _worker_environment(
@@ -329,6 +338,8 @@ def _worker_environment(
     media_token: str,
     routing_url: str,
     routing_token: str,
+    execution_url: str,
+    execution_token: str,
 ) -> dict[str, str]:
     source_paths = [
         ROOT / "apps" / "api",
@@ -356,6 +367,9 @@ def _worker_environment(
         "INFERENCE_ROUTING_URL": routing_url,
         "INFERENCE_ROUTING_TOKEN": routing_token,
         "INFERENCE_ROUTING_TOKEN_FILE": "",
+        "INFERENCE_MODEL_EXECUTION_URL": execution_url,
+        "INFERENCE_MODEL_EXECUTION_TOKEN": execution_token,
+        "INFERENCE_MODEL_EXECUTION_TOKEN_FILE": "",
         "ML_BACKEND_ROUTER_MODE": "enforce",
         "ML_BACKEND_ROUTER_LEASE_TTL_SECONDS": "30",
         "ML_BACKEND_ROUTER_HEARTBEAT_INTERVAL_SECONDS": "1",
@@ -372,23 +386,33 @@ def _start_runner_peer(job_id, environment: dict[str, str]):
     helper = (
         ROOT / "apps" / "api" / "tests" / "fixtures" / "video_window_runner_peer.py"
     )
-    return subprocess.Popen(
-        [sys.executable, str(helper), str(job_id)],
-        cwd=ROOT,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        close_fds=True,
-        start_new_session=True,
+    log_path = Path(os.environ["TMPDIR"]) / (
+        f"tracker-runner-{job_id}-{uuid4().hex}.log"
     )
+    with log_path.open("xb") as log:
+        log_path.chmod(0o600)
+        process = subprocess.Popen(
+            [sys.executable, str(helper), str(job_id)],
+            cwd=ROOT,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            close_fds=True,
+            start_new_session=True,
+        )
+    process.runner_log_path = log_path
+    return process
 
 
 async def _wait_entered(backend, index: int, process) -> None:
     async with asyncio.timeout(30):
         while not backend.entered[index].is_set():
             if process.poll() is not None:
-                pytest.fail("tracker worker exited before the controlled model request")
+                pytest.fail(
+                    f"tracker worker exited with {process.returncode} before "
+                    f"the controlled model request; log: {process.runner_log_path}"
+                )
             await asyncio.sleep(0.025)
 
 
@@ -414,7 +438,10 @@ async def _wait_first_checkpoint(sessions_factory, job_id, process):
     async with asyncio.timeout(15):
         while True:
             if process.poll() is not None:
-                pytest.fail("tracker worker exited before committing its first window")
+                pytest.fail(
+                    f"tracker worker exited with {process.returncode} before "
+                    f"committing its first window; log: {process.runner_log_path}"
+                )
             row = await _first_checkpoint(sessions_factory, job_id)
             if row is not None:
                 return dict(row)
@@ -541,6 +568,25 @@ async def _wait_backend_idle(backend) -> None:
             await asyncio.sleep(0.025)
 
 
+async def _wait_model_owner_settled(sessions_factory, job_id) -> None:
+    async with asyncio.timeout(20):
+        while True:
+            async with sessions_factory() as db:
+                active = await db.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM "
+                        "aap_inference_routing_v1.attempts AS a "
+                        "JOIN aap_inference_routing_v1.scopes AS s ON s.id=a.scope_id "
+                        "WHERE s.owner=:owner AND a.dispatch_state='started' "
+                        "AND a.state NOT IN ('response', 'reconciled'))"
+                    ),
+                    {"owner": f"tracker:{job_id}"},
+                )
+            if not active:
+                return
+            await asyncio.sleep(0.025)
+
+
 async def _attempt_tracker_run(
     sessions_factory, job_id, *, lose_completion_reply=False
 ) -> None:
@@ -552,14 +598,16 @@ async def _attempt_tracker_run(
 
                 async def commit_then_lose_reply():
                     nonlocal lost_reply
+                    current = await video_control_job(
+                        db,
+                        ReadWorkerJob(
+                            schema="aap-labeling-video-control/v1",
+                            operation="read_worker_job",
+                            job_id=job_id,
+                        ),
+                    )
                     finishing = (
-                        await db.scalar(
-                            text(
-                                "SELECT status='pending_review' FROM public.video_tracker_jobs WHERE id=:job"
-                            ),
-                            {"job": job_id},
-                        )
-                        is True
+                        current is not None and current.status == "pending_review"
                     )
                     await original_commit()
                     if finishing and not lost_reply:
@@ -610,6 +658,7 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
         backend_token = f"owned-window-backend-{uuid4().hex}"
         owner_runtime = None
         owner_server = None
+        execution_owner = None
         peer = None
         execution_engine = create_async_engine(legacy_dsn, hide_parameters=True)
         execution_sessions = async_sessionmaker(
@@ -666,15 +715,18 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 weights_sha256=artifact_digest,
             ) as backend:
                 listener = None
-                async with media.sessions.begin() as health_db:
-                    health_service = MLBackendService(health_db)
-                    assert await health_service.check_health(registry_id)
-                    resolved = (
-                        await health_service.get_tracker_backend_for_capabilities(
-                            project_id, ["sam2_video"]
-                        )
-                    )
-                    assert resolved is not None and resolved.id == registry_id
+                with monkeypatch.context() as health_patch:
+                    async with AsyncExitStack() as health_stack:
+                        await select_binding(health_stack, health_patch, test_engine)
+                        async with media.sessions.begin() as health_db:
+                            health_service = MLBackendService(health_db)
+                            assert await health_service.check_health(registry_id)
+                            resolved = (
+                                await health_service.get_tracker_backend_for_capabilities(
+                                    project_id, ["sam2_video"]
+                                )
+                            )
+                            assert resolved is not None and resolved.id == registry_id
 
                 input_client, input_request, ready = await _prepared(
                     media, tmp_path, actor_id, task_id, job_id
@@ -732,6 +784,16 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 assert reconcile.result.phase == "completed"
                 assert reconcile.result.registry_id == registry_id
                 assert backend.controller.phase == "bound"
+                execution_owner, execution_url, execution_token = (
+                    await _start_model_execution_owner(tmp_path, routing_dsn)
+                )
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_url", execution_url
+                )
+                monkeypatch.setattr(
+                    settings, "inference_model_execution_token", execution_token
+                )
+                monkeypatch.setattr(settings, "inference_model_execution_token_file", "")
 
                 peer = _start_runner_peer(
                     job_id,
@@ -741,6 +803,8 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                         media_token=media.token,
                         routing_url=owner_url,
                         routing_token=owner_token,
+                        execution_url=execution_url,
+                        execution_token=execution_token,
                     ),
                 )
 
@@ -997,12 +1061,15 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                                 {"job": job_id},
                             )
                         ).one()
-                    # A later delivery has a new proof and no old in-memory
-                    # candidates; it inspects the original receipt unchanged.
-                    await _expire_exact_claim(
-                        media.sessions, job_id, expected_generation=3
+                    # Duplicate delivery cannot reopen an already settled
+                    # execution or replace its original writer receipt.
+                    settled_execution = await _snapshot_claim(
+                        media.sessions, job_id
                     )
                     await _attempt_tracker_run(execution_sessions, job_id)
+                    assert await _snapshot_claim(
+                        media.sessions, job_id
+                    ) == settled_execution
                     async with media.sessions() as db:
                         replayed = (
                             await db.execute(
@@ -1143,6 +1210,9 @@ async def test_sigkill_replays_only_open_video_context_after_actual_scope_retire
                 listener.close()
             if peer is not None:
                 _stop_process(peer)
+            if execution_owner is not None:
+                await _wait_model_owner_settled(media.sessions, job_id)
+                await _stop_execution_owner(execution_owner)
             if owner_server is not None:
                 await owner_server.close()
             if owner_runtime is not None:

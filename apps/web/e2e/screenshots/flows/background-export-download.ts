@@ -21,8 +21,6 @@ async function moveTo(page: Page, locator: Locator): Promise<void> {
 export async function runBackgroundExportDownload(
   page: Page,
   catalog: ScreenshotSeedCatalog,
-  runIsolatedExport: (jobId: string) => void,
-  recordJobId: (jobId: string) => void,
 ): Promise<DrawWindow> {
   const project = catalog.projects.image_demo;
   await page.goto("/projects");
@@ -68,7 +66,6 @@ export async function runBackgroundExportDownload(
   }
   const body = (await queuedResponse.json()) as { job_id?: string };
   if (!body.job_id) throw new Error("[background-export-download] 导出入队未返回 job_id");
-  recordJobId(body.job_id);
   const queuedToast = page.getByText("导出已入队", { exact: true });
   await expect(queuedToast).toBeVisible();
   await expect(dialog).toBeHidden();
@@ -85,7 +82,6 @@ export async function runBackgroundExportDownload(
   await expect(jobRow).toContainText("等待中");
   await page.waitForTimeout(1_200);
 
-  runIsolatedExport(body.job_id);
   await expect(jobRow.getByTestId("job-status-running")).toBeVisible({ timeout: 2_000 });
   await expect(jobRow.getByTestId("job-status-completed")).toBeVisible({ timeout: 10_000 });
   await expect(jobRow).toContainText(/ZIP · \d+ 个文件 ·/);

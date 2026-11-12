@@ -8,6 +8,7 @@ import inspect
 import json
 import logging
 import re
+from builtins import BaseExceptionGroup
 from collections.abc import Awaitable, Callable
 from typing import Literal, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid5
@@ -33,6 +34,8 @@ from yoao_assets_images.transport import (
     require_source_reference_scope,
     require_source_references_scope,
 )
+
+from .original_read import admitted_original
 
 log = logging.getLogger(__name__)
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -75,15 +78,11 @@ class ImageDatabase(Protocol):
 
 
 class ImageStorage(Protocol):
-    async def head_source(self, source: c.ImageSource) -> c.ObjectIdentity: ...
+    def bind_original(self, permit: c.OriginalRead): ...
 
     async def head_cache(self, key: str) -> c.ObjectIdentity | None: ...
 
     async def read_cache(self, key: str, limit: int) -> bytes: ...
-
-    async def sign_source(
-        self, source: c.ImageSource, expires_in: int = 3600
-    ) -> str: ...
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str: ...
 
@@ -221,6 +220,19 @@ class ImageControl:
         except Exception:
             raise c.ImageFailure("storage_unavailable") from None
 
+    async def _head_admitted(self, operation, request, source, finish_operation):
+        async with admitted_original(
+            self.database, self.storage, operation, request, finish_operation
+        ) as admitted:
+            try:
+                return await admitted.head_source(source)
+            except c.ImageFailure as exc:
+                if getattr(exc, "storage_operation_unsettled", False):
+                    raise
+                if exc.code == "object_missing":
+                    raise c.ImageFailure("source_missing") from None
+                raise
+
     @staticmethod
     def _selector(request: c.ImageSourceSelector) -> c.ReadImageSourceRequest:
         return c.ReadImageSourceRequest(
@@ -272,8 +284,17 @@ class ImageControl:
             raise c.ImageFailure("source_changed")
         if not source.upload_ready:
             raise c.ImageFailure("source_not_ready")
-        identity = await self._storage_call(
-            "head_source", source, missing_code="source_missing"
+        identity = await self._head_admitted(
+            "begin_image_original_actor",
+            c.ActorOriginalReadRequest(
+                actor_id=selector.actor_id,
+                task_id=selector.task_id,
+                dataset_item_id=selector.dataset_item_id,
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            source,
+            "finish_image_original_read",
         )
         if not isinstance(identity, c.ObjectIdentity):
             raise c.ImageFailure("invalid_response")
@@ -319,20 +340,33 @@ class ImageControl:
         return await self._observe_internal(request)
 
     async def _observe_internal(
-        self, request: c.InternalImageSourceRequest
+        self,
+        request: c.InternalImageSourceRequest,
+        *,
+        expected_source_snapshot: str | None = None,
     ) -> c.ImageSource:
+        if expected_source_snapshot is None:
+            expected_source_snapshot = request.expected_source_snapshot
         owner_request = c.ResolveInternalImageSourceRequest(
             owner_kind=request.owner.kind, owner_id=request.owner.id
         )
         source = await self._native_call("resolve_internal_image_source", owner_request)
-        if request.expected_source_snapshot is not None and (
-            request.expected_source_snapshot != source.source_snapshot
+        if expected_source_snapshot is not None and (
+            expected_source_snapshot != source.source_snapshot
         ):
             raise c.ImageFailure("source_changed")
         if not source.upload_ready:
             raise c.ImageFailure("source_not_ready")
-        identity = await self._storage_call(
-            "head_source", source, missing_code="source_missing"
+        identity = await self._head_admitted(
+            "begin_image_original_system",
+            c.SystemOriginalReadRequest(
+                owner_kind=source.owner.kind,
+                owner_id=source.owner.id,
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            source,
+            "finish_image_original_system",
         )
         if not isinstance(identity, c.ObjectIdentity):
             raise c.ImageFailure("invalid_response")
@@ -491,8 +525,8 @@ class ImageControl:
         source = await self._observe_internal(
             c.InternalImageSourceRequest(
                 owner=c.ImageOwner(kind=request.owner_kind, id=request.owner_id),
-                expected_source_snapshot=request.spec.expected_source_snapshot,
-            )
+            ),
+            expected_source_snapshot=request.spec.expected_source_snapshot,
         )
         spec = request.spec.model_copy(
             update={
@@ -556,16 +590,41 @@ class ImageControl:
             raise c.ImageFailure("source_changed")
         return result.source
 
+    async def _ordinary_source_url(
+        self, source: c.ImageSource, request: c.ActorImageSourceRequest
+    ) -> str | None:
+        selector = self._selector(request)
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_image_original_actor",
+            c.ActorOriginalReadRequest(
+                actor_id=selector.actor_id,
+                task_id=selector.task_id,
+                dataset_item_id=selector.dataset_item_id,
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            "finish_image_original_read",
+        ) as admitted:
+            return await admitted.sign_source(source, self.source_url_expiry)
+
     async def source_reference(
         self, request: c.ReadImageSourceRequest
     ) -> ImageSourceReference:
+        return await self._source_reference(request, prepare=True)
+
+    async def ready_source_reference(
+        self, request: c.ReadImageSourceRequest
+    ) -> ImageSourceReference:
+        """Read an already-published thumbnail without admitting repair work."""
+        return await self._source_reference(request, prepare=False)
+
+    async def _source_reference(
+        self, request: c.ReadImageSourceRequest, *, prepare: bool
+    ) -> ImageSourceReference:
         source = await self._observe_actor(request)
-        original = await self._storage_call(
-            "sign_source", source, self.source_url_expiry
-        )
-        if not isinstance(original, str):
-            raise c.ImageFailure("invalid_response")
-        thumbnail_url = await self._thumbnail_url(source, request)
+        thumbnail_url = await self._thumbnail_url(source, request, prepare=prepare)
         current = await self._final_actor(source, request)
         if thumbnail_url is not None and (
             current.thumbnail_path != source.thumbnail_path
@@ -576,7 +635,7 @@ class ImageControl:
             result = ImageSourceReference(
                 actor_id=request.actor_id,
                 source=current,
-                original_url=original,
+                original_url=await self._ordinary_source_url(current, request),
                 thumbnail_url=thumbnail_url,
                 expires_in=self.source_url_expiry,
             )
@@ -589,17 +648,12 @@ class ImageControl:
         self, request: c.ReadImageSourceRequest
     ) -> ImageSourceReference:
         source = await self._observe_actor(request)
-        original = await self._storage_call(
-            "sign_source", source, self.source_url_expiry
-        )
-        if not isinstance(original, str):
-            raise c.ImageFailure("invalid_response")
         current = await self._final_actor(source, request)
         try:
             result = ImageSourceReference(
                 actor_id=request.actor_id,
                 source=current,
-                original_url=original,
+                original_url=await self._ordinary_source_url(current, request),
                 thumbnail_url=None,
                 expires_in=self.source_url_expiry,
             )
@@ -625,11 +679,18 @@ class ImageControl:
                 ),
                 return_exceptions=True,
             )
-            failure = next(
-                (row for row in batch if isinstance(row, BaseException)), None
-            )
-            if failure is not None:
-                raise failure
+            failures = [row for row in batch if isinstance(row, BaseException)]
+            if failures:
+                if len(failures) > 1 and any(
+                    getattr(row, "storage_operation_unsettled", False)
+                    for row in failures
+                ):
+                    combined = BaseExceptionGroup(
+                        "Image source references failed", failures
+                    )
+                    combined.storage_operation_unsettled = True
+                    raise combined
+                raise failures[0]
             for reference in batch:
                 encoded_size += len(c.json_bytes(reference)) + 2
                 if encoded_size > c.PAGE_BYTES:
@@ -646,15 +707,25 @@ class ImageControl:
         self, request: InternalImageSourceReferenceRequest
     ) -> ImageSourceReference:
         source = await self._observe_internal(request.source)
-        original = await self._storage_call("sign_source", source, request.expires_in)
-        if not isinstance(original, str):
-            raise c.ImageFailure("invalid_response")
         current = await self._final_internal(source)
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_image_original_system",
+            c.SystemOriginalReadRequest(
+                owner_kind=current.owner.kind,
+                owner_id=current.owner.id,
+                source_snapshot=current.source_snapshot,
+                object_key=current.file_path,
+            ),
+            "finish_image_original_system",
+        ) as admitted:
+            original_url = await admitted.sign_source(current, request.expires_in)
         try:
             result = ImageSourceReference(
                 actor_id=None,
                 source=current,
-                original_url=original,
+                original_url=original_url,
                 thumbnail_url=None,
                 expires_in=request.expires_in,
             )
@@ -855,10 +926,16 @@ class ImageControl:
             raise c.ImageFailure("invalid_response") from None
 
     async def _thumbnail_url(
-        self, source: c.ImageSource, request: c.ImageSourceSelector
+        self,
+        source: c.ImageSource,
+        request: c.ImageSourceSelector,
+        *,
+        prepare: bool = True,
     ) -> str | None:
         key = source.thumbnail_path
         if key is None or not source.thumbnail_current:
+            if not prepare:
+                raise c.ImageFailure("source_not_ready")
             await self._prepare_small_thumbnail(source, request, key or "initial")
             return None
         if (
@@ -869,6 +946,8 @@ class ImageControl:
             if match is not None:
                 await self._verify_thumbnail_attempt(source, match)
             if await self._head_cache(key) is None:
+                if not prepare:
+                    raise c.ImageFailure("object_missing")
                 if not await self._best_effort_repair(
                     self._invalidate(
                         source,
@@ -890,6 +969,8 @@ class ImageControl:
                 or state.pyramid.source_generation != source.source_generation
                 or state.pyramid.source_snapshot != source.source_snapshot
             ):
+                if not prepare:
+                    raise c.ImageFailure("source_not_ready")
                 if source.width is None or source.height is None:
                     await self._best_effort_repair(
                         self._prepare_repair(source, request, "dimensions", key)
@@ -903,6 +984,8 @@ class ImageControl:
                 return None
             _manifest, prefix = await self._read_ready_manifest(state.pyramid)
             if key != prefix + "/overview.webp" or await self._head_cache(key) is None:
+                if not prepare:
+                    raise c.ImageFailure("object_missing")
                 if not await self._best_effort_repair(
                     self._invalidate_generation(
                         source, request, state.pyramid, "overview"

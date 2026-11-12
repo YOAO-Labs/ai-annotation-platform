@@ -154,14 +154,50 @@ async def make_export(
 
 
 async def make_image_export(db, world, *, targets, opts):
-    """Keep reference authority independent while allocating real image facts."""
-    _, project, _, _ = world
-    job, media = await make_export(db, world)
-    job.status = "pending"
-    job.payload = {**job.payload, "targets": targets, "batch_id": None, **opts}
-    receipt = await image_jobs.capture_job(
-        db, job, project, batch_id=None, targets=targets, opts=opts
+    """Bind the real frozen image sources before the Job is born."""
+    _, project, _, content = world
+    actor = content[2]
+    request = SimpleNamespace(
+        state=SimpleNamespace(
+            api_key_id=None, api_key_scopes=None, identity_principal=None
+        ),
+        headers={},
     )
+    payload = {
+        "output_authority": await output_authority.capture(db, project, actor, request),
+        "targets": targets,
+        "batch_id": None,
+        **opts,
+    }
+    job, receipt = await image_jobs.create_scoped_job(
+        db,
+        project,
+        actor_id=actor.id,
+        payload=payload,
+        batch_id=None,
+        targets=targets,
+        opts=opts,
+    )
+    proof = await capture_export_authority(
+        db,
+        project,
+        actor,
+        request,
+        frozen_snapshot=receipt.input_snapshot,
+    )
+    media = None
+    if proof:
+        job.payload = {**job.payload, "export_authority": proof}
+        media = ReferenceExportMedia(
+            db,
+            job.id,
+            proof,
+            project_id=project.id,
+            batch_id=None,
+            task_ids=None,
+            node_id="worker:content@test",
+        )
+        await media.validate()
     await db.commit()
     return job, media, receipt
 
@@ -629,8 +665,42 @@ async def test_worker_refuses_publication_but_retains_pending_after_final_reject
         )
         job_id = job.id
 
-    # The worker and its fresh transfer sessions use real independent
-    # connections to the fixture's disposable owner database.
+    # The storage provider here is simulated.  Do not manufacture native
+    # completion evidence for it; the live worker test exercises that owner.
+    class IsolatedExecution:
+        def __init__(self, *_args):
+            self.token = None
+            self.fixture_token = None
+            self.takeover = False
+            self.unsettled = False
+            self.entered = False
+            self._active_io = 0
+            self.lost = False
+
+        @property
+        def active_io(self):
+            return self._active_io
+
+        async def acquire(self, key):
+            self.key = key
+
+        async def begin(self, job_id, _project_id, delivery_id):
+            assert self.key == f"job:{job_id}" and delivery_id == "test-export"
+
+        async def enter_io(self):
+            self._active_io += 1
+            self.entered = True
+
+        async def settle_io(self):
+            self._active_io -= 1
+            self.entered = self._active_io != 0
+
+    monkeypatch.setattr(worker, "_ExportExecution", IsolatedExecution)
+    monkeypatch.setattr(
+        worker.export_execution_context,
+        "database_url",
+        lambda _settings: test_engine.url,
+    )
     monkeypatch.setattr(
         worker,
         "create_async_engine",

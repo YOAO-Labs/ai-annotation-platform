@@ -1,7 +1,7 @@
 """Independent physical ownership survives export job and cache retention."""
 
-from datetime import datetime
 import uuid
+from datetime import datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -132,6 +132,7 @@ class ExportOutput(Base):
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
     size_bytes: Mapped[int] = mapped_column(BigInteger, nullable=False)
     storage_ref: Mapped[dict] = mapped_column(JSONB(none_as_null=True), nullable=False)
+    upload_proof: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     state: Mapped[str] = mapped_column(
         String(16), nullable=False, default="pending", server_default="pending"
     )

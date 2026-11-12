@@ -135,6 +135,82 @@ class ReadSourceRequest(Value):
     task_id: UUID | None = None
 
 
+class ActorOriginalReadRequest(ReadSourceRequest):
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+
+
+class WorkerOriginalReadRequest(Value):
+    job_id: UUID
+    generation: Revision
+    lease_token: UUID
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+
+
+class SystemOriginalReadRequest(Value):
+    dataset_item_id: UUID
+    source_snapshot: Digest
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+
+
+class OriginalRead(Value):
+    ownership: Literal["ordinary", "fixture"]
+    object_key: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+    blocked_storage_identities: tuple[Digest, ...] = ()
+    source_storage_identity: Digest | None = None
+    creation_id: UUID | None = None
+    operation_id: UUID | None = None
+    location_id: UUID | None = None
+    endpoint_url: Annotated[StrictStr, Field(min_length=1, max_length=2048)] | None = (
+        None
+    )
+    storage_identity: Digest | None = None
+    bucket: Annotated[StrictStr, Field(min_length=1, max_length=255)] | None = None
+    version_id: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
+    etag: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
+    size_bytes: Count | None = None
+    sha256: Digest | None = None
+
+    @model_validator(mode="after")
+    def ownership_proof_is_complete(self):
+        proof = (
+            self.creation_id,
+            self.operation_id,
+            self.location_id,
+            self.endpoint_url,
+            self.storage_identity,
+            self.bucket,
+            self.version_id,
+            self.etag,
+            self.size_bytes,
+            self.sha256,
+        )
+        if (self.ownership == "fixture" and any(value is None for value in proof)) or (
+            self.ownership == "ordinary" and any(value is not None for value in proof)
+        ):
+            raise ValueError("original read proof disagrees with ownership")
+        if self.ownership == "fixture" and (
+            self.blocked_storage_identities or self.source_storage_identity is not None
+        ):
+            raise ValueError(
+                "fixture original read cannot have ordinary source exclusions"
+            )
+        if self.ownership == "fixture" and self.version_id == "null":
+            raise ValueError("fixture original version is not immutable")
+        return self
+
+
+class FinishOriginalReadRequest(Value):
+    creation_id: UUID
+    operation_id: UUID
+
+
+class FinishedOriginalRead(Value):
+    creation_id: UUID
+    operation_id: UUID
+
+
 class ObserveSourceRequest(ReadSourceRequest):
     source_snapshot: Digest
     object_identity: ObjectIdentity
@@ -816,6 +892,48 @@ class NativeOperation:
 
 
 OPERATIONS = {
+    "begin_media_original_actor": NativeOperation(
+        ActorOriginalReadRequest,
+        OriginalRead,
+        ("actor_id", "dataset_item_id", "task_id", "source_snapshot", "object_key"),
+        ("uuid", "uuid", "uuid", "text", "text"),
+        "control",
+    ),
+    "begin_media_original_worker": NativeOperation(
+        WorkerOriginalReadRequest,
+        OriginalRead,
+        ("job_id", "generation", "lease_token", "source_snapshot", "object_key"),
+        ("uuid", "bigint", "uuid", "text", "text"),
+        "worker",
+    ),
+    "begin_media_original_system": NativeOperation(
+        SystemOriginalReadRequest,
+        OriginalRead,
+        ("dataset_item_id", "source_snapshot", "object_key"),
+        ("uuid", "text", "text"),
+        "system",
+    ),
+    "finish_media_original_read": NativeOperation(
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "control",
+    ),
+    "finish_media_original_worker": NativeOperation(
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "worker",
+    ),
+    "finish_media_original_system": NativeOperation(
+        FinishOriginalReadRequest,
+        FinishedOriginalRead,
+        ("creation_id", "operation_id"),
+        ("uuid", "uuid"),
+        "system",
+    ),
     "resolve_internal_media_source": NativeOperation(
         InternalSourceRequest,
         MediaSource,
@@ -1078,6 +1196,25 @@ def decode_reply(raw: Any, result_type: type[_Result]) -> _Result:
 
 
 def require_scope(request: BaseModel, result: BaseModel) -> None:
+    if isinstance(
+        request,
+        (
+            ActorOriginalReadRequest,
+            WorkerOriginalReadRequest,
+            SystemOriginalReadRequest,
+        ),
+    ):
+        if (
+            not isinstance(result, OriginalRead)
+            or result.object_key != request.object_key
+        ):
+            raise ValueError("original read escaped its requested source")
+    if isinstance(request, FinishOriginalReadRequest):
+        if (
+            not isinstance(result, FinishedOriginalRead)
+            or result.creation_id != request.creation_id
+        ):
+            raise ValueError("original read finish escaped its creation")
     if isinstance(request, VideoTotalsRequest) and isinstance(result, VideoTotals):
         if result.matched_items > len(request.item_ids):
             raise ValueError("video aggregate exceeded requested source rows")

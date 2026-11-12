@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from builtins import BaseExceptionGroup
 from collections.abc import Awaitable, Callable
 
 from pydantic import BaseModel
@@ -17,6 +18,8 @@ from yoao_assets_media.transport import (
     read_all_timetable,
     read_samples_document,
 )
+
+from .original_read import admitted_original
 
 log = logging.getLogger(__name__)
 _NEW_CACHE = re.compile(
@@ -94,7 +97,18 @@ class MediaControl:
     async def _observe(self, request: c.ReadSourceRequest) -> c.MediaSource:
         source = await self.call("read_media_source", request)
         expected = (source.source_snapshot, source.source_generation)
-        identity = await self.storage.head_source(source.file_path)
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_media_original_actor",
+            c.ActorOriginalReadRequest(
+                **request.model_dump(),
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            "finish_media_original_read",
+        ) as admitted:
+            identity = await admitted.head_source(source.file_path)
         source = await self.call(
             "observe_media_source",
             c.ObserveSourceRequest(
@@ -109,6 +123,22 @@ class MediaControl:
         ):
             raise c.MediaFailure("source_changed")
         return source
+
+    async def _ordinary_source_url(
+        self, request: c.ReadSourceRequest, source: c.MediaSource
+    ) -> str | None:
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_media_original_actor",
+            c.ActorOriginalReadRequest(
+                **request.model_dump(),
+                source_snapshot=source.source_snapshot,
+                object_key=source.file_path,
+            ),
+            "finish_media_original_read",
+        ) as admitted:
+            return await admitted.sign_source(source.file_path, self.expires_in)
 
     async def _invalidate(
         self,
@@ -142,9 +172,13 @@ class MediaControl:
         return result.source
 
     async def _source_links(
-        self, request: c.ReadSourceRequest, source: c.MediaSource
+        self,
+        request: c.ReadSourceRequest,
+        source: c.MediaSource,
+        *,
+        prepare: bool = True,
     ) -> SourceReference:
-        original = await self.storage.sign_source(source.file_path, self.expires_in)
+        original = await self._ordinary_source_url(request, source)
         video = original
         poster = None
         metadata = source.video_metadata
@@ -163,6 +197,8 @@ class MediaControl:
                     raise c.MediaFailure("invalid_response")
                 cache_key(source, key)
                 if await self.storage.head_cache(key) is None:
+                    if not prepare:
+                        raise c.MediaFailure("storage_unavailable")
                     source = await self._invalidate(request, source, key, kind)
                     missing = True
                 elif kind == "playback":
@@ -174,8 +210,8 @@ class MediaControl:
         ):
             await self._metadata(source)
         return SourceReference(
-            source=source,
             original_url=original,
+            source=source,
             video_url=video,
             poster_url=poster,
             expires_in=self.expires_in,
@@ -184,11 +220,25 @@ class MediaControl:
     async def source_reference(self, request: c.ReadSourceRequest) -> SourceReference:
         return await self._source_links(request, await self._observe(request))
 
+    async def ready_source_reference(
+        self, request: c.ReadSourceRequest
+    ) -> SourceReference:
+        """Read an already-published video without admitting repair work."""
+        source = await self._observe(request)
+        if source.file_type != "video":
+            raise c.MediaFailure("source_missing")
+        if (
+            source.materialized_generation != source.source_generation
+            or not source.video_metadata.get("poster_frame_path")
+        ):
+            raise c.MediaFailure("metadata_not_ready")
+        return await self._source_links(request, source, prepare=False)
+
     async def raw_source_reference(
         self, request: c.ReadSourceRequest
     ) -> SourceReference:
         source = await self.call("read_media_source", request)
-        original = await self.storage.sign_source(source.file_path, self.expires_in)
+        original = await self._ordinary_source_url(request, source)
         poster = None
         if source.file_type == "video" and not source.source_drifted:
             if source.materialized_generation != source.source_generation:
@@ -204,8 +254,8 @@ class MediaControl:
                         # Task metadata remains readable during object outages.
                         poster = None
         return SourceReference(
-            source=source,
             original_url=original,
+            source=source,
             video_url=original,
             poster_url=poster,
             expires_in=self.expires_in,
@@ -218,25 +268,36 @@ class MediaControl:
             raise c.MediaFailure("invalid_request")
         source = await self.call("resolve_internal_media_source", request)
         expected = (source.source_snapshot, source.source_generation)
-        identity = await self.storage.head_source(source.file_path)
-        source = await self.call(
-            "resolve_internal_media_source",
-            c.InternalSourceRequest(
-                dataset_item_id=request.dataset_item_id,
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_media_original_system",
+            c.SystemOriginalReadRequest(
+                dataset_item_id=source.dataset_item_id,
                 source_snapshot=source.source_snapshot,
-                object_identity=identity,
+                object_key=source.file_path,
             ),
-        )
-        if (
-            source.source_drifted
-            or (source.source_snapshot, source.source_generation) != expected
-        ):
-            raise c.MediaFailure("source_changed")
-        original = await self.storage.sign_source(source.file_path, expires_in)
+            "finish_media_original_system",
+        ) as admitted:
+            identity = await admitted.head_source(source.file_path)
+            source = await self.call(
+                "resolve_internal_media_source",
+                c.InternalSourceRequest(
+                    dataset_item_id=request.dataset_item_id,
+                    source_snapshot=source.source_snapshot,
+                    object_identity=identity,
+                ),
+            )
+            if (
+                source.source_drifted
+                or (source.source_snapshot, source.source_generation) != expected
+            ):
+                raise c.MediaFailure("source_changed")
+            original_url = await admitted.sign_source(source.file_path, expires_in)
         return SourceReference(
+            original_url=original_url,
             source=source,
-            original_url=original,
-            video_url=original,
+            video_url=original_url,
             poster_url=None,
             expires_in=expires_in,
         )
@@ -253,8 +314,21 @@ class MediaControl:
                         request
                     )
                     for request in requests[start : start + 4]
-                )
+                ),
+                return_exceptions=True,
             )
+            failures = [row for row in batch if isinstance(row, BaseException)]
+            if failures:
+                if len(failures) > 1 and any(
+                    getattr(row, "storage_operation_unsettled", False)
+                    for row in failures
+                ):
+                    combined = BaseExceptionGroup(
+                        "Media source references failed", failures
+                    )
+                    combined.storage_operation_unsettled = True
+                    raise combined
+                raise failures[0]
             for reference in batch:
                 encoded_size += len(c.json_bytes(reference)) + 2
                 if encoded_size > c.PAGE_BYTES:

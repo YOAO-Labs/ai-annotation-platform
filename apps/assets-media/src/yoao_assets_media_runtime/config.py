@@ -13,6 +13,10 @@ from urllib.parse import urlsplit
 from pydantic import TypeAdapter, ValidationError
 
 from yoao_assets_media.contract import BATCH_SIZE, ClaimRequest, ClaimGarbageRequest
+from .additional_original import (
+    AdditionalOriginalConfig,
+    load_additional_original_config,
+)
 
 _BUCKET_ADAPTER = TypeAdapter(str)
 _BUCKET_PATTERN = re.compile(
@@ -70,6 +74,9 @@ class MediaStorageConfig:
     inputs_bucket: str
     access_key: str = field(repr=False)
     secret_key: str = field(repr=False)
+    additional_original: AdditionalOriginalConfig | None = field(
+        default=None, repr=False
+    )
     connect_timeout: float = 10.0
     read_timeout: float = 120.0
     max_attempts: int = 2
@@ -242,6 +249,7 @@ def load_storage_config(
         inputs_bucket=inputs_bucket,
         access_key=_secret(values, "ASSETS_MEDIA_S3_ACCESS_KEY"),
         secret_key=_secret(values, "ASSETS_MEDIA_S3_SECRET_KEY"),
+        additional_original=load_additional_original_config(values),
         connect_timeout=_positive_float(
             values, "ASSETS_MEDIA_S3_CONNECT_TIMEOUT_SECONDS", "10", maximum=3600
         ),

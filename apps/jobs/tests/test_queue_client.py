@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import json
+import socket
 
+import httpcore
 import httpx
 import pytest
 
@@ -10,6 +13,7 @@ from yoao_jobs.queue_client import JobsQueueClient, JobsQueueExecutionControl
 from yoao_jobs.queue_contract import (
     JOBS_QUEUE_PROTOCOL,
     JobsQueueContractError,
+    JobsQueueNotSent,
     JobsQueueUnavailable,
 )
 
@@ -144,8 +148,9 @@ def test_async_client_bounds_reply_and_does_not_retry_failed_status(monkeypatch)
 
     _install_async_transport(monkeypatch, handler)
     client = JobsQueueClient("http://jobs-queue:8190", "service-token")
-    with pytest.raises(JobsQueueUnavailable):
+    with pytest.raises(JobsQueueUnavailable) as error:
         asyncio.run(client.dispatch_job("some.task", "task-id", ["job-id"]))
+    assert not isinstance(error.value, JobsQueueNotSent)
     assert len(requests) == 1
 
 
@@ -360,6 +365,64 @@ def test_sync_client_fails_closed_without_retry_or_async_fallback(monkeypatch, f
     assert len(sync_calls) == len(requests) == 1
     assert not async_calls
     assert "secret" not in str(error.value)
+    assert not isinstance(error.value, JobsQueueNotSent)
+
+
+@pytest.mark.parametrize("asynchronous", [False, True])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "refused",
+        "wrapped_refused",
+        "dns_absent",
+        "dns_temporary",
+        "dns_message_only",
+        "connect_other",
+        "response_lost",
+        "late_refusal",
+    ],
+)
+def test_only_proved_pre_request_failure_is_not_sent(monkeypatch, asynchronous, failure):
+    def handler(request):
+        if failure == "refused":
+            try:
+                raise ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+            except ConnectionRefusedError as cause:
+                raise httpx.ConnectError("connection refused", request=request) from cause
+        if failure in {"wrapped_refused", "dns_absent", "dns_temporary"}:
+            cause = {
+                "wrapped_refused": ConnectionRefusedError(errno.ECONNREFUSED, "refused"),
+                "dns_absent": socket.gaierror(socket.EAI_NONAME, "no address"),
+                "dns_temporary": socket.gaierror(socket.EAI_AGAIN, "resolver unavailable"),
+            }[failure]
+            raise httpx.ConnectError(
+                "connection failed", request=request
+            ) from httpcore.ConnectError(cause)
+        if failure == "dns_message_only":
+            raise httpx.ConnectError(
+                "[Errno -3] Temporary failure in name resolution", request=request
+            )
+        if failure == "connect_other":
+            raise httpx.ConnectError("connection failed", request=request)
+        if failure == "late_refusal":
+            raise httpx.ReadError(
+                "response lost", request=request
+            ) from ConnectionRefusedError(errno.ECONNREFUSED, "refused")
+        raise httpx.ReadError("response lost", request=request)
+
+    client = JobsQueueClient("http://jobs-queue:8190", "service-token")
+    if asynchronous:
+        _install_async_transport(monkeypatch, handler)
+    else:
+        _install_sync_transport(monkeypatch, handler)
+    with pytest.raises(JobsQueueUnavailable) as error:
+        if asynchronous:
+            asyncio.run(client.dispatch_job("some.task", "task-id", ["job-id"]))
+        else:
+            client.dispatch_job_sync("some.task", "task-id", ["job-id"])
+    assert isinstance(error.value, JobsQueueNotSent) is (
+        failure in {"refused", "wrapped_refused", "dns_absent", "dns_temporary"}
+    )
 
 
 def test_client_rejects_credentials_in_origin_and_invalid_header_tokens():

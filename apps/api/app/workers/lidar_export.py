@@ -4,12 +4,13 @@ The LiDAR entry point remains compatible; each attempt selects its own explicit
 protocol, sharing physical, cache and publication fences with image exports.
 """
 
+import logging
+import sys
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-import logging
 from pathlib import Path
 from types import SimpleNamespace
-import uuid
 
 from sqlalchemy import delete, select
 
@@ -17,6 +18,7 @@ from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.services import async_job as jobs
+from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as media_storage
 from app.services import export_media_transfer as transfer
@@ -146,26 +148,39 @@ async def _io(
         uuid.UUID(receipt.storage_ref["location_id"]),
         expected_revision=expected_revision,
     )
-    failure, result = None, None
+    failure, result, entered = None, None, False
     try:
         await transfer._async(fresh(permit.revision))
+        await export_execution_context.enter_io()
+        entered = True
         result = await transfer.physical_work(call)
         await transfer._async(fresh(permit.revision))
     except BaseException as exc:
         failure = exc
     finally:
-        if not getattr(failure, "storage_operation_unsettled", False):
+        if failure is None or not storage_access.failure_unsettled(failure):
             try:
                 await transfer._settle(permit)
             except BaseException as closing:
+                if not permit._settled:
+                    storage_access.mark_unsettled(closing)
                 if failure is None:
                     failure = closing
                 else:
+                    failure.add_note(f"Storage permit settlement failed: {closing!r}")
                     transfer._uncertainty(failure, closing)
         if accounting is not None:
             from app.services import export_zip_accounting
 
             failure = await export_zip_accounting.finish(accounting, failure)
+        if entered and permit._settled and (
+            failure is None or not storage_access.failure_unsettled(failure)
+        ):
+            await export_execution_context.settle_io(failure)
+        elif entered and failure is None:
+            failure = storage_access.mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            )
     if failure is not None:
         raise failure
     return result, permit.revision
@@ -184,6 +199,7 @@ async def _read_io(db, receipt, route, call, *, guard):
         await transfer._async(fresh())
 
     await transfer._async(fresh())
+    # The routed read owns both physical permits and the execution checkpoint.
     async with transfer._session(db) as owned:
         result = await artifact_reads.run(
             owned, route, transfer.purpose(receipt), call, on_acquired=acquired
@@ -322,10 +338,21 @@ async def _invalidate(db, artifact_id, output_id):
     await db.commit()
 
 
+def _cache_reusable(receipt, previous=None):
+    """Fixture deliveries own their deadline and never share a cache entry."""
+    return receipt.fixture_run_id is None and (
+        previous is None
+        or (
+            previous.fixture_run_id is None
+            and previous.expires_at <= receipt.expires_at
+        )
+    )
+
+
 async def _lookup(db, receipt, key, *, guard):
     """Verify ZIP and every copy outside SQL locks; never extend signed deadlines."""
     adapter = for_snapshot(receipt._input_snapshot)
-    if receipt._input_snapshot.get("references"):
+    if not _cache_reusable(receipt) or receipt._input_snapshot.get("references"):
         return None
     artifact = await db.scalar(
         select(ExportArtifact)
@@ -361,6 +388,8 @@ async def _lookup(db, receipt, key, *, guard):
         or previous.expires_at != candidate.expires_at
     ):
         reject(adapter.error("cache_changed"))
+    if not _cache_reusable(receipt, previous):
+        return None
     data = previous.input_snapshot
     mapping = bundles.source_objects(previous, adapter.logical_sources(data))
     bindings = {}
@@ -676,6 +705,7 @@ async def run_owned(
     )
 
     adapter = protocol(media_kind)
+    execution = export_execution_context.current()
     receipt = None
     reference_media = None
     path = None
@@ -685,7 +715,11 @@ async def run_owned(
         if job is None or job.status in {"completed", "failed", "cancelled"}:
             await db.rollback()
             return
-        if job.celery_task_id is not None and job.celery_task_id != celery_task_id:
+        if (
+            job.celery_task_id is not None
+            and job.celery_task_id != celery_task_id
+            and not execution.takeover
+        ):
             await db.rollback()
             return
         proof = (job.payload or {}).get(adapter.proof_key)
@@ -718,6 +752,8 @@ async def run_owned(
             opts=opts,
             task_ids=task_ids,
         )
+        if adapter.kind == "image":
+            await adapter.jobs.assert_scope_binding(db, job, receipt)
         accepted = True
         await _reauthorize_export_final_write(
             db,
@@ -748,12 +784,16 @@ async def run_owned(
             elif receipt._input_snapshot.get("references"):
                 reject("reference_export_authority_missing")
         if receipt.lease_token is not None:
-            await db.rollback()
-            return
-        receipt = await bundles.claim(db, receipt.id)
-        if receipt is None:
-            await db.rollback()
-            return
+            if not execution.takeover:
+                await db.rollback()
+                return
+        else:
+            receipt = await bundles.claim(db, receipt.id)
+            if receipt is None:
+                await db.rollback()
+                return
+        if execution.takeover:
+            jobs.bind_execution_id(job, celery_task_id)
         await jobs.mark_running(db, job.id, celery_task_id=celery_task_id)
         await db.commit()
         claimed = True
@@ -838,6 +878,7 @@ async def run_owned(
         from app.services import export_zip_accounting
 
         zip_accounting = export_zip_accounting.recorder(db, candidate)
+        save_proof = export_outputs.proof_writer(db, candidate)
         _, revision = await _io(
             db,
             receipt,
@@ -845,6 +886,7 @@ async def run_owned(
                 candidate,
                 path,
                 accounting=zip_accounting,
+                **({"save_proof": save_proof} if save_proof is not None else {}),
                 **({"target": zip_target} if zip_target is not None else {}),
             ),
             guard=zip_guard,
@@ -859,7 +901,9 @@ async def run_owned(
         await adapter.inputs.check(db, receipt._input_snapshot, lock=True)
         output = await export_outputs.publish(db, candidate, revision)
         await bundles.publish(db, receipt)
-        if not receipt._input_snapshot.get("references"):
+        if receipt.fixture_run_id is None and not receipt._input_snapshot.get(
+            "references"
+        ):
             await cache.record(
                 db,
                 cache_key=key,
@@ -902,6 +946,12 @@ async def run_owned(
             await db.rollback()
         raise
     finally:
-        if path is not None:
-            # Every source/ZIP thread has physically drained before this unlink.
-            Path(path).unlink(missing_ok=True)
+        original = sys.exception()
+        if path is not None and not execution.entered and not execution.unsettled:
+            try:
+                Path(path).unlink(missing_ok=True)
+            except BaseException as closing:
+                if original is None:
+                    raise
+                original.add_note(f"Export temporary ZIP cleanup failed: {closing!r}")
+                raise original

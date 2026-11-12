@@ -15,22 +15,59 @@
  * 不进 CI 默认；CI 只跑 regression 子集（见 M4 / .github/workflows）。
  */
 import { defineConfig, devices } from "@playwright/test";
+import { randomUUID } from "node:crypto";
+import { dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { MARKETING_PROJECT_NAME } from "./e2e/screenshots/_helpers/marketing-recorder";
 import { recordingPlan, marketingCaptureDriver } from "./e2e/screenshots/recording-plan.mjs";
 import { SCREENSHOT_MATRIX_PROJECTS } from "./e2e/screenshots/matrix";
 
-const MAC_CAPTURE = process.platform === "darwin";
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://127.0.0.1:3001";
-// Fixture preparation uses the explicitly selected capture database, not API credentials.
-if (process.env.SCREENSHOT_DATABASE_URL) {
-  process.env.DATABASE_URL = process.env.SCREENSHOT_DATABASE_URL;
-  process.env.PLAYWRIGHT_E2E_DATABASE_URL = process.env.SCREENSHOT_DATABASE_URL;
+if (!["test", "e2e"].includes(process.env.AAP_WORKTREE_MODE ?? "")) {
+  throw new Error("Screenshot capture requires pnpm dev:worktree exec --mode e2e --with-worker.");
 }
+if (!process.env.PLAYWRIGHT_E2E_DATABASE_URL || !process.env.DATABASE_URL) {
+  throw new Error(
+    "Screenshot capture requires verified worktree fixture and runtime database identities.",
+  );
+}
+process.env.SCREENSHOT_FIXTURE_RUN_ID ??= randomUUID();
+process.env.PLAYWRIGHT_FIXTURE_RUN_ID ??= randomUUID();
+
+const MAC_CAPTURE = process.platform === "darwin";
+const apiPort = process.env.PLAYWRIGHT_ISOLATED_API_PORT ?? "8010";
+const webPort = process.env.PLAYWRIGHT_ISOLATED_WEB_PORT ?? "3001";
+if (![apiPort, webPort].every((port) => /^[1-9]\d{0,4}$/.test(port) && Number(port) <= 65535)) {
+  throw new Error("Invalid isolated screenshot server port.");
+}
+const apiBase = `http://127.0.0.1:${apiPort}`;
+const BASE_URL = `http://127.0.0.1:${webPort}`;
+const configDir = dirname(fileURLToPath(import.meta.url));
+process.env.PLAYWRIGHT_API_BASE = apiBase;
+process.env.PLAYWRIGHT_ISOLATED_API_PORT = apiPort;
+process.env.PLAYWRIGHT_BASE_URL = BASE_URL;
 // One source archive identity must survive Playwright worker restarts.
 process.env.SCREENSHOT_RECORDING_RUN ??= `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`;
 const BROWSER_ENV: Record<string, string> = {};
+const browserEnvironmentKeys: Record<string, true> = {
+  PATH: true,
+  HOME: true,
+  TMPDIR: true,
+  LANG: true,
+  LC_ALL: true,
+  LC_CTYPE: true,
+  TZ: true,
+  XDG_RUNTIME_DIR: true,
+  XDG_CACHE_HOME: true,
+  FONTCONFIG_PATH: true,
+  XAUTHORITY: true,
+  DBUS_SESSION_BUS_ADDRESS: true,
+  LD_LIBRARY_PATH: true,
+};
 for (const [key, value] of Object.entries(process.env)) {
-  if (value !== undefined && (key !== "DISPLAY" || process.env.PWDEBUG)) {
+  if (
+    value !== undefined &&
+    (browserEnvironmentKeys[key] || (key === "DISPLAY" && process.env.PWDEBUG))
+  ) {
     BROWSER_ENV[key] = value;
   }
 }
@@ -45,16 +82,35 @@ const config = defineConfig({
   testDir: "./e2e/screenshots",
   testMatch: ["**/*.spec.ts"],
   globalSetup: "./e2e/screenshots/global-setup.ts",
+  globalTeardown: "./e2e/screenshots/global-teardown.ts",
   fullyParallel: false,
   workers: 1,
   reporter: [["list"], ["./e2e/screenshots/manifest-reporter.ts"]],
   snapshotPathTemplate: "{testDir}/regression/__screenshots__/{arg}{ext}",
+  webServer: [
+    {
+      command: "node scripts/run-screenshot-native.mjs",
+      cwd: configDir,
+      env: { ENVIRONMENT: "development", E2E_SEED_ENABLED: "true" },
+      url: `${apiBase}/health/db`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      gracefulShutdown: { signal: "SIGTERM", timeout: 30_000 },
+    },
+    {
+      command: `env -i PATH="$PATH" HOME="$HOME" LANG="\${LANG:-C.UTF-8}" API_PROXY_TARGET=${apiBase} VITE_WS_HOST=127.0.0.1:${apiPort} PORT=${webPort} pnpm dev --host 127.0.0.1`,
+      cwd: configDir,
+      url: BASE_URL,
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+  ],
 
   use: {
     baseURL: BASE_URL,
     locale: "zh-CN",
     timezoneId: "Asia/Shanghai",
-    reducedMotion: "reduce",
+    contextOptions: { reducedMotion: "reduce" },
     trace: "retain-on-failure",
     video: { mode: "retain-on-failure", size: { width: 1280, height: 720 } },
     screenshot: "only-on-failure",

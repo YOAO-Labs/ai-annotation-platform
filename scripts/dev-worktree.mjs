@@ -451,16 +451,31 @@ export function formatAcceptanceGuide(guide, webUrl) {
 
 export async function runIsolatedCommand(
   command,
-  { apiPort = defaultApiPort, webPort = defaultWebPort } = {},
+  { apiPort = defaultApiPort, webPort = defaultWebPort, cooperativeE2e = false } = {},
 ) {
   const children = new Set();
   const reservations = [];
-  const stop = () => void stopChildren(children);
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  let interrupted = null;
+  const stop = (signal, exitCode) => {
+    if (cooperativeE2e) {
+      if (interrupted !== null) return;
+      interrupted = exitCode;
+      // Signal only the command, not its detached fixture owners or descendants.
+      for (const managed of children) {
+        if (!managed.done) managed.child.kill(signal);
+      }
+    } else {
+      void stopChildren(children);
+    }
+  };
+  const onInterrupt = () => stop("SIGINT", 130);
+  const onTerminate = () => stop("SIGTERM", 143);
+  process.on("SIGINT", onInterrupt);
+  process.on("SIGTERM", onTerminate);
   try {
     reservations.push(await reserveAvailablePort({ startPort: apiPort }));
     reservations.push(await reserveAvailablePort({ startPort: webPort }));
+    if (interrupted !== null) return interrupted;
     const child = spawnManaged(children, "隔离命令", command[0], command.slice(1), {
       cwd: repositoryRoot,
       env: {
@@ -471,11 +486,16 @@ export async function runIsolatedCommand(
     });
     const result = await child.completion;
     if (result.error) throw result.error;
-    return result.code ?? 1;
+    return interrupted ?? result.code ?? 1;
   } finally {
-    process.removeListener("SIGINT", stop);
-    process.removeListener("SIGTERM", stop);
-    await stopChildren(children);
+    if (cooperativeE2e) {
+      // Do not escalate or report completion while the actual command is alive.
+      await Promise.all([...children].map(({ completion }) => completion));
+    } else {
+      await stopChildren(children);
+    }
+    process.removeListener("SIGINT", onInterrupt);
+    process.removeListener("SIGTERM", onTerminate);
     await Promise.all(reservations.map(({ release }) => release()));
   }
 }

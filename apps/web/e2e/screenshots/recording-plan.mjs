@@ -194,9 +194,12 @@ export function marketingCaptureDriver(platform, requestedDriver, flows = []) {
   throw new Error(`Unsupported marketing capture platform/driver: ${platform}/${driver}`);
 }
 
-export function screenshotCatalogPath(scope = process.env.SCREENSHOT_BACKEND_REQUIREMENTS) {
+export function screenshotCatalogPath(runId, scope = process.env.SCREENSHOT_BACKEND_REQUIREMENTS) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runId ?? "")) {
+    throw new Error("SCREENSHOT_FIXTURE_RUN_ID must be a canonical UUID");
+  }
   return (
-    "/api/v1/__test/seed/catalog?profile=screenshots" +
+    `/api/v1/__test/seed/catalog?profile=screenshots&run_id=${runId}` +
     (scope === undefined ? "" : `&backend_requirements=${encodeURIComponent(scope)}`)
   );
 }

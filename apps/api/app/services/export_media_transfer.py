@@ -19,6 +19,8 @@ import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.services import async_job, fixture_original_read
+from app.services import export_execution_context
 from app.services import export_media_bundles as bundles
 from app.services import export_media_storage as physical
 from app.services import managed_original_reader as reader, original_sources
@@ -62,7 +64,7 @@ async def drain(pending):
 
 
 def _uncertainty(original, later):
-    if getattr(later, "storage_operation_unsettled", False):
+    if storage_access.failure_unsettled(later):
         storage_access.mark_unsettled(original)
 
 
@@ -161,6 +163,9 @@ async def _session(db):
         except BaseException as closing:
             if failure is not None:
                 _uncertainty(closing, failure)
+                raise BaseExceptionGroup(
+                    "Export session and session close failed", [failure, closing]
+                ) from None
             raise
 
 
@@ -245,6 +250,60 @@ async def _fresh(
         return current
 
 
+async def _fixture_actor(db, snapshot, source, binding, resolve_source, guard):
+    if source.owner_kind != "dataset_asset" or source.read_route is not None:
+        return None
+    async with _session(db) as owned:
+        if not await fixture_original_read.is_fixture(owned, source):
+            return None
+        await guard(owned)
+        await bundles.check_claim(owned, snapshot)
+        current = await resolve_source(owned, binding)
+        if current != source:
+            reject()
+        job = await async_job.get_job(owned, snapshot.job_id)
+        if job is None or job.project_id != snapshot.project_id or job.user_id is None:
+            reject()
+        return job.user_id
+
+
+async def _fixture_capture(
+    db,
+    snapshot,
+    source,
+    binding,
+    resolve_source,
+    guard,
+    actor_id,
+    admission,
+    plan,
+    maximum,
+):
+    stage = None
+    try:
+        async with fixture_original_read.admitted(db, source, actor_id, plan.spec) as (
+            spec,
+            options,
+        ):
+            await _fresh(db, snapshot, binding, resolve_source, guard, expected=source)
+            stage = await _capture(
+                source, admission, maximum=maximum, read_spec=spec, **options
+            )
+        return stage
+    except BaseException as exc:
+        if stage is not None:
+            try:
+                await physical_work(stage.close)
+            except BaseException as closing:
+                _uncertainty(exc, closing)
+                exc.add_note(f"Export fixture stage close failed: {closing!r}")
+        raise
+
+
+async def _close_stage(stage):
+    await physical_work(stage.close)
+
+
 async def _io_target(db, record):
     if physical.resolve(record).ref["schema"] == 1:
         return None
@@ -324,7 +383,7 @@ async def copy_source(
         reject()
     plan = original_sources.read_plan(source)
     permits, admission, stage, failure, result = [], None, None, None, None
-    recorder = None
+    recorder, entered, stage_closed = None, False, True
     try:
         permits.append(
             await _acquire(
@@ -335,18 +394,58 @@ async def copy_source(
                 operation_purpose=plan.purpose(purpose(snapshot)),
             )
         )
+        actor_id = await _async(
+            _fixture_actor(db, snapshot, source, binding, resolve_source, guard)
+        )
+        if actor_id is not None:
+            original_guard = guard
+
+            async def guard(owned):
+                await original_guard(owned)
+                job = await async_job.get_job(owned, snapshot.job_id)
+                if (
+                    job is None
+                    or job.project_id != snapshot.project_id
+                    or job.user_id != actor_id
+                ):
+                    reject()
+
         await _async(
             _fresh(db, snapshot, binding, resolve_source, guard, expected=source)
         )
         admission = Admission()
-        read_options = await _async(original_sources.read_options(db, source))
-        stage = await _capture(
-            source,
-            admission,
-            maximum=physical.object_limit(record),
-            read_spec=plan.spec,
-            **read_options,
+        read_options = (
+            None if actor_id is not None
+            else await _async(original_sources.read_options(db, source))
         )
+        await export_execution_context.enter_io()
+        entered = True
+        if actor_id is not None:
+            stage = await _async(
+                _fixture_capture(
+                    db,
+                    snapshot,
+                    source,
+                    binding,
+                    resolve_source,
+                    guard,
+                    actor_id,
+                    admission,
+                    plan,
+                    physical.object_limit(record),
+                ),
+                late=_close_stage,
+            )
+        else:
+            assert read_options is not None
+            stage = await _capture(
+                source,
+                admission,
+                maximum=physical.object_limit(record),
+                read_spec=plan.spec,
+                **read_options,
+            )
+        stage_closed = False
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()
         await _async(
@@ -421,10 +520,13 @@ async def copy_source(
         if stage is not None:
             try:
                 await physical_work(stage.close)
+                stage_closed = True
             except BaseException as closing:
+                stage_closed = bool(stage.file.closed and admission.requested)
                 if failure is None:
                     failure = closing
                 else:
+                    failure.add_note(f"Export staging close failed: {closing!r}")
                     _uncertainty(failure, closing)
         if failure is None:
             try:
@@ -442,30 +544,47 @@ async def copy_source(
                 )
             except BaseException as exc:
                 failure = exc
-        if not getattr(failure, "storage_operation_unsettled", False):
+        if failure is None or not storage_access.failure_unsettled(failure):
             for permit in reversed(permits):
                 try:
                     await _settle(permit)
                 except BaseException as closing:
+                    if not permit._settled:
+                        storage_access.mark_unsettled(closing)
                     if failure is None:
                         failure = closing
                     else:
+                        failure.add_note(f"Storage permit settlement failed: {closing!r}")
                         _uncertainty(failure, closing)
                     # A known late success may continue closing the remaining permits.
-                    if getattr(failure, "storage_operation_unsettled", False):
+                    if storage_access.failure_unsettled(failure):
                         break
         if admission is not None:
-            admission.finish(getattr(failure, "storage_operation_unsettled", False))
+            admission.finish(failure is not None and storage_access.failure_unsettled(failure))
         if recorder is not None:
             try:
                 await recorder.finish(
-                    settled=not getattr(failure, "storage_operation_unsettled", False)
+                    settled=failure is None or not storage_access.failure_unsettled(failure)
                 )
             except BaseException as publishing:
                 if failure is None:
                     failure = publishing
                 else:
+                    failure.add_note(f"Export accounting settlement failed: {publishing!r}")
                     _uncertainty(failure, publishing)
+        if (
+            entered
+            and stage_closed
+            and admission is not None
+            and admission.released
+            and all(permit._settled for permit in permits)
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)
+        elif entered and failure is None:
+            failure = storage_access.mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            )
     if failure is not None:
         raise failure
     return result
@@ -490,6 +609,7 @@ async def read_copy(db, snapshot, *, relative, guard, read):
     record, owner, expected = _object_record(snapshot, relative)
     await _async(_fresh_copy(db, snapshot, guard))
     permit, admission, stage, failure, result = None, None, None, None, None
+    entered, stage_closed = False, True
     try:
         permit = await _acquire(db, snapshot, uuid.UUID(owner.ref["location_id"]))
         await _async(_fresh_copy(db, snapshot, guard, permit.revision))
@@ -509,12 +629,15 @@ async def read_copy(db, snapshot, *, relative, guard, read):
             if target is not None
             else None
         )
+        await export_execution_context.enter_io()
+        entered = True
         stage = await _capture(
             source,
             admission,
             maximum=physical.object_limit(record),
             **({"client_context": context} if context is not None else {}),
         )
+        stage_closed = False
         if stage.sha256 != source.sha256 or stage.size != source.size_bytes:
             reject()
         await _async(_fresh_copy(db, snapshot, guard, permit.revision))
@@ -526,28 +649,48 @@ async def read_copy(db, snapshot, *, relative, guard, read):
         if stage is not None:
             try:
                 await physical_work(stage.close)
+                stage_closed = True
             except BaseException as closing:
+                stage_closed = bool(stage.file.closed and admission.requested)
                 if failure is None:
                     failure = closing
                 else:
+                    failure.add_note(f"Export staging close failed: {closing!r}")
                     _uncertainty(failure, closing)
         if failure is None:
             try:
                 await _async(_fresh_copy(db, snapshot, guard, permit.revision))
             except BaseException as exc:
                 failure = exc
-        if permit is not None and not getattr(
-            failure, "storage_operation_unsettled", False
+        if permit is not None and (
+            failure is None or not storage_access.failure_unsettled(failure)
         ):
             try:
                 await _settle(permit)
             except BaseException as closing:
+                if not permit._settled:
+                    storage_access.mark_unsettled(closing)
                 if failure is None:
                     failure = closing
                 else:
+                    failure.add_note(f"Storage permit settlement failed: {closing!r}")
                     _uncertainty(failure, closing)
         if admission is not None:
-            admission.finish(getattr(failure, "storage_operation_unsettled", False))
+            admission.finish(failure is not None and storage_access.failure_unsettled(failure))
+        if (
+            entered
+            and stage_closed
+            and admission is not None
+            and admission.released
+            and permit is not None
+            and permit._settled
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)
+        elif entered and failure is None:
+            failure = storage_access.mark_unsettled(
+                ContentError("storage_operation_unsettled", 503)
+            )
     if failure is not None:
         raise failure
     return result

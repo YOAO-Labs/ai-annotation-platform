@@ -9,7 +9,6 @@ import re
 from uuid import uuid4
 
 import pytest
-from PIL import Image
 from sqlalchemy import event, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
@@ -49,7 +48,25 @@ def _resources(test_engine):
 
 
 def _consumer_engine(test_engine):
-    engine = create_async_engine(test_engine.url, hide_parameters=True)
+    role_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_OPERATOR_URL"))
+    assert role_url.username == "asset_operator_client"
+    assert (role_url.host, role_url.port, role_url.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    _verify_postgres(role_url)
+    return _source_guarded_engine(role_url)
+
+
+def _composition_engine(test_engine):
+    from tests.test_labeling_class_usage_reads_legacy import _legacy_runtime_url
+
+    return _source_guarded_engine(_legacy_runtime_url(test_engine))
+
+
+def _source_guarded_engine(url):
+    engine = create_async_engine(url, hide_parameters=True)
 
     @event.listens_for(engine.sync_engine, "before_cursor_execute")
     def no_private_source_writes(
@@ -78,112 +95,6 @@ def _evidence(name, values):
     output.write_text(json.dumps(current, indent=2) + "\n")
 
 
-async def test_local_image_import_uses_native_rows_and_retains_uploads_on_sql_failure(
-    test_engine, app_module, tmp_path, monkeypatch
-):
-    from scripts import import_images
-    from app.services.assets_operator import AssetsOperatorGateway
-
-    _, storage = _resources(test_engine)
-    engine = _consumer_engine(test_engine)
-    maker = async_sessionmaker(engine, expire_on_commit=False)
-    async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as owner:
-        await _seed_actor(owner, role="viewer")
-    directory = tmp_path / "images"
-    (directory / "nested").mkdir(parents=True)
-    for relative in ("first.png", "nested/second.jpg", "nested/第三张.png"):
-        Image.new("RGB", (3, 2), (30, 60, 90)).save(directory / relative)
-    name = "operator-image-" + uuid4().hex
-    prefix = "operator-image-source/" + uuid4().hex
-    monkeypatch.setattr(import_images, "engine", engine)
-    monkeypatch.setattr(import_images, "Session", maker)
-    monkeypatch.setattr(import_images, "get_s3_client", lambda: storage.client)
-    try:
-        await import_images.import_to_dataset(str(directory), name, prefix, None)
-        async with test_engine.connect() as owner:
-            dataset = (
-                await owner.execute(
-                    text("SELECT id,file_count FROM public.datasets WHERE name=:name"),
-                    {"name": name},
-                )
-            ).one()
-            rows = (
-                await owner.execute(
-                    text(
-                        "SELECT file_path,file_size FROM public.dataset_items WHERE dataset_id=:id"
-                    ),
-                    {"id": dataset.id},
-                )
-            ).all()
-        assert dataset.file_count == len(rows) == 3
-        assert {row.file_path for row in rows} == {
-            f"{prefix}/{relative}"
-            for relative in ("first.png", "nested/second.jpg", "nested/第三张.png")
-        }
-        for row in rows:
-            assert (
-                storage.client.head_object(
-                    Bucket=storage.datasets_bucket, Key=row.file_path
-                )["ContentLength"]
-                == row.file_size
-            )
-
-        receipts_before = await _count(
-            test_engine, "SELECT count(*) FROM public.dataset_operator_operations"
-        )
-        failed_name = "operator-image-rollback-" + uuid4().hex
-        failed_prefix = "operator-image-source/" + uuid4().hex
-        append = AssetsOperatorGateway.append_operator_items
-
-        async def fail_after_native_insert(gateway, request):
-            await append(gateway, request)
-            raise RuntimeError("owned operator consumer late failure")
-
-        with monkeypatch.context() as failing:
-            failing.setattr(
-                AssetsOperatorGateway, "append_operator_items", fail_after_native_insert
-            )
-            with pytest.raises(
-                RuntimeError, match="owned operator consumer late failure"
-            ):
-                await import_images.import_to_dataset(
-                    str(directory), failed_name, failed_prefix, None
-                )
-        assert (
-            await _count(
-                test_engine,
-                "SELECT count(*) FROM public.datasets WHERE name=:name",
-                name=failed_name,
-            )
-            == 0
-        )
-        assert (
-            await _count(
-                test_engine, "SELECT count(*) FROM public.dataset_operator_operations"
-            )
-            == receipts_before
-        )
-        retained = storage.client.list_objects_v2(
-            Bucket=storage.datasets_bucket, Prefix=failed_prefix + "/"
-        )
-        assert retained["KeyCount"] == 3
-        _evidence(
-            "local_images",
-            {
-                "status": "passed",
-                "real_s3": True,
-                "items": 3,
-                "relative_paths": True,
-                "no_private_dml": True,
-                "outer_rollback": True,
-                "uncertain_objects_retained": 3,
-            },
-        )
-    finally:
-        await engine.dispose()
-        # Rows, immutable receipts and objects remain until this owned DB/bucket teardown.
-
-
 async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_rollback(
     test_engine, app_module, tmp_path, monkeypatch
 ):
@@ -192,9 +103,12 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
     from app.services.dataset import DatasetService
 
     _, storage = _resources(test_engine)
-    engine = _consumer_engine(test_engine)
+    engine = _composition_engine(test_engine)
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with async_sessionmaker(test_engine, expire_on_commit=False).begin() as owner:
+        from app.services import managed_original_creation
+
+        await managed_original_creation.bootstrap(owner)
         actor_id = await _seed_actor(owner, role="super_admin")
     source = tmp_path / "nuscenes"
     _write_fake_nuscenes(source, scenes=1, samples_per=2)

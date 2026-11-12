@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from builtins import BaseExceptionGroup
 from uuid import uuid4
 
 import pytest
@@ -18,7 +19,26 @@ from yoao_assets_images.transport import (
     ImageSourceReferencesRequest,
     InternalImageSourceReferenceRequest,
 )
-from yoao_assets_images_runtime.control import ImageControl
+from yoao_assets_images_runtime.control import ImageControl as NativeImageControl
+
+
+class OrdinarySourceDatabase:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    async def call(self, name, request):
+        if name in {"begin_image_original_actor", "begin_image_original_system"}:
+            return c.OriginalRead(ownership="ordinary", object_key=request.object_key)
+        return await self.delegate.call(name, request)
+
+
+class ImageControl(NativeImageControl):
+    def __init__(self, database, *args, **kwargs):
+        super().__init__(
+            OrdinarySourceDatabase(database) if database is not None else None,
+            *args,
+            **kwargs,
+        )
 
 
 def source(*, owner=None, thumbnail_path=None, thumbnail_current=False):
@@ -89,6 +109,10 @@ class FakeStorage:
         self.signed_source = []
         self.signed_cache = []
 
+    def bind_original(self, permit):
+        assert permit.ownership == "ordinary"
+        return self
+
     async def head_source(self, current):
         self.head_source_calls.append(current)
         return self.source_identity or current.object_identity
@@ -144,21 +168,30 @@ async def test_typed_missing_source_preserves_the_owner_source_error():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("unsettled", [False, True])
 async def test_source_batch_settles_peer_reads_before_reporting_a_leaf_failure(
     monkeypatch,
+    unsettled,
 ):
     failed, peer = uuid4(), uuid4()
     settled = []
+    first_seen = asyncio.Event()
     control = ImageControl(None, FakeStorage())
 
     async def read(request):
         if request.task_id == failed:
+            first_seen.set()
             raise c.ImageFailure("source_missing")
-        await asyncio.sleep(0.01)
+        await first_seen.wait()
         settled.append(request.task_id)
+        if unsettled:
+            error = c.ImageFailure("storage_unavailable")
+            error.storage_operation_unsettled = True
+            raise error
 
     monkeypatch.setattr(control, "source_reference", read)
-    with pytest.raises(c.ImageFailure, match="source_missing"):
+    expected = BaseExceptionGroup if unsettled else c.ImageFailure
+    with pytest.raises(expected) as caught:
         await control.source_references(
             ImageSourceReferencesRequest(
                 requests=[
@@ -168,6 +201,12 @@ async def test_source_batch_settles_peer_reads_before_reporting_a_leaf_failure(
             )
         )
     assert settled == [peer]
+    if unsettled:
+        assert [str(error) for error in caught.value.exceptions] == [
+            "source_missing",
+            "storage_unavailable",
+        ]
+        assert caught.value.storage_operation_unsettled
 
 
 class Database:
@@ -207,20 +246,28 @@ async def test_public_observation_binds_current_source_without_signing_or_dispat
 
 
 @pytest.mark.asyncio
-async def test_observation_rejects_captured_snapshot_change_before_head():
+@pytest.mark.parametrize("caller", ["actor", "operator"])
+async def test_observation_rejects_captured_snapshot_change_before_head(caller):
     current = source(owner=c.ImageOwner(kind="task", id=uuid4()))
     database = Database(lambda _operation, _request: current)
     storage = FakeStorage()
 
+    control = ImageControl(database, storage)
     with pytest.raises(c.ImageFailure, match="source_changed"):
-        await ImageControl(database, storage).observe_source(
-            c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id),
-            expected_source_snapshot="f" * 64,
-        )
-
-    assert [operation for operation, _request in database.calls] == [
-        "read_image_source"
-    ]
+        if caller == "actor":
+            await control.observe_source(
+                c.ReadImageSourceRequest(actor_id=uuid4(), task_id=current.task_id),
+                expected_source_snapshot="f" * 64,
+            )
+        else:
+            await control.schedule_image_media(
+                c.ScheduleImageMediaRequest(
+                    operation_id=uuid4(),
+                    owner_kind=current.owner.kind,
+                    owner_id=current.owner.id,
+                    spec=c.PyramidWorkSpec(expected_source_snapshot="f" * 64),
+                )
+            )
     assert storage.head_source_calls == []
 
 
@@ -397,7 +444,7 @@ async def test_internal_source_first_read_can_bind_an_unregistered_identity():
 
 
 @pytest.mark.asyncio
-async def test_source_change_after_signing_is_committed_before_response_is_rejected():
+async def test_source_change_is_committed_before_response_is_rejected():
     current = source()
     changed_identity = c.ObjectIdentity(etag="replacement-etag", byte_size=128)
     changed = current.model_copy(
@@ -424,7 +471,6 @@ async def test_source_change_after_signing_is_committed_before_response_is_rejec
         await ImageControl(ChangingDatabase(), storage).raw_source_reference(
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=current.item_id)
         )
-    assert len(storage.signed_source) == 1
     assert stored == changed
 
 
@@ -452,7 +498,6 @@ async def test_registered_dimension_change_during_reference_blocks_the_reply():
         await ImageControl(ChangingDatabase(), storage).source_reference(
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
         )
-    assert storage.signed_source == [(current, 3600)]
     assert storage.signed_cache == [(key, 3600)]
 
 
@@ -1222,19 +1267,19 @@ async def test_source_reference_still_rechecks_actor_after_best_effort_denial(
 ):
     owner = c.ImageOwner(kind="dataset_item", id=uuid4())
     current = source(owner=owner)
-    source_reads = 0
+    revoked = False
 
     class RevokedActorDatabase:
         async def call(self, operation, _request):
-            nonlocal source_reads
+            nonlocal revoked
             if operation == "read_image_source":
-                source_reads += 1
-                if source_reads == 3:
+                if revoked:
                     raise c.ImageFailure("account_not_active")
                 return current
             if operation == "observe_image_source":
                 return current
             if operation == "prepare_image_media":
+                revoked = True
                 raise c.ImageFailure(failure_code)
             pytest.fail(f"unexpected operation {operation}")
 
@@ -1243,8 +1288,6 @@ async def test_source_reference_still_rechecks_actor_after_best_effort_denial(
         await ImageControl(RevokedActorDatabase(), storage).source_reference(
             c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
         )
-
-    assert storage.signed_source == [(current, 3600)]
 
 
 @pytest.mark.asyncio
@@ -1786,3 +1829,37 @@ async def test_out_of_manifest_tile_coordinate_never_reaches_storage_signer():
         await ImageControl(TileDatabase(), storage).asset_references(request)
     assert storage.signed_cache == []
     assert storage.head_cache_calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "published,present,error",
+    [
+        (True, True, None),
+        (False, True, "source_not_ready"),
+        (True, False, "object_missing"),
+    ],
+)
+async def test_ready_image_reference_never_admits_missing_output_repair(
+    published, present, error
+):
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    key = f"thumbnails/{owner.id}.webp"
+    current = source(owner=owner, thumbnail_path=key, thumbnail_current=published)
+
+    class Database:
+        async def call(self, name, request):
+            assert name in {"read_image_source", "observe_image_source"}
+            return current
+
+    storage = FakeStorage(cache_keys=[key] if present else [])
+    control = ImageControl(Database(), storage)
+    request = c.ReadImageSourceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    if error is not None:
+        with pytest.raises(c.ImageFailure, match=error):
+            await control.ready_source_reference(request)
+        assert storage.signed_cache == []
+    else:
+        result = await control.ready_source_reference(request)
+        assert result.thumbnail_url == f"https://image.local/cache/{key}?expires=3600"
+        assert result.source.thumbnail_current

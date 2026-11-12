@@ -16,8 +16,6 @@ from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import _port, _start
 from tests.test_module_data_roles import _role_url
 
-ROOT = Path(__file__).resolve().parents[3]
-
 
 def ingress_dsn(database_url):
     target = make_url(database_url)
@@ -42,9 +40,7 @@ def ingress_dsn(database_url):
 async def ingress_provider(database_url):
     dsn = ingress_dsn(database_url)
     token = secrets.token_urlsafe(32)
-    with tempfile.TemporaryDirectory(
-        prefix="inference-registry-ingress-", dir=ROOT / ".worktree"
-    ) as temporary:
+    with tempfile.TemporaryDirectory(prefix="inference-registry-ingress-") as temporary:
         directory = Path(temporary)
         dsn_file, token_file = directory / "database", directory / "token"
         for path, value in ((dsn_file, dsn), (token_file, token)):

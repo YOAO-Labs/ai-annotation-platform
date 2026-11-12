@@ -3,6 +3,7 @@
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import ipaddress
 import re
 from urllib.parse import unquote_plus, urlsplit
 
@@ -103,10 +104,8 @@ def allowed_endpoint(endpoint, allowlist):
         raise StorageError("connector_host_denied") from None
 
 
-@dataclass(frozen=True, repr=False)
-class S3Access:
+class _S3ClientAccess:
     config: dict
-    secret_enc: bytes
     allowlist: tuple[str, ...]
 
     @property
@@ -138,16 +137,18 @@ class S3Access:
             raise StorageError("s3_endpoint_not_supported")
         return endpoint.rstrip("/")
 
-    @contextmanager
-    def client(self, *, read_timeout=None):
+    def _check_destination(self, endpoint):
+        allowed_endpoint(endpoint, self.allowlist)
+
+    def _checked_endpoint(self):
         endpoint = self.endpoint
         if not re.fullmatch(r"[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]", self.config["bucket"]):
             raise StorageError("s3_bucket_not_supported")
-        allowed_endpoint(endpoint, self.allowlist)
-        try:
-            secret = decrypt_secret(self.secret_enc)
-        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
-            raise StorageError("connection_unavailable") from None
+        self._check_destination(endpoint)
+        return endpoint
+
+    @contextmanager
+    def _client(self, endpoint, secret, *, read_timeout=None):
         try:
             client = boto3.client(
                 "s3",
@@ -175,7 +176,7 @@ class S3Access:
                 target.netloc,
             ):
                 raise StorageError("s3_redirect_denied")
-            allowed_endpoint(endpoint, self.allowlist)
+            self._check_destination(endpoint)
 
         try:
             client.meta.events.register("before-send.s3", guard)
@@ -207,6 +208,23 @@ class S3Access:
             raise StorageError("content_source_unavailable") from None
         finally:
             close_registered(client)
+
+
+@dataclass(frozen=True, repr=False)
+class S3Access(_S3ClientAccess):
+    config: dict
+    secret_enc: bytes
+    allowlist: tuple[str, ...]
+
+    @contextmanager
+    def client(self, *, read_timeout=None):
+        endpoint = self._checked_endpoint()
+        try:
+            secret = decrypt_secret(self.secret_enc)
+        except (ConnectorCryptoError, ConnectorCryptoNotConfigured):
+            raise StorageError("connection_unavailable") from None
+        with self._client(endpoint, secret, read_timeout=read_timeout) as client:
+            yield client
 
     def list_page(self, relative, cursor=None, *, directories=False):
         prefix = directory_prefix(self.config.get("base_prefix", ""), relative)
@@ -335,3 +353,31 @@ class S3Access:
                 "capabilities": capabilities,
                 "anchor": self.anchor,
             }
+
+
+@dataclass(frozen=True, repr=False)
+class ScopedS3Access(_S3ClientAccess):
+    """Use credentials already admitted by the physical owner, without a platform key."""
+
+    config: dict
+    secret: dict
+    allowlist: tuple[str, ...]
+
+    def _check_destination(self, endpoint):
+        # The owner admits one exact origin with its scoped credentials.
+        if endpoint != self.secret.get("endpoint"):
+            raise StorageError("connector_host_denied")
+        try:
+            address = ipaddress.ip_address(urlsplit(endpoint).hostname)
+        except ValueError:
+            allowed_endpoint(endpoint, self.allowlist)
+        else:
+            # An exact literal owner address needs no DNS. Loopback is reserved
+            # for that origin; other literals still pass the connector IP guard.
+            if not address.is_loopback:
+                allowed_endpoint(endpoint, (str(address),))
+
+    def client(self, *, read_timeout=None):
+        return self._client(
+            self._checked_endpoint(), self.secret, read_timeout=read_timeout
+        )

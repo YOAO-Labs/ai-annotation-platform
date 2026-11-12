@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "aap-jobs-media-preparation/v1",
+  "$defs": {
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "owner_kind", "owner_id", "producer_kind", "delivery_id", "source", "envelope"],
+      "properties": {
+        "schema": { "const": "aap-jobs-media-prepare/v1" },
+        "owner_kind": { "enum": ["task", "dataset_item"] },
+        "owner_id": { "type": "string", "format": "uuid" },
+        "producer_kind": { "enum": ["pyramid", "thumbnail", "task_thumbnail", "video_metadata", "video_derivatives"] },
+        "delivery_id": { "type": "string", "format": "uuid" },
+        "source": { "type": "object" },
+        "envelope": { "type": "object" }
+      }
+    },
+    "result": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "ownership", "delivery_id", "envelope", "payload_digest"],
+      "properties": {
+        "schema": { "const": "aap-jobs-media-preparation/v1" },
+        "ownership": { "enum": ["ordinary", "fixture"] },
+        "delivery_id": { "type": "string", "format": "uuid" },
+        "envelope": { "type": "object" },
+        "payload_digest": { "type": ["string", "null"], "pattern": "^[0-9a-f]{64}$" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "ownership": { "const": "ordinary" } } },
+          "then": { "properties": { "payload_digest": { "type": "null" } } },
+          "else": { "properties": { "payload_digest": { "type": "string" } } }
+        }
+      ]
+    },
+    "videoDerivativeSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schema", "outputs"],
+      "properties": {
+        "schema": { "const": "aap-video-derivative-inputs/v1" },
+        "outputs": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["output_id", "original"],
+            "properties": {
+              "output_id": { "type": "string", "format": "uuid" },
+              "original": { "type": "object" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "x-postgresql-functions": {
+    "aap_jobs_v1.prepare_media_delivery": {
+      "arguments": "p_request jsonb",
+      "returns": "jsonb",
+      "volatility": "volatile",
+      "parallel": "unsafe",
+      "security": "definer",
+      "search_path": "pg_catalog, pg_temp"
+    }
+  },
+  "x-semantics": {
+    "transactions": "Borrow the caller transaction and its subject/source/run locks; do not commit or publish.",
+    "binding": "Assets validates every actual source and establishes ordinary or unique open fixture ownership; missing, ambiguous, sealed or mismatched ownership is refused.",
+    "fixture": "Jobs chooses the private run queue and atomically binds the immutable publication and Assets execution birth; no fixture override or control credential is accepted from the caller.",
+    "ordinary": "A positively ordinary source keeps the complete original envelope and current publication behavior.",
+    "video_derivatives": "The source descriptor lists every exact output ID and actual original receipt in the same order as envelope.args[0]; fixture batches contain one actual subject and original."
+  }
+}

@@ -16,9 +16,12 @@ class CeleryBatchPredictionDispatcher:
 
         args, kwargs = _batch_prediction_task_payload(request)
 
-        options: dict[str, str | int] = {"queue": queue}
-        if request.async_job_id is not None:
-            options["task_id"] = request.async_job_id
+        if request.async_job_id is None:
+            raise ValueError("batch prediction requires an admitted Job")
+        options: dict[str, str | int] = {
+            "queue": queue,
+            "task_id": request.async_job_id,
+        }
         if soft_time_limit is not None:
             options["soft_time_limit"] = soft_time_limit
         result = batch_predict.apply_async(

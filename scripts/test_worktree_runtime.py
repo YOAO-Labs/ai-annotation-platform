@@ -187,33 +187,90 @@ class CommandTests(unittest.TestCase):
         with self.assertRaises(SystemExit):
             runtime.parse_arguments(["--api-port", "0"])
 
-    def test_process_identity_rejects_pid_reuse_and_other_checkouts(self):
+    def test_inference_recovery_requires_one_explicit_e2e_operation(self):
         import worktree_runtime as runtime
 
-        self.assertTrue(hasattr(runtime, "process_matches"))
-        from unittest.mock import patch
-
-        record = {"pid": 123, "started": "start-a"}
-        with patch.object(
-            runtime,
-            "process_identity",
-            return_value={"started": "start-b", "command": "/ours/worktree_runtime.py"},
+        recovery = runtime.parse_arguments(
+            ["recover-inference", "--", "python", "recover.py"]
+        )
+        self.assertEqual(recovery.mode, "e2e")
+        self.assertEqual(recovery.execute, ["python", "recover.py"])
+        self.assertTrue(
+            runtime.parse_arguments(["recover-inference", "--finish-drain"]).finish_drain
+        )
+        for args in (
+            ["recover-inference"],
+            ["recover-inference", "--finish-drain", "--", "true"],
+            ["recover-inference", "--mode", "test", "--finish-drain"],
+            ["destroy", "--finish-drain"],
         ):
-            self.assertFalse(
-                runtime.process_matches(record, "/ours/worktree_runtime.py")
-            )
+            with self.subTest(args=args), self.assertRaises(SystemExit):
+                runtime.parse_arguments(args)
 
-        with patch.object(
-            runtime,
-            "process_identity",
-            return_value={
-                "started": "start-a",
-                "command": "/theirs/worktree_runtime.py",
-            },
+    def test_prelaunch_recovery_preserves_only_a_proven_predecessor(self):
+        from types import SimpleNamespace
+        import worktree_runtime as runtime
+        from worktree_env import atomic_json, load_identity, state_path, topology
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            resources = topology(root, load_identity(root, create=True), "e2e")
+            backend = SimpleNamespace(resources=resources, code_root=root)
+            path = state_path(root, "e2e", "run.json")
+            predecessor = {
+                "owner": resources["owner"],
+                "children": [],
+                "phase": "completed",
+                "supervisor_reaped": True,
+                "descendant_boundary": {"state": "settled"},
+            }
+            attempt = {
+                "owner": resources["owner"],
+                "children": [],
+                "phase": "prelaunch",
+                "predecessor": predecessor,
+                "prelaunch_failures": ["WorktreeError"],
+            }
+            atomic_json(path, attempt)
+            runtime.reject_orphans(backend, allow_inference=True)
+            for phase in ("verifying", "admitting", "admitted"):
+                with self.subTest(phase=phase):
+                    atomic_json(path, {**attempt, "phase": phase})
+                    with self.assertRaises(runtime.WorktreeError):
+                        runtime.reject_orphans(backend, allow_inference=True)
+            predecessor["descendant_boundary"]["state"] = "draining"
+            atomic_json(path, attempt)
+            with self.assertRaises(runtime.WorktreeError):
+                runtime.reject_orphans(backend, allow_inference=True)
+
+    @unittest.skipUnless(
+        __import__("sys").platform == "linux", "requires Linux process birth"
+    )
+    def test_process_identity_uses_kernel_birth_not_wallclock(self):
+        import os
+        import worktree_runtime as runtime
+
+        scope = str(Path(__file__).resolve().parents[1])
+        record = runtime.process_handle(os.getpid(), scope)
+        self.assertIsNotNone(record)
+        self.assertNotIn("command", record)
+        self.assertTrue(
+            runtime.process_matches({**record, "started": "old-wallclock"}, scope)
+        )
+        for replacement in (
+            {"start_ticks": record["start_ticks"] + 1},
+            {"boot_id": "other-boot"},
+            {"scope": str(Path(scope) / "other")},
+            {"command_hash": "other-command"},
         ):
-            self.assertFalse(
-                runtime.process_matches(record, "/ours/worktree_runtime.py")
-            )
+            with self.subTest(replacement=replacement):
+                self.assertFalse(
+                    runtime.process_matches({**record, **replacement}, scope)
+                )
+        for field in ("start_ticks", "boot_id"):
+            unproven = {key: value for key, value in record.items() if key != field}
+            with self.subTest(missing=field), self.assertRaises(runtime.WorktreeError):
+                runtime.process_matches(unproven, scope)
 
     def test_manual_scenario_is_limited_to_e2e_up(self):
         import worktree_runtime as runtime
@@ -230,6 +287,167 @@ class CommandTests(unittest.TestCase):
         ):
             with self.subTest(args=args), self.assertRaises(SystemExit):
                 runtime.parse_arguments(args)
+
+    @unittest.skipUnless(
+        __import__("sys").platform == "linux",
+        "requires Linux subreaper and pidfds",
+    )
+    def test_zero_exiting_wrapper_does_not_settle_detached_consumer(self):
+        import json
+        import subprocess
+        import sys
+        import time
+
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            ready = directory / "ready"
+            wrapper_done = directory / "wrapper-done"
+            release = directory / "release"
+            record = directory / "record.json"
+            grandchild = """
+import pathlib, sys, time
+ready, release = map(pathlib.Path, sys.argv[1:])
+ready.write_text("ready")
+deadline = time.monotonic() + 10
+while not release.exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+sys.exit(0 if release.exists() else 9)
+"""
+            wrapper = """
+import subprocess, sys
+subprocess.Popen([sys.executable, "-c", sys.argv[1], *sys.argv[2:]], start_new_session=True)
+"""
+            runner_code = """
+import pathlib, subprocess, sys
+sys.path.insert(0, sys.argv[1])
+from worktree_runtime import establish_e2e_subreaper, settle_e2e_descendants
+establish_e2e_subreaper()
+wrapper, grandchild, ready, release, wrapper_done, record = sys.argv[2:]
+child = subprocess.Popen([sys.executable, "-c", wrapper, grandchild, ready, release])
+assert child.wait() == 0
+pathlib.Path(wrapper_done).write_text("done")
+settle_e2e_descendants({}, pathlib.Path(record), None)
+"""
+            runner = subprocess.Popen(
+                [
+                    sys.executable, "-c", runner_code, str(Path(__file__).parent),
+                    wrapper, grandchild, str(ready), str(release), str(wrapper_done), str(record),
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                deadline = time.monotonic() + 8
+                while not (ready.exists() and wrapper_done.exists() and record.exists()):
+                    if runner.poll() is not None or time.monotonic() >= deadline:
+                        self.fail("detached consumer did not reach the held state")
+                    time.sleep(0.02)
+                self.assertIsNone(runner.poll(), "zero wrapper exit closed the boundary")
+                release.write_text("release")
+                stdout, stderr = runner.communicate(timeout=15)
+                self.assertEqual(runner.returncode, 0, (stdout, stderr))
+                boundary = json.loads(record.read_text())["descendant_boundary"]
+                self.assertEqual(boundary["state"], "settled")
+                self.assertTrue(any(item["state"] == "reaped" for item in boundary["adopted"]))
+            finally:
+                release.write_text("release")
+                if runner.poll() is None:
+                    runner.communicate(timeout=15)
+
+
+@unittest.skipUnless(__import__("sys").platform == "linux", "requires Linux pidfds")
+class DirectChildBoundaryTests(unittest.TestCase):
+    def test_zero_command_with_crashed_or_cooperatively_stopped_worker(self):
+        import signal
+        import subprocess
+        import sys
+        import time
+
+        import worktree_runtime as runtime
+        from linux_pidfd import open_pidfd, pidfd_send_signal
+        from worktree_env import read_state
+
+        worker_code = """
+import signal, sys
+signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+print("ready", flush=True)
+if sys.argv[1] == "crash":
+    sys.stdin.buffer.read(1)
+    sys.exit(23)
+while True:
+    signal.pause()
+"""
+        supervisor_code = """
+import sys
+print("ready", flush=True)
+sys.stdin.buffer.read(1)
+sys.exit(0)
+"""
+        for crash in (True, False):
+            with self.subTest(crash=crash), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                worker = subprocess.Popen(
+                    [sys.executable, "-u", "-c", worker_code, "crash" if crash else "normal"],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                supervisor = subprocess.Popen(
+                    [sys.executable, "-u", "-c", supervisor_code],
+                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                children = [worker, supervisor]
+                try:
+                    self.assertEqual(worker.stdout.readline(), b"ready\n")
+                    self.assertEqual(supervisor.stdout.readline(), b"ready\n")
+                    record = {"children": []}
+                    for child, role in ((worker, "worker"), (supervisor, "supervisor")):
+                        runtime.register_child(record, runtime.process_handle(child.pid, str(root)), role)
+                    self.assertIsNone(runtime._e2e_child_status(worker))
+                    if crash:
+                        worker.stdin.write(b"x")
+                        worker.stdin.flush()
+                    supervisor.stdin.write(b"x")
+                    supervisor.stdin.flush()
+                    deadline = time.monotonic() + 8
+                    while runtime._e2e_child_status(supervisor) is None or (
+                        crash and runtime._e2e_child_status(worker) is None
+                    ):
+                        if time.monotonic() >= deadline:
+                            self.fail("direct child did not reach its expected exit")
+                        time.sleep(0.02)
+                    path = root / "run.json"
+                    if crash:
+                        with self.assertRaises(runtime.WorktreeError):
+                            runtime.finish_e2e_direct_children(
+                                children, record, path, orderly=True,
+                                request_stop=True, deadline=time.monotonic() + 8,
+                            )
+                    else:
+                        runtime.finish_e2e_direct_children(
+                            children, record, path, orderly=True,
+                            request_stop=True, deadline=time.monotonic() + 8,
+                        )
+                    saved = read_state(path)
+                    exits = {item["role"]: item for item in saved["children"]}
+                    self.assertEqual(exits["supervisor"]["exit_code"], 0)
+                    self.assertEqual(exits["worker"]["exit_code"], 23 if crash else 0)
+                    self.assertEqual(exits["worker"]["shutdown_requested"], not crash)
+                    self.assertEqual("unsettled_consumers" in saved, crash)
+                    self.assertNotIn("supervisor_reaped", saved)
+                finally:
+                    for child in children:
+                        if child.returncode is None:
+                            try:
+                                descriptor = open_pidfd(child.pid)
+                                try:
+                                    pidfd_send_signal(descriptor, signal.SIGTERM)
+                                finally:
+                                    __import__("os").close(descriptor)
+                            except ProcessLookupError:
+                                pass
+                            child.wait(timeout=10)
+                        for stream in (child.stdin, child.stdout, child.stderr):
+                            if stream is not None:
+                                stream.close()
 
 
 class WorkerQueueTests(unittest.TestCase):

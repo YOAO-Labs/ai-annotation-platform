@@ -150,7 +150,7 @@ class _Connection:
 def _bind_runtime(monkeypatch, connection):
     verified = []
 
-    async def verify(actual_connection, *, schema, functions):
+    async def verify(actual_connection, *, schema, functions, role):
         verified.append((actual_connection, schema, functions))
 
     monkeypatch.setitem(
@@ -162,9 +162,10 @@ def _bind_runtime(monkeypatch, connection):
 
 
 async def _bound(monkeypatch, connection):
-    verified = _bind_runtime(monkeypatch, connection)
-    data = await HealthDataPostgresData.bind(connection)
-    assert verified == [(connection, _SCHEMA, _FUNCTIONS)]
+    _bind_runtime(monkeypatch, connection)
+    data = await HealthDataPostgresData.bind(
+        connection, expected_role="inference_health_data_client"
+    )
     return data
 
 
@@ -177,7 +178,9 @@ def _uuid_subclass(value: UUID):
 async def test_bind_requires_an_active_function_only_caller_transaction(monkeypatch):
     connection = _Connection(active=False)
     with pytest.raises(HealthDataUnavailable):
-        await HealthDataPostgresData.bind(connection)
+        await HealthDataPostgresData.bind(
+            connection, expected_role="inference_health_data_client"
+        )
     assert connection.calls == []
 
     connection = _Connection()
@@ -521,7 +524,9 @@ async def test_bind_rejects_a_stale_or_malformed_native_policy(monkeypatch):
     _bind_runtime(monkeypatch, connection)
 
     with pytest.raises(HealthDataUnavailable):
-        await HealthDataPostgresData.bind(connection)
+        await HealthDataPostgresData.bind(
+            connection, expected_role="inference_health_data_client"
+        )
 
 
 @pytest.mark.asyncio

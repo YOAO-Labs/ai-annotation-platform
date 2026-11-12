@@ -285,16 +285,17 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 先安装 owner grants 和普通 consumer 围栏，再为受信任测试操作账号追加
 `workspace-seed-operator-grants.sql` 与 `workspace-e2e-fixture-grants.sql`。
 完整 E2E 准备／清理由独立 owner 夹具进程执行，普通业务 HTTP 保持受限；上述固定
-能力仍分别验证调用方事务和权限边界。物理对象收尾前先预检项目退役状态，未退役视频
-或忙锁返回 409；预检 savepoint 回滚，避免提前持久化从未启动作业的清理许可。
+能力仍分别验证调用方事务和权限边界。物理对象收尾前先预检项目退役状态与 Jobs：
+未退役视频、仍有关联或保留 Jobs 记录的项目、以及忙锁返回 409；终态本身不证明物理工作已停止。
+预检 savepoint 回滚，避免提前持久化从未启动作业的清理许可。
 最终删除再次检查，拒绝时回滚项目和子记录并保留重试锚点，但不撤销已完成的对象删除。
 不得补造退役凭证。项目和模板残留均使清理失败；shared reset 前先显式清理各 owned namespace。
 
 ### 规模种子与截图支持读取
 
-规模种子使用 `aap-workspace-scale-seed/v1`，保留原始 SQL 默认值、显示编号序列及
-四个提交阶段。项目初始 `total_tasks` 由既有 Labeling projection 在同一事务中写入，
-不转为 ORM 工厂，也不规范化原账号选择或职责值。
+规模种子使用 `aap-workspace-scale-seed/v1`，保留 SQL 默认值和显示编号序列。项目初始
+`total_tasks` 由既有 Labeling projection 在同一事务中写入。每次调用必须提供唯一
+`--run-id`；项目和数据集 UUID 在提交时登记到私有夹具清单，已存在的旧名称不会被接管。
 
 | 能力                                                           | 语义                                                                                 |
 | -------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
@@ -305,12 +306,14 @@ writer。原 fixture 的不兼容角色、历史属性及未来视频上下文�
 | `aap_assets_v1.guard_scale_seed_dataset_cleanup(uuid,boolean)` | 复用 Assets 的 Dataset／Scene／Item 锁及来源保留检查；任务清理后再检查 Labeling 引用 |
 
 最后一项使用 `aap-workspace-scale-source-guard/v1`，校验 Dataset UUID 和调用阶段，
-不向客户端暴露私有锁 helper，不删除来源字节。未退役执行、学习历史、辅助引用或
-忙锁会拒绝清理，调用方回滚；原项目／数据集名称范围和成功路径提交顺序保留。
+不向客户端暴露私有锁 helper，不删除来源字节。清理先关闭指定运行的准入，并要求所有
+准入已结清；随后只在 Workspace/Assets owner 返回范围与清单完全一致时继续。未登记
+原件、未退役执行、学习历史、辅助引用或忙锁会阻止删除，保留锚点。
 
-可信操作账号在普通 Workspace consumer 围栏后追加
-`workspace-scale-seed-grants.sql`；它与既有 Identity 和其他领域 operator 权限组合，
-不替换这些权限。生产拒绝仍在 CLI 创建 engine 前执行，不限制开发数据库的名称。
+规模种子仅在 `_test` / `_e2e` 隔离库且显式启用 E2E seed 时运行，通过受信任的夹具
+owner 通道访问私有台账和写入；Identity 账号选择使用单独的受限运行账号，权限缺失
+时不会切回 owner。普通 API／worker 不获得夹具 owner 权限。生产环境仍在 CLI 创建
+engine 前拒绝。旧 `scale-seed` 名称不会由新运行的清理隐式删除。
 两个截图支持助手复用 `get_workspace_project`，保留原 Session.get 缓存与范围校验。
 这些消费者的 Workspace 边界不代表其余领域的批量 DML 已完成提取。
 

@@ -611,6 +611,19 @@ def test_sign_uses_only_remaining_fixed_expiry_and_saved_bucket(storage):
     assert row.expires_at == CREATED + timedelta(days=7)
 
 
+def test_fixture_zip_signature_cannot_exceed_short_deadline(storage):
+    readable(storage)
+    row = record(expires_at=CREATED + timedelta(minutes=15))
+    owners.sign(
+        row, download_name="fixture.zip", now=row.expires_at - timedelta(seconds=12)
+    )
+    assert storage.generate_download_url.call_args.kwargs["expires_in"] == 11
+    with pytest.raises(owners.ExportStorageError):
+        owners.sign(
+            row, download_name="fixture.zip", now=row.expires_at - timedelta(seconds=1)
+        )
+
+
 @pytest.mark.parametrize("elapsed", [timedelta(days=7), timedelta(days=8)])
 def test_expired_output_cannot_receive_new_signature(storage, elapsed):
     readable(storage)

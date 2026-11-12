@@ -27,7 +27,7 @@ from app.workers import tasks as worker_tasks
 
 
 async def _run_batch(**kwargs):
-    """Exercise workflow behavior with legacy model stubs; admission is separate."""
+    """Exercise workflow behavior with an admitted Job and model stubs."""
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from app.application.preannotation_contract import BatchPredictionRequest
@@ -38,11 +38,25 @@ async def _run_batch(**kwargs):
     frame_dispatcher = kwargs.pop("frame_dispatcher", None)
     engine = create_async_engine(settings.database_url, echo=False)
     try:
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        if kwargs.get("async_job_id") is None:
+            from app.services import async_job as jobs
+
+            async with sessions() as db:
+                job = await jobs.create_job(
+                    db,
+                    kind="batch_predict",
+                    user_id=uuid.UUID(kwargs["user_id"]),
+                    project_id=uuid.UUID(kwargs["project_id"]),
+                    celery_task_id=execution_id,
+                )
+                kwargs["async_job_id"] = str(job.id)
+                await db.commit()
         return await _execute_preannotation(
             BatchPredictionRequest(**kwargs),
             execution_id=execution_id,
             frame_dispatcher=frame_dispatcher,
-            SessionLocal=async_sessionmaker(engine, expire_on_commit=False),
+            SessionLocal=sessions,
         )
     finally:
         await engine.dispose()

@@ -10,6 +10,7 @@ def _environment() -> dict[str, str]:
     return {
         "ASSETS_SOURCE_DATABASE_URL": "postgresql://assets_source:secret@db.test/aap",
         "ASSETS_SOURCE_TOKEN": "s" * 40,
+        "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN": "v" * 40,
         "ASSETS_SOURCE_S3_ENDPOINT": "http://minio.internal:9000",
         "ASSETS_SOURCE_S3_PUBLIC_ENDPOINT": "https://storage.example.test",
         "ASSETS_SOURCE_S3_REGION": "us-east-1",
@@ -37,6 +38,19 @@ def test_config_uses_bounded_defaults_and_media_cache_cleanup_target() -> None:
     assert config.upload_url_expires_seconds == 900
     assert config.image_header_bytes == 256 * 1024
     assert not config.image_policy.auto_generate_pyramids
+
+
+def test_import_verification_budget_is_independent_and_bounded() -> None:
+    config = load_config({
+        **_environment(),
+        "ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS": "1",
+        "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": "600",
+    })
+    assert config.s3_read_timeout_seconds == 1
+    assert config.import_verify_timeout_seconds == 600
+    for value in ("0.09", "600.1", "nan"):
+        with pytest.raises(ConfigurationError, match="ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS"):
+            load_config({**_environment(), "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS": value})
 
 
 def test_source_config_captures_explicit_image_policy_environment():
@@ -205,6 +219,16 @@ def test_connector_config_is_strict_and_does_not_echo_secrets(tmp_path) -> None:
             "ASSETS_SOURCE_TOKEN",
             "é" * 40,
             "must be ASCII",
+        ),
+        (
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN",
+            "s" * 40,
+            "must be distinct",
+        ),
+        (
+            "ASSETS_SOURCE_IMPORT_VERIFY_TOKEN",
+            "short",
+            "must be distinct",
         ),
         (
             "ASSETS_SOURCE_POOL_MIN_SIZE",

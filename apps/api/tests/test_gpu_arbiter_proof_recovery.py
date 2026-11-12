@@ -175,7 +175,7 @@ async def _open_gpu_authority_provider(
     pool = await asyncpg.create_pool(dsn=role_url, min_size=1, max_size=4)
     provider = _GPUAuthoritySessionProvider(
         sessions,
-        GPUAuthorityPoolData(pool),
+        GPUAuthorityPoolData(pool, expected_role="inference_gpu_authority_client"),
         pool,
     )
     try:

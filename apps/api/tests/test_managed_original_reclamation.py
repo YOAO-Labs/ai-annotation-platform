@@ -752,3 +752,62 @@ async def test_configuration_change_after_observation_is_not_returned_as_current
     with pytest.raises(HTTPException) as error:
         await planner.preview(db_session, retirement_admin)
     assert error.value.status_code == 409
+
+
+def test_reclamation_response_requires_exact_typed_owner():
+    from pydantic import TypeAdapter, ValidationError
+
+    from app.schemas.storage_reclamation import ManagedOriginalReclamationItem
+
+    adapter = TypeAdapter(ManagedOriginalReclamationItem)
+    common = {
+        "id": uuid.uuid4(),
+        "dataset_id": uuid.uuid4(),
+        "retired_at": datetime.now(timezone.utc),
+        "policy_revision": 1,
+        "retain_until": None,
+        "effective_retain_until": None,
+        "indefinite_retention": True,
+        "peer_assertions": 1,
+        "declared_backup_holds": 0,
+        "declared_migration_holds": 0,
+        "size_bytes": 42,
+        "identity_state": "current",
+        "status": "retained",
+        "policy_candidate": False,
+        "roots": {
+            "asset_locations": 0,
+            "dataset_items": 0,
+            "tasks": 0,
+            "task_dataset_links": 0,
+            "training_versions": 0,
+            "active_learning_roots": 0,
+            "ambiguous_legacy_tasks": 0,
+        },
+        "blockers": [],
+    }
+    item = {
+        **common,
+        "owner_type": "dataset_asset",
+        "dataset_item_id": uuid.uuid4(),
+        "asset_id": uuid.uuid4(),
+        "auxiliary_original_id": None,
+    }
+    auxiliary = {
+        **common,
+        "owner_type": "dataset_auxiliary",
+        "dataset_item_id": None,
+        "asset_id": None,
+        "auxiliary_original_id": uuid.uuid4(),
+    }
+    assert adapter.validate_python(item).dataset_item_id == item["dataset_item_id"]
+    assert (
+        adapter.validate_python(auxiliary).auxiliary_original_id
+        == auxiliary["auxiliary_original_id"]
+    )
+    with pytest.raises(ValidationError):
+        adapter.validate_python({**auxiliary, "asset_id": uuid.uuid4()})
+    with pytest.raises(ValidationError):
+        adapter.validate_python(
+            {key: value for key, value in item.items() if key != "owner_type"}
+        )

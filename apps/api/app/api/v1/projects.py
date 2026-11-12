@@ -1006,8 +1006,6 @@ async def export_project(
             },
         )
 
-    from app.services import async_job as async_job_svc
-    from app.db.models.async_job import AsyncJobKind
     from app.services.jobs_queue import dispatch_job
     from app.services.jobs_dispatch import (
         prepare_job_dispatch,
@@ -1029,27 +1027,26 @@ async def export_project(
         **({"video_export_scope": video_scope_payload} if video_scope_payload else {}),
         **({"lidar": lidar_options_payload} if lidar_options_payload else {}),
     }
-    job = await async_job_svc.create_job(
-        db,
-        kind=AsyncJobKind.EXPORT.value,
-        user_id=actor.id,
-        project_id=project.id,
-        payload={
-            "output_authority": output_proof,
-            "batch_id": None,
-            "targets": targets,
-            "format": ",".join(targets),
-            "project_display_id": project.display_id,
-            **export_opts,
-        },
-    )
     from app.services.content_snapshot import ContentError
-    from app.services.exporting.media_jobs import capture_job
+    from app.services.exporting.media_jobs import create_export_job
     from app.services.video_canonical import VideoBoundaryUnreconciledError
 
     try:
-        media_bundle = await capture_job(
-            db, job, project, batch_id=None, targets=targets, opts=export_opts
+        job, media_bundle = await create_export_job(
+            db,
+            project,
+            actor_id=actor.id,
+            batch_id=None,
+            targets=targets,
+            opts=export_opts,
+            payload={
+                "output_authority": output_proof,
+                "batch_id": None,
+                "targets": targets,
+                "format": ",".join(targets),
+                "project_display_id": project.display_id,
+                **export_opts,
+            },
         )
     except VideoBoundaryUnreconciledError as exc:
         raise HTTPException(409, detail=exc.detail) from None
@@ -2429,12 +2426,7 @@ async def trigger_preannotation(
         await capture_input_manifest(precreated_job, replay=existing is not None)
         await capture_video_manifest(precreated_job, replay=existing is not None)
         await db.commit()
-    elif (
-        (body.execution_scope == "workbench" and explicit_task_ids is not None)
-        or needs_snapshot
-        or freeze_image_scope
-        or freeze_video_scope
-    ):
+    else:
         # issue #121 review · 工作台单题请求 (无幂等键) 同样预建持久作业: worker 在派发
         # 前的范围复校验失败时, on_failure 能按 celery_task_id 落一条 failed 作业,
         # 工作台面板不会因找不到终态记录而无限轮询。
@@ -2493,7 +2485,7 @@ async def trigger_preannotation(
 
     accepted_inputs_protocol: str | None = None
     accepted_input_ids: dict[str, str] | None = None
-    if accepted_input_task_id is not None and precreated_job is not None:
+    if accepted_input_task_id is not None:
         durable_payload = precreated_job.payload or {}
         if prediction_references.frozen_reference_task(
             durable_payload, accepted_input_task_id
@@ -2511,8 +2503,6 @@ async def trigger_preannotation(
         from yoao_assets_inputs import contract as accepted_inputs_contract
         from yoao_assets_inputs.contract import InputFailure
 
-        if precreated_job is None:
-            raise RuntimeError("Workbench input admission requires a durable job")
         job_id = precreated_job.id
         task_key = str(accepted_input_task_id)
         durable_payload = precreated_job.payload or {}
@@ -2664,7 +2654,7 @@ async def trigger_preannotation(
         pipeline_stages=pipeline_stages_payload,
         execution_unit=execution_unit,
         execution_scope=body.execution_scope,
-        async_job_id=str(precreated_job.id) if precreated_job is not None else None,
+        async_job_id=str(precreated_job.id),
         frozen_model_ref=frozen_model_ref,
         accepted_inputs_protocol=accepted_inputs_protocol,
         accepted_input_ids=accepted_input_ids,
@@ -2676,7 +2666,7 @@ async def trigger_preannotation(
         accepted_video_selection_digest=accepted_video_selection_digest,
         accepted_video_selection=accepted_video_selection,
     )
-    if precreated_job is not None and execution_unit not in {"frame", "video", "scene"}:
+    if execution_unit not in {"frame", "video", "scene"}:
         from app.application.preannotation_results import preannotation_request_digest
 
         digest = preannotation_request_digest(batch_request)
@@ -2700,11 +2690,6 @@ async def trigger_preannotation(
                 "predict_mode": batch_request.predict_mode,
             },
         )
-    apply_opts: dict = {"queue": queue}
-    if has_tracker_stage:
-        apply_opts["soft_time_limit"] = settings.tracker_soft_time_limit_seconds
-    if precreated_job is not None:
-        apply_opts["task_id"] = str(precreated_job.id)
     from app.services.jobs_dispatch import (
         prepare_batch_prediction_dispatch,
         publish_prepared_dispatch,
@@ -2728,18 +2713,14 @@ async def trigger_preannotation(
             ),
         )
     except Exception as exc:
-        if precreated_job is not None:
-            await async_job_svc.mark_dispatch_failed(
-                db,
-                precreated_job.id,
-                error=f"dispatch failed: {type(exc).__name__}: {exc}",
-            )
-            await db.commit()
+        await async_job_svc.mark_dispatch_failed(
+            db,
+            precreated_job.id,
+            error=f"dispatch failed: {type(exc).__name__}: {exc}",
+        )
+        await db.commit()
         raise
-    if precreated_job is not None:
-        # ``task_id`` above is the durable async job id; keep that identity even
-        # if a test broker returns a different result wrapper id.
-        async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
+    async_job_svc.bind_execution_id(precreated_job, str(precreated_job.id))
     # B-5 · AI 预标注触发审计 — 让超管在 /audit 看到 谁/何时/对哪个 batch 跑了 AI
     await AuditService.log(
         db,
@@ -2750,7 +2731,7 @@ async def trigger_preannotation(
         request=request,
         status_code=200,
         detail={
-            "job_id": str(precreated_job.id) if precreated_job else dispatched_id,
+            "job_id": str(precreated_job.id),
             "ml_backend_id": str(source_backend_id),
             "batch_id": str(body.batch_id) if body.batch_id else None,
             "task_count": (
@@ -2782,11 +2763,11 @@ async def trigger_preannotation(
         warnings.append(msg)
         logger.warning("[ai-pre] %s", msg)
     return {
-        "job_id": str(precreated_job.id) if precreated_job else dispatched_id,
+        "job_id": str(precreated_job.id),
         "status": "queued",
         "total_tasks": total_tasks_hint,
         "channel": f"project:{project.id}:preannotate",
-        **({"celery_task_id": dispatched_id} if precreated_job else {}),
+        "celery_task_id": dispatched_id,
         "warnings": warnings,
     }
 

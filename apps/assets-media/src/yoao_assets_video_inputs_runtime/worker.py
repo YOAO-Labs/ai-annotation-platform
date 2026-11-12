@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 from contextlib import suppress
 from pathlib import Path
 import random
 import shutil
+import sys
 import tempfile
 import time
 from typing import get_args
 from uuid import uuid4
 
 from yoao_assets_images.contract import ImageFailure
+from yoao_assets_images_runtime.original_read import admitted_original
 from yoao_assets_inputs.contract import InputFailure
 from yoao_assets_media.contract import MediaFailure
 from yoao_assets_video_inputs import execution as c
@@ -133,22 +136,58 @@ class _Lease:
         self.check()
         task = asyncio.create_task(operation(*args, **kwargs))
         lost = asyncio.create_task(self.lost.wait())
+        failure = None
         try:
-            async with asyncio.timeout_at(self.deadline):
-                await asyncio.wait((task, lost), return_when=asyncio.FIRST_COMPLETED)
-                if self.lost.is_set():
-                    raise self.error or c.VideoInputFailure("lease_lost")
-                result = await task
-        except TimeoutError:
-            raise c.VideoInputFailure("timeout") from None
+            try:
+                async with asyncio.timeout_at(self.deadline):
+                    await asyncio.wait(
+                        (task, lost), return_when=asyncio.FIRST_COMPLETED
+                    )
+                    if self.lost.is_set():
+                        raise self.error or c.VideoInputFailure("lease_lost")
+                    result = await task
+            except TimeoutError:
+                raise c.VideoInputFailure("timeout") from None
+        except BaseException as exc:
+            failure = exc
+            raise
         finally:
             lost.cancel()
             if not task.done():
                 task.cancel()
-            with suppress(asyncio.CancelledError, Exception):
-                await task
-            with suppress(asyncio.CancelledError):
-                await lost
+            interrupted = None
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except asyncio.CancelledError as exc:
+                    if asyncio.current_task().cancelling() and interrupted is None:
+                        interrupted = exc
+                except BaseException:
+                    break
+            late = None
+            try:
+                task.result()
+            except asyncio.CancelledError:
+                pass
+            except BaseException as exc:
+                late = exc
+            while not lost.done():
+                try:
+                    await asyncio.shield(lost)
+                except asyncio.CancelledError as exc:
+                    if asyncio.current_task().cancelling() and interrupted is None:
+                        interrupted = exc
+            if late is not None and late is not failure:
+                if failure is None:
+                    raise late
+                combined = builtins.BaseExceptionGroup(
+                    "Video input work and physical drain both failed", [failure, late]
+                )
+                if getattr(late, "storage_operation_unsettled", False):
+                    combined.storage_operation_unsettled = True
+                raise combined from None
+            if failure is None and interrupted is not None:
+                raise interrupted
         self.check()
         return result
 
@@ -190,9 +229,21 @@ class VideoInputExecutor:
                 await asyncio.sleep(delay)
 
     async def _original(self, claim, lease, workspace):
+        async with admitted_original(
+            self.database,
+            self.storage,
+            "begin_accepted_video_original",
+            c.VideoInputLeaseRequest(**lease.fields),
+            "finish_accepted_video_original",
+        ) as source_storage:
+            return await self._original_admitted(
+                claim, lease, workspace, source_storage
+            )
+
+    async def _original_admitted(self, claim, lease, workspace, source_storage):
         record, expected = claim.input, claim.input.source.object_identity
         path = workspace / "source"
-        measured = await lease.call(self.storage.download_source, claim.source, path)
+        measured = await lease.call(source_storage.download_source, claim.source, path)
         if measured.identity != expected or measured.byte_size != expected.byte_size:
             raise c.VideoInputFailure("source_changed")
         blob = await lease.call(
@@ -241,7 +292,7 @@ class VideoInputExecutor:
             cursor += len(page)
         if cursor != plan.selected_count:
             raise c.VideoInputFailure("timebase_incomplete")
-        if await lease.call(self.storage.head_source, claim.source) != expected:
+        if await lease.call(source_storage.head_source, claim.source) != expected:
             raise c.VideoInputFailure("source_changed")
         return c.FinishVideoInputRequest(**lease.fields, plan=plan)
 
@@ -326,13 +377,31 @@ class VideoInputExecutor:
         except asyncio.CancelledError:
             raise
         except (c.VideoInputFailure, InputFailure, ImageFailure, MediaFailure) as exc:
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             return await self._fail(
                 lease, exc.code if exc.code in _ERRORS else "storage_unavailable"
             )
-        except Exception:
+        except Exception as exc:
+            if isinstance(exc, builtins.BaseExceptionGroup) or getattr(
+                exc, "storage_operation_unsettled", False
+            ):
+                raise
             return await self._fail(lease, "storage_unavailable")
         finally:
-            await lease.close()
+            failure = sys.exception()
+            try:
+                await lease.close()
+            except BaseException as close_error:
+                if failure is not None:
+                    combined = builtins.BaseExceptionGroup(
+                        "Video input work and heartbeat shutdown failed",
+                        [failure, close_error],
+                    )
+                    if getattr(failure, "storage_operation_unsettled", False):
+                        combined.storage_operation_unsettled = True
+                    raise combined from None
+                raise
 
     async def _fail(self, lease, code):
         if code == "lease_lost":

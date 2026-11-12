@@ -19,10 +19,6 @@ export default defineConfig({
     : "html",
   use: { baseURL },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: `pnpm dev --host 127.0.0.1 --port ${port} --strictPort`,
-    url: `${baseURL}/e2e/fixtures/mask-worker.html`,
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  // The Raster launcher owns Vite's exact process and graceful shutdown.
+  webServer: [],
 });

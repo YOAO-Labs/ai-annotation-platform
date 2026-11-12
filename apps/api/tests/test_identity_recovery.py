@@ -12,7 +12,7 @@ import sys
 import uuid
 
 import pytest
-from sqlalchemy import delete, text
+from sqlalchemy import text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import create_async_engine
 
@@ -54,7 +54,7 @@ from yoao_identity.security import decode_access_token
 from yoao_identity.session_contract import SessionFailure, decode_session_request
 from yoao_identity.session_manager import SessionManager
 from yoao_identity.session_postgres import SessionPostgresData
-from app.db.models.user import User
+from tests.identity_historical_guard_helpers import assert_historical_receipt_guards
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 from tests.test_identity_admission_live import ROOT, _cleanup, _dsn, _token, _world
 
@@ -71,6 +71,8 @@ pytestmark = [
 def _postgres_tool(test_engine, command, *, body=None):
     _verify_postgres(test_engine.url)
     assert test_engine.url.username == "owner"
+    if command[0] == "pg_restore":
+        command = [*command, "--single-transaction"]
     result = subprocess.run(
         [
             "docker",
@@ -85,17 +87,6 @@ def _postgres_tool(test_engine, command, *, body=None):
     )
     assert result.returncode == 0, "Owned PostgreSQL backup or restore failed"
     return result.stdout
-
-
-def _refuse_downgrade(
-    url,
-    *,
-    revision="bo0234",
-    message=b"Cannot remove credential generation or durable revocation authority",
-):
-    result = _alembic(url, "downgrade", revision)
-    assert result.returncode != 0
-    assert message in (result.stdout + result.stderr)
 
 
 def _alembic(url, direction, revision):
@@ -805,143 +796,68 @@ async def test_restored_authority_retains_revocation_and_refuses_populated_downg
                 is True
             )
 
-        _refuse_downgrade(
-            owner_url,
-            revision="bo0240",
-            message=b"Cannot remove Identity deactivation while retained results or delivery state exists",
-        )
-        async with restored.begin() as db:
-            for table in (
-                "notification_delivery_outbox",
-                "identity_deactivation_operation_receipts",
-                "identity_deactivation_due_receipts",
-                "identity_deactivation_requests",
-            ):
-                await db.execute(text(f"DELETE FROM public.{table}"))
-        removed_deactivation = _alembic(owner_url, "downgrade", "bo0240")
-        assert removed_deactivation.returncode == 0, (
-            "Owned empty deactivation downgrade failed"
-        )
-        _refuse_downgrade(
-            owner_url,
-            revision="bo0239",
-            message=b"Cannot remove Identity group operation receipts",
-        )
-        async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "bo0240"
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_group_operation_receipts WHERE actor_id=:id"
+        await assert_historical_receipt_guards(
+            test_engine,
+            restored,
+            _alembic,
+            [
+                (
+                    "bo0241",
+                    "bo0240",
+                    "0241_identity_deactivation.py",
+                    "identity_deactivation_operation_receipts",
+                    "operation_id",
+                    deactivation_id,
                 ),
-                {"id": actor},
-            )
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT count(*) FROM public.identity_group_operation_receipts"
-                    )
-                )
-                == 0
-            )
-        removed_groups = _alembic(owner_url, "downgrade", "bo0239")
-        assert removed_groups.returncode == 0, "Owned empty group downgrade failed"
-        _refuse_downgrade(
-            owner_url,
-            revision="bo0238",
-            message=b"Cannot remove Identity recovery while challenges or retained state exist",
+                (
+                    "bo0240",
+                    "bo0239",
+                    "0240_identity_groups.py",
+                    "identity_group_operation_receipts",
+                    "operation_id",
+                    group_id,
+                ),
+                (
+                    "bo0239",
+                    "bo0238",
+                    "0239_identity_recovery.py",
+                    "identity_recovery_operation_receipts",
+                    "operation_id",
+                    reset_request_id,
+                ),
+                (
+                    "bo0238",
+                    "bo0237",
+                    "0238_identity_accounts.py",
+                    "identity_account_operation_receipts",
+                    "operation_id",
+                    account_id,
+                ),
+                (
+                    "bo0237",
+                    "bo0236",
+                    "0237_identity_sessions.py",
+                    "identity_session_operation_receipts",
+                    "operation_id",
+                    session_id,
+                ),
+                (
+                    "bo0235",
+                    "bo0234",
+                    "0235_identity_admission.py",
+                    "identity_revoked_jtis",
+                    "jti",
+                    jti,
+                ),
+            ],
         )
-        async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "bo0239"
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_credential_mail_outbox "
-                    "WHERE id=ANY(CAST(:ids AS uuid[]))"
-                ),
-                {"ids": recovery_operation_ids + [verification_consume_id]},
-            )
-            await db.execute(
-                text("DELETE FROM public.password_reset_tokens WHERE id=:id"),
-                {"id": reset_request_id},
-            )
-            await db.execute(
-                text("DELETE FROM public.email_verification_tokens WHERE id=:id"),
-                {"id": resend_operation_id},
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM public.identity_recovery_operation_receipts "
-                    "WHERE operation_id=ANY(CAST(:ids AS uuid[]))"
-                ),
-                {"ids": recovery_operation_ids + [verification_consume_id]},
-            )
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(
-                text(
-                    "DELETE FROM public.audit_logs WHERE actor_id=:id OR target_id=:target"
-                ),
-                {"id": recovery_actor, "target": str(recovery_actor)},
-            )
-            await db.execute(delete(User).where(User.id == recovery_actor))
-            for table in (
-                "password_reset_tokens",
-                "email_verification_tokens",
-                "identity_recovery_operation_receipts",
-                "identity_credential_mail_outbox",
-            ):
-                assert (
-                    await db.scalar(text(f"SELECT count(*) FROM public.{table}")) == 0
-                )
-        downgraded = _alembic(owner_url, "downgrade", "bo0238")
-        assert downgraded.returncode == 0, "Owned empty recovery downgrade failed"
         async with restored.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "bo0238"
-            )
-
-        _refuse_downgrade(
-            owner_url, message=b"Cannot remove Identity account operation receipts"
-        )
-        async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "bo0238"
-            )
             assert (
                 await db.scalar(
                     text("SELECT credential_generation FROM public.users WHERE id=:id"),
                     {"id": actor},
                 )
                 == 9
-            )
-            await db.execute(
-                text(
-                    "DELETE FROM identity_account_operation_receipts WHERE actor_id=:id"
-                ),
-                {"id": actor},
-            )
-        _refuse_downgrade(
-            owner_url, message=b"Cannot remove Identity session operation receipts"
-        )
-        async with restored.begin() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "bo0238"
-            )
-            await db.execute(text("SET LOCAL app.allow_audit_update='true'"))
-            await db.execute(delete(User).where(User.id == actor))
-        # A retained JTI alone must also prevent returning to the old authority.
-        _refuse_downgrade(owner_url)
-        async with restored.connect() as db:
-            assert (
-                await db.scalar(text("SELECT version_num FROM alembic_version"))
-                == "bo0238"
             )
             assert (
                 await db.scalar(

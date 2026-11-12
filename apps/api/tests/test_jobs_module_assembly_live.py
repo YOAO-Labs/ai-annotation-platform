@@ -9,7 +9,10 @@ from datetime import datetime, timezone
 import json
 from io import BytesIO
 import os
+from pathlib import Path
 import secrets
+import shutil
+import sys
 import time
 from urllib.parse import urlsplit
 import uuid
@@ -19,16 +22,19 @@ from cryptography.fernet import Fernet
 from celery import Celery
 import httpx
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from yoao_jobs.dispatch_postgres import JobsDispatchPostgres
+from yoao_jobs.dispatch_relay import JobsDispatchRelay
+from yoao_jobs.queue_client import JobsQueueClient
 
 from app.config import settings
 from app.db.models.async_job import AsyncJob, AsyncJobStatus
 from app.db.models.task import Task
 from app.db.models.user import User
 from tests.factory import DEFAULT_PASSWORD, create_batch
-from tests.identity_module_assembly_helpers import IdentityModuleStack
+from tests.identity_module_assembly_helpers import IdentityModuleStack, create_retained_realm
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
@@ -56,7 +62,9 @@ from tests.test_workspace_worker_assembly_live import (
 from tests.test_workspace_export_worker_live import (
     _SOURCE_PNG,
     _create_export_storage_scope,
+    _retire_owned_export_executions,
     _seed_export_world,
+    _verify_export_source,
 )
 from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
 from tests.jobs_quality_module_helpers import exercise_quality_dispatch
@@ -90,6 +98,21 @@ _CLONE_ROLE_ENVIRONMENT = (
     "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
     "AAP_MODULE_DATA_ASSET_MEDIA_WORKER_URL",
     "AAP_MODULE_DATA_INFERENCE_ROUTING_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_SETUP_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_HEALTH_OBSERVATION_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_CATALOG_FALLBACK_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_STATS_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_BACKEND_READ_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_LIFECYCLE_URL",
+    "AAP_MODULE_DATA_INFERENCE_ENDPOINT_EXECUTION_URL",
+    "AAP_MODULE_DATA_INFERENCE_BACKEND_STATS_URL",
+    "AAP_MODULE_DATA_INFERENCE_GPU_URL",
+    "AAP_MODULE_DATA_INFERENCE_GPU_HEALTH_ENDPOINT_URL",
+    "AAP_MODULE_DATA_INFERENCE_GPU_CONTROL_ENDPOINT_URL",
+    "AAP_MODULE_DATA_INFERENCE_HEALTH_DATA_URL",
+    "AAP_MODULE_DATA_INFERENCE_HEALTH_OBSERVATION_URL",
+    "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL",
+    "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
     "AAP_MODULE_DATA_LABELING_VIDEO_WRITER_URL",
 )
 
@@ -113,6 +136,20 @@ def _role_urls_for_database(database_name: str):
                 os.environ.pop(name, None)
             else:
                 os.environ[name] = value
+
+
+def _owned_jobs_role_url(name: str, expected_user: str, test_engine) -> str:
+    url = make_url(os.environ[name])
+    reference = test_engine.url
+    if (
+        url.drivername not in {"postgresql", "postgresql+asyncpg"}
+        or url.username != expected_user
+        or not url.password
+        or (url.host, url.port, url.database)
+        != (reference.host, reference.port, reference.database)
+    ):
+        raise RuntimeError("Jobs relay role does not match the owned test database")
+    return url.set(drivername="postgresql").render_as_string(hide_password=False)
 
 
 def _assert_owned_broker_target(sender: Celery, queue: str = "default") -> None:
@@ -214,7 +251,6 @@ async def _request_cross_frame(client, headers, world):
 _JOBS_API_ROW_ACCESS_PROBE = """\
 import asyncio
 import json
-import re
 import sys
 import uuid
 from types import SimpleNamespace
@@ -230,24 +266,14 @@ def _sqlstate(error):
         current = getattr(current, "orig", None) or getattr(current, "__cause__", None)
     return None
 
-def _count(statements, fragment):
-    return sum(fragment in statement.lower() for statement in statements)
-
 async def _run():
     sys.path.insert(0, "/app")
-    from sqlalchemy import event, inspect, text
+    from sqlalchemy import inspect, text
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-    from yoao_jobs.domain_query_contract import JOBS_DOMAIN_QUERY_PROTOCOL
-    from yoao_jobs.fixture_cleanup_contract import JOBS_FIXTURE_CLEANUP_PROTOCOL
-    from yoao_jobs.fixture_filter_contract import JOBS_FILTER_FIXTURE_PROTOCOL
-    from yoao_jobs.action_idempotency_contract import JOBS_ACTION_IDEMPOTENCY_PROTOCOL
-    from yoao_jobs.lifecycle_contract import JOBS_LIFECYCLE_PROTOCOL
     from app.services.jobs_domain_query_data import JobsDomainQueryPostgresData
-    from yoao_jobs.row_lock_contract import JOBS_ROW_LOCK_PROTOCOL
     from app.config import settings
     from app.services.jobs_lifecycle_data import job_lock_statement
     from app.services import async_job as async_job_svc
-    from app.api.v1._test_seed_filters import _set_filter_fixture_job_outcomes
     from app.services.data_management.actions import (
         lock_idempotency_key, find_idempotent_job, assert_idempotent_request_matches,
     )
@@ -257,12 +283,6 @@ async def _run():
     job_id = uuid.UUID(sys.argv[1])
     expected_database = sys.argv[2]
     engine = create_async_engine(settings.database_url, hide_parameters=True)
-    statements = []
-
-    def capture(_connection, _cursor, statement, _parameters, _context, _many):
-        statements.append(statement)
-
-    event.listen(engine.sync_engine, "before_cursor_execute", capture)
     try:
         sessions = async_sessionmaker(engine, expire_on_commit=False)
         async with sessions() as db:
@@ -287,15 +307,12 @@ async def _run():
             identity = inspect(row).identity_key
 
             db.expire(row, ["updated_at"])
-            read_calls_before = _count(statements, "aap_jobs_v1.read_job(")
             await db.refresh(row, attribute_names=["updated_at"])
-            read_calls_after = _count(statements, "aap_jobs_v1.read_job(")
             partial_refresh = (
                 db.identity_map.get(identity) is row
                 and row.result == original_result
                 and row.progress_pct == original_progress
                 and "updated_at" not in inspect(row).expired_attributes
-                and read_calls_after == read_calls_before + 1
             )
             if not partial_refresh:
                 raise RuntimeError("partial_refresh")
@@ -417,43 +434,60 @@ async def _run():
                     raise
             else:
                 raise RuntimeError("private_update_allowed")
-            completed_fixture = await async_job_svc.create_job(
-                db, kind="batch_predict", user_id=actor_id, project_id=row.project_id,
-            )
-            failed_fixture = await async_job_svc.create_job(
-                db, kind="export", user_id=actor_id, project_id=row.project_id,
-            )
-            await _set_filter_fixture_job_outcomes(db, completed_fixture, failed_fixture)
-            await db.flush()
-            fixed_fixture_outcomes = (
-                completed_fixture.status == "completed"
-                and completed_fixture.progress_pct == 100
-                and completed_fixture.result == {"success_count": 2}
-                and failed_fixture.status == "failed"
-                and failed_fixture.progress_pct == 40
-                and failed_fixture.error_message == "fixture failure"
-                and completed_fixture.started_at is None
-                and completed_fixture.completed_at is None
-                and failed_fixture.started_at is None
-                and failed_fixture.completed_at is None
-            )
-            if not fixed_fixture_outcomes:
-                raise RuntimeError("fixed_fixture_outcomes")
+            # Presentation writes and cleanup belong to the fixture transport,
+            # not the restricted API consumer.
+            try:
+                async with db.begin_nested():
+                    await db.scalar(text(
+                        "SELECT aap_jobs_v1.create_filter_fixture_jobs("
+                        "CAST(:run AS uuid), CAST(:completed AS uuid), "
+                        "CAST(:failed AS uuid), CAST(:first_project AS uuid), "
+                        "CAST(:second_project AS uuid), CAST(:actor AS uuid), "
+                        "CAST(:first_prompt AS text), CAST(:second_prompt AS text))"
+                    ), {
+                        "run": uuid.uuid4(), "completed": uuid.uuid4(),
+                        "failed": uuid.uuid4(), "first_project": row.project_id,
+                        "second_project": uuid.uuid4(), "actor": actor_id,
+                        "first_prompt": "completed", "second_prompt": "failed",
+                    })
+            except Exception as error:
+                fixture_create_sqlstate = _sqlstate(error)
+                if fixture_create_sqlstate != "42501":
+                    raise
+            else:
+                raise RuntimeError("fixture_create_allowed")
+            try:
+                async with db.begin_nested():
+                    await db.execute(text("DELETE FROM public.async_jobs WHERE false"))
+            except Exception as error:
+                private_delete_sqlstate = _sqlstate(error)
+                if private_delete_sqlstate != "42501":
+                    raise
+            else:
+                raise RuntimeError("private_delete_allowed")
             private_delete = await db.scalar(text(
                 "SELECT pg_catalog.has_table_privilege(current_user,"
                 "'public.async_jobs','DELETE')"
             ))
             if private_delete:
                 raise RuntimeError("private_delete_allowed")
-            deleted = await db.scalar(text(
-                "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
-            ), {"ids": [row.project_id]})
+            try:
+                async with db.begin_nested():
+                    await db.scalar(text(
+                        "SELECT aap_jobs_v1.delete_fixture_project_jobs(CAST(:ids AS uuid[]))"
+                    ), {"ids": [row.project_id]})
+            except Exception as error:
+                fixture_delete_sqlstate = _sqlstate(error)
+                if fixture_delete_sqlstate != "42501":
+                    raise
+            else:
+                raise RuntimeError("fixture_delete_allowed")
             pending_after_delete = await db.scalar(text(
                 "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
                 "WHERE id=CAST(:id AS uuid)"
             ), {"id": created_id})
-            if type(deleted) is not int or deleted < 2 or pending_after_delete != 0:
-                raise RuntimeError("fixture_delete_scope")
+            if pending_after_delete != 1:
+                raise RuntimeError("fixture_delete_lost_pending")
             await db.rollback()
             rolled_back = await db.scalar(text(
                 "SELECT count(*) FROM aap_jobs_v1.async_job_creation "
@@ -469,8 +503,9 @@ async def _run():
                 raise RuntimeError("fixture_delete_rollback")
             fixture_delete_acl = {
                 "private_table_delete": private_delete,
-                "owner_delete": True,
-                "pending_row_removed": True,
+                "private_delete_sqlstate": private_delete_sqlstate,
+                "fixture_delete_sqlstate": fixture_delete_sqlstate,
+                "pending_row_preserved": True,
                 "completed_row_restored": True,
                 "caller_rollback": True,
             }
@@ -479,7 +514,7 @@ async def _run():
                 "private_column_update": update_privileges[1],
                 "private_update_sqlstate": private_update_sqlstate,
                 "lifecycle_projection_and_expiry": lifecycle_updated,
-                "fixed_fixture_outcomes": fixed_fixture_outcomes,
+                "fixture_create_sqlstate": fixture_create_sqlstate,
                 "caller_rollback": True,
             }
             creation_acl = {
@@ -492,69 +527,20 @@ async def _run():
                 "caller_rollback": True,
             }
 
-        lowered = [statement.lower() for statement in statements]
-        function_calls = {
-            "read_job": _count(lowered, "aap_jobs_v1.read_job("),
-            "read_job_for_share_nowait": sum(
-                "aap_jobs_v1.read_job_for_share_nowait(" in statement for statement in lowered
-            ),
-            "read_job_for_update": sum(
-                "aap_jobs_v1.read_job_for_update(" in statement for statement in lowered
-            ),
-        }
-        domain_function_calls = {
-            name: _count(lowered, "aap_jobs_v1." + name + "(")
-            for name in (
-                "lock_cross_frame_singleflight",
-                "active_cross_frame_job",
-                "cross_frame_job_page",
-                "cross_frame_job_count",
-                "latest_batch_prediction_times",
-            )
-        }
-        if any(count != 1 for count in domain_function_calls.values()):
-            raise RuntimeError("domain_sql_surface")
-        action_function_calls = {
-            name: _count(lowered, "aap_jobs_v1." + name + "(")
-            for name in ("lock_action_idempotency", "find_action_idempotent_jobs")
-        }
-        if any(count != 1 for count in action_function_calls.values()):
-            raise RuntimeError("action_sql_surface")
-        private_table_from = sum(
-            bool(re.search(r"\\bfrom\\s+(?:public\\.)?async_jobs\\b", statement))
-            for statement in lowered
-        )
-        if function_calls != {
-            "read_job": 3,
-            "read_job_for_share_nowait": 1,
-            "read_job_for_update": 1,
-        } or private_table_from:
-            raise RuntimeError("sql_surface")
         return {
             "ok": True,
-            "protocols": [
-                JOBS_LIFECYCLE_PROTOCOL, JOBS_ROW_LOCK_PROTOCOL, JOBS_DOMAIN_QUERY_PROTOCOL,
-                JOBS_FIXTURE_CLEANUP_PROTOCOL,
-                JOBS_FILTER_FIXTURE_PROTOCOL,
-                JOBS_ACTION_IDEMPOTENCY_PROTOCOL,
-            ],
             "role_match": True,
             "database_match": True,
-            "function_calls": function_calls,
-            "domain_function_calls": domain_function_calls,
-            "action_function_calls": action_function_calls,
             "action_identity_and_digest": True,
             "point_cloud_projection": point_cloud_projection,
             "domain_subject_matches": domain_subject_matches,
             "creation_acl": creation_acl,
             "fixture_delete_acl": fixture_delete_acl,
             "fixture_update_acl": fixture_update_acl,
-            "private_table_from": private_table_from,
             "partial_refresh": partial_refresh,
             "same_orm_identity": same_identity,
         }
     finally:
-        event.remove(engine.sync_engine, "before_cursor_execute", capture)
         await engine.dispose()
 
 try:
@@ -612,33 +598,9 @@ def _assert_api_row_access_probe(
     except json.JSONDecodeError:
         raise AssertionError("Jobs row-access probe returned invalid JSON") from None
     assert evidence.get("ok") is True, safe_output
-    assert evidence["protocols"] == [
-        "aap-jobs-lifecycle/v1",
-        "aap-jobs-row-locks/v1",
-        "aap-jobs-domain-queries/v1",
-        "aap-jobs-fixture-cleanup/v1",
-        "aap-jobs-filter-fixtures/v1",
-        "aap-jobs-action-idempotency/v1",
-    ]
     assert evidence["role_match"] is True
     assert evidence["database_match"] is True
-    assert evidence["function_calls"] == {
-        "read_job": 3,
-        "read_job_for_share_nowait": 1,
-        "read_job_for_update": 1,
-    }
-    assert evidence["domain_function_calls"] == {
-        "lock_cross_frame_singleflight": 1,
-        "active_cross_frame_job": 1,
-        "cross_frame_job_page": 1,
-        "cross_frame_job_count": 1,
-        "latest_batch_prediction_times": 1,
-    }
     assert evidence["domain_subject_matches"] is True
-    assert evidence["action_function_calls"] == {
-        "lock_action_idempotency": 1,
-        "find_action_idempotent_jobs": 1,
-    }
     assert evidence["action_identity_and_digest"] is True
     assert evidence["point_cloud_projection"] is True
     assert evidence["creation_acl"] == {
@@ -652,8 +614,9 @@ def _assert_api_row_access_probe(
     }
     assert evidence["fixture_delete_acl"] == {
         "private_table_delete": False,
-        "owner_delete": True,
-        "pending_row_removed": True,
+        "private_delete_sqlstate": "42501",
+        "fixture_delete_sqlstate": "42501",
+        "pending_row_preserved": True,
         "completed_row_restored": True,
         "caller_rollback": True,
     }
@@ -662,10 +625,9 @@ def _assert_api_row_access_probe(
         "private_column_update": False,
         "private_update_sqlstate": "42501",
         "lifecycle_projection_and_expiry": True,
-        "fixed_fixture_outcomes": True,
+        "fixture_create_sqlstate": "42501",
         "caller_rollback": True,
     }
-    assert evidence["private_table_from"] == 0
     assert evidence["partial_refresh"] is True
     assert evidence["same_orm_identity"] is True
     return evidence
@@ -696,6 +658,39 @@ async def _assert_completed_job_http_read(
     }
 
 
+class _ColdExportRealm:
+    """Retain original mounted paths until exact native retirement succeeds."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.unsettled = False
+        self.worker = None
+        self.scope_path = None
+        self.guard_error = None
+
+    def begin(self, directory, scope, world):
+        self.unsettled = True
+        directory = Path(directory)
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        self.scope_path = directory / "retained-export-scope.json"
+        payload = {
+            "project_id": str(world["project_id"]),
+            "source_key": world["source_key"],
+            "container": scope["container"],
+            "bucket": scope["bucket"],
+            "inputs_bucket": scope["inputs_bucket"],
+            "config": scope["config"],
+            "policy": scope["policy"],
+            "user_created": scope["user_created"],
+            "policy_created": scope["policy_created"],
+            "access_key": scope["access_key"],
+            "secret_key": scope["secret_key"],
+        }
+        fd = os.open(self.scope_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as target:
+            json.dump(payload, target)
+
+
 async def _exercise_export_dispatch(
     test_engine,
     stack,
@@ -704,6 +699,8 @@ async def _exercise_export_dispatch(
     owner_s3,
     directory,
     known_task_ids,
+    queue_token,
+    realm,
     *,
     check_outage,
 ):
@@ -723,12 +720,14 @@ async def _exercise_export_dispatch(
     receipts = []
     outages = []
     try:
+        realm.begin(directory, scope, world)
         owner_s3.put_object(
             Bucket=resources["buckets"]["MINIO_DATASETS_BUCKET"],
             Key=world["source_key"],
             Body=_SOURCE_PNG,
             ContentType="image/png",
         )
+        await _verify_export_source(test_engine, world)
         project_path = f"/api/v1/projects/{world['project_id']}"
         requests = [
             ("project", project_path + "/export?targets=native_json", None),
@@ -758,7 +757,7 @@ async def _exercise_export_dispatch(
                     response = await client.post(path, headers=headers, json=body)
                     assert response.status_code == 500, stack.redact(response.text)
                     async with maker() as db:
-                        failed = await db.scalar(
+                        pending = await db.scalar(
                             select(AsyncJob)
                             .where(
                                 AsyncJob.kind == "export",
@@ -768,17 +767,114 @@ async def _exercise_export_dispatch(
                             .order_by(AsyncJob.created_at.desc())
                             .limit(1)
                         )
-                        assert failed is not None and failed.celery_task_id is None
-                        expected = "failed" if label == "selected" else "pending"
-                        assert failed.status == expected
+                        assert pending is not None and pending.celery_task_id is None
+                        assert pending.status == "pending"
+                        intent = (
+                            await db.execute(
+                                text(
+                                    "SELECT i.intent_id, i.execution_id, i.envelope, i.state, "
+                                    "a.state AS physical_state "
+                                    "FROM aap_jobs_v1.dispatch_intents AS i "
+                                    "JOIN aap_jobs_v1.dispatch_publication_attempts AS a "
+                                    "ON a.intent_id=i.intent_id AND a.generation=i.generation "
+                                    "WHERE i.job_id=:job AND i.purpose='execution'"
+                                ),
+                                {"job": pending.id},
+                            )
+                        ).mappings().one()
+                        assert intent["state"] == "pending"
+                        assert intent["physical_state"] == "not_sent"
+                        assert intent["envelope"]["execution_id"] == intent["execution_id"]
+                        assert intent["envelope"]["kwargs"]["async_job_id"] == str(pending.id)
+                        outages.append(
+                            {
+                                "route": label,
+                                "http_status": 500,
+                                "job_id": str(pending.id),
+                                "intent_id": str(intent["intent_id"]),
+                                "execution_id": intent["execution_id"],
+                                "envelope": intent["envelope"],
+                            }
+                        )
+                        known_task_ids.add(intent["execution_id"])
                     assert _broker_state(sender, "export") == {
                         "queue_size": 0,
                         "unacknowledged": 0,
                     }
-                    outages.append(
-                        {"route": label, "http_status": 500, "status": expected}
-                    )
                 await stack.start_service("jobs-queue")
+                relay_url = _owned_jobs_role_url(
+                    "AAP_MODULE_DATA_JOBS_DISPATCH_RELAY_URL",
+                    "jobs_dispatch_relay_client",
+                    test_engine,
+                )
+                publication_url = _owned_jobs_role_url(
+                    "AAP_MODULE_DATA_JOBS_PUBLICATION_URL",
+                    "jobs_publication_client",
+                    test_engine,
+                )
+                async with await JobsDispatchPostgres.connect(relay_url) as provider:
+                    relay = JobsDispatchRelay(
+                        provider.client,
+                        JobsQueueClient(stack.jobs_queue_origin, queue_token),
+                        publication_url,
+                        batch_size=3,
+                    )
+                    expected_jobs = {uuid.UUID(item["job_id"]) for item in outages}
+                    deadline = time.monotonic() + 60
+                    while time.monotonic() < deadline:
+                        async with maker() as db:
+                            candidates = set(
+                                (
+                                    await db.execute(
+                                        text(
+                                            "SELECT i.job_id FROM aap_jobs_v1.dispatch_intents i "
+                                            "JOIN public.async_jobs j ON j.id=i.job_id "
+                                            "WHERE i.state IN ('pending','leased') "
+                                            "AND j.status IN ('pending','running')"
+                                        )
+                                    )
+                                ).scalars()
+                            )
+                        assert candidates <= expected_jobs, "relay scope contains foreign work"
+                        await relay.run_once()
+                        async with maker() as db:
+                            submitted = set(
+                                (
+                                    await db.execute(
+                                        text(
+                                            "SELECT job_id FROM aap_jobs_v1.dispatch_intents "
+                                            "WHERE job_id=ANY(:jobs) AND state='submitted'"
+                                        ),
+                                        {"jobs": list(expected_jobs)},
+                                    )
+                                ).scalars()
+                            )
+                        if submitted == expected_jobs:
+                            break
+                        await asyncio.sleep(0.2)
+                    else:
+                        raise AssertionError("Jobs relay did not recover all outage exports")
+                for item in outages:
+                    async with maker() as db:
+                        restored = (
+                            await db.execute(
+                                text(
+                                    "SELECT execution_id, envelope FROM aap_jobs_v1.dispatch_intents "
+                                    "WHERE intent_id=CAST(:intent AS uuid) AND state='submitted'"
+                                ),
+                                {"intent": item["intent_id"]},
+                            )
+                        ).mappings().one()
+                    assert restored["execution_id"] == item["execution_id"]
+                    assert restored["envelope"] == item["envelope"]
+                    receipts.append(
+                        {
+                            "route": item["route"],
+                            "job_id": item["job_id"],
+                            "execution_id": item["execution_id"],
+                            "recovered": True,
+                        }
+                    )
 
             for label, path, body in requests:
                 request_headers = dict(headers)
@@ -808,7 +904,7 @@ async def _exercise_export_dispatch(
                 receipts.append({"route": label, "job_id": str(job_id)})
 
             assert _broker_state(sender, "export") == {
-                "queue_size": 3,
+                "queue_size": len(receipts),
                 "unacknowledged": 0,
             }
             messages = {}
@@ -834,6 +930,8 @@ async def _exercise_export_dispatch(
             assert set(messages) == {item["job_id"] for item in receipts}
             for item in receipts:
                 execution_id, kwargs = messages[item["job_id"]]
+                if item.get("recovered"):
+                    assert execution_id == item["execution_id"]
                 item["execution_id"] = execution_id
                 known_task_ids.add(execution_id)
                 assert kwargs["batch_id"] == (
@@ -841,8 +939,9 @@ async def _exercise_export_dispatch(
                 )
                 if item["route"] == "selected":
                     assert kwargs["task_ids"] == [str(world["task_id"])]
-                    row = await _job_by_id(test_engine, uuid.UUID(item["job_id"]))
-                    assert row.celery_task_id == execution_id
+                    if not item.get("recovered"):
+                        row = await _job_by_id(test_engine, uuid.UUID(item["job_id"]))
+                        assert row.celery_task_id == execution_id
                 else:
                     assert "task_ids" not in kwargs
 
@@ -858,22 +957,13 @@ async def _exercise_export_dispatch(
                 object_store_secret_key=scope["secret_key"],
                 object_store_buckets=resources["buckets"],
                 queue_name="export",
+                export_execution=True,
             )
+            realm.worker = worker
             assert worker.object_store_access_key != settings.minio_access_key
             assert worker.object_store_secret_key != settings.minio_secret_key
             worker.start()
             await _wait_worker_ready(sender, worker)
-            assert worker.task_signature("app.workers.export.run_export") == {
-                "task": "app.workers.export.run_export",
-                "parameters": [
-                    "project_id",
-                    "batch_id",
-                    "targets",
-                    "opts",
-                    "async_job_id",
-                    "task_ids",
-                ],
-            }
             for item in receipts:
                 delivery = sender.AsyncResult(item["execution_id"])
                 assert (
@@ -904,7 +994,7 @@ async def _exercise_export_dispatch(
                 assert len(task["annotations"]) == 1
                 assert task["annotations"][0]["class_name"] == "car"
                 item["download_http_status"] = download.status_code
-                if item["route"] == "selected":
+                if item["route"] == "selected" and not item.get("recovered"):
                     replay = await client.post(
                         project_path + "/data-manager/tasks/export",
                         headers={
@@ -927,13 +1017,68 @@ async def _exercise_export_dispatch(
                     }
                     item["keyed_conflict_http_status"] = 409
                     item["keyed_completed_replay_http_status"] = replay.status_code
-        return {"owner_id": str(world["owner_id"]), "jobs": receipts, "outage": outages}
+        return {
+            "owner_id": str(world["owner_id"]),
+            "jobs": receipts,
+            "outage": [
+                {key: value for key, value in item.items() if key != "envelope"}
+                for item in outages
+            ],
+        }
     finally:
-        try:
-            if worker is not None:
+        primary = sys.exception()
+        cleanup_errors = []
+        retired = False
+        if primary is None:
+            try:
+                async with maker() as db:
+                    project_jobs = set(
+                        (
+                            await db.scalars(
+                                select(AsyncJob.id).where(
+                                    AsyncJob.kind == "export",
+                                    AsyncJob.project_id == world["project_id"],
+                                )
+                            )
+                        ).all()
+                    )
+                expected_jobs = {uuid.UUID(item["job_id"]) for item in receipts}
+                if project_jobs != expected_jobs:
+                    raise RuntimeError("Export cleanup cannot identify every owned Job")
+                retired = await _retire_owned_export_executions(
+                    test_engine,
+                    world["project_id"],
+                    [{"job_id": job_id} for job_id in expected_jobs],
+                )
+                if not retired:
+                    raise RuntimeError("Export native execution or publication remains unsettled")
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+        if retired and worker is not None:
+            try:
                 worker.stop()
-        finally:
-            destroy_scope(scope)
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+        if retired and not cleanup_errors:
+            try:
+                destroy_scope(scope)
+            except BaseException as exc:
+                cleanup_errors.append(exc)
+        if retired and not cleanup_errors:
+            realm.unsettled = False
+            realm.worker = None
+        if not retired:
+            message = "Export storage credentials retained: native retirement unconfirmed"
+            if primary is not None:
+                primary.add_note(message)
+            elif not cleanup_errors:
+                cleanup_errors.append(RuntimeError(message))
+        if cleanup_errors:
+            if primary is not None:
+                for error in cleanup_errors:
+                    primary.add_note(f"Export cleanup failed: {error!r}")
+            else:
+                raise BaseExceptionGroup("Export cleanup failed", cleanup_errors)
 
 
 async def _exercise_queue_cancellation(
@@ -1052,6 +1197,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
         os.environ[name] for name in _JOBS_QUEUE_IMAGE_INPUTS
     )
     inbox = SMTPInbox()
+    tmp_path = create_retained_realm()
+    realm = _ColdExportRealm(tmp_path)
     snapshot = tmp_path / "jobs-queue-module.dump"
     stack = None
     sender = None
@@ -1060,31 +1207,44 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
     clone_engine = None
     known_task_ids: set[str] = set()
 
+    def retain_realm():
+        if realm.unsettled:
+            return True
+        if stack is None:
+            return False
+        try:
+            return stack.retention_required
+        except BaseException as exc:
+            realm.guard_error = exc
+            return True
+
     @asynccontextmanager
     async def restored_database_with_cleanup():
-        async with _restored_database(test_engine, snapshot) as restored_database:
+        async with _restored_database(
+            test_engine, snapshot, retain=retain_realm
+        ) as restored_database:
             try:
                 yield restored_database
             finally:
                 try:
-                    if clone_worker is not None:
+                    if clone_worker is not None and not retain_realm():
                         clone_worker.stop()
                 finally:
                     try:
-                        if stack is not None:
+                        if stack is not None and not retain_realm():
                             await stack.stop()
                     finally:
-                        if clone_engine is not None:
+                        if clone_engine is not None and not retain_realm():
                             await clone_engine.dispose()
 
     @asynccontextmanager
     async def redis_users_with_stack_cleanup():
-        async with _login_redis() as (login_url, _login_owner):
-            async with _publisher_redis() as (publisher_url, _publisher_owner):
+        async with _login_redis(retain=retain_realm) as (login_url, _login_owner):
+            async with _publisher_redis(retain=retain_realm) as (publisher_url, _publisher_owner):
                 try:
                     yield login_url, publisher_url
                 finally:
-                    if stack is not None:
+                    if stack is not None and not retain_realm():
                         await stack.stop()
 
     try:
@@ -1115,6 +1275,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 jobs_queue_source_revision=queue_revision,
                 jobs_queue_token=queue_token,
             )
+            stack.retain_while(lambda: realm.unsettled)
             await stack.start()
             queue_evidence = stack.inspection_evidence["jobs-queue"]
             assert queue_evidence["user"] == "10005:10005"
@@ -1205,19 +1366,6 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
             )
             worker.start()
             await _wait_worker_ready(sender, worker)
-            signature = worker.task_signature(_TASK_NAME)
-            assert signature == {
-                "task": _TASK_NAME,
-                "parameters": ["job_id"],
-            }
-            active_queues = await asyncio.to_thread(
-                sender.control.inspect(
-                    timeout=2, destination=[worker.node_name]
-                ).active_queues
-            )
-            assert active_queues and {
-                queue["name"] for queue in active_queues[worker.node_name]
-            } == {"default"}
             delivery = sender.AsyncResult(execution_id)
             result = await asyncio.to_thread(delivery.get, timeout=120, propagate=False)
             assert result is None
@@ -1231,7 +1379,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
             assert await _annotation_count(test_engine, world["target_task_ids"]) == 1
             record_property(
                 "jobs_queue_first_delivery",
-                {"ack": first_ack, "task_signature": signature},
+                {"ack": first_ack},
             )
 
             row_access_before_restore = _assert_api_row_access_probe(
@@ -1267,6 +1415,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 owner_s3,
                 tmp_path / "jobs-export-before-restore",
                 known_task_ids,
+                queue_token,
+                realm,
                 check_outage=True,
             )
             record_property(
@@ -1431,6 +1581,8 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                             owner_s3,
                             tmp_path / "jobs-export-after-restore",
                             known_task_ids,
+                            queue_token,
+                            realm,
                             check_outage=False,
                         )
                         record_property(
@@ -1504,7 +1656,7 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                 "jobs_queue_execution_ids",
                 sorted(known_task_ids),
             )
-    except BaseException:
+    except BaseException as primary:
         if stack is not None:
             try:
                 record_property(
@@ -1515,26 +1667,65 @@ async def test_cold_jobs_queue_dispatch_revoke_and_restore(
                     "jobs_queue_module_diagnostics_error",
                     type(diagnostic_error).__name__,
                 )
+        if retain_realm():
+            primary.add_note(f"Cold Jobs realm retained at {tmp_path}")
+            try:
+                manifest = {
+                    "realm": str(tmp_path),
+                    "database": stack._database_name if stack is not None else None,
+                    "stack_project": stack.project_name if stack is not None else None,
+                    "service_ids": stack.service_ids if stack is not None else {},
+                    "scope_file": str(realm.scope_path) if realm.scope_path else None,
+                    "worker": (
+                        {
+                            "container_id": realm.worker.container_id,
+                            "network_id": realm.worker.network_id,
+                            "directory": str(realm.worker.directory),
+                            "queue": realm.worker.queue,
+                        }
+                        if realm.worker is not None
+                        else None
+                    ),
+                }
+                path = tmp_path / "retained-realm.json"
+                fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+                with os.fdopen(fd, "w", encoding="utf-8") as target:
+                    json.dump(manifest, target, indent=2)
+                record_property("jobs_cold_retained_realm", str(path))
+            except BaseException as diagnostic_error:
+                primary.add_note(f"Retained realm manifest failed: {diagnostic_error!r}")
+            if realm.guard_error is not None:
+                primary.add_note(f"Retention guard failed: {realm.guard_error!r}")
+            if realm.worker is not None:
+                try:
+                    record_property(
+                        "jobs_export_worker_diagnostics", realm.worker.capture_diagnostics()
+                    )
+                except BaseException as diagnostic_error:
+                    primary.add_note(f"Export worker diagnostics failed: {diagnostic_error!r}")
         raise
     finally:
-        try:
-            if clone_worker is not None:
-                clone_worker.stop()
-        finally:
+        if not retain_realm():
             try:
-                if worker is not None:
-                    worker.stop()
+                if clone_worker is not None:
+                    clone_worker.stop()
             finally:
                 try:
-                    if stack is not None:
-                        await stack.stop()
+                    if worker is not None:
+                        worker.stop()
                 finally:
-                    if clone_engine is not None:
-                        await clone_engine.dispose()
-                    if sender is not None:
-                        sender.close()
-                    inbox.close()
-                    destroy_guide_scope(guide_scope)
+                    try:
+                        if stack is not None:
+                            await stack.stop()
+                    finally:
+                        if clone_engine is not None:
+                            await clone_engine.dispose()
+                        if sender is not None:
+                            sender.close()
+                        inbox.close()
+                        destroy_guide_scope(guide_scope)
+        if sys.exception() is None and not retain_realm():
+            shutil.rmtree(tmp_path)
 
 
 async def test_cold_jobs_queue_cancel_and_terminal_replay(

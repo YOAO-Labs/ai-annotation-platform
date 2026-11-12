@@ -45,6 +45,8 @@ SDK 的 `client.datasets.create(..., idempotency_key=key)` 与 `update(..., idem
 
 `POST /api/v1/datasets/{dataset_id}/backfill-dimensions` 和 `backfill-media` 接受持久 Image backfill，并返回 `202`、`dataset_id`、`job_id`、`operation_id`、`purpose`、当前作业 `status` 与 owner 确认的 `accepted_before`。可选 UUID `Idempotency-Key` 用于重放同一受理结果。前者只补缺失尺寸；后者接受缩略图回填，并保留独立视频元信息回填。旧 `batch` 查询参数为兼容保留且已弃用；owner 自行按有界批次扫描。
 
+补算受理复用数据集写入许可和同一事务内的生命周期锁，不要求受限 API 身份再次执行目录私有查询。不存在或已归档的数据集不会进入作业；原件读取仍受媒体 owner 的当前许可与准确来源约束，不能用目录读取权限代替。
+
 网关内部请求上限 1 MiB，响应上限 16 MiB；超出时明确失败，不截断或自动回退。HTTP 各 I/O 阶段默认超时 5 秒，可通过 `ASSETS_CATALOG_TIMEOUT_SECONDS` 在 60 秒内调整。这些传输预算不构成大库、超大元数据或生产容量资格。
 
 ## 数据与凭据

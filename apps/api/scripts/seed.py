@@ -10,6 +10,7 @@ import asyncio
 import sys
 import uuid
 from pathlib import Path
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
@@ -56,7 +57,12 @@ from app.services.screenshot_seed_analytics import (
     prepare_screenshot_analytics,
     validate_screenshot_analytics_target,
 )
-from app.services.screenshot_seed_spec import SEED_REVISION, parse_backend_requirements
+from app.services.screenshot_seed_spec import (
+    SEED_REVISION,
+    USER_SPECS,
+    fixture_persona_email,
+    parse_backend_requirements,
+)
 
 # 生产保护栏：seed.py 仅用于 dev / staging
 if settings.environment == "production":
@@ -230,6 +236,179 @@ async def _ensure_seed_accounts(db: AsyncSession) -> dict[str, uuid.UUID]:
     return created_users
 
 
+async def _ensure_screenshot_accounts(
+    db: AsyncSession, run_id: uuid.UUID
+) -> dict[str, uuid.UUID]:
+    from app.db.models.fixture_run import FixtureRunResource
+    from app.services import fixture_run_ownership as ownership
+
+    identity = IdentityCommandService(db)
+    accounts = {}
+    for key, (persona, role) in USER_SPECS.items():
+        data = next(user for user in USERS if user["email"] == persona)
+        user_id, created = await identity.ensure_seed_persona(
+            **{**data, "email": fixture_persona_email(run_id, persona)}
+        )
+        resource = await db.get(FixtureRunResource, (run_id, "user", user_id))
+        if created:
+            if resource is not None:
+                raise RuntimeError(
+                    f"{key}: new screenshot account already has an owner"
+                )
+            await ownership.reserve(
+                db, run_id, "user", user_id, logical_key=key, published=True
+            )
+        elif (
+            resource is None
+            or resource.logical_key != key
+            or resource.state != "published"
+        ):
+            raise RuntimeError(
+                f"{key}: existing screenshot account is not owned by this run"
+            )
+        accounts[persona] = user_id
+    await db.commit()
+    return accounts
+
+
+@asynccontextmanager
+async def _seed_session(run_id: uuid.UUID | None, admission_id: uuid.UUID | None):
+    if run_id is None:
+        async with Session() as db:
+            yield db, None
+        return
+
+    from scripts.fixture_tools import configure_fixture_tools_path
+
+    configure_fixture_tools_path()
+    from fixture_suite_coordinator import verified_fixture_owner_url
+    from app.db.models.fixture_run import FixtureRunAdmission
+    from app.services import (
+        fixture_run_ownership as ownership,
+        managed_original_creation,
+        storage_access,
+    )
+
+    owner_engine = create_async_engine(
+        await verified_fixture_owner_url(), hide_parameters=True
+    )
+    first_failure = None
+    try:
+        async with (
+            owner_engine.connect() as connection,
+            AsyncSession(bind=connection, expire_on_commit=False) as db,
+        ):
+            await managed_original_creation.bootstrap(db)
+            run = await ownership._lock_run(db, run_id)
+            admission = await db.scalar(
+                select(FixtureRunAdmission)
+                .where(
+                    FixtureRunAdmission.id == admission_id,
+                    FixtureRunAdmission.run_id == run_id,
+                )
+                .with_for_update()
+            )
+            if (
+                run.family != "screenshot" or run.parent_run_id is not None
+                or run.state != "open" or admission is None
+                or admission.kind != "screenshot_seed" or admission.state != "active"
+            ):
+                raise RuntimeError("screenshot fixture admission is not active")
+            await db.commit()
+
+            async def settle():
+                await ownership.settle(db, run_id, admission_id)
+                await db.commit()
+
+            try:
+                yield db, (run_id, admission_id)
+            except BaseException as failure:
+                try:
+                    await storage_access.finish(asyncio.create_task(db.rollback()))
+                    if not storage_access.failure_unsettled(failure):
+                        await storage_access.finish(asyncio.create_task(settle()))
+                except BaseException as settlement_failure:
+                    raise BaseExceptionGroup(
+                        "Screenshot seed and admission settlement failed",
+                        [failure, settlement_failure],
+                    ) from None
+                raise
+            else:
+                await settle()
+    except BaseException as failure:
+        first_failure = failure
+        raise
+    finally:
+        try:
+            await storage_access.finish(asyncio.create_task(owner_engine.dispose()))
+        except BaseException as disposal_failure:
+            if first_failure is not None:
+                raise BaseExceptionGroup(
+                    "Screenshot seed and owner disposal failed",
+                    [first_failure, disposal_failure],
+                ) from None
+            raise
+
+
+async def _enqueue_seed_video_backfill(
+    db: AsyncSession,
+    *,
+    dataset_id: uuid.UUID,
+    actor_id: uuid.UUID,
+    accepted_before: datetime,
+    video_delegations: dict,
+) -> uuid.UUID:
+    """Persist the demo's video work and its dispatch before publishing it."""
+    from app.db.models.async_job import AsyncJobKind
+    from app.services import async_job
+    from app.services.jobs_dispatch import (
+        prepare_job_dispatch,
+        publish_prepared_dispatch,
+    )
+    from app.services.jobs_queue import dispatch_job
+
+    job = await async_job.create_job(
+        db,
+        kind=AsyncJobKind.MEDIA_BACKFILL.value,
+        user_id=actor_id,
+        project_id=None,
+        payload={
+            "dataset_id": str(dataset_id),
+            "purpose": "thumbnail",
+            "accepted_before": accepted_before.isoformat(),
+            "operation_id": str(uuid.uuid4()),
+            "media_backfill_kind": "aap-media-backfill/v1",
+            "video_delegations": video_delegations,
+        },
+    )
+    task_name = "app.workers.media.run_media_backfill"
+    execution_id = str(job.id)
+    arguments = [execution_id]
+    options = {"queue": "media"}
+    lease = await prepare_job_dispatch(
+        db,
+        job_id=job.id,
+        task_name=task_name,
+        execution_id=execution_id,
+        args=arguments,
+        kwargs={},
+        options=options,
+    )
+    await db.commit()
+    await publish_prepared_dispatch(
+        db,
+        lease,
+        publish=lambda: dispatch_job(
+            task_name=task_name,
+            execution_id=execution_id,
+            args=arguments,
+            kwargs={},
+            options=options,
+        ),
+    )
+    return job.id
+
+
 # ── 主逻辑 ────────────────────────────────────────────────────────────────────
 # 示例项目不再造假数据:图片项目由 seed_coco8(真实 coco8) 单独建, 点云项目由
 # seed_pointcloud / seed_nuscenes_scene 建, 均在 seed() 内按夹具可用性容错调用。
@@ -242,46 +421,54 @@ async def seed(
     asset_dir: Path | None = None,
     video: Path | None = None,
     offline: bool = False,
-    repair: bool = False,
     ml_backend_mode: str = "live",
     ml_backend_url: str | None = None,
     backend_requirements: str | None = None,
+    run_id: uuid.UUID | None = None,
+    admission_id: uuid.UUID | None = None,
 ) -> None:
     parse_backend_requirements(backend_requirements)
+    if (profile == "screenshots") != (run_id is not None and admission_id is not None):
+        raise ValueError("screenshots profile requires an explicit run and admission ID")
+    if profile != "screenshots" and (run_id is not None or admission_id is not None):
+        raise ValueError("fixture identities require the screenshots profile")
     if profile == "online-training":
         await _seed_online_training_profile(
             cache_dir=cache_dir, asset_dir=asset_dir, offline=offline
         )
         return
-    assets = {}
-    generated_assets = None
-    if profile == "screenshots":
-        validate_screenshot_analytics_target()
-        selected_assets = select_profile(
-            "screenshots",
-            required_ids={"rapidocr-image", *REQUIRED_SOURCE_IDS},
-        )
-        assets = ensure_profile(
-            "screenshots",
-            cache_dir=cache_dir,
-            asset_dir=asset_dir,
-            offline=offline,
-            assets=selected_assets,
-        )
-        source_files = {
-            asset_id: assets[asset_id].root.joinpath(
-                *assets[asset_id].asset.required_files[0].parts
-            )
-            for asset_id in REQUIRED_SOURCE_IDS
-        }
-        generated_assets = ensure_screenshot_assets(
-            source_files=source_files,
-            cache_dir=cache_dir,
-        )
     strict = profile == "screenshots"
-
-    async with Session() as db:
-        created_users = await _ensure_seed_accounts(db)
+    async with _seed_session(run_id, admission_id) as (db, fixture_scope):
+        assets = {}
+        generated_assets = None
+        if strict:
+            validate_screenshot_analytics_target()
+            selected_assets = select_profile(
+                "screenshots",
+                required_ids={"rapidocr-image", *REQUIRED_SOURCE_IDS},
+            )
+            assets = ensure_profile(
+                "screenshots",
+                cache_dir=cache_dir,
+                asset_dir=asset_dir,
+                offline=offline,
+                assets=selected_assets,
+            )
+            source_files = {
+                asset_id: assets[asset_id].root.joinpath(
+                    *assets[asset_id].asset.required_files[0].parts
+                )
+                for asset_id in REQUIRED_SOURCE_IDS
+            }
+            generated_assets = ensure_screenshot_assets(
+                source_files=source_files,
+                cache_dir=cache_dir,
+            )
+        created_users = (
+            await _ensure_screenshot_accounts(db, run_id)
+            if strict
+            else await _ensure_seed_accounts(db)
+        )
         owner = created_users.get("pm") or created_users.get("pm@test.com")
 
         # 传递稳定 UUID，后续夹具回滚不依赖身份实体的缓存状态。
@@ -289,26 +476,41 @@ async def seed(
         owner_id = owner
         admin_id = admin_user
         preparation = None
+        fixture_ids = {}
         if strict:
-            preparation = await prepare_screenshot_seed(db, repair=repair)
-            if preparation.purged_projects or preparation.purged_datasets:
-                print(
-                    "  repair screenshots "
-                    f"projects={preparation.purged_projects} "
-                    f"datasets={preparation.purged_datasets}"
-                )
+            from app.services.display_id import next_display_id
+            from app.services.screenshot_seed_spec import PROJECT_SPECS
+
+            preparation = await prepare_screenshot_seed(db, run_id=run_id)
+            for logical_key in PROJECT_SPECS:
+                if logical_key not in preparation.existing_keys:
+                    fixture_ids[logical_key] = (
+                        await next_display_id(db, "projects"),
+                        await next_display_id(db, "datasets"),
+                    )
 
         # 图片标注项目:默认 demo 用 coco8;截图 profile 用校验后的真实道路照片派生集。
         img_owner_id = owner_id or admin_id
         if img_owner_id is not None:
             try:
-                info = await seed_coco8(
-                    db,
-                    owner_id=img_owner_id,
-                    fixture=generated_assets.image_root if strict else None,
-                    prediction_model_version=(
-                        f"screenshot-seed:{SEED_REVISION}" if strict else None
-                    ),
+                info = (
+                    None
+                    if strict and "image_demo" in preparation.existing_keys
+                    else await seed_coco8(
+                        db,
+                        owner_id=img_owner_id,
+                        fixture=generated_assets.image_root if strict else None,
+                        prediction_model_version=(
+                            f"screenshot-seed:{SEED_REVISION}" if strict else None
+                        ),
+                        fixture_scope=fixture_scope,
+                        fixture_project_display_id=fixture_ids["image_demo"][0]
+                        if strict
+                        else None,
+                        fixture_dataset_display_id=fixture_ids["image_demo"][1]
+                        if strict
+                        else None,
+                    )
                 )
                 await db.commit()
                 if info is None:
@@ -331,10 +533,21 @@ async def seed(
             # 截图 profile 使用确定性素材；普通 demo 仅在显式提供视频时创建项目。
             if strict or video is not None:
                 try:
-                    info = await seed_video(
-                        db,
-                        owner_id=img_owner_id,
-                        video=generated_assets.video_path if strict else video,
+                    info = (
+                        None
+                        if strict and "video_demo" in preparation.existing_keys
+                        else await seed_video(
+                            db,
+                            owner_id=img_owner_id,
+                            video=generated_assets.video_path if strict else video,
+                            fixture_scope=fixture_scope,
+                            fixture_project_display_id=fixture_ids["video_demo"][0]
+                            if strict
+                            else None,
+                            fixture_dataset_display_id=fixture_ids["video_demo"][1]
+                            if strict
+                            else None,
+                        )
                     )
                     await db.commit()
                     if info is None:
@@ -361,10 +574,17 @@ async def seed(
                 print("  skip  video P-VIDEO-DEV (使用 --video 提供素材)")
 
             if strict:
-                info = await seed_ocr(
-                    db,
-                    owner_id=img_owner_id,
-                    image=assets["rapidocr-image"].root / "ch_en_num.jpg",
+                info = (
+                    {"skipped": True}
+                    if "ocr_demo" in preparation.existing_keys
+                    else await seed_ocr(
+                        db,
+                        owner_id=img_owner_id,
+                        image=assets["rapidocr-image"].root / "ch_en_num.jpg",
+                        fixture_scope=fixture_scope,
+                        fixture_project_display_id=fixture_ids["ocr_demo"][0],
+                        fixture_dataset_display_id=fixture_ids["ocr_demo"][1],
+                    )
                 )
                 await db.commit()
                 print(
@@ -376,24 +596,35 @@ async def seed(
         # P-PC-DEV 固定导入 scene-0061 的 39 个 key frame。--offline 只复用已有缓存。
         if admin_id is not None:
             try:
-                nu, stale_storage_keys = await seed_nuscenes_scene(
-                    db,
-                    owner_id=admin_id,
-                    cache_dir=cache_dir,
-                    offline=offline,
-                    create_batch=not strict,
-                )
-                await db.commit()
-                cleanup_legacy_dev_seed_objects(stale_storage_keys)
-                scenes = ", ".join(
-                    f"{s['name']}({s['frames']}帧{'·已存在' if s.get('skipped') else ''})"
-                    for s in nu["scenes"]
-                )
-                action = "replace" if nu.get("replaced_legacy") else "ready  "
-                print(
-                    f"  {action} nuscenes P-PC-DEV  items={nu['total_items']} "
-                    f"batches={nu['batches']}  {scenes}"
-                )
+                if strict and "pointcloud_demo" in preparation.existing_keys:
+                    print("  skip  owned nuScenes screenshot project")
+                else:
+                    nu, stale_storage_keys = await seed_nuscenes_scene(
+                        db,
+                        owner_id=admin_id,
+                        cache_dir=cache_dir,
+                        offline=offline,
+                        create_batch=not strict,
+                        fixture_scope=fixture_scope,
+                        fixture_project_display_id=fixture_ids["pointcloud_demo"][0]
+                        if strict
+                        else None,
+                        fixture_dataset_display_id=fixture_ids["pointcloud_demo"][1]
+                        if strict
+                        else None,
+                    )
+                    await db.commit()
+                    if not strict:
+                        cleanup_legacy_dev_seed_objects(stale_storage_keys)
+                    scenes = ", ".join(
+                        f"{s['name']}({s['frames']}帧{'·已存在' if s.get('skipped') else ''})"
+                        for s in nu["scenes"]
+                    )
+                    action = "replace" if nu.get("replaced_legacy") else "ready  "
+                    print(
+                        f"  {action} nuscenes {nu['total_items']} items "
+                        f"batches={nu['batches']}  {scenes}"
+                    )
             except Exception as e:  # noqa: BLE001 — demo 模式下大型夹具可选
                 await db.rollback()
                 if strict:
@@ -402,15 +633,24 @@ async def seed(
 
             if strict:
                 try:
-                    info = await seed_pointcloud(
-                        db,
-                        owner_id=admin_id,
-                        fixture=generated_assets.multicamera_pointcloud_root,
-                        axis_convention="apollo",
-                        project_display_id="P-PC-MULTI",
-                        dataset_display_id="DS-PC-MULTI",
-                        dataset_name="pc-multicam-dev",
-                        project_name="nuScenes 六相机环视（截图）",
+                    info = (
+                        None
+                        if "pointcloud_multicam_demo" in preparation.existing_keys
+                        else await seed_pointcloud(
+                            db,
+                            owner_id=admin_id,
+                            fixture=generated_assets.multicamera_pointcloud_root,
+                            axis_convention="apollo",
+                            project_display_id=fixture_ids["pointcloud_multicam_demo"][
+                                0
+                            ],
+                            dataset_display_id=fixture_ids["pointcloud_multicam_demo"][
+                                1
+                            ],
+                            dataset_name="pc-multicam-dev",
+                            project_name="nuScenes 六相机环视（截图）",
+                            fixture_scope=fixture_scope,
+                        )
                     )
                     await db.commit()
                     if info is None:
@@ -426,7 +666,7 @@ async def seed(
                         f"multi-camera point-cloud fixture failed: {e}"
                     ) from e
 
-        member_count = await _ensure_demo_memberships(db)
+        member_count = 0 if strict else await _ensure_demo_memberships(db)
         if member_count:
             print(f"  add   project memberships={member_count}")
 
@@ -451,7 +691,10 @@ async def seed(
                 f"batches={report['batches']}"
             )
             media_report = await prepare_screenshot_seed_media(
-                db, asset_sha256=screenshot_digests
+                db,
+                run_id=run_id,
+                admission_id=fixture_scope[1],
+                asset_sha256=screenshot_digests,
             )
             print(
                 "  ready screenshots media "
@@ -459,6 +702,7 @@ async def seed(
             )
             backend_report = await reconcile_screenshot_backends(
                 db,
+                run_id=run_id,
                 mode=ml_backend_mode,
                 stub_url=ml_backend_url,
                 backend_requirements=backend_requirements,
@@ -471,11 +715,11 @@ async def seed(
                 f"  ready screenshots ML binding mode={ml_backend_mode} {binding_names}"
             )
             await finalize_screenshot_seed_timestamps(
-                db, asset_sha256=screenshot_digests
+                db, run_id=run_id, asset_sha256=screenshot_digests
             )
             try:
                 await build_screenshot_seed_catalog(
-                    db, backend_requirements=backend_requirements
+                    db, run_id=run_id, backend_requirements=backend_requirements
                 )
             except ScreenshotSeedCatalogError as exc:
                 raise RuntimeError(
@@ -495,7 +739,6 @@ async def seed(
         from app.db.models.dataset import Dataset, DatasetItem
         from app.services import video_derivative_originals as originals
         from app.services.content_snapshot import ContentError
-        from app.workers.media import backfill_media
 
         async with Session() as db:
             ds_rows = await db.execute(
@@ -527,6 +770,7 @@ async def seed(
                         f"job={accepted.work.job_id}"
                     )
                     continue
+                accepted_before = datetime.now(UTC)
                 video_delegations = {}
                 video_ids = await db.scalars(
                     select(DatasetItem.id).where(
@@ -553,9 +797,14 @@ async def seed(
                     video_delegations[str(item_id)] = originals.system_authorization(
                         "dataset_item", item_id, source
                     )
-                await db.commit()
-                backfill_media.delay(str(ds_id), video_delegations=video_delegations)
-                print(f"  media  enqueue 缩略图回填 → {disp}")
+                job_id = await _enqueue_seed_video_backfill(
+                    db,
+                    dataset_id=ds_id,
+                    actor_id=created_users["admin"],
+                    accepted_before=accepted_before,
+                    video_delegations=video_delegations,
+                )
+                print(f"  media  enqueue 视频元信息回填 → {disp} job={job_id}")
 
     await engine.dispose()
 
@@ -567,7 +816,6 @@ async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> Non
         prepare_baseline,
         seed_online_training,
     )
-    from app.workers.media import backfill_media
     from app.workers.training_dataset import build_dataset
 
     try:
@@ -620,7 +868,22 @@ async def _seed_online_training_profile(*, cache_dir, asset_dir, offline) -> Non
                     f"  {'add ' if created else 'keep'}  {PROJECT_DISPLAY_ID} "
                     f"task={task} baseline=ready version={version.id} images=8 split=4/4"
                 )
-        backfill_media.delay(str(DATASET_ID))
+        from yoao_assets_images.contract import ImageBackfillSelection
+        from app.services.assets_images import image_policy
+        from scripts.image_media_backfill import accept_image_backfill
+
+        accepted = await accept_image_backfill(
+            ImageBackfillSelection(
+                owner_kind="dataset_item",
+                dataset_id=DATASET_ID,
+                purpose="thumbnail",
+                only_missing=True,
+                accepted_before=datetime.now(UTC),
+            ),
+            operation_id=uuid.uuid4(),
+            policy=image_policy(),
+        )
+        print(f"  image  accepted thumbnail backfill → job={accepted.work.job_id}")
         print("  ready 检测与实例分割夹具；登录 pm，在训练数据按任务选择初始版本。")
         print(
             "  hint  检测试跑：epochs=1, batch=4, imgsz=320；"
@@ -641,9 +904,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--video", type=Path, help="demo profile 的本地视频素材路径")
     parser.add_argument("--offline", action="store_true")
     parser.add_argument(
-        "--repair",
-        action="store_true",
-        help="rebuild only screenshot-seed-owned fixed projects and datasets",
+        "--run-id", type=uuid.UUID, help="exact screenshot fixture run ID"
+    )
+    parser.add_argument(
+        "--admission-id", type=uuid.UUID, help="exact screenshot fixture admission ID"
     )
     parser.add_argument(
         "--ml-backend-mode",
@@ -671,6 +935,14 @@ def parse_args() -> argparse.Namespace:
         parser.error("--backend-requirements requires --profile screenshots")
     if args.video is not None and args.profile != "demo":
         parser.error("--video requires --profile demo")
+    if (args.profile == "screenshots") != (
+        args.run_id is not None and args.admission_id is not None
+    ):
+        parser.error("--run-id and --admission-id are required for screenshots")
+    if args.profile != "screenshots" and (
+        args.run_id is not None or args.admission_id is not None
+    ):
+        parser.error("fixture identities require --profile screenshots")
     return args
 
 
@@ -683,10 +955,11 @@ async def main() -> None:
         asset_dir=args.asset_dir,
         video=args.video,
         offline=args.offline,
-        repair=args.repair,
         ml_backend_mode=args.ml_backend_mode,
         ml_backend_url=args.ml_backend_url,
         backend_requirements=args.backend_requirements,
+        run_id=args.run_id,
+        admission_id=args.admission_id,
     )
     print("=== seed done  ===\n")
     print("测试账号一览 (密码统一: 123456):")

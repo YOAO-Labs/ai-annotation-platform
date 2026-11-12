@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
+from contextlib import asynccontextmanager, nullcontext
 import logging
+import os
 import time
 from uuid import UUID, uuid4
 
@@ -52,9 +54,12 @@ def image_policy() -> ImagePolicy:
 class SqlAlchemyImageDatabase:
     """One published native call; composition can retain its outer transaction."""
 
-    def __init__(self, db: AsyncSession, *, commit: bool = True):
+    def __init__(
+        self, db: AsyncSession, *, commit: bool = True, source_connection_pinned: bool = False
+    ):
         self.db = db
         self.commit = commit
+        self.source_connection_pinned = source_connection_pinned
 
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
         from yoao_assets_images_runtime.database import validate_native_result
@@ -78,17 +83,34 @@ class SqlAlchemyImageDatabase:
         )
         try:
             await self.db.flush()
-            async with self.db.begin_nested():
-                raw = (
-                    await self.db.execute(
-                        text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
-                        parameters,
-                    )
-                ).scalar_one()
-                result = validate_native_result(operation, request, raw)
-            if self.commit:
-                await self.db.commit()
-            return result
+            scope = nullcontext()
+            if operation in {"begin_image_original_worker", "claim_image_media", "advance_image_backfill"} and self.commit and os.environ.get(
+                "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+            ):
+                if not self.source_connection_pinned:
+                    raise c.ImageFailure("storage_unavailable")
+                from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+
+                connection = await self.db.connection()
+                raw_connection = await connection.get_raw_connection()
+                if operation == "begin_image_original_worker":
+                    scope = source_admission(raw_connection.driver_connection, "image", request)
+                elif operation == "claim_image_media":
+                    scope = claim_admission(raw_connection.driver_connection, "image", request)
+                else:
+                    scope = scan_admission(raw_connection.driver_connection, "image", request)
+            async with scope:
+                async with self.db.begin_nested():
+                    raw = (
+                        await self.db.execute(
+                            text(f"SELECT aap_assets_v1.{operation}({placeholders})"),
+                            parameters,
+                        )
+                    ).scalar_one()
+                    result = validate_native_result(operation, request, raw)
+                if self.commit:
+                    await self.db.commit()
+                return result
         except c.ImageFailure:
             if self.commit:
                 await self.db.rollback()
@@ -96,6 +118,8 @@ class SqlAlchemyImageDatabase:
         except SQLAlchemyError as exc:
             if self.commit:
                 await self.db.rollback()
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             cause = getattr(exc, "orig", exc)
             _LOGGER.warning(
                 "Image native call failed operation=%s database_error=%s sqlstate=%s",
@@ -104,9 +128,11 @@ class SqlAlchemyImageDatabase:
                 getattr(cause, "sqlstate", None),
             )
             raise c.ImageFailure("storage_unavailable") from None
-        except (TypeError, ValueError, KeyError, AttributeError, RecursionError):
+        except (TypeError, ValueError, KeyError, AttributeError, RecursionError) as exc:
             if self.commit:
                 await self.db.rollback()
+            if getattr(exc, "storage_operation_unsettled", False):
+                raise
             raise c.ImageFailure("invalid_response") from None
 
 
@@ -117,12 +143,37 @@ class _IndependentImageDatabase:
     async def call(self, operation: str, request: BaseModel) -> BaseModel:
         from app.db.base import async_session
 
-        async with (self.session_factory or async_session)() as db:
+        factory = self.session_factory or async_session
+        if operation in {"begin_image_original_worker", "claim_image_media", "advance_image_backfill"} and os.environ.get(
+            "AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"
+        ):
+            async with factory() as template:
+                if not isinstance(template.bind, AsyncEngine):
+                    raise c.ImageFailure("storage_unavailable")
+                async with template.bind.connect() as connection:
+                    async with AsyncSession(bind=connection) as db:
+                        return await SqlAlchemyImageDatabase(
+                            db, source_connection_pinned=True
+                        ).call(operation, request)
+
+        async with factory() as db:
             return await SqlAlchemyImageDatabase(db).call(operation, request)
+
+    @asynccontextmanager
+    async def fixture_business_connection(self):
+        from app.db.base import async_session
+
+        async with (self.session_factory or async_session)() as db:
+            connection = await db.connection()
+            raw_connection = await connection.get_raw_connection()
+            yield raw_connection.driver_connection
 
 
 def image_storage(*, control: bool = False):
     from yoao_assets_images_runtime.config import ImageStorageConfig
+    from yoao_assets_media_runtime.additional_original import (
+        load_additional_original_config,
+    )
     from yoao_assets_images_runtime.storage import S3ImageStorage
 
     scheme = "https" if settings.minio_use_ssl else "http"
@@ -137,6 +188,7 @@ def image_storage(*, control: bool = False):
             region="us-east-1",
             access_key=settings.minio_access_key,
             secret_key=settings.minio_secret_key,
+            additional_original=load_additional_original_config(),
             datasets_bucket=settings.minio_datasets_bucket,
             legacy_bucket=settings.minio_bucket,
             cache_bucket=settings.minio_media_cache_bucket,

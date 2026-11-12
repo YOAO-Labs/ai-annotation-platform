@@ -251,21 +251,15 @@ async def export_data_manager_tasks(
         job_payload["output_authority"] = await output_authority.capture(
             db, project, actor, request
         )
-        job = await async_job_service.create_job(
-            db,
-            kind=AsyncJobKind.EXPORT.value,
-            user_id=actor.id,
-            project_id=project_id,
-            payload=job_payload,
-        )
         from app.services.content_snapshot import ContentError
-        from app.services.exporting.media_jobs import capture_job
+        from app.services.exporting.media_jobs import create_export_job
 
         try:
-            media_bundle = await capture_job(
+            job, media_bundle = await create_export_job(
                 db,
-                job,
                 project,
+                actor_id=actor.id,
+                payload=job_payload,
                 batch_id=None,
                 targets=targets,
                 opts=options,
@@ -318,23 +312,16 @@ async def export_data_manager_tasks(
             "targets": targets,
         },
     )
-    try:
-        published_execution_id = await publish_prepared_dispatch(
-            db,
-            lease,
-            publish=lambda: dispatch_job(
-                task_name="app.workers.export.run_export",
-                execution_id=execution_id,
-                args=dispatch_args,
-                kwargs=dispatch_kwargs,
-            ),
-        )
-    except Exception:
-        from app.services.exporting.media_jobs import fail_dispatch
-
-        await fail_dispatch(db, job.id)
-        await db.commit()
-        raise
+    published_execution_id = await publish_prepared_dispatch(
+        db,
+        lease,
+        publish=lambda: dispatch_job(
+            task_name="app.workers.export.run_export",
+            execution_id=execution_id,
+            args=dispatch_args,
+            kwargs=dispatch_kwargs,
+        ),
+    )
     async_job_service.bind_execution_id(job, published_execution_id)
     await db.commit()
     return {"job_id": str(job.id), "status": "queued"}

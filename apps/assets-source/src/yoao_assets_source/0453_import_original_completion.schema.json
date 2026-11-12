@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:dataset-import-original-completion:v1",
+  "title": "Current Dataset import entry completion",
+  "x-postgresql-function": "aap_assets_v1.complete_dataset_import_entry(uuid, uuid, bigint, uuid, jsonb)",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "file_size", "content_hash", "verification_operation_id"],
+      "properties": {
+        "status": { "const": "copied" },
+        "verification_operation_id": { "type": "string", "format": "uuid" },
+        "file_size": { "type": "integer", "minimum": 0, "maximum": 9223372036854775807 },
+        "content_hash": { "type": "string", "pattern": "^[0-9a-f]{32}$" },
+        "width": { "type": ["integer", "null"], "minimum": 1, "maximum": 2147483647 },
+        "height": { "type": ["integer", "null"], "minimum": 1, "maximum": 2147483647 }
+      },
+      "allOf": [
+        {
+          "if": { "required": ["width"], "properties": { "width": { "type": "integer" } } },
+          "then": { "required": ["height"], "properties": { "height": { "type": "integer" } } }
+        },
+        {
+          "if": { "required": ["height"], "properties": { "height": { "type": "integer" } } },
+          "then": { "required": ["width"], "properties": { "width": { "type": "integer" } } }
+        }
+      ],
+      "description": "Dimensions are paired; the operation identifies the completed current-lease verification receipt."
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "error_code"],
+      "properties": {
+        "status": { "const": "error" },
+        "error_code": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-z][a-z0-9_]{0,63}$"
+        }
+      }
+    }
+  ]
+}

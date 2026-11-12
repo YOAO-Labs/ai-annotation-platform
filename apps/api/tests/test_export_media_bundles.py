@@ -106,6 +106,7 @@ class FakeDB:
         self.rows, self.statements, self.savepoints = {}, [], []
         self.no_autoflush = nullcontext()
         self.commit, self.rollback, self.flush = AsyncMock(), AsyncMock(), AsyncMock()
+        self.refresh = AsyncMock()
         self.failure = None
 
     def add(self, row):

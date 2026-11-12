@@ -19,11 +19,11 @@ from app.schemas.user import UserOut
 from app.services.identity_e2e_fixtures import IdentityE2EFixtures
 from app.services.identity_gateway import IdentityGateway, get_identity_gateway
 from tests.factory import DEFAULT_PASSWORD, create_user
+from tests.identity_e2e_support import ROOT
 from tests.test_asset_storage_cleanup_runtime import (
     _verified_resource_manifest,
     _verify_postgres,
 )
-from tests.test_identity_e2e_replay import ROOT
 from tests.test_workspace_consumer_profile_native import _grants
 
 pytestmark = [

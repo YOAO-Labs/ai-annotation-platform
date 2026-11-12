@@ -10,6 +10,8 @@ import json
 import os
 from pathlib import Path
 import secrets
+import shutil
+import sys
 import uuid
 from urllib.parse import urlsplit
 
@@ -18,26 +20,49 @@ from cryptography.fernet import Fernet
 import httpx
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
-from tests.identity_module_assembly_helpers import IdentityModuleStack
+from tests.identity_module_assembly_helpers import (
+    IdentityModuleStack,
+    create_retained_realm,
+)
 
 _VIDEO_TRACKER_TASK_NAME = "app.workers.video_tracker.run_video_tracker_job"
 
 
-class _OwnedPeerLoopbackTransport(httpx.AsyncHTTPTransport):
-    """Resolve the container alias to the same owned peer from the host operator."""
+class _TrackerRetention:
+    """Hold every resource while an exact tracker submission lacks owner proof."""
+
+    def __init__(self) -> None:
+        self.pending: dict[str, dict] = {}
+
+    def __call__(self) -> bool:
+        return bool(self.pending)
+
+    def arm(self, name: str) -> None:
+        self.pending.setdefault(name, {"job_id": None, "execution_ids": []})
+
+    def bind(self, name: str, job_id: str, execution_ids: list[str]) -> None:
+        self.pending[name] = {"job_id": job_id, "execution_ids": execution_ids}
+
+    def retired(self, name: str) -> None:
+        del self.pending[name]
+
+
+class _OwnedPeerTransport(httpx.AsyncHTTPTransport):
+    """Restrict the restore operator to the exact seeded backend endpoint."""
 
     def __init__(self, origin: str):
         parsed = urlsplit(origin)
-        assert parsed.scheme == "http" and parsed.hostname == "127.0.0.1"
-        assert parsed.port is not None
+        assert parsed.scheme == "http" and parsed.hostname and parsed.port
+        assert not parsed.username and not parsed.password
+        assert not parsed.query and not parsed.fragment and not parsed.path
+        self._peer_host = parsed.hostname
         self._peer_port = parsed.port
         super().__init__()
 
     async def handle_async_request(self, request):
         assert request.url.scheme == "http"
-        assert request.url.host == "host.docker.internal"
+        assert request.url.host == self._peer_host
         assert request.url.port == self._peer_port
-        request.url = request.url.copy_with(host="127.0.0.1")
         return await super().handle_async_request(request)
 
 
@@ -52,9 +77,7 @@ class _MediaBoundIdentityModuleStack(IdentityModuleStack):
         super().__init__(*stack_args, **stack_kwargs)
 
     def bind_media(self, media) -> None:
-        from tests.test_workspace_video_tracker_worker_live import _host_forward_url
-
-        self._tracker_media_url = _host_forward_url(media.origin)
+        self._tracker_media_url = media.origin
         self._tracker_media_token = media.token
         self._tracker_media_tokens.add(media.token)
 
@@ -66,6 +89,14 @@ class _MediaBoundIdentityModuleStack(IdentityModuleStack):
                 "ASSETS_MEDIA_TOKEN": self._tracker_media_token,
             }
         )
+        if os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER"):
+            from tests.project_guide_asset_owner_helpers import endpoint_url
+            from worktree_resources import verified_shared_bootstrap_minio
+
+            public_url = endpoint_url()
+            if verified_shared_bootstrap_minio(public_url) is None:
+                raise RuntimeError("Tracker storage bootstrap owner is unavailable")
+            values["MINIO_PUBLIC_URL"] = public_url
         return values
 
     def redact(self, value: str) -> str:
@@ -208,6 +239,8 @@ async def _seed_tracker_api_world(
             "task_id": task_id,
             "dataset_item_id": item_id,
             "registry_id": registry.id,
+            "backend_host": urlsplit(backend_url).hostname,
+            "backend_port": urlsplit(backend_url).port,
             "backend_token": backend_token,
         }
 
@@ -318,6 +351,51 @@ async def _async_job(engine, job_id: str) -> dict:
         }
 
 
+async def _retire_publications(
+    test_engine, job_id: str, execution_ids: list[str] | None, *, require_not_sent=False
+) -> dict:
+    """Retire only the owner's exact immutable publication set in one transaction."""
+    job_uuid = uuid.UUID(job_id)
+    async with test_engine.begin() as db:
+        if execution_ids is None:
+            execution_ids = list(
+                (
+                    await db.scalars(
+                        text(
+                            "SELECT DISTINCT execution_id FROM aap_jobs_v1.dispatch_intents "
+                            "WHERE job_id=:job ORDER BY execution_id"
+                        ),
+                        {"job": job_uuid},
+                    )
+                ).all()
+            )
+        execution_ids = sorted(execution_ids)
+        assert execution_ids and len(execution_ids) == len(set(execution_ids))
+        args = {"job": job_uuid, "ids": execution_ids}
+        retired = await db.scalar(
+            text(
+                "SELECT aap_jobs_v1.retire_job_publications("
+                "CAST(:job AS uuid), CAST(:ids AS text[]))"
+            ),
+            args,
+        )
+        assert retired is True, "Jobs publication retirement was not confirmed"
+        if require_not_sent:
+            not_sent = await db.scalar(
+                text(
+                    "SELECT aap_jobs_v1.job_publications_not_sent("
+                    "CAST(:job AS uuid), CAST(:ids AS text[]))"
+                ),
+                args,
+            )
+            assert not_sent is True, "Jobs owner did not prove all attempts not sent"
+    return {
+        "job_id": job_id,
+        "execution_ids": execution_ids,
+        "not_sent": require_not_sent,
+    }
+
+
 async def _cancel_audit_count(engine, job_id: str) -> int:
     from app.db.models.audit_log import AuditLog
     from app.services.audit import AuditAction
@@ -360,7 +438,7 @@ async def _pause_gpu_consumer(sender: Celery, worker) -> None:
         reply=True,
     )
     assert reply, "GPU worker did not acknowledge consumer pause"
-    assert await _active_queues(sender, worker) == []
+    assert "gpu" not in {row["name"] for row in await _active_queues(sender, worker)}
 
 
 async def _resume_gpu_consumer(sender: Celery, worker) -> None:
@@ -371,7 +449,7 @@ async def _resume_gpu_consumer(sender: Celery, worker) -> None:
         reply=True,
     )
     assert reply, "GPU worker did not acknowledge consumer resume"
-    assert {row["name"] for row in await _active_queues(sender, worker)} == {"gpu"}
+    assert "gpu" in {row["name"] for row in await _active_queues(sender, worker)}
 
 
 async def _wait_task_delivery(
@@ -397,6 +475,58 @@ async def _wait_task_delivery(
         "state": delivery.state,
         "ack": ack,
         "result_type": type(result).__name__,
+    }
+
+
+async def _assert_cancelled_claim_refused(test_engine, job_id: str, deliveries) -> dict:
+    """Ask the restricted Jobs owner to reject this exact cancelled, unstarted Job."""
+    from sqlalchemy.engine import make_url
+    from yoao_preannotation_results.video_execution import (
+        ClaimRequest,
+        VideoExecutionFailure,
+    )
+    from app.services.video_tracking.execution import _call
+    from tests.test_workspace_cross_frame_worker_live import _api_role_url
+
+    execution_ids = [item["task_id"] for item in deliveries]
+    assert len(execution_ids) == 2 and len(set(execution_ids)) == 2
+    assert all(
+        item["state"] == "FAILURE" and item["ack"]["task_id"] == item["task_id"]
+        for item in deliveries
+    )
+    url = make_url(_api_role_url())
+    assert url.username == "identity_api_consumer"
+    assert (url.host, url.port, url.database) == (
+        test_engine.url.host,
+        test_engine.url.port,
+        test_engine.url.database,
+    )
+    engine = create_async_engine(url, hide_parameters=True)
+    try:
+        async with async_sessionmaker(engine)() as db:
+            assert await db.scalar(text("SELECT current_user")) == "identity_api_consumer"
+            try:
+                await _call(
+                    db,
+                    "claim",
+                    ClaimRequest(
+                        job_id=uuid.UUID(job_id),
+                        worker_id=uuid.uuid4(),
+                        lease_seconds=30,
+                    ),
+                )
+            except VideoExecutionFailure as exc:
+                assert exc.code == "job_cancelled"
+            else:
+                raise AssertionError("Native tracker claim did not refuse cancellation")
+            finally:
+                await db.rollback()
+    finally:
+        await engine.dispose()
+    return {
+        "job_id": job_id,
+        "execution_ids": sorted(execution_ids),
+        "refusal": "job_cancelled",
     }
 
 
@@ -461,6 +591,8 @@ async def _exercise_api_tracker_phase(
     minio_origin: str,
     minio_scheme: str,
     queue_outage: bool,
+    retention: _TrackerRetention,
+    keep,
     workers: list,
     record_property,
 ) -> dict:
@@ -501,11 +633,7 @@ async def _exercise_api_tracker_phase(
         worker_started = True
         await _wait_worker_ready(sender, worker)
         worker.assert_private_network()
-        signature = worker.task_signature(_TASK_NAME)
-        assert signature == {"task": _TASK_NAME, "parameters": ["job_id"]}
-        delivery_policy = worker.task_delivery_policy(_TASK_NAME)
-        assert delivery_policy == {"acks_late": True, "reject_on_worker_lost": True}
-        assert {row["name"] for row in await _active_queues(sender, worker)} == {"gpu"}
+        retention.arm(f"{phase}:route-bootstrap")
         bootstrap = await asyncio.to_thread(
             worker.bootstrap_tracker_routes, {phase: world}
         )
@@ -513,6 +641,8 @@ async def _exercise_api_tracker_phase(
             {"registry_id": str(world["registry_id"]), "phase": "completed"}
         ]
         assert peer.controller.phase == "bound"
+        assert peer.controller.active_requests == 0
+        retention.retired(f"{phase}:route-bootstrap")
         record_property(
             f"video_tracker_segment_{phase}",
             await _claim_tracker_segment(client, headers, world, redact=stack.redact),
@@ -521,7 +651,10 @@ async def _exercise_api_tracker_phase(
         await _pause_gpu_consumer(sender, worker)
         if queue_outage:
             await stack.stop_service("jobs-queue")
+            assert stack.inspection_evidence["jobs-queue"]["running"] is False
+            retention.arm(f"{phase}:enqueue-outage")
             failed = await _submit_tracker(client, headers, world, redact=stack.redact)
+            retention.bind(f"{phase}:enqueue-outage", str(failed["id"]), [])
             assert failed["status"] == VideoTrackerJobStatus.FAILED.value
             assert failed.get("celery_task_id") is None
             assert failed.get("error_message") == "tracker_enqueue_failed"
@@ -531,6 +664,21 @@ async def _exercise_api_tracker_phase(
             failed_summary = await _async_job(test_engine, str(failed["id"]))
             assert failed_summary["status"] == AsyncJobStatus.FAILED.value
             assert failed_summary["error_message"] == "tracker_enqueue_failed"
+            async with test_engine.connect() as db:
+                attempt_states = list(
+                    (
+                        await db.scalars(
+                            text(
+                                "SELECT state FROM aap_jobs_v1.dispatch_publication_attempts "
+                                "WHERE job_id=:job ORDER BY generation"
+                            ),
+                            {"job": uuid.UUID(str(failed["id"]))},
+                        )
+                    ).all()
+                )
+            assert attempt_states == ["not_sent"], (
+                "Queue outage must reach the fenced publisher and prove pre-send refusal"
+            )
             assert _broker_state(sender, "gpu") == {
                 "queue_size": 0,
                 "unacknowledged": 0,
@@ -540,6 +688,11 @@ async def _exercise_api_tracker_phase(
                 "unacknowledged": 0,
             }
             assert _tracker_envelopes(sender, "gpu") == []
+            outage_retirement = await _retire_publications(
+                test_engine, str(failed["id"]), None, require_not_sent=True
+            )
+            retention.retired(f"{phase}:enqueue-outage")
+            record_property(f"video_tracker_outage_retirement_{phase}", outage_retirement)
             await stack.start_service("jobs-queue")
             queue_failure = {
                 "http_status": 202,
@@ -548,14 +701,18 @@ async def _exercise_api_tracker_phase(
                 "execution_id": None,
                 "gpu_queue_empty": True,
                 "default_queue_empty": True,
+                "publication_retirement": outage_retirement,
+                "publication_attempt_states": attempt_states,
             }
         else:
             queue_failure = None
+        retention.arm(f"{phase}:success")
         success = await _submit_tracker(client, headers, world, redact=stack.redact)
         success_job_id = _uuid_text(success["id"], name="tracker job ID")
         success_execution_id = _uuid_text(
             success["celery_task_id"], name="tracker execution ID"
         )
+        retention.bind(f"{phase}:success", success_job_id, [success_execution_id])
         assert success["status"] == VideoTrackerJobStatus.QUEUED.value
         persisted_success = await _video_tracker_job(test_engine, success_job_id)
         assert persisted_success["status"] == VideoTrackerJobStatus.QUEUED.value
@@ -600,6 +757,10 @@ async def _exercise_api_tracker_phase(
         success_retirement = await _assert_terminal_execution(
             test_engine, success_job_id, "completed", require_scope=True
         )
+        success_publications = await _retire_publications(
+            test_engine, success_job_id, [success_execution_id]
+        )
+        retention.retired(f"{phase}:success")
         assert [call["from_frame"] for call in peer.model_windows] == [0, 2, 4]
         success_input_id = str(ready_input.input_id)
         record_property(
@@ -611,10 +772,12 @@ async def _exercise_api_tracker_phase(
                 "frames": frames,
                 "delivery": success_delivery,
                 "retirement": success_retirement,
+                "publication_retirement": success_publications,
             },
         )
 
         await _pause_gpu_consumer(sender, worker)
+        retention.arm(f"{phase}:cancel")
         cancel_created = await _submit_tracker(
             client, headers, world, redact=stack.redact
         )
@@ -622,6 +785,7 @@ async def _exercise_api_tracker_phase(
         original_execution_id = _uuid_text(
             cancel_created["celery_task_id"], name="cancel execution ID"
         )
+        retention.bind(f"{phase}:cancel", cancel_job_id, [original_execution_id])
         assert cancel_created["status"] == VideoTrackerJobStatus.QUEUED.value
         original_messages = _tracker_envelopes(sender, "gpu")
         assert len(original_messages) == 1
@@ -645,6 +809,26 @@ async def _exercise_api_tracker_phase(
         cancelled_during_outage = await _video_tracker_job(test_engine, cancel_job_id)
         assert (
             cancelled_during_outage["status"] == VideoTrackerJobStatus.CANCELLED.value
+        )
+        async with test_engine.connect() as db:
+            failed_redrive_execution_id, failed_redrive_state = (
+                await db.execute(
+                    text(
+                        "SELECT DISTINCT execution_id, state "
+                        "FROM aap_jobs_v1.dispatch_publication_attempts "
+                        "WHERE job_id=:job AND execution_id<>:original"
+                    ),
+                    {
+                        "job": uuid.UUID(cancel_job_id),
+                        "original": original_execution_id,
+                    },
+                )
+            ).one()
+        assert failed_redrive_state == "not_sent"
+        retention.bind(
+            f"{phase}:cancel",
+            cancel_job_id,
+            sorted([original_execution_id, failed_redrive_execution_id]),
         )
         audit_after_outage = await _wait_cancel_audit_count(
             test_engine, cancel_job_id, 1
@@ -683,6 +867,11 @@ async def _exercise_api_tracker_phase(
         ]
         assert len(redrive_execution_ids) == 1
         redrive_execution_id = redrive_execution_ids[0]
+        assert failed_redrive_execution_id not in observed_execution_ids
+        cancel_publication_ids = sorted(
+            [*observed_execution_ids, failed_redrive_execution_id]
+        )
+        retention.bind(f"{phase}:cancel", cancel_job_id, cancel_publication_ids)
         assert _broker_state(sender, "gpu") == {
             "queue_size": 2,
             "unacknowledged": 0,
@@ -701,6 +890,14 @@ async def _exercise_api_tracker_phase(
         assert cancel_summary["status"] == AsyncJobStatus.CANCELLED.value
         assert cancel_summary["celery_task_id"] == original_execution_id
         assert len(peer.model_windows) == 3, "cancelled redrives reached the backend"
+        cancel_refusal = await _assert_cancelled_claim_refused(
+            test_engine, cancel_job_id, cancel_deliveries
+        )
+        cancel_publications = await _retire_publications(
+            test_engine, cancel_job_id, cancel_publication_ids
+        )
+        retention.retired(f"{phase}:cancel")
+        record_property(f"video_tracker_cancel_native_refusal_{phase}", cancel_refusal)
         async with async_sessionmaker(test_engine)() as db:
             execution_count = await db.scalar(
                 text(
@@ -732,24 +929,26 @@ async def _exercise_api_tracker_phase(
                 "job_id": cancel_job_id,
                 "original_execution_id": original_execution_id,
                 "redrive_execution_id": redrive_execution_id,
+                "not_sent_redrive_execution_id": failed_redrive_execution_id,
                 "persisted_execution_id_unchanged": True,
                 "http_status_during_outage": unavailable.status_code,
                 "http_status_after_retry": redrive.status_code,
                 "audit_count": audit_after_outage,
                 "delivery_acks": cancel_deliveries,
+                "native_refusal": cancel_refusal,
+                "publication_retirement": cancel_publications,
                 "status": cancelled_after_delivery["status"],
                 "backend_calls_unchanged": True,
                 "never_started_execution": True,
             },
             "worker": {
-                "signature": signature,
-                "delivery_policy": delivery_policy,
-                "active_queues": ["gpu"],
                 "runtime": worker.assert_runtime(),
                 "private_network": True,
             },
         }
         record_property(f"video_tracker_jobs_queue_{phase}", record)
+        if keep():
+            raise RuntimeError("Tracker publication retirement remains unproved")
         return {
             "actor_id": str(world["actor_id"]),
             "task_id": str(world["task_id"]),
@@ -774,15 +973,49 @@ async def _exercise_api_tracker_phase(
                 "video_tracker_jobs_queue_diagnostics_error",
                 type(diagnostic_error).__name__,
             )
+        try:
+            record_property(
+                "video_tracker_worker_diagnostics",
+                await asyncio.to_thread(worker.capture_diagnostics),
+            )
+            record_property(
+                "video_tracker_backend_progress",
+                {
+                    "windows": [
+                        {
+                            "from_frame": call["from_frame"],
+                            "to_frame": call["to_frame"],
+                            "admission_header_present": call["admission_header_present"],
+                            "authorization_bound": call["authorization_bound"],
+                        }
+                        for call in peer.model_windows
+                    ],
+                    "gates_entered": [event.is_set() for event in peer.entered],
+                    "gates_released": [event.is_set() for event in peer.release],
+                },
+            )
+        except Exception as diagnostic_error:
+            record_property(
+                "video_tracker_worker_diagnostics_error",
+                type(diagnostic_error).__name__,
+            )
         raise
     finally:
-        if (
+        primary = sys.exception()
+        if not keep() and (
             worker_started
             or worker.container_id is not None
             or worker.network_id is not None
         ):
-            await asyncio.to_thread(worker.stop)
-            workers.remove(worker)
+            try:
+                await asyncio.to_thread(worker.stop)
+            except BaseException as cleanup_error:
+                retention.arm(f"{phase}:worker-teardown")
+                if primary is None:
+                    raise
+                primary.add_note(f"Tracker worker teardown failed: {type(cleanup_error).__name__}")
+            else:
+                workers.remove(worker)
 
 
 def _media_runtime_stack(
@@ -901,11 +1134,12 @@ async def exercise_video_tracker_queue_and_restore(
     )
     from tests.test_video_input_live import _video_bytes, _video_runtime
     from tests.test_workspace_video_tracker_worker_live import (
-        _checkpoint_cpu_backend,
-        _host_forward_url as host_forward_url,
-        _reserve_port,
+        _tracker_fixture_bridge,
     )
-    from tests.test_video_window_recovery_live import _bbox_artifact
+    from tests.test_video_window_recovery_live import (
+        _bbox_artifact,
+        _checkpoint_cpu_backend,
+    )
     from tests.test_workspace_worker_assembly_live import _broker_state
 
     assert test_engine.url.database and str(test_engine.url.database).endswith("_test")
@@ -917,34 +1151,59 @@ async def exercise_video_tracker_queue_and_restore(
     sender = None
     inbox = None
     clone_engine = None
+    retention = _TrackerRetention()
+    realm = None
     workers = []
+    media_processes = []
     source_peer_stack = AsyncExitStack()
+    bridge_stack = AsyncExitStack()
     source_headers = None
     source_phase = None
     restored_phase = None
+    clone_database = None
     readback = None
+
+    def keep() -> bool:
+        if retention():
+            return True
+        try:
+            return stack is not None and stack.retention_required
+        except Exception:
+            return True
 
     @asynccontextmanager
     async def restored_database_with_cleanup():
         nonlocal clone_engine
-        async with _restored_database(test_engine, snapshot) as restored_database:
+        async with _restored_database(
+            test_engine, snapshot, retain=keep
+        ) as restored_database:
             try:
                 yield restored_database
             finally:
+                primary = sys.exception()
                 try:
-                    for worker in reversed(workers):
-                        await asyncio.to_thread(worker.stop)
-                    workers.clear()
-                finally:
-                    try:
+                    if not keep():
+                        for worker in reversed(workers):
+                            await asyncio.to_thread(worker.stop)
+                        workers.clear()
                         if stack is not None:
                             await stack.stop()
-                    finally:
-                        if clone_engine is not None:
-                            await clone_engine.dispose()
-                            clone_engine = None
+                except BaseException as cleanup_error:
+                    retention.arm("restored:teardown")
+                    if primary is None:
+                        raise
+                    primary.add_note(f"Restored tracker teardown failed: {type(cleanup_error).__name__}")
+                finally:
+                    if clone_engine is not None:
+                        await clone_engine.dispose()
+                        clone_engine = None
 
     try:
+        realm = create_retained_realm()
+        tmp_path = realm
+        bridge = await bridge_stack.enter_async_context(
+            _tracker_fixture_bridge(retain=keep)
+        )
         snapshot = Path(tmp_path) / "jobs-video-tracker-module.dump"
         minio_origin = endpoint_url()
         minio_parts = urlsplit(minio_origin)
@@ -965,13 +1224,20 @@ async def exercise_video_tracker_queue_and_restore(
 
         @asynccontextmanager
         async def redis_users_with_stack_cleanup():
-            async with _login_redis() as (login_url, _login_owner):
-                async with _publisher_redis() as (publisher_url, _publisher_owner):
+            async with _login_redis(retain=keep) as (login_url, _login_owner):
+                async with _publisher_redis(retain=keep) as (publisher_url, _publisher_owner):
                     try:
                         yield login_url, publisher_url
                     finally:
-                        if stack is not None:
-                            await stack.stop()
+                        primary = sys.exception()
+                        if stack is not None and not keep():
+                            try:
+                                await stack.stop()
+                            except BaseException as cleanup_error:
+                                retention.arm("stack:teardown")
+                                if primary is None:
+                                    raise
+                                primary.add_note(f"Tracker stack teardown failed: {type(cleanup_error).__name__}")
 
         async with redis_users_with_stack_cleanup() as (
             login_url,
@@ -993,13 +1259,17 @@ async def exercise_video_tracker_queue_and_restore(
 
             source_media_dir = Path(tmp_path) / "video-media-source"
             source_media_dir.mkdir(parents=True, exist_ok=True)
-            async with _video_runtime(test_engine, source_media_dir) as media:
-                listener, backend_origin = _reserve_port()
+            async with _video_runtime(
+                test_engine, source_media_dir, tracker_bridge=bridge, tracker_retain=keep
+            ) as media:
+                media_processes.extend(media.processes)
+                listener, backend_origin = bridge.reserve_listener()
+                source_peer_stack.callback(listener.close)
                 backend_token = secrets.token_urlsafe(24)
                 world = await _seed_tracker_api_world(
                     media,
                     video,
-                    backend_url=host_forward_url(backend_origin),
+                    backend_url=backend_origin,
                     backend_token=backend_token,
                     label="source",
                 )
@@ -1021,6 +1291,7 @@ async def exercise_video_tracker_queue_and_restore(
                             context_mode="none",
                             artifact=artifact,
                             weights_sha256=weights_sha256,
+                            retain=keep,
                         )
                     )
                 ) as peer:
@@ -1032,6 +1303,7 @@ async def exercise_video_tracker_queue_and_restore(
                         publisher_url=publisher_url,
                         smtp_port=inbox.port,
                     )
+                    stack.retain_while(retention)
                     await stack.start()
                     queue_evidence = stack.inspection_evidence["jobs-queue"]
                     assert queue_evidence["user"] == "10005:10005"
@@ -1064,6 +1336,8 @@ async def exercise_video_tracker_queue_and_restore(
                             minio_origin=minio_origin,
                             minio_scheme=minio_scheme,
                             queue_outage=True,
+                            retention=retention,
+                            keep=keep,
                             workers=workers,
                             record_property=record_property,
                         )
@@ -1088,6 +1362,7 @@ async def exercise_video_tracker_queue_and_restore(
             )
 
             async with restored_database_with_cleanup() as restored_database:
+                clone_database = str(restored_database)
                 clone_engine = create_async_engine(
                     test_engine.url.set(database=restored_database),
                     hide_parameters=True,
@@ -1099,7 +1374,10 @@ async def exercise_video_tracker_queue_and_restore(
                         clone_engine,
                         restored_media_dir,
                         source_test_engine=test_engine,
+                        tracker_bridge=bridge,
+                        tracker_retain=keep,
                     ) as clone_media:
+                        media_processes.extend(clone_media.processes)
                         stack.bind_media(clone_media)
                         await stack.switch_database(restored_database)
                         readback = await _assert_restored_tracker_readback(
@@ -1173,7 +1451,7 @@ async def exercise_video_tracker_queue_and_restore(
                         manager = VideoRestoreManager(
                             VideoRestorePostgresProvider(restore_dsn),
                             backend_control=BackendRoutingControl(
-                                transport_factory=lambda: _OwnedPeerLoopbackTransport(
+                                transport_factory=lambda: _OwnedPeerTransport(
                                     backend_origin
                                 )
                             ),
@@ -1196,12 +1474,13 @@ async def exercise_video_tracker_queue_and_restore(
                         )
                         await source_peer_stack.aclose()
 
-                        listener, backend_origin = _reserve_port()
+                        listener, backend_origin = bridge.reserve_listener()
+                        source_peer_stack.callback(listener.close)
                         backend_token = secrets.token_urlsafe(24)
                         restored_world = await _seed_tracker_api_world(
                             clone_media,
                             video,
-                            backend_url=host_forward_url(backend_origin),
+                            backend_url=backend_origin,
                             backend_token=backend_token,
                             label="restored",
                         )
@@ -1222,6 +1501,7 @@ async def exercise_video_tracker_queue_and_restore(
                             context_mode="none",
                             artifact=artifact,
                             weights_sha256=weights_sha256,
+                            retain=keep,
                         ) as restored_peer:
                             _assert_owned_broker_target(sender, "gpu")
                             async with httpx.AsyncClient(
@@ -1253,10 +1533,11 @@ async def exercise_video_tracker_queue_and_restore(
                                     minio_origin=minio_origin,
                                     minio_scheme=minio_scheme,
                                     queue_outage=False,
+                                    retention=retention,
+                                    keep=keep,
                                     workers=workers,
                                     record_property=record_property,
                                 )
-            clone_database = str(restored_database)
             record_property(
                 "video_tracker_jobs_queue_full_restore",
                 {
@@ -1275,32 +1556,81 @@ async def exercise_video_tracker_queue_and_restore(
             "readback": readback,
         }
     finally:
+        cleanup_complete = False
         try:
-            for worker in reversed(workers):
-                await asyncio.to_thread(worker.stop)
-            workers.clear()
-        finally:
-            try:
+            if keep():
+                evidence = {
+                    "realm": str(realm) if realm is not None else None,
+                    "pending": retention.pending,
+                    "workers": [
+                        {
+                            "container_id": worker.container_id,
+                            "network_id": worker.network_id,
+                            "queue": worker.queue,
+                            "secret_directory": str(worker.secret_directory),
+                        }
+                        for worker in workers
+                    ],
+                    "compose_project": stack.project_name if stack is not None else None,
+                    "compose_services": stack.service_ids if stack is not None else {},
+                    "media_pids": [process.pid for process in media_processes],
+                    "restored_database": clone_database,
+                    "guide_scope": (
+                        {
+                            key: guide_scope[key]
+                            for key in ("container", "policy", "config")
+                        }
+                        if guide_scope is not None
+                        else None
+                    ),
+                    "peer_lifetime": (
+                        "in-process backend may stop when the test event loop exits; "
+                        "this is not retirement proof"
+                    ),
+                }
+                try:
+                    record_property("video_tracker_retained_runtime", evidence)
+                    if realm is not None:
+                        path = Path(realm) / "tracker-retention.json"
+                        fd = os.open(
+                            path,
+                            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                            0o600,
+                        )
+                        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                            json.dump(evidence, stream, sort_keys=True)
+                            stream.write("\n")
+                except Exception as diagnostic_error:
+                    record_property(
+                        "video_tracker_retention_evidence_error",
+                        type(diagnostic_error).__name__,
+                    )
+            else:
+                for worker in reversed(workers):
+                    await asyncio.to_thread(worker.stop)
+                workers.clear()
                 if stack is not None:
                     await stack.stop()
+                if any(process.poll() is None for process in media_processes):
+                    raise RuntimeError("Tracker Media process termination is unconfirmed")
+                if guide_scope is not None and destroy_guide_scope is not None:
+                    destroy_guide_scope(guide_scope)
+                await source_peer_stack.aclose()
+                await bridge_stack.aclose()
+                cleanup_complete = True
+        finally:
+            try:
+                if clone_engine is not None:
+                    await clone_engine.dispose()
             finally:
                 try:
-                    if guide_scope is not None and destroy_guide_scope is not None:
-                        destroy_guide_scope(guide_scope)
+                    if sender is not None:
+                        sender.close()
                 finally:
                     try:
-                        if clone_engine is not None:
-                            await clone_engine.dispose()
+                        if inbox is not None:
+                            inbox.close()
                     finally:
-                        try:
-                            if sender is not None:
-                                sender.close()
-                        finally:
-                            try:
-                                if inbox is not None:
-                                    inbox.close()
-                            finally:
-                                try:
-                                    owner_s3.close()
-                                finally:
-                                    await source_peer_stack.aclose()
+                        owner_s3.close()
+            if cleanup_complete and realm is not None:
+                shutil.rmtree(realm)

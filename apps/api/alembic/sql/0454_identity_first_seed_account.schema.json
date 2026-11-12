@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:aap:identity-first-seed-account:v1",
+  "title": "Identity first seed account attribution",
+  "native": ["read_first_seed_account()"],
+  "result": {"id": "uuid", "email": "text"},
+  "semantics": "Returns zero or one account visible in the current account profile, without filtering role or active state. Selection among multiple accounts is unspecified. The caller owns the transaction."
+}

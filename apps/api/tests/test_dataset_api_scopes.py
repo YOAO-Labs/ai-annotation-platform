@@ -225,7 +225,6 @@ async def test_read_scope_rejects_every_dataset_mutation_without_work(
     )
 
     from app.services.assets_import import DatasetImportCapabilities
-    from app.workers import media
 
     queued: list[str] = []
     import_calls: list[str] = []
@@ -241,7 +240,7 @@ async def test_read_scope_rejects_every_dataset_mutation_without_work(
         return called
 
     monkeypatch.setattr(
-        media.backfill_media, "delay", record_queue_call("media-backfill")
+        "app.services.jobs_queue.dispatch_job", record_queue_call("media-backfill")
     )
     monkeypatch.setattr(DatasetImportCapabilities, "prepare", record_import_call)
     monkeypatch.setattr(DatasetImportCapabilities, "accept", record_import_call)

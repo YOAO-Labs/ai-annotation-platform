@@ -300,6 +300,9 @@ pnpm dev:worktree -- stop --mode test
 为 `test`，其他命令默认为 `dev`。`stop` 还停止该模式的 Redis，保留数据及 AOF。
 `reset/destroy` 必须提供 `doctor` 显示的精确 `--confirm '<id>:<mode>'`，
 并拒绝有连接或归属不符的资源。不要删除或复制 `.worktree/` 身份目录。
+共享测试 bootstrap 已结束而原 test 资源尚未退役时，`doctor/destroy --mode test`
+可显式使用 `--retire-finished-bootstrap`；这不是重建或忽略归属检查的选项。
+具体前置与命令见[结束引导后的准确退役](docs-site/dev/how-to/worktree-environments.md#诊断停止与重建)。
 
 `--skip-migrations` 只接受已在当前 checkout head 的数据库，不再作为未知 revision
 的逃生开关。直接执行原来的 `dev:api`、pytest 或默认 Compose 不经过这个隔离入口。
@@ -666,6 +669,19 @@ writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery t
 `AAP_MODULE_DATA_APPEND_URL`、`AAP_MODULE_DATA_ASSET_CLEANUP_URL` 和 `AAP_MODULE_DATA_ASSET_CATALOG_URL`，无需改动日常凭据。
 记录该命令的 JSON、JUnit 和同级 `<output-stem>.collection.json`；未完成的运行也保留已收集的
 node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
+冻结 SQL 比对库在业务测试开始前核验出生时记录的 OID 与归属标记后单独退役。
+收尾发现其他子数据库时，即使该库尚无归属标记，也会记录
+`cleanup.retained_databases` 并保留外层 PostgreSQL、对象存储身份和证据目录；
+必须按原 owner 核实责任，不能按名称前缀、连接消失或进程退出直接删除。
+已完成的 fixture journal 可按既有规则单独保留；这与仍持有未决数据库、凭据的环境不同。
+诊断独立 worker 超时或其他未定位的执行失败时，可加 `--retain-failed-runtime`：
+失败后不执行外层资源销毁，保留数据库、存储身份与证据目录，并记录
+`cleanup.retention_reason=requested_failed_runtime`；退出码仍表示失败。
+测试内部的进程退出逻辑可能已执行，该参数不能替代在途工作的原生许可或物理结算证明。
+后续须按准确 owner 核实并退役，不按超时或进程退出清理保留资源。
+冷装配验收要求 Docker CLI／Engine 支持 `docker network connect --gw-priority`。
+现有 PostgreSQL、Redis 和 MinIO 接入临时消费者网络时使用较低网关优先级 `-1`，
+保留原网关及宿主端口上的已有连接；不能用清空连接池或重试失败命令掩盖网络切换断连。
 严格默认验收先在自有资源中收集完整 node ID，再为相互排斥的身份／seed 操作账号
 分别创建独立数据库和对象存储资源运行；普通严格账号、每组 JSON／JUnit 和清理记录
 分别保留在报告指向的 profile 目录。只有每组实际选集与原始 collection 对账一致、
@@ -673,11 +689,29 @@ node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
 会提交极大 Audit ID 的维护／冷消费者测试各用独立 profile，避免不可回滚的序列或
 归档夹具影响后续消费者；验收记录保留三条预检 Audit 事件，不把它们当成测试产生的写入。
 会提交固定演示账号的父级 seed 测试也独立运行，避免其 `admin` 账号影响其他验收。
-Workspace 独立 Node 对照依赖必须安装在 `apps/workspace/conformance/node` 自身；
-验证器在创建数据库或容器前检查该目录中的 `pg`，不会借用共享 Node 安装。
+图片身份导入和 installed scale CLI 分别使用独占 profile。公开关系和独立 Node 探针完成后，
+验证器在数据库出生身份、准确用户／项目集合及无其他客户端的守卫下，仅退役自己的
+准备探针，再执行各自的空业务库场景；未知行或级联依赖使准备失败，不执行全表清空。
+源码 CLI 与独立安装 CLI 的资格分别记录，不能相互替代。
+Workspace、Notifications 和 Audit 的独立 Node 对照依赖须分别安装在
+`apps/<模块>/conformance/node` 自身：在各目录执行
+`pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts`；
+已准备离线缓存时可加 `--offline`。验证器在创建数据库或容器前检查这些依赖，
+不会借用共享 Node 安装，也不需要重复安装已就绪的工作树根依赖。
 普通 Identity 消费者的精确八函数包含接受后 API Key 事实读取，以及 JWT 撤销状态和凭据
 代次读取：分别服务于 `identity_request_authority` 和 `token_blacklist` 的事务内重验。
 这不授权私有表、凭据哈希或撤销写命令；各操作账号仍须断言自己的准确能力集合。
+
+截图调用方测试另需显式提供 `AAP_SCREENSHOT_SOURCE_CACHE` 和
+`AAP_SCREENSHOT_NUSCENES_ARCHIVE`，只传给本次隔离验收进程，不写入日常 `.env`：
+前者是含 `<asset-id>/<sha256>/source.bin`、`content/` 与 `.complete.json`
+的绝对源缓存目录；后者是官方 `v1.0-mini.tgz` 的绝对路径。
+源文件必须通过当前清单中的大小与 SHA-256 核验。为 pytest 指定本次任务独有的
+`--basetemp`；测试复制已核验源文件，在该临时目录重建派生缓存，并为每项测试
+创建独立 DuckDB，不修改共享源缓存或借用保留环境的分析库。
+每个 pytest worker 需预留约 4 GB 归档副本及解包、生成素材所需空间。
+源素材就绪不等于截图夹具已通过：实际媒体／模型服务、受限 Identity 读取、
+私有 catalog HTTP 与双运行准确退役仍须分别验证。
 
 默认选集中的旧 `test_dataset_import_cancellation.py` 已删除：其中是旧调用转发 mock，
 当前取消结果由已选的 `test_dataset_import.py`（旧任务 HTTP 取消）和
@@ -750,7 +784,9 @@ docker compose -f docker-compose.yml -f docker-compose.jobs-queue.yml \
   -f docker-compose.jobs-dispatch-relay.yml up -d --build jobs-queue jobs-dispatch-relay
 ```
 
-额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE`，文件只含专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 只有函数 DSN 与 bearer，不持有 broker。脱离 Compose 运行须设置 `JOBS_DISPATCH_RELAY_ENABLED=true`、`JOBS_QUEUE_URL` 及对应 DSN／bearer selector，再运行 `yoao-jobs-dispatch-relay`；直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
+额外设置 `JOBS_DISPATCH_RELAY_DATABASE_URL_FILE` 与 `JOBS_PUBLICATION_DATABASE_URL_FILE`，各文件只含对应专用 LOGIN 的 PostgreSQL DSN。relay 与 queue 使用同一不可变镜像但分进程、分秘密：queue 只有 broker 和 bearer；relay 使用受限的账本及发布控制函数凭据与 bearer，不持有 broker。业务发布入口也需配置 `JOBS_PUBLICATION_DATABASE_URL` 或 `_FILE`；export worker 另需仅供该 worker 使用的 `EXPORT_EXECUTION_DATABASE_URL` 或 `_FILE`，并使用 Jobs 发布凭据记录其 Celery 重投。不得向 API 授予 Export 执行完成函数或私表写权限。每组直接值和 `_FILE` 不可同时设置。可按 `JOBS_DISPATCH_RELAY_BATCH_SIZE`、`JOBS_DISPATCH_RELAY_LEASE_SECONDS`、`JOBS_DISPATCH_RELAY_POLL_SECONDS` 调整每轮上限、租约与空闲间隔。
+
+发布在调用 broker 前记录物理尝试；只有明确在 HTTP 请求发出前遭到连接拒绝，才记录独立的未发送结果，不视为接收成功。HTTP 错误、丢失响应和取消等未确认的尝试不会因租约到期或进程退出而视为完成。后续有效代次仍可按原消息和全部执行 ID 重投；即使重投成功，旧代次的不确定物理责任仍保留，不能据此清理资源或撤销凭据。Export worker 在实际物理操作前登记进入，只有操作线程排空、资源真实关闭且相关许可确认结算后才回到静止状态；已知关闭后的业务错误可正常结算，未知关闭和会话丢失继续保留责任。丢失中的 generation 只允许在该代从未进入物理操作时安全接续；静止状态不代表可重放已完成的部分复制。普通导出保留 168 小时策略，fixture 导出的独立保留期限不变。
 
 本机已有基础设施时，可用独立 Compose project 复用已核实的网络，不再要求把 Redis
 服务定义合入队列配置。私有 Compose 环境文件还需设置
@@ -1365,18 +1401,30 @@ AAP_IDENTITY_ROLE_AUDIT_LIVE=1 \
 
 `import_images.py` 只从公开账号事实选任意首账号，保留不检查角色／启用状态的行为。
 `seed_scale.py` 使用 `aap-identity-scale-seed-actors/v1` 两项固定只读能力，创建时间留在
-Identity 内部。普通 Identity API／worker 配置保持五项函数；可信运维账号在普通围栏后
-显式追加选择能力：
+Identity 内部。选择在 `DATABASE_URL` 指定的受限运行账号上执行；私有夹具 owner 通道
+仍只负责运行台账、准入与写入。普通 Identity API／worker 配置保持五项函数；仅对
+隔离测试库的受信任运行账号在普通围栏后显式追加选择能力：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
-  -v identity_owner=identity_code -v consumer_role=legacy_runtime \
+  -v identity_owner=identity_code -v consumer_role="$FIXTURE_RUNTIME_ROLE" \
   -f infra/docker/identity-scale-seed-grants.sql
 ```
 
 此例只用于自己拥有的测试资源；不能把追加能力交给普通 HTTP／worker。实际图片导入
-还需要既有 Assets 运维能力。规模种子仍使用其他领域的原可信写入权限，不代表它们
-的最小凭据已经收口。原有清理先提交，后续选择失败或中断不会恢复旧标记图谱。
+还需要既有 Assets 运维能力。规模种子使用明确的 `--run-id`、隔离测试库和经验证的
+夹具 owner 通道；运行账号缺少选择权限时失败，不回退 owner。只清理该运行登记的
+项目与数据集，旧共享名称不会被自动接管或删除。
+受限 scale 账号不获 `workspace-scale-seed-grants.sql` 中的私有夹具写入／清理能力；
+项目、批次、任务和运行台账由既有私有 owner 通道处理。
+部署受管原件发布能力时，使用本部署的迁移账号重新应用 `module-data-grants.sql`，
+为既有 Assets NOLOGIN owner 补齐 `dataset_items.file_path` 更新列权限；不向 operator、
+API 或 worker 直接授予该私表权限，不需要变更表结构或扩展 Identity 选择能力。
+
+私有 test／e2e 夹具还会核对资源清单 `resources.json` 中创建数据库时记录的
+`postgres.database_oid`、实际数据库归属及 owner／运行连接。缺少出生记录或同名数据库
+已被替换时直接拒绝，不用当前 OID 补写旧清单。应先按已有 owner 流程准确核验并退役
+旧测试资源，再新建环境；原失败现场与未结算记录保持保留。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \
@@ -1395,10 +1443,9 @@ AAP_IDENTITY_SEED_SELECTION_LIVE=1 \
   --test-file tests/test_identity_seed_selection_live.py
 ```
 
-14 项定向检查和一个包含 11 次容器调用的冷案例已通过，包括真实版本化图片对象、
-重复导入、权限拒绝、已提交清理和分阶段写入、137 退出后的实际后端释放与恢复。
-这是本机 ARM64 的有限正确性资格，未验收大规模容量或全部种子工作流。
-收据见 `.worktree/identity-seed-selection-qualification.json`。
+冷案例检查真实版本化图片对象、重复导入、权限拒绝、精确运行清理、分阶段写入和
+实际进程退出后的恢复。验收结果以当次收据为准，不代表大规模容量或全部种子工作流；
+历史收据见 `.worktree/identity-seed-selection-qualification.json`。
 [唯一台账](docs-site/dev/concepts/module-deployment.md#剩余工作台账)记录实际资格与剩余项。
 
 ### 媒体种子的 Identity 边界
@@ -2075,10 +2122,10 @@ node --test scripts/check-workflow-names.test.mjs
 # 前端测试
 pnpm test                        # vitest 单测
 pnpm --filter web test:coverage  # 前端带覆盖率
-pnpm test:e2e                    # Playwright E2E（自启 :3001/:8010，使用 annotation_e2e）
+pnpm dev:worktree -- exec --mode e2e -- pnpm test:e2e  # 独立资源与受限 API
 pnpm --filter web test:e2e:layout  # 无 API / 数据库的滚动布局回归（自启 :3218）
-pnpm --filter web test:e2e:visual  # 独立视觉基线
-pnpm --filter web test:e2e:stress  # 完整布局压力矩阵
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:visual
+pnpm dev:worktree -- exec --mode e2e -- pnpm --filter web test:e2e:stress
 
 # 后端 / 共享包测试
 cd apps/api && uv run pytest                                            # FastAPI 平台后端
@@ -2120,8 +2167,16 @@ CI E2E 每个 PR 保留 4 个功能分片，以及 readonly Mask、native Mask�
 `scripts/plan-e2e-suites.mjs` 追加独立视觉与压力套件；main 始终运行全部九套件，
 `E2E extended` 每晚和手动运行两个扩展套件。默认配置排除 `@visual` / `@stress`，
 但六种布局上下文的 14 次短流程及全部恢复断言仍属于每个 PR 的功能回归。
-每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；同一数据库
-只用一个 Playwright worker，因为全局 seed cleanup 和 teardown 会清理共享数据。
+每个任务通过可复用的 `e2e-run.yml` 拥有独立 PostgreSQL、Redis 和 MinIO；未完成隔离验收的
+夹具仍只用一个 Playwright worker。Raster 故障用例还要求协调器在产品服务启动前准备专属
+数据库、版本化存储和 `PLAYWRIGHT_RASTER_FAULT_MANIFEST`，不允许在线破坏共享对象。
+
+私有截图与 scale 命令要求协调器提供 `AAP_FIXTURE_TOOLS_ROOT` 绝对目录：主机为仓库
+`scripts` 目录，安装镜像为 `/opt/yoao-fixture-tools`。截图和 scale 的 run 均须由主机
+协调器先在隔离测试环境注册；截图 global setup 在 seed 前经 owner 通道登记
+`SCREENSHOT_FIXTURE_RUN_ID`，截图消费者和 `seed_scale.py --run-id UUID` / `--purge`
+只处理该精确 run，不再隐式创建它。不要把原始存储写入凭据或源码挂载交给已安装的普通消费进程。
+
 默认、视觉和压力套件使用构建产物，Mask 任务由 Playwright 启动隔离 API 和 Vite dev。
 功能用例最多重试一次；扩展用例中视觉基线不重试、压力用例最多重试一次；进程/步骤/job 保留 15/20/30 分钟限时。
 `Frontend E2E` 汇总门禁同时要求路由和全部已选任务成功。每个套件的 HTML、JSON、
@@ -2301,9 +2356,9 @@ pnpm docs:media:audit -- --release
 手动入口需工作流先进入默认分支，验收不会自动批准素材或发布版本。
 具体步骤见[生成来源与人工复核版本](docs-site/dev/how-to/update-screenshots.md#生成来源与人工复核版本)。
 
-`pnpm test:e2e` 使用 `annotation_e2e`，截图使用
-`annotation_screenshots_test`，两者都与开发库 `annotation` 隔离。不要为省略建库步骤
-而把两套自动化的 `DATABASE_URL` 指回开发库。
+普通 E2E 使用启动器核验的工作树 `e2e` 资源；截图使用
+`annotation_screenshots_test`。不要为省略建库步骤而把自动化的
+`DATABASE_URL` 指回开发库。
 
 ### 改场景
 
@@ -2415,9 +2470,9 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-source-grants.sql
 ```
 
-数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 26 项 `aap_assets_v1` 能力：14 项来源/入库、9 项连接管理和 3 项图片来源/作业受理能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器仍使用独立的九函数 LOGIN，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
+数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 42 项 `aap_assets_v1` 能力：15 项来源/入库、11 项连接相关、3 项图片来源/作业受理、8 项托管原件和 5 项导入核验能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器使用独立的 18 项 LOGIN 能力，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
 
-服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
+服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort 与 Source 完整核验所需的 `GetObjectVersion`。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
 
 连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
 
@@ -2462,17 +2517,35 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-import-grants.sql
 ```
 
-连接参数和数据库名须指向选定环境。该账号仅能执行七项导入能力，不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理/取消和派发能力留给 API/维护运行时，不授予导入账号。
+连接参数和数据库名须指向选定环境。该账号仅能执行 18 项导入、托管原件和核验回执消费能力，不能读业务关系、序列或其他模块 schema，也不能有任一方向的角色成员资格。受理/取消和派发能力留给 API/维护运行时，不授予导入账号。
 
-准备 `.secrets/assets-import-database-url`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。可用 `.env.example` 中对应的 `_FILE` 变量改路径。目标存储身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用目标凭据。
+准备 `.secrets/assets-import-database-url`、`assets-import-verify-token`、`assets-import-s3-access-key`、`assets-import-s3-secret-key` 和 `connector-encryption-key`，内容分别为专用 DSN、独立核验令牌、目标存储身份及与 API 相同的 Fernet key；文件须能被容器用户 10004 读取。Source overlay 另准备 `.secrets/assets-source-import-verify-token`，由用户 10003 读取，与 Importer 核验令牌内容相同但不同于网关令牌；两个进程可各用自己的只读文件，不需要放宽文件权限来共用路径。可用 `.env.example` 中对应的 `_FILE` 变量改路径。内建目标身份只允许 datasets 桶的 `dataset-sources/*` Put 与 AbortMultipartUpload，不授予 Get、List、Delete 或桶管理。来源连接器使用自身的只读凭据，不复用内建目标凭据。
 
-图片身份来自成功的 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；回执缺失或格式无效时保留明确的文件失败。目标只写身份不执行上传后的 HEAD/GET。导入心跳的 `dataset_busy` 重试受最后一次确认的租约到期时间约束，续租调用本身也受该期限限制；无法确认时停止 I/O，保留由后续执行者接管的租约状态。
+图片身份来自成功 PutObject 或 CompleteMultipartUpload 回执中的 ETag、可选 VersionId 和实际传输字节数；回执缺失或格式无效时保留明确的文件失败。完整版本回读由 Source 的有限核验通道完成，内建目标的只写 Importer 身份不执行 HEAD／GET。Source 仅在原 datasets `dataset-sources/*` 范围补齐 `GetObjectVersion`，不扩大键范围或给 Importer 增加读取权。外部连接目标沿用同一既有配置身份及其权限，不因此获得读写凭据分离；缺少准确版本读取权限时明确失败。导入心跳的 `dataset_busy` 重试仍受最后一次确认的租约到期时间约束，无法确认时停止 I/O。
 
 显式设置 `ASSETS_IMPORT_S3_ENDPOINT` 和 `ASSETS_IMPORT_DATASETS_BUCKET`。执行器每次读取当前数据库白名单，未覆盖时才用 `CONNECTOR_HOST_ALLOWLIST` 部署默认值；显式空数组全拒。SFTP 需将可信指纹文件路径赋给 `ASSETS_IMPORT_SFTP_KNOWN_HOSTS`；默认示例为空，只支持不依赖 SSH 的来源，未知 SFTP 主机被拒绝。
 
+为完整 Source 配置 `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN` 或其 `_FILE`；Importer 使用
+内容相同的 `ASSETS_IMPORT_VERIFY_TOKEN` 或其 `_FILE`，并配置从该进程实际可达的
+`ASSETS_IMPORT_VERIFY_URL`。每项秘密只能选择值或文件，两个核验 token 必须与网关
+`ASSETS_SOURCE_TOKEN` 不同；不要把网关 token 或 Source 的 S3 读取凭据传给 Importer。
+Source 另以 `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` 限制整段原件核验，默认 120 秒、
+上限 600 秒，与单次 S3 socket 超时分开；该预算不放进严格的七字段核验请求。
+先应用当前迁移和角色授权，刷新 Source，再启动导入器。核验回执和状态恢复的边界见
+[来源控制](docs-site/api/guides/assets-source.md#source-所属的导入核验)；健康检查不替代真实核验。
+
+本地同时部署 Source 与 Importer 时，将两个既有 Compose 文件放在同一项目，
+复用默认私网及服务名；宿主机的 `127.0.0.1` 发布地址不能直接当作 Importer 容器的 Source 地址。
+部署在别处时，将下例 origin 改为该 Importer 进程实际可达的受控 Source 地址。
+
 ```bash
-docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml up -d --build
-docker compose -p aap-assets-import-dev -f docker-compose.assets-import.yml exec assets-import python -m yoao_assets_source_import --healthcheck
+export ASSETS_IMPORT_VERIFY_URL=http://assets-source:8767
+docker compose -p aap-assets-source-import-dev \
+  -f docker-compose.assets-source.yml -f docker-compose.assets-import.yml \
+  up -d --build assets-source assets-import
+docker compose -p aap-assets-source-import-dev \
+  -f docker-compose.assets-source.yml -f docker-compose.assets-import.yml \
+  exec assets-import python -m yoao_assets_source_import --healthcheck
 ```
 
 该项目不进入默认 Compose，不开放 HTTP 端口，不连接 Redis/Celery。宿主联调可用 `uv run --project apps/assets-source --extra importer python -m yoao_assets_source_import`；`--once` 处理至多一项已受理操作。健康检查验证配置和精确 SQL 权限，不能代替来源连通性或实际对象权限验收。
@@ -2495,7 +2568,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-operator-grants.sql
 ```
 
-`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 26 项、Catalog 的 29 项或导入执行器的 9 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
+`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 42 项、Catalog 的 29 项或导入执行器的 18 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
 
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 
@@ -3462,8 +3535,8 @@ SQL 失败／回滚保留旧状态和原始字节，旧对象清理发生在调�
 测试库中先安装 module-data owner grants、普通 Workspace consumer 围栏，再为明确
 选择的 fixture 操作账号追加 `workspace-seed-operator-grants.sql` 与
 `workspace-e2e-fixture-grants.sql`。后者只授予五项固定能力和模板 ID 关系；普通
-API／worker 不得到 fixture 能力。既有工作树测试账号按数据库后缀获得固定能力，
-不改变日常 Workspace 主环境的切换状态。
+API／worker 不得到 fixture 能力。测试库后缀只是必要的环境限制，不授权普通工作树
+账号读取私有夹具清单或调用 owner 能力；完整准备／清理继续使用独立 owner 通道。
 
 ```bash
 apps/api/.venv/bin/python scripts/verify_module_data_boundary.py \

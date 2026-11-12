@@ -20,17 +20,20 @@ from __future__ import annotations
 
 from app.services.exporting.contracts import export_contracts, video_source_contract
 from app.services.project_access import get_workspace_project
+from app.services import export_execution_context, storage_access
 
 import asyncio
 import json
 import math
 import os
+import sys
 import tempfile
 import threading
 import time
 import uuid
 import zipfile
 from copy import deepcopy
+from contextvars import ContextVar
 from datetime import datetime, timezone
 from posixpath import splitext
 from typing import Any, AsyncIterator
@@ -104,7 +107,7 @@ from yoao_workspace_contract import (
 )
 from app.services.assets_spatial import AssetsSpatialGateway
 from app.services.labeling_scene import read_spatial_item_facts
-from app.services.storage import storage_service
+from app.services.storage import require_unowned_legacy_original, storage_service
 from app.services.assets_media import media_gateway
 from app.services.mask_formats.catalog import registry as mask_format_registry
 from app.services.mask_formats.image_export import (
@@ -364,10 +367,33 @@ ExportChunkIter = AsyncIterator[
 ]
 
 
+class _ArchiveEvidence:
+    def __init__(self):
+        self.open_handles = 0
+        self.uncertain = False
+
+
+_archive_evidence = ContextVar("export_archive_evidence", default=None)
+
+
 def _new_zip_tempfile() -> str:
     """创建空 tempfile 供 ZipFile 落盘写入，返回路径（调用方负责清理）。"""
-    fd, path = tempfile.mkstemp(prefix="aap-export-", suffix=".zip")
-    os.close(fd)
+    try:
+        fd, path = tempfile.mkstemp(prefix="aap-export-", suffix=".zip")
+    except BaseException as exc:
+        raise storage_access.mark_unsettled(exc)
+    evidence = _archive_evidence.get()
+    if evidence is not None:
+        evidence.open_handles += 1
+    try:
+        os.close(fd)
+    except BaseException as exc:
+        if evidence is not None:
+            evidence.uncertain = True
+        raise storage_access.mark_unsettled(exc)
+    else:
+        if evidence is not None:
+            evidence.open_handles -= 1
     return path
 
 
@@ -376,6 +402,29 @@ class ExportQuotaError(ValueError):
 
 
 class _QuotaZipFile(zipfile.ZipFile):
+    def __exit__(self, exc_type, exc, traceback):
+        try:
+            return super().__exit__(exc_type, exc, traceback)
+        except BaseException as closing:
+            if exc is None:
+                raise
+            raise BaseExceptionGroup(
+                "Export archive and ZIP close failed", [exc, closing]
+            ) from None
+
+    def close(self):
+        evidence = getattr(self, "_export_evidence", None)
+        try:
+            super().close()
+        except BaseException as exc:
+            if evidence is not None:
+                evidence.uncertain = True
+            raise storage_access.mark_unsettled(exc)
+        else:
+            if evidence is not None:
+                evidence.open_handles -= 1
+                self._export_evidence = None
+
     def _check_entry(self, size_bytes: int) -> None:
         if len(self.filelist) >= settings.mask_format_max_archive_files:
             raise ExportQuotaError("resource_budget_exceeded:max_archive_files")
@@ -438,7 +487,17 @@ class _QuotaZipFile(zipfile.ZipFile):
 
 
 def _open_export_zip(path: str) -> _QuotaZipFile:
-    return _QuotaZipFile(path, "w", zipfile.ZIP_DEFLATED)
+    evidence = _archive_evidence.get()
+    if evidence is not None:
+        evidence.open_handles += 1
+    try:
+        archive = _QuotaZipFile(path, "w", zipfile.ZIP_DEFLATED)
+    except BaseException as exc:
+        if evidence is not None:
+            evidence.uncertain = True
+        raise storage_access.mark_unsettled(exc)
+    archive._export_evidence = evidence
+    return archive
 
 
 def _export_size(path: str) -> int:
@@ -446,13 +505,6 @@ def _export_size(path: str) -> int:
     if size_bytes > settings.mask_format_temp_quota_bytes:
         raise ExportQuotaError("resource_budget_exceeded:temp_quota_bytes")
     return size_bytes
-
-
-def _safe_unlink(path: str) -> None:
-    try:
-        os.unlink(path)
-    except OSError:
-        pass
 
 
 async def build_export_zip(
@@ -531,8 +583,15 @@ async def build_export_zip(
     ):
         raise ValueError("image_export_inputs_changed")
 
-    tmp_path = _new_zip_tempfile()
+    execution = export_execution_context.current_optional()
+    evidence = _ArchiveEvidence() if execution is not None else None
+    if execution is not None:
+        await execution.enter_io()
+    archive_level = execution.active_io if execution is not None else None
+    evidence_token = _archive_evidence.set(evidence)
+    tmp_path, failure = None, None
     try:
+        tmp_path = _new_zip_tempfile()
         if project is None:
             with _open_export_zip(tmp_path):
                 pass
@@ -703,7 +762,11 @@ async def build_export_zip(
                     zf.writestr(f"{prefix}data.yaml", _build_data_yaml(classes_list))
 
             # Spool the manifest outside ZIP: only one ZIP write handle may be open.
-            with tempfile.TemporaryFile(mode="w+b", prefix="export-manifest-") as mf:
+            try:
+                manifest = tempfile.TemporaryFile(mode="w+b", prefix="export-manifest-")
+            except BaseException as exc:
+                raise storage_access.mark_unsettled(exc)
+            with storage_access.closing_registered(manifest) as mf:
                 mf.write(
                     (
                         json.dumps(metadata, ensure_ascii=False)[:-1] + ', "images": ['
@@ -783,7 +846,16 @@ async def build_export_zip(
                                     size_bytes=snapshot.size,
                                 )
                             finally:
-                                snapshot.close()
+                                primary = sys.exception()
+                                try:
+                                    storage_access.close_registered(snapshot)
+                                except BaseException as closing:
+                                    if primary is None:
+                                        raise
+                                    raise BaseExceptionGroup(
+                                        "Export archive and snapshot close failed",
+                                        [primary, closing],
+                                    ) from None
                         elif image_media is not None:
                             entry.update(
                                 storage_mode="managed",
@@ -793,6 +865,9 @@ async def build_export_zip(
                                 **image_media.entry(t.id),
                             )
                         else:
+                            await require_unowned_legacy_original(
+                                db, t.file_path, storage_service.datasets_bucket
+                            )
                             entry.update(
                                 rel_path=relative_path_from_file_path(
                                     t.file_path, _dataset_name_for_task(t, item), item
@@ -897,9 +972,39 @@ async def build_export_zip(
         if check_cancel:
             await check_cancel()
         return tmp_path, file_count, _export_size(tmp_path)
-    except BaseException:
-        _safe_unlink(tmp_path)
+    except BaseException as exc:
+        failure = exc
+        if tmp_path is not None and (
+            execution is None
+            or (
+                evidence.open_handles == 0
+                and not evidence.uncertain
+                and not execution.unsettled
+                and execution.active_io == archive_level
+                and not storage_access.failure_unsettled(exc)
+            )
+        ):
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            except OSError as closing:
+                exc.add_note(f"Export temporary ZIP cleanup failed: {closing!r}")
         raise
+    finally:
+        _archive_evidence.reset(evidence_token)
+        if (
+            execution is not None
+            and evidence is not None
+            and evidence.open_handles == 0
+            and not evidence.uncertain
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)
+        elif execution is not None and failure is None:
+            raise storage_access.mark_unsettled(
+                storage_access.error("storage_operation_unsettled", 503)
+            )
 
 
 def _build_data_yaml(classes_list: list[str]) -> str:
@@ -1335,6 +1440,9 @@ async def _build_lidar_export_zip(
                                 size_bytes=saved["size_bytes"],
                             )
                         else:
+                            await require_unowned_legacy_original(
+                                svc.db, item.file_path, storage_service.datasets_bucket
+                            )
                             manifest_item["presigned_url"] = (
                                 storage_service.generate_download_url(
                                     item.file_path,
@@ -1383,6 +1491,11 @@ async def _build_lidar_export_zip(
                             size_bytes=saved["size_bytes"],
                         )
                     else:
+                        await require_unowned_legacy_original(
+                            svc.db,
+                            primary_item.file_path,
+                            storage_service.datasets_bucket,
+                        )
                         manifest_item["presigned_url"] = (
                             storage_service.generate_download_url(
                                 primary_item.file_path,
@@ -2196,7 +2309,6 @@ async def _build_video_export_zip(
                     for ann in mask_track_annotations
                 ]
                 youtube_sparse_frames: list[int] = []
-                # frame_count：元数据优先，缺失回退最大标注帧 + 1。
                 max_kf = 0
                 for ann in track_anns:
                     for kf in (ann.geometry or {}).get("keyframes") or []:
@@ -2517,6 +2629,10 @@ async def _build_video_export_zip(
                     video_rel = relative_path_from_file_path(
                         video_source["source_key"], dataset_name
                     )
+                    if source_reference is None:
+                        await require_unowned_legacy_original(
+                            svc.db, video_source["source_key"], storage_service.bucket
+                        )
                     presigned = (
                         source_reference.original_url
                         if source_reference is not None
@@ -2526,6 +2642,8 @@ async def _build_video_export_zip(
                             bucket=storage_service.bucket,
                         )
                     )
+                    if presigned is None:
+                        raise ValueError("video_export_source_not_authorized")
                     receipt = {}
                 frame_output_dirs: list[str] = []
                 frame_outputs = []

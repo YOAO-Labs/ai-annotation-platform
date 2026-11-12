@@ -3,29 +3,36 @@
 from __future__ import annotations
 
 import asyncio
-from copy import deepcopy
+import logging
+import uuid
 from contextvars import copy_context
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from functools import partial
-import logging
-import uuid
 
-from sqlalchemy import delete, or_, select
+from sqlalchemy import delete, or_, select, text
+from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.export_artifact import ExportArtifact
 from app.db.models.export_media_bundle import ExportMediaBundle
 from app.db.models.export_output import ExportOutput
 from app.db.models.storage_maintenance import StorageOperation
 from app.services import (
+    export_execution_context,
     export_media_storage,
     export_storage,
     export_zip_accounting,
     storage_access,
-    storage_migration_artifact_reads as artifact_reads,
-    storage_migration_read_publications as read_publications,
 )
 from app.services import key_removal_accounting as removal
+from app.services import object_removal_accounting as version_removal
+from app.services import (
+    storage_migration_artifact_reads as artifact_reads,
+)
+from app.services import (
+    storage_migration_read_publications as read_publications,
+)
 from app.services.original_read_plan import ReadRoute
 
 log = logging.getLogger(__name__)
@@ -67,6 +74,7 @@ class OutputSnapshot:
     expires_at: datetime
     _storage_ref: dict = field(repr=False)
     media_bundle_id: uuid.UUID | None = None
+    fixture: bool = False
 
     @property
     def storage_ref(self):
@@ -82,12 +90,12 @@ def _fact(row, name):
     return getattr(row, name)
 
 
-def snapshot(row):
+def snapshot(row, *, fixture=False):
     """Thread arguments contain immutable values, never an attached ORM record."""
     export_storage.resolve(row)
     facts = {name: deepcopy(_fact(row, name)) for name in _FACTS}
     facts["_storage_ref"] = facts.pop("storage_ref")
-    return OutputSnapshot(**facts)
+    return OutputSnapshot(**facts, fixture=fixture)
 
 
 def same(row, receipt):
@@ -113,13 +121,18 @@ async def _locked(db, identifier):
 
 
 async def _settled_thread(call, *args):
-    task = None
+    task, failure, entered = None, None, False
+    owner = export_execution_context.current_optional()
+    if owner is not None:
+        await owner.enter_io()
+        entered = True
     try:
         task = asyncio.get_running_loop().run_in_executor(
             None, copy_context().run, partial(call, *args)
         )
         return await asyncio.shield(task)
     except BaseException as interrupted:
+        failure = interrupted
         if task is None:
             raise storage_access.mark_unsettled(interrupted)
         # The temporary ZIP remains owned until hashing physically finishes.
@@ -132,9 +145,23 @@ async def _settled_thread(call, *args):
         try:
             task.result()
         except BaseException as late:
-            if getattr(late, "storage_operation_unsettled", False):
+            if owner is not None and late is not interrupted:
+                failure = BaseExceptionGroup(
+                    "Export hashing and drained physical work failed",
+                    [interrupted, late],
+                )
+                raise failure from None
+            if storage_access.failure_unsettled(late):
                 storage_access.mark_unsettled(interrupted)
         raise
+    finally:
+        if (
+            entered
+            and task is not None
+            and task.done()
+            and (failure is None or not storage_access.failure_unsettled(failure))
+        ):
+            await export_execution_context.settle_io(failure)
 
 
 def _identifier(value):
@@ -151,6 +178,18 @@ def _instant(value):
     if not isinstance(value, datetime) or value.utcoffset() is None:
         reject("export_storage_invalid_receipt")
     return value.astimezone(timezone.utc)
+
+
+async def fixture_native_lifetime(db, job_id, project_id):
+    return (
+        await db.execute(
+            text(
+                "SELECT run_id, created_at, expires_at "
+                "FROM public.fixture_native_export_lifetime(:job_id, :project_id)"
+            ),
+            {"job_id": _identifier(job_id), "project_id": _identifier(project_id)},
+        )
+    ).one_or_none()
 
 
 def _creation_valid(
@@ -213,6 +252,15 @@ async def create(
         )
         if bundle is None or bundle.id != media_bundle_id:
             reject()
+    native = (
+        await fixture_native_lifetime(db, job_id, project_id)
+        if bundle is None
+        else None
+    )
+    if native is not None:
+        if created_at is not None or expires_at is not None:
+            reject("export_storage_invalid_receipt")
+        created_at, expires_at = native.created_at, native.expires_at
     identifier = (
         _identifier(output_id)
         if output_id is not None
@@ -276,9 +324,42 @@ async def create(
     db.add(row)
     await db.flush()
     _creation_valid(bundle, **facts)
-    receipt = snapshot(row)
+    receipt = snapshot(
+        row,
+        fixture=native is not None
+        or (bundle is not None and bundle.fixture_run_id is not None),
+    )
     await db.commit()
     return receipt
+
+
+def proof_writer(db, receipt):
+    """Persist a verified upload from its physical thread before it can settle."""
+    if not getattr(receipt, "fixture", False):
+        return None
+    loop = asyncio.get_running_loop()
+    factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
+
+    async def persist(proof):
+        async with factory() as owned:
+            row = await _locked(owned, receipt.id)
+            if row is None or row.state != "pending" or not same(row, receipt):
+                reject()
+            if row.upload_proof is not None:
+                reject("export_storage_invalid_receipt")
+            row.upload_proof = proof
+            await owned.commit()
+
+    def save(proof):
+        coroutine = persist(proof)
+        try:
+            future = asyncio.run_coroutine_threadsafe(coroutine, loop)
+        except BaseException:
+            coroutine.close()
+            raise
+        future.result()
+
+    return save
 
 
 async def write(db, receipt, path):
@@ -309,6 +390,11 @@ async def write(db, receipt, path):
             path,
             **({"target": target} if target is not None else {}),
             accounting=accounting,
+            **(
+                {"save_proof": proof_writer(db, receipt)}
+                if getattr(receipt, "fixture", False)
+                else {}
+            ),
             on_acquired=acquired,
         )
     except BaseException as exc:
@@ -412,6 +498,17 @@ async def verify_cache(db, artifact):
         reject("export_cache_output_mismatch")
     if row.expires_at <= now():
         return None
+    if receipt.media_bundle_id is None:
+        if await fixture_native_lifetime(db, receipt.job_id, receipt.project_id):
+            return None
+    else:
+        bundle = await db.get(
+            ExportMediaBundle, receipt.media_bundle_id, populate_existing=True
+        )
+        if bundle is None:
+            reject("export_cache_output_mismatch")
+        if bundle.fixture_run_id is not None:
+            return None
     owner = export_storage.resolve(receipt)
     route = await _read_route(db, receipt)
     target = None if route is not None else await export_storage.io_target(db, receipt)
@@ -554,7 +651,9 @@ async def prepared_download(db, receipt, *, download_name, prepared):
         await storage_access.check(
             db, uuid.UUID(receipt.storage_ref["location_id"]), lock=True
         )
-        return export_storage.sign(receipt, download_name=download_name)
+        return await export_execution_context.run_sync(
+            export_storage.sign, receipt, download_name=download_name
+        )
     if (
         not isinstance(prepared, PreparedDownload)
         or prepared.download_name != download_name
@@ -599,7 +698,9 @@ async def sign_cached(
     if hit.read_route is None and hit.output.storage_ref["schema"] == 1:
         if before_sign is not None:
             await before_sign()
-        return export_storage.sign(hit.output, download_name=download_name)
+        return await export_execution_context.run_sync(
+            export_storage.sign, hit.output, download_name=download_name
+        )
     if (
         not isinstance(prepared, PreparedDownload)
         or prepared.read_route != hit.read_route
@@ -667,6 +768,25 @@ async def _cleanup_one(db, identifier, counters):
     if row is None:
         await db.commit()
         return False
+    native = (
+        await fixture_native_lifetime(db, row.job_id, row.project_id)
+        if bundle is None
+        else None
+    )
+    if (
+        (bundle is not None and bundle.fixture_run_id is not None) or native is not None
+    ) and not await export_media_retirement.fixture_owner_session(db):
+        await db.commit()
+        return False
+    native_eligible = native is not None and bool(
+        await db.scalar(
+            text("SELECT public.fixture_native_export_cleanup_eligible(:output_id)"),
+            {"output_id": identifier},
+        )
+    )
+    if native is not None and not native_eligible:
+        await db.commit()
+        return False
     linked_ended = bundle is not None and await export_media_retirement.zip_eligible(
         db, bundle, row
     )
@@ -674,6 +794,7 @@ async def _cleanup_one(db, identifier, counters):
         (bundle is not None and not linked_ended)
         or (
             row.state == "pending"
+            and not native_eligible
             and (not linked_ended or bundle.published_at is not None)
         )
         or (
@@ -685,6 +806,13 @@ async def _cleanup_one(db, identifier, counters):
             )
         )
     ):
+        await db.commit()
+        return False
+    private = native is not None or (
+        bundle is not None and bundle.fixture_run_id is not None
+    )
+    proof = deepcopy(row.upload_proof) if private else None
+    if private and proof is None:
         await db.commit()
         return False
     receipt = snapshot(row)
@@ -714,9 +842,14 @@ async def _cleanup_one(db, identifier, counters):
     counters["removed"] += removed
     owner = export_storage.resolve(receipt)
     if bundle is not None:
-        await export_media_retirement.delete_zip(db, bundle, receipt)
+        await export_media_retirement.delete_zip(
+            db, bundle, receipt, **({"proof": proof} if private else {})
+        )
     else:
-        accounting = removal.recorder(
+        recorder = (
+            version_removal if private and proof["version_id"] is not None else removal
+        )
+        accounting = recorder.recorder(
             db, receipt, producer="export_zip_removals", purpose="temporary"
         )
         owned_permit, failure = None, None
@@ -733,6 +866,7 @@ async def _cleanup_one(db, identifier, counters):
                 export_storage.delete,
                 receipt,
                 accounting=accounting,
+                **({"proof": proof} if private else {}),
                 on_acquired=acquired,
                 **(
                     {"target": await export_storage.io_target(db, receipt)}
@@ -768,6 +902,35 @@ async def _cleanup_one(db, identifier, counters):
         and not await _has_index(db, identifier)
         and not await _has_read(db, receipt)
     ):
+        if private and not await db.scalar(
+            text("SELECT public.confirm_fixture_export_zip_absent(:output_id)"),
+            {"output_id": current.id},
+        ):
+            await db.commit()
+            return False
+        if current_bundle is not None and current_bundle.fixture_run_id is not None:
+            await db.execute(
+                text(
+                    "INSERT INTO public.fixture_export_zip_retirements "
+                    "(bundle_id, output_id, fixture_run_id, project_id, job_id, sha256, size_bytes) "
+                    "VALUES (:bundle_id, :output_id, :run_id, :project_id, :job_id, :sha256, :size_bytes)"
+                ),
+                {
+                    "bundle_id": current_bundle.id,
+                    "output_id": current.id,
+                    "run_id": current_bundle.fixture_run_id,
+                    "project_id": current.project_id,
+                    "job_id": current.job_id,
+                    "sha256": current.sha256,
+                    "size_bytes": current.size_bytes,
+                },
+            )
+        if native is not None and not await db.scalar(
+            text("SELECT public.retire_fixture_native_export_output(:output_id)"),
+            {"output_id": current.id},
+        ):
+            await db.rollback()
+            return False
         await db.delete(current)
         await db.commit()
         return True
@@ -818,6 +981,16 @@ async def cleanup(db, *, limit=100):
                     & export_media_retirement.pending_zip_predicate(current),
                 ),
                 ~export_media_retirement.zip_operations_predicate(),
+                ~select(ExportMediaBundle.id)
+                .where(
+                    ExportMediaBundle.id == ExportOutput.media_bundle_id,
+                    ExportMediaBundle.fixture_run_id.is_not(None),
+                )
+                .exists(),
+                text(
+                    "NOT EXISTS (SELECT 1 FROM public.fixture_native_export_lifetime("
+                    "export_outputs.job_id, export_outputs.project_id))"
+                ),
             )
             .order_by(
                 ExportOutput.last_attempted_at.asc().nulls_first(),
