@@ -73,23 +73,18 @@ def _merge_seed_extra(stage: _SeedMarkerStage, native_extra: Any) -> Any:
     merged = _mapping(native_extra)
     baseline = _mapping(stage.database_extra_params)
     previous = _mapping(stage.previous_extra_params)
-    staged = _mapping(stage.staged_extra_params)
-    current = _mapping(current_extra)
 
+    # Re-apply the caller's pending edits over the Native merge. The `seed` key
+    # belongs to the ingress marker, so the pending pre-staging value there must
+    # not overwrite the revision Native just applied.
     missing = object()
-    for before, after, skip_seed in (
-        (baseline, previous, True),
-        (staged, current, False),
-    ):
-        for key in before.keys() | after.keys():
-            if (skip_seed and key == "seed") or before.get(key, missing) == after.get(
-                key, missing
-            ):
-                continue
-            if key in after:
-                merged[key] = deepcopy(after[key])
-            else:
-                merged.pop(key, None)
+    for key in baseline.keys() | previous.keys():
+        if key == "seed" or baseline.get(key, missing) == previous.get(key, missing):
+            continue
+        if key in previous:
+            merged[key] = deepcopy(previous[key])
+        else:
+            merged.pop(key, None)
     return merged
 
 

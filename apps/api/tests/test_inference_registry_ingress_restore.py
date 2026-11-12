@@ -27,6 +27,8 @@ from tests.test_inference_backend_dependency_reads_restore import (
 )
 from tests.test_inference_registry_ingress_legacy import _server
 from tests.test_inference_registry_ingress_native import (
+    _CATALOG_FUNCTIONS,
+    _CLIENT_FUNCTIONS,
     _connect,
     _create_registry,
     _cleanup_registries,
@@ -48,12 +50,21 @@ async def _native_state(engine):
     try:
         rows = await owner.fetch(
             "SELECT pg_catalog.pg_get_functiondef(p.oid) AS definition, "
-            "pg_catalog.pg_get_userbyid(p.proowner) AS owner,p.proacl::text AS acl,p.proconfig AS settings "
+            "pg_catalog.pg_get_userbyid(p.proowner) AS owner,p.proacl::text AS acl,p.proconfig AS settings, "
+            "p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
             "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
-            "WHERE n.nspname='aap_inference_registry_ingress_v1' ORDER BY p.proname"
+            "WHERE n.nspname='aap_inference_registry_ingress_v1' ORDER BY signature"
         )
-        assert len(rows) == 11
+        assert {row["signature"] for row in rows} == set(_CATALOG_FUNCTIONS)
         assert all(row["owner"] == "inference_code" for row in rows)
+        executable = await owner.fetch(
+            "SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
+            "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
+            "WHERE n.nspname='aap_inference_registry_ingress_v1' "
+            "AND pg_catalog.has_function_privilege("
+            "'inference_registry_ingress_client', p.oid, 'EXECUTE')"
+        )
+        assert {row["signature"] for row in executable} == set(_CLIENT_FUNCTIONS)
         receipts = await owner.fetch(
             "SELECT * FROM aap_inference_registry_ingress_v1.env_sync_receipts ORDER BY request_id"
         )

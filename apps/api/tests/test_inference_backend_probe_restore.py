@@ -22,6 +22,7 @@ from tests.test_inference_backend_dependency_reads_restore import (
     _create_owned_clone,
     _database_acl,
     _drop_owned_clone,
+    _rebind_copied_authority,
 )
 from tests.test_inference_backend_probe_bindings import setup_backend
 from tests.test_inference_backend_probe_native import (
@@ -118,6 +119,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
         )
         engines.append(source)
         await _assert_clone_identity(source, names[0], owners[names[0]])
+        await _rebind_copied_authority(source)
         with setup_backend() as (url, calls):
             registry_id = uuid.uuid4()
             seed = await _connect(source)
