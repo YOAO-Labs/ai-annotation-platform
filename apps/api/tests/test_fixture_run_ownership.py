@@ -1022,3 +1022,26 @@ async def test_scale_cleanup_blocks_live_admission_and_preserves_neighbor(
         raise
     if failure is not None:
         raise failure
+
+
+async def test_native_participation_is_per_run_not_per_suite(tmp_path):
+    from app.api.v1._test_seed import _native_run_owned
+
+    class SuiteRuntime:
+        def __init__(self):
+            self.directory = tmp_path
+            self.runs = {}
+            self.retired_runs = set()
+
+    runtime = SuiteRuntime()
+    run_id, recorded, retiring = (uuid.uuid4() for _ in range(3))
+    assert _native_run_owned(None, run_id) is False
+    assert _native_run_owned(runtime, run_id) is False
+    runtime.runs[run_id] = {"journal": {"state": "ready"}}
+    assert _native_run_owned(runtime, run_id) is True
+    runtime.runs.clear()
+    runtime.retired_runs.add(run_id)
+    assert _native_run_owned(runtime, run_id) is True
+    (tmp_path / f"native-run-{recorded.hex}").mkdir()
+    assert _native_run_owned(runtime, recorded) is True
+    assert _native_run_owned(runtime, retiring) is False
