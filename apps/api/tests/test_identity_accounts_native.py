@@ -701,6 +701,19 @@ async def test_presence_operator_preserves_cutoff_and_null_timestamp_rules(test_
                     ),
                     {"id": user_id, "status": status, "seen": seen},
                 )
+            # The sweep is global: every online presence row whose last_seen is
+            # missing or before the cutoff is rewritten.  Park the rows left by
+            # earlier files inside this savepoint so only this test's fixtures
+            # can match; the fixture teardown rolls the parking back.
+            await session.execute(
+                text(
+                    "UPDATE public.identity_account_presence SET status='offline' "
+                    "WHERE status='online' "
+                    "AND (last_seen_at IS NULL OR last_seen_at < :cutoff) "
+                    "AND user_id <> ALL(CAST(:ids AS uuid[]))"
+                ),
+                {"cutoff": cutoff, "ids": [fixture["actor_id"], *ids]},
+            )
             affected = await session.scalar(
                 text(
                     "SELECT aap_identity_accounts_v1.mark_inactive_accounts_offline(:cutoff)"

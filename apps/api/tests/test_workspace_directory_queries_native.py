@@ -7,7 +7,7 @@ import uuid
 
 import asyncpg
 import pytest
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from yoao_workspace.directory_queries import DirectoryQueryManager
@@ -151,7 +151,38 @@ async def test_native_directory_steps_and_manager_preserve_members_and_inactive_
             connection, mention, "mention_owner", DirectoryQueryUserId(user_id=owner.id)
         )
         assert account.user.id == owner.id and account.user.is_active
-        assert (await _step(connection, mention, "mention_superadmins")).accounts == []
+        # ``workspace_directory_superadmins`` is a global directory: it lists
+        # every active super admin, not only this test's fixtures.  Compare the
+        # native reply with that contract instead of assuming an empty table,
+        # and keep the documented name ordering (the verifier profile shares
+        # one database with earlier files).
+        super_admin_accounts = (
+            await _step(connection, mention, "mention_superadmins")
+        ).accounts
+        async with maker() as db:
+            expected_super_admins = {
+                (row.id, row.name, row.email)
+                for row in (
+                    await db.execute(
+                        text(
+                            "SELECT id, name::text AS name, email::text AS email "
+                            "FROM public.users "
+                            "WHERE role='super_admin' AND is_active IS TRUE"
+                        )
+                    )
+                ).all()
+            }
+        assert {
+            (item.id, item.name, item.email) for item in super_admin_accounts
+        } == expected_super_admins
+        assert [item.name for item in super_admin_accounts] == sorted(
+            item.name for item in super_admin_accounts
+        )
+        # This test's owner/member/inactive fixtures are not super admins, so
+        # they must never be offered as super-admin mentions.
+        assert not {owner.id, member.id, inactive.id} & {
+            item.id for item in super_admin_accounts
+        }
         joined = json.loads(
             (
                 await _step(

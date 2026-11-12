@@ -34,6 +34,10 @@ from app.db.models.task_lock import TaskLock
 from app.db.models.user import User
 from app.db.native_schema import NATIVE_MANAGED_TABLES
 from tests.factory import create_project
+from tests.identity_super_admin_premise import (
+    park_foreign_super_admins,
+    restore_parked_super_admins,
+)
 from tests.test_identity_auth_native import _seed
 
 _ROOT = Path(__file__).parents[3]
@@ -1167,6 +1171,11 @@ async def test_last_unreserved_super_admin_is_preserved(test_engine):
     actor_id = fixture["actor_id"]
     target_id, _ = await _add_user(test_engine, "super_admin")
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    # The guard counts every unreserved super admin in the database; park the
+    # rows left by earlier files so this test controls the premise.
+    parked = await park_foreign_super_admins(
+        test_engine, keep_ids=[actor_id, target_id]
+    )
     now = datetime.now(UTC)
     secret = "identity-suspension-last-admin-secret"
     token = _token(actor_id, "super_admin", secret)
@@ -1231,6 +1240,7 @@ async def test_last_unreserved_super_admin_is_preserved(test_engine):
                 == 0
             )
     finally:
+        await restore_parked_super_admins(test_engine, parked)
         await _cleanup_world(
             test_engine,
             actor_ids=[actor_id],
