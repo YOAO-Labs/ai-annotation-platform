@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import re
+import socket
 import sys
 import tempfile
 import uuid
@@ -118,7 +119,9 @@ class SeedOwner:
             matches = re.findall(
                 rb"^Fixture setup failed: (\w+)$", self.errors.read(), re.MULTILINE
             )
-            kind = matches[-1].decode() if matches else f"exit {self.process.returncode}"
+            kind = (
+                matches[-1].decode() if matches else f"exit {self.process.returncode}"
+            )
             raise RuntimeError(f"Fixture owner process failed: {kind}")
         result = json.loads(line)
         if result.get("operation_id") != envelope["operation_id"]:
@@ -133,42 +136,76 @@ class SeedOwner:
                 raise self.failure
             result = None
             try:
-                result = await self._exchange({
-                    "action": "execute", "operation_id": operation_id, "payload": payload
-                })
+                result = await self._exchange(
+                    {
+                        "action": "execute",
+                        "operation_id": operation_id,
+                        "payload": payload,
+                    }
+                )
                 if result.get("state") == "pending":
                     raise RuntimeError("Fixture operation outcome is pending")
                 if (
-                    ("owner_error" in result and (
-                        not isinstance(result["owner_error"], str) or not result["owner_error"].isidentifier()
-                    ))
-                    or ("owner_error" not in result and (
-                        type(result.get("status")) is not int
-                        or not isinstance(result.get("body"), str)
-                    ))
-                    or ("journal_error" in result and (
-                        not isinstance(result["journal_error"], str) or not result["journal_error"].isidentifier()
-                    ))
-                    or ("disposal_error" in result and (
-                        not isinstance(result["disposal_error"], str) or not result["disposal_error"].isidentifier()
-                    ))
-                    or ("operation_response" in result and (
-                        not isinstance(result["operation_response"], dict)
-                        or type(result["operation_response"].get("status")) is not int
-                        or not isinstance(result["operation_response"].get("body"), str)
-                    ))
+                    (
+                        "owner_error" in result
+                        and (
+                            not isinstance(result["owner_error"], str)
+                            or not result["owner_error"].isidentifier()
+                        )
+                    )
+                    or (
+                        "owner_error" not in result
+                        and (
+                            type(result.get("status")) is not int
+                            or not isinstance(result.get("body"), str)
+                        )
+                    )
+                    or (
+                        "journal_error" in result
+                        and (
+                            not isinstance(result["journal_error"], str)
+                            or not result["journal_error"].isidentifier()
+                        )
+                    )
+                    or (
+                        "disposal_error" in result
+                        and (
+                            not isinstance(result["disposal_error"], str)
+                            or not result["disposal_error"].isidentifier()
+                        )
+                    )
+                    or (
+                        "operation_response" in result
+                        and (
+                            not isinstance(result["operation_response"], dict)
+                            or type(result["operation_response"].get("status"))
+                            is not int
+                            or not isinstance(
+                                result["operation_response"].get("body"), str
+                            )
+                        )
+                    )
                 ):
-                    raise RuntimeError("Fixture owner returned an invalid operation result")
+                    raise RuntimeError(
+                        "Fixture owner returned an invalid operation result"
+                    )
                 if result.get("owner_error") not in {
-                    "OperationOutcomeUnresolved", "OperationIdentityConflict"
+                    "OperationOutcomeUnresolved",
+                    "OperationIdentityConflict",
                 }:
-                    ack = await self._exchange({"action": "ack", "operation_id": operation_id})
+                    ack = await self._exchange(
+                        {"action": "ack", "operation_id": operation_id}
+                    )
                     if ack.get("state") != "acknowledged":
-                        raise RuntimeError("Fixture operation receipt was not acknowledged")
+                        raise RuntimeError(
+                            "Fixture operation receipt was not acknowledged"
+                        )
             except BaseException as error:
                 if result is not None:
                     error.fixture_response = result
-                    error.add_note("Fixture operation response was received before transport failure")
+                    error.add_note(
+                        "Fixture operation response was received before transport failure"
+                    )
                 error.fixture_operation_id = operation_id
                 error.add_note(f"Fixture operation ID: {operation_id}")
                 self.failure = error
@@ -176,18 +213,36 @@ class SeedOwner:
         causes = []
         known = result.get("operation_response")
         if known is not None:
-            causes.append(RuntimeError(f"Fixture operation returned HTTP {known['status']}"))
-        if result.get("owner_error") and result["owner_error"] != result.get("disposal_error"):
-            causes.append(RuntimeError(f"Fixture operation failed: {result['owner_error']}"))
+            causes.append(
+                RuntimeError(f"Fixture operation returned HTTP {known['status']}")
+            )
+        if result.get("owner_error") and result["owner_error"] != result.get(
+            "disposal_error"
+        ):
+            causes.append(
+                RuntimeError(f"Fixture operation failed: {result['owner_error']}")
+            )
         if result.get("disposal_error"):
-            causes.append(RuntimeError(f"Fixture database disposal failed: {result['disposal_error']}"))
+            causes.append(
+                RuntimeError(
+                    f"Fixture database disposal failed: {result['disposal_error']}"
+                )
+            )
         if not causes and result.get("journal_error"):
-            causes.append(RuntimeError(f"Fixture operation returned HTTP {result['status']}"))
+            causes.append(
+                RuntimeError(f"Fixture operation returned HTTP {result['status']}")
+            )
         if result.get("journal_error"):
-            causes.append(RuntimeError(f"Fixture evidence journal failed: {result['journal_error']}"))
+            causes.append(
+                RuntimeError(
+                    f"Fixture evidence journal failed: {result['journal_error']}"
+                )
+            )
         if causes:
-            error = causes[0] if len(causes) == 1 else ExceptionGroup(
-                "Fixture operation and evidence failed", causes
+            error = (
+                causes[0]
+                if len(causes) == 1
+                else ExceptionGroup("Fixture operation and evidence failed", causes)
             )
             error.fixture_response = result
             error.fixture_operation_id = operation_id
@@ -198,11 +253,15 @@ class SeedOwner:
     async def recover_operation(self, operation_id):
         """Query the original authority without re-executing the operation."""
         async with self.lock:
-            return await self._exchange({"action": "recover", "operation_id": str(operation_id)})
+            return await self._exchange(
+                {"action": "recover", "operation_id": str(operation_id)}
+            )
 
     async def acknowledge_operation(self, operation_id):
         async with self.lock:
-            result = await self._exchange({"action": "ack", "operation_id": str(operation_id)})
+            result = await self._exchange(
+                {"action": "ack", "operation_id": str(operation_id)}
+            )
             if result.get("state") != "acknowledged":
                 raise RuntimeError("Fixture operation outcome is not completed")
 
@@ -234,7 +293,9 @@ class SeedOwner:
 
     async def retire_native_suite(self):
         result = await self._request({"operation": "owner_native_suite_retire"})
-        if result["status"] != 200 or json.loads(result["body"]) != {"state": "retired"}:
+        if result["status"] != 200 or json.loads(result["body"]) != {
+            "state": "retired"
+        }:
             raise RuntimeError("Fixture native suite retirement is unsettled")
 
     async def shutdown_authority(self, suite_id: uuid.UUID | None = None) -> str:
@@ -273,18 +334,44 @@ class OwnedSuite:
         assert response.status_code == 200, response.text
 
 
+def _fixture_provider_host() -> str:
+    """The non-loopback IPv4 the fixture backend must advertise.
+
+    The provider binds 0.0.0.0 and refuses loopback because workers may be
+    separate processes. A hostname lookup is insufficient here (this host
+    resolves its own name to 127.0.1.1), so select the egress interface
+    address without sending any packet.
+    """
+    configured = os.environ.get("PLAYWRIGHT_ML_FIXTURE_HOST", "").strip()
+    if configured:
+        return configured
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.connect(("192.0.2.1", 9))
+        address = probe.getsockname()[0]
+    except OSError:
+        return ""
+    finally:
+        probe.close()
+    return "" if address.startswith("127.") or address == "0.0.0.0" else address
+
+
 @asynccontextmanager
 async def private_seed_owner(*, native_suite_id: uuid.UUID | None = None):
     """Launch the private owner process without passing its DSN to product HTTP."""
     errors = tempfile.TemporaryFile()
-    environment = None
+    environment = dict(os.environ)
+    fixture_host = _fixture_provider_host()
+    if fixture_host:
+        environment["PLAYWRIGHT_ML_FIXTURE_HOST"] = fixture_host
     if native_suite_id is not None:
-        environment = {
-            **os.environ,
-            "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
-            "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(native_suite_id),
-            "PLAYWRIGHT_FIXTURE_RUN_ID": str(native_suite_id),
-        }
+        environment.update(
+            {
+                "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
+                "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(native_suite_id),
+                "PLAYWRIGHT_FIXTURE_RUN_ID": str(native_suite_id),
+            }
+        )
     try:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
