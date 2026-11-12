@@ -1188,7 +1188,10 @@ async def _serve(payload):
                 ):
                     raise RuntimeError("Inference control socket identity changed")
                 controller.close()
-                control_path.unlink()
+                # Server.close() also unlinks the Unix socket path it created;
+                # the unlink must stay idempotent or the finish reply and
+                # shutdown signal are skipped while the socket is already gone.
+                control_path.unlink(missing_ok=True)
                 finishing = True
                 control_path.parent.rmdir()
                 status = "stopping"
