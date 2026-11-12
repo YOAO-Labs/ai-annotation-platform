@@ -97,6 +97,9 @@ async def test_real_staging_put_cannot_change_completed_source_and_duplicate_is_
     )
     await db_session.flush()
     headers = {"Authorization": f"Bearer {token}"}
+    from app.services.managed_original_creation import bootstrap
+
+    await bootstrap(db_session)
     exact_keys = []
     original, changed = _image("red"), _image("blue")
     try:
@@ -175,6 +178,9 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
     )
     await db_session.flush()
     headers = {"Authorization": f"Bearer {token}"}
+    from app.services.managed_original_creation import bootstrap
+
+    await bootstrap(db_session)
     initialized = await httpx_client.post(
         f"/api/v1/datasets/{dataset_id}/items/upload-init",
         headers=headers,
@@ -183,33 +189,47 @@ async def test_real_copy_etag_race_preserves_pending_intent_for_a_new_attempt(
     assert initialized.status_code == 200, initialized.text
     item_id = UUID(initialized.json()["item_id"])
     stage, final_keys = f"dataset-uploads/{item_id}/source", []
-    original_copy = storage_service.client.copy_object
+    reserved = await db_session.get(
+        DatasetUploadIntent, item_id, populate_existing=True
+    )
+    initial_publication = reserved.publication_id
+    original_get = storage_service.client.get_object
     original, changed = _image("red"), _image("blue")
 
-    def change_before_copy(**kwargs):
-        final_keys.append(kwargs["Key"])
-        storage_service.client.put_object(
-            Bucket=storage_service.import_bucket,
-            Key=stage,
-            Body=changed,
-            ContentType="image/png",
-        )
-        return original_copy(**kwargs)
+    def change_before_stream(**kwargs):
+        # The publication streams the pinned staging object with IfMatch; a
+        # changed object must abort the write. Header-only reads (Range) keep
+        # observing the original bytes so the race happens inside publication.
+        if (
+            kwargs.get("Bucket") == storage_service.import_bucket
+            and kwargs.get("Key") == stage
+            and "Range" not in kwargs
+        ):
+            final_keys.append(kwargs["Key"])
+            storage_service.client.put_object(
+                Bucket=storage_service.import_bucket,
+                Key=stage,
+                Body=changed,
+                ContentType="image/png",
+            )
+        return original_get(**kwargs)
 
     try:
         await _put(initialized.json()["upload_url"], original)
-        monkeypatch.setattr(storage_service.client, "copy_object", change_before_copy)
+        monkeypatch.setattr(storage_service.client, "get_object", change_before_stream)
         path = f"/api/v1/datasets/{dataset_id}/items/upload-complete/{item_id}"
         rejected = await httpx_client.post(path, headers=headers)
         assert rejected.status_code == 409, rejected.text
         assert rejected.json()["detail"] == {"reason": "source_changed"}
-        await db_session.rollback()
+        db_session.expire_all()
         assert await db_session.get(DatasetItem, item_id) is None
         intent = await db_session.get(
             DatasetUploadIntent, item_id, populate_existing=True
         )
-        assert intent.state == "pending" and intent.publication_id is None
-        monkeypatch.setattr(storage_service.client, "copy_object", original_copy)
+        assert (
+            intent.state == "pending" and intent.publication_id == initial_publication
+        )
+        monkeypatch.setattr(storage_service.client, "get_object", original_get)
         completed = await httpx_client.post(path, headers=headers)
         assert completed.status_code == 200, completed.text
         final = await db_session.scalar(

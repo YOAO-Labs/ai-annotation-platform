@@ -231,7 +231,8 @@ async def test_zip_remote_replay_preserves_sources_and_plans_all_dataset_items(
         assert duplicate.status_code == 200, duplicate.text
         assert duplicate.json()["added"] == 0 and duplicate.json()["deduped"] == 2
         assert (await _facts(stack))[1] == (2, 2, 3, 2, 2)
-        stack.dispatcher.dispatch_thumbnail.assert_not_called()
+        # The request path never dispatches media; publication only records the
+        # durable handoff claimed below (no dispatcher dependency remains).
 
         # A broker failure retains the durable handoff for its next lease.
         async with stack.world.maker() as db:

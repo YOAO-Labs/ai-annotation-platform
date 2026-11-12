@@ -483,6 +483,15 @@ async def test_unlink_cleanup_queues_only_task_pyramids_and_completes_idempotent
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     try:
         async with maker() as session:
+            # Other committed suites legitimately leave their own pending
+            # deletions behind; compare against this test's baseline instead of
+            # assuming an empty global queue.
+            baseline = {
+                row["operation_id"]
+                for row in await _rows(
+                    session, _PENDING_DELETIONS, operation_id=None, limit=1000
+                )
+            }
             assert (
                 await session.scalar(
                     _PREPARE_CLEANUP,
@@ -564,9 +573,9 @@ async def test_unlink_cleanup_queues_only_task_pyramids_and_completes_idempotent
                 session,
                 _PENDING_DELETIONS,
                 operation_id=None,
-                limit=20,
+                limit=1000,
             )
-            assert {row["operation_id"] for row in global_rows} == {
+            assert {row["operation_id"] for row in global_rows} == baseline | {
                 fixture["operation_id"],
                 fixture["other_operation_id"],
             }
@@ -589,12 +598,17 @@ async def test_unlink_cleanup_queues_only_task_pyramids_and_completes_idempotent
                 )
                 == []
             )
-            remaining = await _rows(
-                session,
-                _PENDING_DELETIONS,
-                operation_id=None,
-                limit=20,
-            )
+            remaining = [
+                row
+                for row in await _rows(
+                    session,
+                    _PENDING_DELETIONS,
+                    operation_id=None,
+                    limit=1000,
+                )
+                if row["operation_id"]
+                in {fixture["operation_id"], fixture["other_operation_id"]}
+            ]
             assert len(remaining) == 1
             assert remaining[0]["operation_id"] == fixture["other_operation_id"]
             assert (

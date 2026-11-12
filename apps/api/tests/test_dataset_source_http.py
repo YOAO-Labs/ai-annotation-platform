@@ -20,6 +20,14 @@ from tests.factory import create_project
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+async def _source_storage_registry(db_session):
+    """Seed the committed storage registry facts the native source owner reads."""
+    from app.services.managed_original_creation import bootstrap
+
+    await bootstrap(db_session)
+
+
 def _headers(token, key=None):
     result = {"Authorization": f"Bearer {token}"}
     if key is not None:
@@ -320,6 +328,11 @@ async def test_upload_parent_mismatch_is_missing_and_other_actor_cannot_adopt(
         lambda *args, **kwargs: "http://upload.test/opaque",
     )
     item_id = await _reserve(httpx_client, token, left_id)
+    reserved = await db_session.get(
+        DatasetUploadIntent, item_id, populate_existing=True
+    )
+    initial_publication = reserved.publication_id
+    assert initial_publication is not None
 
     def forbidden(*args, **kwargs):
         pytest.fail("An invalid upload scope reached object storage")
@@ -339,7 +352,7 @@ async def test_upload_parent_mismatch_is_missing_and_other_actor_cannot_adopt(
     assert (
         intent.actor_id == user.id
         and intent.state == "pending"
-        and intent.publication_id is None
+        and intent.publication_id == initial_publication
     )
 
 

@@ -718,7 +718,9 @@ async def test_labeling_append_failure_rolls_back_item_and_counter_then_retries(
     async with world.maker() as retry:
         locked = await _lock(retry, world, item_id)
         new_publication = uuid.UUID(locked["data"]["publication_id"])
-        assert new_publication != publication_id
+        # 0424 keeps the publication allocated at initialization for every
+        # completion attempt of the same pending intent.
+        assert new_publication == publication_id
         completed = await _complete(retry, world, item_id, new_publication)
         assert completed["ok"] is True, completed
         await retry.commit()
