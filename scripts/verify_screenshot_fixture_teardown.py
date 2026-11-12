@@ -346,11 +346,15 @@ def find_child(parent, needle, *, browser=False):
         try:
             args = cmdline(pid)
             if browser:
+                # Chromium rewrites its /proc cmdline as one space-joined
+                # string, so split the joined form before matching the
+                # executable and the renderer/zygote --type= markers.
+                tokens = b" ".join(args).split()
                 match = bool(
-                    args
-                    and args[0].rsplit(b"/", 1)[-1]
+                    tokens
+                    and tokens[0].rsplit(b"/", 1)[-1]
                     in (b"chrome", b"chromium", b"chrome-headless-shell")
-                    and not any(arg.startswith(b"--type=") for arg in args)
+                    and not any(token.startswith(b"--type=") for token in tokens)
                 )
             else:
                 match = any(needle in arg for arg in args)
