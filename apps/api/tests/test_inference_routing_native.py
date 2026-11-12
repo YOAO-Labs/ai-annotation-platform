@@ -32,6 +32,7 @@ _REGISTRY_FIELDS = {
     "is_interactive",
     "auth_method",
     "auth_token",
+    "auth_revision",
     "extra_params",
     "gpu_resource_id",
     "vram_budget_mb",

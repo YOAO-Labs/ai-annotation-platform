@@ -252,6 +252,30 @@ async def _database_acl(test_engine) -> list[tuple[str, str, bool]]:
     return result
 
 
+async def _rebind_copied_authority(engine) -> None:
+    """Give a disposable restored clone its own routing authority.
+
+    The product keeps a copied database bound to its source realm and rejects
+    copied proofs (ADR-0155 and ADR-0159); the coordinated rebind protocol is
+    ADR-0160 and is not exercised here. This owned clone is a module-data
+    fixture, not a recovery target, so it rotates the copied secret and binds
+    the current database before the test writes module data.
+    """
+    async with engine.begin() as connection:
+        result = await connection.execute(
+            text(
+                "UPDATE aap_inference_routing_v1.authority_secret AS authority "
+                "SET secret = public.gen_random_bytes(32), "
+                "realm_database_oid = database.oid, "
+                "realm_database_name = database.datname "
+                "FROM pg_catalog.pg_database AS database "
+                "WHERE authority.singleton IS TRUE "
+                "AND database.datname = pg_catalog.current_database()"
+            )
+        )
+        assert result.rowcount == 1
+
+
 async def _create_owned_clone(
     admin,
     test_engine,
@@ -487,6 +511,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             test_engine.url.set(database=source_database), hide_parameters=True
         )
         await _assert_clone_identity(source_engine, source_database, source_owner)
+        await _rebind_copied_authority(source_engine)
 
         world = await _seed_database(source_engine)
         source_function_metadata = await _function_metadata(source_engine)
