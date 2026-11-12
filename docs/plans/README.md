@@ -28,6 +28,12 @@ Leave existing archives in place. Do not archive solely by timestamp or date: Ep
 
 Store unscheduled research drafts that require a fresh repository review before implementation in `docs/plans/backlog/`. These drafts do not reserve versions, authorize implementation, or participate in the root's stale-plan check. Before implementation, re-audit them through the [promotion gate](backlog/README.md#promotion-gate) and move them to the root as current plans. Do not code directly from a backlog draft.
 
+## Keeping active plans readable
+
+An active plan holds scope, contracts, acceptance criteria, a current status section, open items and closed slices. Rewrite the status section in place as work progresses; do not append another dated bullet for each run.
+
+Run-by-run execution evidence (attempt results, failure receipts, environment observations) goes to an append-only ledger at `docs/plans/evidence/<plan-file-stem>/<topic>-run-ledger.md`, linked from the plan's status section. Private receipts that contain credentials stay in untracked run directories and are referenced by name only. Reusable troubleshooting facts discovered during execution move to `docs-site/dev/troubleshooting/` as soon as they are confirmed against the current code.
+
 ## Required completion steps
 
 After implementing each plan, complete all three steps:

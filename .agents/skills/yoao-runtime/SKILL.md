@@ -44,7 +44,7 @@ For a changed task signature, verify the callable inside each affected running c
 
 Training uses the separate `apps/training-executor` process/image and its claim, capability and heartbeat checks. Healthy inference backends do not prove trainer readiness; an executor image with baked source needs its own rebuild/recreation. If the UI hangs, distinguish blocked API I/O, stopped services and capability-disabled pools before changing error presentation.
 
-For long checks, retain the real exit code plus JUnit/JSON or another bounded summary before output can be truncated. Do not repeat a completed suite only to recover console counts. After verification, remove only task-owned logs, databases, Redis instances, buckets, browser profiles, and probes; destroy worktree modes before deleting their worktrees.
+For long checks, retain the real exit code plus JUnit/JSON or another bounded summary before output can be truncated. Do not repeat a completed suite only to recover console counts. After verification, remove only task-owned logs, databases, Redis instances, buckets, browser profiles, and probes; destroy worktree modes before deleting their worktrees. Retain failure evidence, not failed live environments: read [environment retention](references/environment-retention.md) before keeping one, before heavy runs on a crowded host, or when retiring environments the normal destroy path refuses.
 
 Read [diagnostics](references/diagnostics.md) for stuck jobs, stored bug reports, or database-backed checks. Finish with evidence from the affected runtime, or name the unavailable service precisely.
 
