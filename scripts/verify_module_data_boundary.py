@@ -15,6 +15,7 @@ import asyncio
 from collections import Counter
 from datetime import datetime, timezone
 import hashlib
+import ipaddress
 import json
 import os
 from pathlib import Path
@@ -4873,6 +4874,34 @@ def _create_import_storage_scope(scope: dict, *, source: bool) -> None:
             scope["access_key"],
         ],
     )
+
+
+def _fixture_provider_host(container_id: str) -> str:
+    """The verified bridge gateway that the owned PostgreSQL container reaches.
+
+    The fixture backend binds 0.0.0.0 but refuses loopback addresses because
+    workers are separate processes. This owned container's network gateway is
+    the host address reachable both from the host and from that bridge.
+    """
+    from worktree_resources import docker
+
+    output = docker(
+        "inspect",
+        "--format",
+        "{{range .NetworkSettings.Networks}}{{.Gateway}}\n{{end}}",
+        container_id,
+    )
+    candidates = set()
+    for line in output.splitlines():
+        gateway = line.strip()
+        if not gateway:
+            continue
+        address = ipaddress.ip_address(gateway)
+        if address.version == 4 and not (address.is_loopback or address.is_unspecified):
+            candidates.add(gateway)
+    if len(candidates) != 1:
+        raise RuntimeError("owned fixture provider bridge gateway is ambiguous")
+    return candidates.pop()
 
 
 def _container_details(
@@ -10894,6 +10923,11 @@ SELECT id FROM removed;
         )
         resource_environment = backend.environment()
         resource_environment["AAP_MODULE_DATA_PG_DATABASE_OID"] = str(database_oid)
+        # The fixture backend refuses loopback; advertise the gateway of the
+        # verifier's own PostgreSQL bridge, reachable from host and containers.
+        resource_environment["PLAYWRIGHT_ML_FIXTURE_HOST"] = _fixture_provider_host(
+            container_id
+        )
         # Authority-native fixture suites construct their own LocalResources
         # for the fixture store and require the ordinary MinIO endpoint
         # credentials in their child environment.

@@ -10,7 +10,6 @@ import json
 import os
 from pathlib import Path
 import re
-import socket
 import sys
 import tempfile
 import uuid
@@ -334,62 +333,18 @@ class OwnedSuite:
         assert response.status_code == 200, response.text
 
 
-def _default_gateway() -> str:
-    """The IPv4 gateway of the default route on this Linux host."""
-    try:
-        routes = Path("/proc/net/route").read_text().splitlines()[1:]
-    except OSError:
-        return ""
-    for line in routes:
-        fields = line.split()
-        if len(fields) >= 3 and fields[1] == "00000000":
-            raw = int(fields[2], 16)
-            return ".".join(str((raw >> (8 * index)) & 0xFF) for index in range(4))
-    return ""
-
-
-def _fixture_provider_host() -> str:
-    """The non-loopback IPv4 the fixture backend must advertise.
-
-    The provider binds 0.0.0.0 and refuses loopback because workers may be
-    separate processes. A hostname lookup is insufficient here (this host
-    resolves its own name to 127.0.1.1) and a public probe address may be
-    policy-routed through a local proxy interface, so select the source
-    address of the default-route gateway without sending any packet.
-    """
-    configured = os.environ.get("PLAYWRIGHT_ML_FIXTURE_HOST", "").strip()
-    if configured:
-        return configured
-    gateway = _default_gateway()
-    if not gateway:
-        return ""
-    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        probe.connect((gateway, 9))
-        address = probe.getsockname()[0]
-    except OSError:
-        return ""
-    finally:
-        probe.close()
-    return "" if address.startswith("127.") or address == "0.0.0.0" else address
-
-
 @asynccontextmanager
 async def private_seed_owner(*, native_suite_id: uuid.UUID | None = None):
     """Launch the private owner process without passing its DSN to product HTTP."""
     errors = tempfile.TemporaryFile()
-    environment = dict(os.environ)
-    fixture_host = _fixture_provider_host()
-    if fixture_host:
-        environment["PLAYWRIGHT_ML_FIXTURE_HOST"] = fixture_host
+    environment = None
     if native_suite_id is not None:
-        environment.update(
-            {
-                "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
-                "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(native_suite_id),
-                "PLAYWRIGHT_FIXTURE_RUN_ID": str(native_suite_id),
-            }
-        )
+        environment = {
+            **os.environ,
+            "AAP_PRIVATE_FIXTURE_AUTHORITY_NATIVE": "1",
+            "AAP_PRIVATE_FIXTURE_SUPERVISED_SUITE": str(native_suite_id),
+            "PLAYWRIGHT_FIXTURE_RUN_ID": str(native_suite_id),
+        }
     try:
         process = await asyncio.create_subprocess_exec(
             sys.executable,
