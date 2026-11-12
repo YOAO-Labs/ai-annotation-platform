@@ -12,9 +12,19 @@ from yoao_assets_mask_content.storage import S3MaskContentStore
 from app.config import settings
 
 
+def mask_content_owner_selected() -> bool:
+    """Whether an independent Mask byte owner is explicitly configured.
+
+    Any remote URL selects the owner, matching :func:`mask_content_owner`; a
+    cleanup-only configuration therefore fails content operations as
+    unavailable instead of silently using the API's own object storage.
+    """
+    return bool(settings.assets_mask_content_url or settings.assets_mask_cleanup_url)
+
+
 @contextmanager
 def mask_content_owner(storage, *, cleanup: bool = False):
-    remote = bool(settings.assets_mask_content_url or settings.assets_mask_cleanup_url)
+    remote = mask_content_owner_selected()
     origin = (
         settings.assets_mask_cleanup_url
         if cleanup

@@ -640,7 +640,26 @@ async def _mask_session(db):
         await common.settled(session.close())
 
 
+def _remote_mask_fact(reference):
+    """Freeze an immutable owner reference; owner bytes never carry a saved locator."""
+    return {
+        "reference": deepcopy(reference),
+        "receipt": {
+            "logical_key": reference["object_key"],
+            "sha256": reference["sha256"],
+        },
+        "gate_revision": 1,
+    }
+
+
 async def _mask_owner(db, reference, *, lock=False):
+    from app.services.mask_content import mask_content_owner_selected
+
+    if mask_content_owner_selected():
+        # Owner content is content-addressed and unpublished into saved ownership;
+        # Labeling write epochs remain the collection fence.
+        return _remote_mask_fact(reference)
+
     from app.services import raster_mask_objects, raster_object_storage as physical
 
     query = select(RasterMaskObject).where(
@@ -685,7 +704,10 @@ async def _mask_owner(db, reference, *, lock=False):
 async def qualify_mask_references(db, value, probe, *, content=None, content_key=None):
     """Read all actual RLE content before business locks; freeze saved owners."""
     from app.services import raster_mask_objects
-    from app.services.raster_mask_storage import validate_reference_for_rle
+    from app.services.raster_mask_storage import (
+        load_coco_rle,
+        validate_reference_for_rle,
+    )
 
     if db.in_transaction():
         _reject("prediction_video_io_transaction_open")
@@ -696,6 +718,19 @@ async def qualify_mask_references(db, value, probe, *, content=None, content_key
     facts = []
     if not references_to_read:
         return facts
+    from app.services.mask_content import mask_content_owner_selected
+
+    if mask_content_owner_selected():
+        for reference in references_to_read.values():
+            rle = await common.settled(load_coco_rle(reference))
+            validate_reference_for_rle(reference, rle)
+            if rle["size"] != [probe["video"]["height"], probe["video"]["width"]]:
+                _reject("prediction_video_mask_changed")
+            if content is not None and reference["object_key"] == content_key:
+                content[content_key] = deepcopy(rle)
+            facts.append(_remote_mask_fact(reference))
+        _saved_results(value, probe)
+        return _json(facts)
     async with _mask_session(db) as owned:
         for reference in references_to_read.values():
             before = await _mask_owner(owned, reference)

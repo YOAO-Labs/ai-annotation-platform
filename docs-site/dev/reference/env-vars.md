@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-11
+last_reviewed: 2026-11-12
 ---
 
 # 环境变量参考
@@ -721,7 +721,7 @@ last_reviewed: 2026-11-11
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `ASSETS_MASK_CONTENT_URL` | `—` | 全部 URL 留空时本地装配同一实现；显式远程配置失败时不回退本地 S3。 cleanup 通过持久删除日志接收 Labeling 已建立围栏的操作。 |
+| `ASSETS_MASK_CONTENT_URL` | `—` | 显式设置 URL 即选择 owner：持久 RLE 只在 owner 的逻辑键上存取，失败不回退。 全部 URL 留空时持久 RLE 使用 API 自身保存归属（raster-masks/objects UUID）。 切换模式不迁移已有 Mask；cleanup 通过持久删除日志接收 Labeling 已建立围栏的操作。 |
 | `ASSETS_MASK_CONTENT_TOKEN` | `—` | — |
 | `ASSETS_MASK_CLEANUP_URL` | `—` | — |
 | `ASSETS_MASK_CLEANUP_TOKEN` | `—` | — |
