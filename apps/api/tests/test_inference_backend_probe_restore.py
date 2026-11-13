@@ -18,11 +18,11 @@ from tests.inference_backend_probe_helpers import probe_provider
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_identity_recovery import _postgres_tool
 from tests.test_inference_backend_dependency_reads_restore import (
+    _assert_copied_authority_quarantined,
     _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
     _drop_owned_clone,
-    _rebind_copied_authority,
 )
 from tests.test_inference_backend_probe_bindings import setup_backend
 from tests.test_inference_backend_probe_native import (
@@ -119,7 +119,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
         )
         engines.append(source)
         await _assert_clone_identity(source, names[0], owners[names[0]])
-        await _rebind_copied_authority(source)
+        await _assert_copied_authority_quarantined(source)
         with setup_backend() as (url, calls):
             registry_id = uuid.uuid4()
             seed = await _connect(source)
@@ -161,6 +161,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
             )
             engines.append(restored)
             await _assert_clone_identity(restored, names[1], owners[names[1]])
+            await _assert_copied_authority_quarantined(restored)
 
             assert await _state(restored) == before
             probe = await _connect(restored, role="inference_backend_probe_client")

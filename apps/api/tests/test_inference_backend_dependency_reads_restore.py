@@ -193,11 +193,17 @@ async def _assert_inference_has_no_raw_reads(engine) -> None:
             for statement in (
                 "SELECT id FROM public.sample_evaluation_runs LIMIT 1",
                 "SELECT id FROM public.trained_model_deployments LIMIT 1",
-                "SELECT id FROM public.async_jobs LIMIT 1",
             ):
                 with pytest.raises(asyncpg.InsufficientPrivilegeError):
                     async with connection.transaction():
                         await connection.fetch(statement)
+            # Routing's execution-scope owner still reads Jobs lifecycle rows.
+            # This restore must preserve that existing grant, not revoke it to
+            # manufacture a dependency-read isolation result.
+            assert await connection.fetchval(
+                "SELECT pg_catalog.has_table_privilege("
+                "current_user, 'public.async_jobs', 'SELECT')"
+            )
     finally:
         await connection.close()
 
@@ -252,28 +258,12 @@ async def _database_acl(test_engine) -> list[tuple[str, str, bool]]:
     return result
 
 
-async def _rebind_copied_authority(engine) -> None:
-    """Give a disposable restored clone its own routing authority.
-
-    The product keeps a copied database bound to its source realm and rejects
-    copied proofs (ADR-0155 and ADR-0159); the coordinated rebind protocol is
-    ADR-0160 and is not exercised here. This owned clone is a module-data
-    fixture, not a recovery target, so it rotates the copied secret and binds
-    the current database before the test writes module data.
-    """
-    async with engine.begin() as connection:
-        result = await connection.execute(
-            text(
-                "UPDATE aap_inference_routing_v1.authority_secret AS authority "
-                "SET secret = public.gen_random_bytes(32), "
-                "realm_database_oid = database.oid, "
-                "realm_database_name = database.datname "
-                "FROM pg_catalog.pg_database AS database "
-                "WHERE authority.singleton IS TRUE "
-                "AND database.datname = pg_catalog.current_database()"
-            )
+async def _assert_copied_authority_quarantined(engine) -> None:
+    """Copied routing state stays bound to its source database, without rebinding."""
+    async with engine.connect() as connection:
+        assert await connection.scalar(
+            text("SELECT aap_inference_routing_v1._routing_secret() IS NULL")
         )
-        assert result.rowcount == 1
 
 
 async def _create_owned_clone(
@@ -511,7 +501,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             test_engine.url.set(database=source_database), hide_parameters=True
         )
         await _assert_clone_identity(source_engine, source_database, source_owner)
-        await _rebind_copied_authority(source_engine)
+        await _assert_copied_authority_quarantined(source_engine)
 
         world = await _seed_database(source_engine)
         source_function_metadata = await _function_metadata(source_engine)
@@ -528,6 +518,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             "running_other": 1,
             "running_missing": 0,
         }
+        await _assert_inference_has_no_raw_reads(source_engine)
 
         source_dump.touch(mode=0o600)
         source_dump.write_bytes(
@@ -565,6 +556,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
         )
         await _assert_clone_identity(restored_engine, restored_database, restored_owner)
 
+        await _assert_copied_authority_quarantined(restored_engine)
         assert await _function_metadata(restored_engine) == source_function_metadata
         assert await _row_state(restored_engine, world) == source_rows
         assert await _answers(restored_engine, world) == source_answers

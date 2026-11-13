@@ -25,6 +25,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _local_s3_client,
     _remove_worker_image,
     _required_env,
+    _stop_owned_container,
     _stop_remove_container,
     _verified_resource_manifest,
     _verify_bucket_owner,
@@ -121,8 +122,8 @@ async def _assert_startup_rejected(container: str) -> None:
 
 
 @asynccontextmanager
-async def _lost_response_proxy(origin: str):
-    """Drop the response only after the real service has committed its command."""
+async def _lost_response_proxy(origin: str, *, after_physical_return: Path | None = None):
+    """Drop a real response after a committed reply or an explicit physical-I/O gate."""
     address = httpx.URL(origin)
     handlers = set()
 
@@ -142,7 +143,14 @@ async def _lost_response_proxy(origin: str):
                     await upstream_writer.drain()
 
             forwarder = asyncio.create_task(forward())
-            assert await asyncio.wait_for(upstream_reader.read(1), timeout=15)
+            if after_physical_return is None:
+                assert await asyncio.wait_for(upstream_reader.read(1), timeout=15)
+            else:
+                async def wait_for_physical_return():
+                    while not after_physical_return.exists():
+                        await asyncio.sleep(0.01)
+
+                await asyncio.wait_for(wait_for_physical_return(), timeout=15)
         finally:
             if forwarder is not None:
                 forwarder.cancel()
@@ -201,6 +209,8 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
     from app.config import settings
     from app.deps import get_db
     from app.db.models.dataset import DatasetItem
+    from app.services.dataset_assets import hash_stored_object, register_item_asset
+    from app.services.storage import storage_service
 
     catalog_url = make_url(_required_env("AAP_MODULE_DATA_ASSET_CATALOG_URL"))
     assert catalog_url.username == "asset_catalog_client"
@@ -210,6 +220,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
     resources = _verified_resource_manifest(test_engine, catalog_url)
     datasets = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     cache = resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
+    assert storage_service.datasets_bucket == datasets
     owner_s3 = _local_s3_client(
         settings, settings.minio_access_key, settings.minio_secret_key
     )
@@ -369,17 +380,21 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                         Bucket=bucket, Key=object_key, Body=object_key.encode()
                     )
                     objects.append((bucket, object_key))
+                _, sha256, size, etag = await asyncio.to_thread(hash_stored_object, key)
                 async with async_sessionmaker(test_engine)() as owner:
-                    owner.add(
-                        DatasetItem(
-                            dataset_id=dataset_id,
-                            file_name="source.jpg",
-                            file_path=key,
-                            file_type="image",
-                            file_size=31,
-                            thumbnail_path=thumbnail,
-                            metadata_={"future_field": {"retained": True}},
-                        )
+                    stored_item = DatasetItem(
+                        dataset_id=dataset_id,
+                        file_name="source.jpg",
+                        file_path=key,
+                        file_type="image",
+                        file_size=size,
+                        thumbnail_path=thumbnail,
+                        metadata_={"future_field": {"retained": True}},
+                    )
+                    owner.add(stored_item)
+                    await owner.flush()
+                    await register_item_asset(
+                        owner, stored_item, sha256=sha256, size_bytes=size, etag=etag
                     )
                     await owner.commit()
                 listed = await api.get(
@@ -388,7 +403,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                     headers=headers,
                 )
                 assert listed.status_code == 200 and listed.json()["total"] == 1
-                assert listed.json()["items"][0]["total_size"] == 31
+                assert listed.json()["items"][0]["total_size"] == size
                 items = await api.get(
                     f"/api/v1/datasets/{dataset_id}/items", headers=headers
                 )
@@ -399,15 +414,15 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 async with httpx.AsyncClient(trust_env=False) as source:
                     # Non-video originals are authenticated identity reads, not
                     # presigned catalog URLs (791ce8f30).
-                    identity = await api.get(
+                    original_identity = await api.get(
                         item["original_identity_path"], headers=headers
                     )
-                    assert identity.status_code == 200, identity.text
-                    original = await api.get(
-                        identity.json()["download_path"], headers=headers
+                    assert original_identity.status_code == 200, original_identity.text
+                    downloaded = await api.get(
+                        original_identity.json()["download_path"], headers=headers
                     )
-                    assert original.status_code == 200, original.text
-                    assert original.content == key.encode()
+                    assert downloaded.status_code == 200, downloaded.text
+                    assert downloaded.content == key.encode()
                     assert (
                         await source.get(item["thumbnail_url"])
                     ).content == thumbnail.encode()
@@ -439,7 +454,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                     changed.status_code == 200
                     and changed.json()["axis_convention"] is None
                 )
-                await asyncio.to_thread(_docker, "stop", "--time", "15", container)
+                await asyncio.to_thread(_stop_owned_container, container, identity)
                 unavailable = await api.get(
                     f"/api/v1/datasets/{dataset_id}", headers=headers
                 )

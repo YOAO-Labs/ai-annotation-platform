@@ -101,6 +101,7 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
     from scripts.import_nuscenes_scene import import_nuscenes
     from app.config import settings
     from app.services.dataset import DatasetService
+    from app.services.project_workspace import find_import_project
 
     _, storage = _resources(test_engine)
     engine = _composition_engine(test_engine)
@@ -239,9 +240,13 @@ async def test_nuscenes_native_source_writes_preserve_reimport_and_cross_owner_r
                 assert (
                     await caller.scalar(
                         text(
-                            "SELECT count(*) FROM public.tasks WHERE project_id IN (SELECT id FROM public.projects WHERE display_id=:display)"
+                            "SELECT count(*) FROM aap_labeling_v1.task_rows WHERE project_id=:project"
                         ),
-                        {"display": failed_project_display},
+                        {
+                            "project": await find_import_project(
+                                caller, failed_project_display
+                            )
+                        },
                     )
                 ) == 2
                 await caller.rollback()

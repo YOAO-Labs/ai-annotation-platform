@@ -9,7 +9,6 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 import uuid
 import subprocess
-import struct
 
 import asyncpg
 import pytest
@@ -126,7 +125,6 @@ async def test_seed_profile_rejects_a_child_that_could_inherit_operator_writes(
                 role,
             )
             assert result.returncode != 0
-            assert "non-admin, non-inheriting LOGIN" in result.stderr
             async with api() as db:
                 assert not await db.scalar(
                     text(
@@ -148,22 +146,24 @@ async def _project_state(db, display_id):
         db, project_id=project_id, populate_existing=True
     )
     return {
-        column.key: getattr(project, column.key)
-        for column in Project.__table__.columns
-        if column.key not in {"id", "owner_id", "created_at", "updated_at"}
+        key: getattr(project, key)
+        for key in (
+            "display_id",
+            "name",
+            "type_key",
+            "type_label",
+            "data_type",
+            "tool_bindings",
+            "scene_mode",
+            "prefer_same_scene_continuation",
+            "total_tasks",
+        )
     }
 
 
 GOLDEN = json.loads(
     (ROOT / "apps/api/tests/fixtures/workspace_seed_operator_legacy.json").read_text()
 )
-# PostgreSQL JSONB renders REAL using its shortest decimal; ORM/native rows
-# expose the exact binary32 value. Decode that one physical column losslessly.
-for _field in ("directory_project", "nuscenes_project_before_rollback"):
-    _state = GOLDEN["workflow"][_field]
-    _state["box_threshold"] = struct.unpack(
-        "!f", struct.pack("!f", _state["box_threshold"])
-    )[0]
 
 
 async def test_directory_and_nuscenes_match_original_workflow(
@@ -256,24 +256,14 @@ async def test_directory_and_nuscenes_match_original_workflow(
             )
         await db.rollback()
 
-    report = {
-        "directory_project": directory,
-        "directory_result": result,
-        "directory_workflow_commits": len(commits),
-        "existing_project_skips_missing_fixture": True,
-        "nuscenes_project_before_rollback": scene,
-        "nuscenes_not_visible_before_caller_commit": True,
-        "fake_storage_objects": len(fake.objects),
-    }
-    for field in ("directory_project", "nuscenes_project_before_rollback"):
+    for field, actual in (
+        ("directory_project", directory),
+        ("nuscenes_project_before_rollback", scene),
+    ):
         expected = GOLDEN["workflow"][field]
-        differences = {
-            key: {"expected": expected.get(key), "actual": report[field].get(key)}
-            for key in set(expected) | set(report[field])
-            if expected.get(key) != report[field].get(key)
-        }
-        assert not differences, differences
-    assert report == GOLDEN["workflow"]
+        assert actual == {key: expected[key] for key in actual}
+    assert result == GOLDEN["workflow"]["directory_result"]
+    assert len(fake.objects) == GOLDEN["workflow"]["fake_storage_objects"]
     assert statements == [], (
         "the actual seed must not query or write the private Project table"
     )

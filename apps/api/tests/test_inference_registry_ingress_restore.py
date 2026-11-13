@@ -51,14 +51,14 @@ async def _native_state(engine):
         rows = await owner.fetch(
             "SELECT pg_catalog.pg_get_functiondef(p.oid) AS definition, "
             "pg_catalog.pg_get_userbyid(p.proowner) AS owner,p.proacl::text AS acl,p.proconfig AS settings, "
-            "p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
+            "n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
             "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
             "WHERE n.nspname='aap_inference_registry_ingress_v1' ORDER BY signature"
         )
         assert {row["signature"] for row in rows} == set(_CATALOG_FUNCTIONS)
         assert all(row["owner"] == "inference_code" for row in rows)
         executable = await owner.fetch(
-            "SELECT p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
+            "SELECT n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature "
             "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace "
             "WHERE n.nspname='aap_inference_registry_ingress_v1' "
             "AND pg_catalog.has_function_privilege("
