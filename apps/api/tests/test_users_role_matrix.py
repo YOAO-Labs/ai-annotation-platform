@@ -5,6 +5,9 @@
 """
 
 from tests.factory import create_user
+from tests.identity_super_admin_premise import (
+    park_foreign_super_admins_in_savepoint,
+)
 
 
 class TestRoleMatrix:
@@ -87,6 +90,12 @@ class TestRoleMatrix:
             "Last unreserved admin",
         )
         target_id = target.id
+        # The guard counts every unreserved super admin in the database; park
+        # the committed rows left by earlier tests inside this savepoint (the
+        # fixture teardown rolls the parking back).
+        await park_foreign_super_admins_in_savepoint(
+            db_session, keep_ids=[actor_id, target_id]
+        )
         now = datetime.now(UTC)
         actor.deactivation_requested_at = now
         actor.deactivation_scheduled_at = now + timedelta(days=7)

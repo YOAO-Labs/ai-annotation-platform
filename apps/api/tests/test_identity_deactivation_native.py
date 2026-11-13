@@ -13,6 +13,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.db.models.notification import Notification
 from app.db.models.user import User
 from app.db.native_schema import NATIVE_MANAGED_TABLES
+from tests.identity_super_admin_premise import (
+    park_foreign_super_admins,
+    restore_parked_super_admins,
+)
 from tests.test_identity_auth_native import _cleanup, _seed
 
 
@@ -159,6 +163,7 @@ async def test_self_request_cancel_and_replay_are_frozen_and_atomic(test_engine)
                 {"command": json.dumps(command)},
             )
 
+    parked: list[uuid.UUID] = []
     try:
         async with maker.begin() as session:
             session.add(
@@ -171,6 +176,11 @@ async def test_self_request_cancel_and_replay_are_frozen_and_atomic(test_engine)
                     is_active=True,
                 )
             )
+
+        # The request fans a notification out to every active super admin;
+        # park the rows left by earlier files so this test's receiver is the
+        # only one addressed and the frozen count stays meaningful.
+        parked = await park_foreign_super_admins(test_engine, keep_ids=[admin_id])
 
         accepted = await execute(request)
         assert accepted["ok"] is True
@@ -228,6 +238,7 @@ async def test_self_request_cancel_and_replay_are_frozen_and_atomic(test_engine)
         assert cancelled["data"]["account"]["deactivation_scheduled_at"] is None
         assert (await execute(request))["data"] == accepted["data"]
     finally:
+        await restore_parked_super_admins(test_engine, parked)
         async with maker.begin() as session:
             await session.execute(
                 text(

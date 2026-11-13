@@ -35,6 +35,10 @@ from yoao_identity.postgres import PostgresData
 from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.native_schema import NATIVE_MANAGED_TABLES
+from tests.identity_super_admin_premise import (
+    park_foreign_super_admins,
+    restore_parked_super_admins,
+)
 from tests.test_identity_suspensions_native import (
     _add_batch,
     _add_member,
@@ -637,6 +641,11 @@ async def test_reserved_active_super_admin_does_not_allow_stopping_last_unreserv
     actor_id, _ = await _add_user(test_engine, "super_admin")
     target_id, _ = await _add_user(test_engine, "super_admin")
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
+    # The offboarding scope check counts every unreserved super admin in the
+    # database; park the rows left by earlier files so the premise is local.
+    parked = await park_foreign_super_admins(
+        test_engine, keep_ids=[actor_id, target_id]
+    )
     reserved_requested = datetime.now(UTC) - timedelta(minutes=1)
     reserved_scheduled = datetime.now(UTC) + timedelta(days=6)
     async with maker.begin() as session:
@@ -702,6 +711,7 @@ async def test_reserved_active_super_admin_does_not_allow_stopping_last_unreserv
                 == 0
             )
     finally:
+        await restore_parked_super_admins(test_engine, parked)
         await _cleanup_offboarding_world(
             test_engine,
             actor_ids=[actor_id],

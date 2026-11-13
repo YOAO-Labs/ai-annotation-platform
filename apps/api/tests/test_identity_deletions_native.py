@@ -30,6 +30,10 @@ from app.db.models.api_key import ApiKey
 from app.db.models.password_reset_token import PasswordResetToken
 from app.db.models.task import Task
 from app.db.models.task_lock import TaskLock
+from tests.identity_super_admin_premise import (
+    park_foreign_super_admins,
+    restore_parked_super_admins,
+)
 from tests.test_identity_auth_native import _seed
 from tests.test_identity_suspensions_native import (
     _add_batch,
@@ -904,6 +908,11 @@ async def test_delete_last_unreserved_super_admin_is_rejected(test_engine):
     actor_fixture = await _seed(test_engine, role="super_admin", create_key=False)
     actor_id = actor_fixture["actor_id"]
     target_id, _ = await _add_user(test_engine, "super_admin")
+    # The guard counts every unreserved super admin in the database; park the
+    # rows left by earlier files so this test controls the premise.
+    parked = await park_foreign_super_admins(
+        test_engine, keep_ids=[actor_id, target_id]
+    )
     now = datetime.now(UTC)
     scheduled_at = now + timedelta(days=6)
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
@@ -964,6 +973,7 @@ async def test_delete_last_unreserved_super_admin_is_rejected(test_engine):
                 == 0
             )
     finally:
+        await restore_parked_super_admins(test_engine, parked)
         await _cleanup_deletion_world(
             test_engine,
             actor_ids=[actor_id, target_id],

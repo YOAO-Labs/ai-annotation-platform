@@ -170,6 +170,19 @@ async def test_native_connection_reads_preserve_visibility_and_keep_ciphertext_o
         secret=b"private-ciphertext-three",
     )
 
+    # The list is visibility-scoped: this actor sees its own rows plus every
+    # global connection, and earlier files leave committed global connections
+    # behind.  Park them as owner rows inside this savepoint so the pagination
+    # assertions describe exactly this test's two visible connections; the
+    # fixture teardown rolls the parking back.
+    await db_session.execute(
+        text(
+            "UPDATE public.storage_connections SET scope='owner' "
+            "WHERE scope='global' AND id <> :keep_id"
+        ),
+        {"keep_id": global_id},
+    )
+
     page_one = _data(
         await _call(
             db_session,

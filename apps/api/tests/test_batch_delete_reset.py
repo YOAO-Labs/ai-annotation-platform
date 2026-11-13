@@ -235,11 +235,17 @@ async def test_delete_resets_nonpending_and_clears_ai(
     assert all(r.total_predictions == 0 for r in rows)
 
     # 2. 人工标注保留 active；AI 标注软删
+    # 批次删除只影响本项目的标注/预标；计数限定在本次夹具项目内，避免把
+    # 共享测试库中其他用例已提交的行当成自己的结果。
     manual = (
         await db_session.execute(
             select(func.count())
             .select_from(Annotation)
-            .where(Annotation.source == "manual", Annotation.is_active.is_(True))
+            .where(
+                Annotation.project_id == project.id,
+                Annotation.source == "manual",
+                Annotation.is_active.is_(True),
+            )
         )
     ).scalar()
     ai_active = (
@@ -247,6 +253,7 @@ async def test_delete_resets_nonpending_and_clears_ai(
             select(func.count())
             .select_from(Annotation)
             .where(
+                Annotation.project_id == project.id,
                 Annotation.source == "prediction_based",
                 Annotation.is_active.is_(True),
             )
@@ -257,7 +264,11 @@ async def test_delete_resets_nonpending_and_clears_ai(
 
     # 3. prediction 行被删
     pred_count = (
-        await db_session.execute(select(func.count()).select_from(Prediction))
+        await db_session.execute(
+            select(func.count())
+            .select_from(Prediction)
+            .where(Prediction.project_id == project.id)
+        )
     ).scalar()
     assert pred_count == 0
 
