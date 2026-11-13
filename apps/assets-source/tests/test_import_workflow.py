@@ -903,7 +903,7 @@ async def test_unrepresentable_source_name_is_recorded_and_next_file_is_copied(
     assert len(data.image_admission.calls) == 1
     assert data.entry is not None
     assert data.image_admission.calls[0]["item_id"] == data.entry.item_id
-    assert data.image_admission.calls[0]["publication_id"] == data.entry.publication_id
+    assert data.image_admission.calls[0]["operation_namespace"] == data.entry.publication_id
     assert data.image_admission.calls[0]["object_identity"] == ObjectIdentity(
         etag="etag", byte_size=3, version_id="v1"
     )

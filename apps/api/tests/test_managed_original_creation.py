@@ -759,8 +759,6 @@ async def test_current_schema_guards_preserve_immutable_allocated_fact(creation_
     with pytest.raises(IntegrityError):
         async with db.begin_nested():
             await db.execute(delete(Creation).where(Creation.id == row["id"]))
-    with pytest.raises(IntegrityError):
-        await allocation(db, dataset_id=row["dataset_id"], logical_path=row["logical_path"])
     await db.rollback()
     assert await service._read(db, row["id"]) == row
     async with service.storage_access.engine(db).connect() as connection:

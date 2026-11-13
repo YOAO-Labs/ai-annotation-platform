@@ -60,7 +60,8 @@ async def _state(engine):
         assert len(functions) == 3
         assert all(row["owner"] == "inference_code" for row in functions)
         acl = await connection.fetchrow(
-            "SELECT pg_catalog.pg_get_userbyid(c.relowner) AS owner,c.relacl::text AS acl "
+            "SELECT pg_catalog.pg_get_userbyid(c.relowner) AS owner, "
+            "COALESCE(c.relacl, pg_catalog.acldefault('r', c.relowner))::text AS acl "
             "FROM pg_catalog.pg_class AS c WHERE c.oid='aap_inference_backend_probe_v1.probe_secret'::regclass"
         )
         rows = await connection.fetch(

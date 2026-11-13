@@ -57,6 +57,7 @@ async def test_registry_ingress_full_forward_migration_qualification(test_engine
         / f"inference-registry-ingress-full-migrations-{identity}.json"
     )
     assert not output.exists()
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + "\n")
     assert result.returncode == 0, report
     assert report["result"] == "passed"

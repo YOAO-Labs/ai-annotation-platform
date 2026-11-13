@@ -471,8 +471,8 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
                 "WHERE id=:id",
                 "DELETE FROM public.managed_original_creations WHERE id=:id",
                 "UPDATE public.managed_original_creations SET failure_evidence="
-                "'{\"physical_settled\":true,\"physical_outcome\":\"not_written\","
-                "\"tampered\":true}'::jsonb "
+                "jsonb_build_object('physical_settled',true,"
+                "'physical_outcome','not_written','tampered',true) "
                 "WHERE id=:id",
             ):
                 with pytest.raises(IntegrityError) as immutable:

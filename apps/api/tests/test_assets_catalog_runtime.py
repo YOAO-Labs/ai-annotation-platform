@@ -411,21 +411,19 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 item = items.json()["items"][0]
                 assert "thumbnail_path" not in item
                 assert item["metadata"]["future_field"] == {"retained": True}
-                async with httpx.AsyncClient(trust_env=False) as source:
-                    # Non-video originals are authenticated identity reads, not
-                    # presigned catalog URLs (791ce8f30).
-                    original_identity = await api.get(
-                        item["original_identity_path"], headers=headers
-                    )
-                    assert original_identity.status_code == 200, original_identity.text
-                    downloaded = await api.get(
-                        original_identity.json()["download_path"], headers=headers
-                    )
-                    assert downloaded.status_code == 200, downloaded.text
-                    assert downloaded.content == key.encode()
-                    assert (
-                        await source.get(item["thumbnail_url"])
-                    ).content == thumbnail.encode()
+                # Native image originals and thumbnails are authenticated API reads.
+                original_identity = await api.get(
+                    item["original_identity_path"], headers=headers
+                )
+                assert original_identity.status_code == 200, original_identity.text
+                downloaded = await api.get(
+                    original_identity.json()["download_path"], headers=headers
+                )
+                assert downloaded.status_code == 200, downloaded.text
+                assert downloaded.content == key.encode()
+                preview = await api.get(item["thumbnail_url"], headers=headers)
+                assert preview.status_code == 200, preview.text
+                assert preview.content == thumbnail.encode()
                 _expect_s3_denied(
                     lambda: scoped_s3.put_object(Bucket=datasets, Key=key, Body=b"bad")
                 )

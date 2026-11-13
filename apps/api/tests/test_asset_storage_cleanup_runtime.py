@@ -75,7 +75,43 @@ def _docker(*arguments: str, timeout: int = 90) -> str:
         check=False,
     )
     if result.returncode != 0:
-        pytest.fail(f"owned cleanup Docker command failed: {arguments[0]}")
+        evidence = {
+            "command": ["docker", *arguments],
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+        }
+        if (
+            arguments[0] == "exec"
+            and len(arguments) > 1
+            and re.fullmatch(r"[0-9a-f]{64}", arguments[1])
+        ):
+            try:
+                inspected = subprocess.run(
+                    ["docker", "inspect", arguments[1]],
+                    capture_output=True, text=True, timeout=15, check=False,
+                )
+                evidence["inspect_returncode"] = inspected.returncode
+                evidence["inspect_stderr"] = inspected.stderr
+                if inspected.returncode == 0:
+                    observed = json.loads(inspected.stdout)[0]
+                    evidence["container"] = {
+                        key: observed[key] for key in ("Id", "Image", "State")
+                    }
+            except (OSError, subprocess.TimeoutExpired, ValueError, IndexError) as exc:
+                evidence["inspect_error"] = type(exc).__name__
+        # Keep potentially sensitive argv/output in a mode-0600 evidence file,
+        # never in the shared JUnit/console failure message.
+        with tempfile.NamedTemporaryFile(
+            mode="w", prefix="assets-docker-failure-", suffix=".json",
+            dir=_required_env("TMPDIR"), delete=False,
+        ) as diagnostic:
+            json.dump(evidence, diagnostic, indent=2)
+            path = diagnostic.name
+        pytest.fail(
+            f"owned cleanup Docker command failed: {arguments[0]} "
+            f"(exit {result.returncode}); private diagnostics: {path}"
+        )
     return result.stdout.strip()
 
 

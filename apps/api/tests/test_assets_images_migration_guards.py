@@ -235,7 +235,7 @@ async def test_forward_cutover_preserves_retained_source_evidence(image_cutover_
         assert facts == (1, None, False)
         await connection.execute(text(
             "UPDATE public.tasks SET media_object_identity="
-            "'{\"etag\":\"registered\",\"byte_size\":128}'::jsonb WHERE id=:id"
+            "jsonb_build_object('etag','registered','byte_size',128) WHERE id=:id"
         ), {"id": task_id})
     async with historical.begin() as connection:
         with pytest.raises(DBAPIError) as refused:
