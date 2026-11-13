@@ -255,7 +255,8 @@ async def _seed_owned_run(
     )
     process = await asyncio.create_subprocess_exec(
         sys.executable,
-        str(ROOT / "apps/api/scripts/seed.py"),
+        "-m",
+        "scripts.seed",
         "--profile",
         "screenshots",
         "--run-id",

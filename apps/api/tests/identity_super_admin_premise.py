@@ -20,7 +20,9 @@ duration of the test and never delete, recreate or re-key a row:
   back, so no explicit restore is needed.
 
 Only active foreign rows are parked because inactive super admins already fail
-both global predicates.
+both global predicates. Committed parking records exactly the rows it changes;
+restoration aborts atomically if any recorded row is no longer an inactive
+super admin.
 """
 
 from __future__ import annotations
@@ -42,22 +44,14 @@ async def park_foreign_super_admins(test_engine, *, keep_ids) -> list[uuid.UUID]
         parked = list(
             await session.scalars(
                 text(
-                    "SELECT id FROM public.users WHERE role='super_admin' "
-                    "AND is_active IS TRUE "
-                    "AND id <> ALL(CAST(:keep AS uuid[]))"
+                    "UPDATE public.users SET is_active=false "
+                    "WHERE role='super_admin' AND is_active IS TRUE "
+                    "AND id <> ALL(CAST(:keep AS uuid[])) "
+                    "RETURNING id"
                 ),
                 {"keep": _keep_list(keep_ids)},
             )
         )
-    if parked:
-        async with maker.begin() as session:
-            await session.execute(
-                text(
-                    "UPDATE public.users SET is_active=false "
-                    "WHERE id = ANY(CAST(:ids AS uuid[]))"
-                ),
-                {"ids": parked},
-            )
     return parked
 
 
@@ -71,14 +65,15 @@ async def restore_parked_super_admins(test_engine, parked) -> None:
         result = await session.execute(
             text(
                 "UPDATE public.users SET is_active=true "
-                "WHERE id = ANY(CAST(:ids AS uuid[])) AND is_active IS FALSE "
+                "WHERE id = ANY(CAST(:ids AS uuid[])) "
+                "AND role='super_admin' AND is_active IS FALSE "
                 "RETURNING id"
             ),
             {"ids": ids},
         )
         restored = set(result.scalars())
-    if restored != set(ids):
-        raise RuntimeError("identity super-admin premise did not restore parked rows")
+        if restored != set(ids):
+            raise RuntimeError("identity super-admin premise did not restore parked rows")
 
 
 async def park_foreign_super_admins_in_savepoint(

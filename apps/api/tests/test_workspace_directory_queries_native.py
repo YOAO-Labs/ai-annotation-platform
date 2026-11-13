@@ -205,12 +205,29 @@ async def test_native_directory_steps_and_manager_preserve_members_and_inactive_
             candidates = materialize_directory_query_data(
                 await manager.execute(mention)
             )
-            assert [row["user_id"] for row in candidates] == [
+            assert [
+                row["user_id"] for row in candidates if row["kind"] != "super_admin"
+            ] == [
                 owner.id,
                 member.id,
                 inactive.id,
             ]
-            assert [row["kind"] for row in candidates] == ["owner", "member", "member"]
+            assert [row["kind"] for row in candidates] == [
+                "owner",
+                *(["super_admin"] * len(expected_super_admins)),
+                "member",
+                "member",
+            ]
+            super_admin_candidates = [
+                row for row in candidates if row["kind"] == "super_admin"
+            ]
+            assert {
+                (row["user_id"], row["user_name"], row["user_email"])
+                for row in super_admin_candidates
+            } == expected_super_admins
+            assert [row["user_name"] for row in super_admin_candidates] == sorted(
+                name for _, name, _ in expected_super_admins
+            )
     finally:
         await connection.close()
         async with maker.begin() as db:

@@ -170,58 +170,54 @@ async def test_native_connection_reads_preserve_visibility_and_keep_ciphertext_o
         secret=b"private-ciphertext-three",
     )
 
-    # The list is visibility-scoped: this actor sees its own rows plus every
-    # global connection, and earlier files leave committed global connections
-    # behind.  Park them as owner rows inside this savepoint so the pagination
-    # assertions describe exactly this test's two visible connections; the
-    # fixture teardown rolls the parking back.
-    await db_session.execute(
-        text(
-            "UPDATE public.storage_connections SET scope='owner' "
-            "WHERE scope='global' AND id <> :keep_id"
-        ),
-        {"keep_id": global_id},
-    )
-
-    page_one = _data(
-        await _call(
-            db_session,
-            _LIST,
-            {
-                "actor_id": actor_id,
-                "after_created_at": None,
-                "after_id": None,
-                "page_size": 1,
-            },
+    # Visibility includes the actor's own rows and every global connection.
+    # Page that complete scope without changing another fixture's authority.
+    expected_ids = [
+        str(connection_id)
+        for connection_id in await db_session.scalars(
+            text(
+                "SELECT id FROM public.storage_connections "
+                "WHERE scope='global' OR created_by=:actor_id "
+                "ORDER BY created_at DESC, id DESC"
+            ),
+            {"actor_id": actor_id},
         )
-    )
-    assert page_one["actor_id"] == str(actor_id)
-    assert page_one["total"] == 2
-    assert page_one["complete"] is False
-    assert page_one["next_cursor"] is not None
-
-    page_two = _data(
-        await _call(
-            db_session,
-            _LIST,
-            {
-                "actor_id": actor_id,
-                "after_created_at": datetime.fromisoformat(
-                    page_one["next_cursor"]["created_at"]
-                ),
-                "after_id": UUID(page_one["next_cursor"]["id"]),
-                "page_size": 1,
-            },
+    ]
+    assert {str(first_id), str(global_id)} <= set(expected_ids)
+    assert str(foreign_id) not in expected_ids
+    facts = []
+    cursor = None
+    snapshot_digest = None
+    for index, expected_id in enumerate(expected_ids):
+        page = _data(
+            await _call(
+                db_session,
+                _LIST,
+                {
+                    "actor_id": actor_id,
+                    "after_created_at": (
+                        datetime.fromisoformat(cursor["created_at"]) if cursor else None
+                    ),
+                    "after_id": UUID(cursor["id"]) if cursor else None,
+                    "page_size": 1,
+                },
+            )
         )
-    )
-    assert page_two["total"] == page_one["total"]
-    assert page_two["snapshot_digest"] == page_one["snapshot_digest"]
-    assert page_two["complete"] is True
-    visible_ids = {
-        item["id"] for item in (*page_one["connections"], *page_two["connections"])
-    }
-    assert visible_ids == {str(first_id), str(global_id)}
-    facts = page_one["connections"] + page_two["connections"]
+        assert page["actor_id"] == str(actor_id)
+        assert page["total"] == len(expected_ids)
+        assert [item["id"] for item in page["connections"]] == [expected_id]
+        if snapshot_digest is None:
+            snapshot_digest = page["snapshot_digest"]
+        assert page["snapshot_digest"] == snapshot_digest
+        complete = index == len(expected_ids) - 1
+        assert page["complete"] is complete
+        cursor = page["next_cursor"]
+        if complete:
+            assert cursor is None
+        else:
+            assert cursor is not None
+            assert cursor["id"] == expected_id
+        facts.extend(page["connections"])
     assert all("secret_enc" not in connection for connection in facts)
     assert all(isinstance(connection["secret_set"], bool) for connection in facts)
     assert not any(
