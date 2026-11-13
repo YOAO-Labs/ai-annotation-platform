@@ -9,6 +9,7 @@ no Mask objects or roots.
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import os
 import stat
@@ -16,9 +17,12 @@ import uuid
 from pathlib import Path
 
 import asyncpg
+from alembic.migration import MigrationContext
+from alembic.operations import Operations
 import pytest
 from sqlalchemy import text
 from sqlalchemy.engine import make_url
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from yoao_labeling.video_writer import VideoWriterManager
@@ -60,8 +64,23 @@ pytestmark = [
 ]
 
 ROOT = Path(__file__).resolve().parents[3]
+_VERSIONS = Path(__file__).resolve().parents[1] / "alembic/versions"
 _WRITER_ROLE = "labeling_video_writer_client"
 _WRITER_FUNCTIONS = {("video_writer_step", "text, text")}
+
+
+def _invoke_writer_downgrade(connection):
+    """Run the frozen 0283 downgrade guard against the current database."""
+    spec = importlib.util.spec_from_file_location(
+        "frozen_video_writer_guard",
+        _VERSIONS / "0283_labeling_video_writer.py",
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.revision == "bo0283"
+    with Operations.context(MigrationContext.configure(connection)):
+        module.downgrade()
 
 
 def _role_dsn(database: str) -> str:
@@ -737,11 +756,24 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
         source_before = await _snapshot(source_engine, world["job_id"])
         _assert_restorable_snapshot(source_before)
 
+        # The alembic CLI can no longer reach bo0282: the retention revisions
+        # above 0283 refuse their own downgrade. Keep that end-to-end refusal,
+        # then exercise the exact 0283 guard in a rolled-back transaction so
+        # nonempty writer state is proven unremovable at the current head.
         downgrade = _alembic(source_engine.url, "downgrade", "bo0282")
         assert downgrade.returncode != 0
+
+        async with source_engine.connect() as connection:
+            transaction = await connection.begin()
+            try:
+                with pytest.raises(DBAPIError) as refusal:
+                    await connection.run_sync(_invoke_writer_downgrade)
+            finally:
+                await transaction.rollback()
+        assert refusal.value.orig.sqlstate == "55000"
         assert (
-            b"cannot remove immutable video writer receipts"
-            in (downgrade.stdout + downgrade.stderr).lower()
+            "cannot remove immutable video writer receipts"
+            in str(refusal.value).lower()
         )
 
         assert await _snapshot(source_engine, world["job_id"]) == source_before
@@ -824,10 +856,10 @@ async def test_nonempty_video_writer_state_survives_owned_pg_restore(
             await restored_engine.dispose()
         if source_engine is not None:
             await source_engine.dispose()
-        if "restored_database" in created:
+        if restored_database in created:
             await _drop_owned_clone(
                 admin, test_engine, restored_database, restored_marker
             )
-        if "source_database" in created:
+        if source_database in created:
             await _drop_owned_clone(admin, test_engine, source_database, source_marker)
         await admin.dispose()

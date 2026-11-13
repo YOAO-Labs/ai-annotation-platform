@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import asynccontextmanager
 import uuid
 
 import pytest
@@ -27,9 +28,38 @@ pytestmark = [
     ),
 ]
 
+_FIXTURE_CAPABILITIES = (
+    "aap_labeling_v1.e2e_fixture_command(jsonb)",
+    "aap_labeling_v1.prepare_filtering_rendering(jsonb)",
+)
+
+
+@asynccontextmanager
+async def _fixture_operator(test_engine):
+    """Install the test-only Labeling fixture capabilities for a disposable LOGIN.
+
+    The ordinary consumer profile refuses fixture authority; an explicit
+    operator opts in to the two frozen capabilities after the DML fence.
+    """
+    async with _world(test_engine) as (owner, api, role, url):
+        async with test_engine.begin() as db:
+            for signature in _FIXTURE_CAPABILITIES:
+                assert not await db.scalar(
+                    text("SELECT has_function_privilege(:role,:signature,'EXECUTE')"),
+                    {"role": role, "signature": signature},
+                ), signature
+            await db.execute(
+                text(
+                    "GRANT EXECUTE ON FUNCTION "
+                    + ", ".join(_FIXTURE_CAPABILITIES)
+                    + f' TO "{role}"'
+                )
+            )
+        yield owner, api, role, url
+
 
 async def test_fixture_defaults_and_caller_transaction_use_the_owner(test_engine):
-    async with _world(test_engine) as (owner, api, role, _url):
+    async with _fixture_operator(test_engine) as (owner, api, role, _url):
         async with owner.begin() as db:
             actor = await create_user(
                 db,
@@ -248,7 +278,7 @@ async def _prediction_results(session_factory, prediction_ids):
 async def test_filtering_rendering_is_scoped_atomic_and_caller_transactional(
     test_engine,
 ):
-    async with _world(test_engine) as (owner, api, role, _url):
+    async with _fixture_operator(test_engine) as (owner, api, role, _url):
         actor_id = None
         project_ids = []
         task_ids = []
