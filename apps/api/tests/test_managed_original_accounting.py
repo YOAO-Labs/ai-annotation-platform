@@ -6,7 +6,7 @@ import threading
 import uuid
 
 import pytest
-from sqlalchemy import select, text
+from sqlalchemy import select
 
 from app.db.models.dataset import DatasetItem
 from app.db.models.storage_usage import StorageUsageMutation as Mutation
@@ -306,25 +306,6 @@ async def test_central_owner_uses_frozen_exact_address_for_every_original_kind(
 ):
     db = creation_db
     if origin == "auxiliary":
-        # Reuse the current schema's actual scope constraint without changing
-        # the old migration fixture's historical guard contract.
-        async with service.storage_access.engine(db).begin() as connection:
-            scope = await connection.scalar(
-                text(
-                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname='ck_managed_creation_scope' AND conrelid='public.managed_original_creations'::regclass"
-                )
-            )
-            await connection.execute(
-                text(
-                    "ALTER TABLE managed_original_creations DROP CONSTRAINT ck_managed_creation_scope"
-                )
-            )
-            await connection.execute(
-                text(
-                    "ALTER TABLE managed_original_creations ADD CONSTRAINT ck_managed_creation_scope "
-                    + scope
-                )
-            )
         row = await service.allocate_auxiliary(
             db,
             dataset_id=uuid.uuid4(),

@@ -11,7 +11,7 @@ import uuid
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
-from sqlalchemy import inspect, select, text, update
+from sqlalchemy import delete, inspect, select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
@@ -40,66 +40,135 @@ def migration(connection, filename="0219_managed_original_creations.py"):
     return module
 
 
+_CREATION_TABLES = (
+    "storage_connections",
+    "storage_locations",
+    "storage_bindings",
+    "storage_maintenance_gates",
+    "storage_operations",
+    "storage_usage_mutations",
+    "dataset_items",
+    "dataset_assets",
+    "dataset_asset_locations",
+    "managed_original_retirements",
+    "managed_original_creations",
+    "managed_original_reclaim_claims",
+    "dataset_auxiliary_originals",
+    "scenes",
+)
+_CREATION_TRIGGERS = {
+    ("managed_original_creations", "trg_managed_original_creation_history"),
+    ("managed_original_creations", "trg_managed_original_creation_scope"),
+    ("dataset_asset_locations", "trg_managed_original_creation_attachment"),
+    ("managed_original_retirements", "trg_managed_original_retirement_creation"),
+    ("dataset_asset_locations", "trg_dataset_asset_locations_storage_ref"),
+    ("dataset_auxiliary_originals", "trg_dataset_auxiliary_originals_storage_ref"),
+    ("dataset_auxiliary_originals", "trg_auxiliary_original"),
+    ("dataset_items", "trg_auxiliary_raw_pointer"),
+    ("scenes", "trg_auxiliary_map_pointer"),
+    ("dataset_asset_locations", "trg_auxiliary_creation_asset"),
+}
+
+
+async def _clone_creation_schema(connection, schema):
+    # As in storage_migration_isolation, copy current constraints/indexes and
+    # rebind the live guards into the disposable namespace. This is the API
+    # ledger consumer contract, not a historical migration or native runtime.
+    await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
+    for table in _CREATION_TABLES:
+        await connection.execute(
+            text(
+                f'CREATE TABLE "{schema}"."{table}" '
+                f'(LIKE public."{table}" INCLUDING ALL)'
+            )
+        )
+    await connection.execute(text(f'SET LOCAL search_path = "{schema}", pg_catalog'))
+    triggers = list(
+        await connection.execute(
+            text(
+                "SELECT relation.relname, trigger.tgname, function.proname, "
+                "pg_catalog.pg_get_triggerdef(trigger.oid), "
+                "pg_catalog.pg_get_functiondef(function.oid) "
+                "FROM pg_catalog.pg_trigger AS trigger "
+                "JOIN pg_catalog.pg_class AS relation ON relation.oid=trigger.tgrelid "
+                "JOIN pg_catalog.pg_namespace AS namespace "
+                "ON namespace.oid=relation.relnamespace "
+                "JOIN pg_catalog.pg_proc AS function ON function.oid=trigger.tgfoid "
+                "JOIN pg_catalog.pg_namespace AS function_namespace "
+                "ON function_namespace.oid=function.pronamespace "
+                "WHERE NOT trigger.tgisinternal AND namespace.nspname='public' "
+                "AND function_namespace.nspname='public' "
+                "AND trigger.tgname = ANY(CAST(:names AS text[])) "
+                "ORDER BY relation.relname, trigger.tgname"
+            ),
+            {"names": sorted(name for _, name in _CREATION_TRIGGERS)},
+        )
+    )
+    assert {(table, name) for table, name, *_ in triggers} == _CREATION_TRIGGERS
+    functions = {name: definition for _, _, name, _, definition in triggers}
+    for definition in functions.values():
+        # Only these exact ledger guards and their owned relations are rebound;
+        # never replace or recursively copy the shared native capability graph.
+        for name in (*_CREATION_TABLES, *functions):
+            definition = definition.replace(f"public.{name}", f'"{schema}".{name}')
+        await connection.exec_driver_sql(definition)
+    for _, _, _, definition, _ in triggers:
+        for name in (*_CREATION_TABLES, *functions):
+            definition = definition.replace(f"public.{name}", f'"{schema}".{name}')
+        await connection.exec_driver_sql(definition)
+    # LIKE omits FKs. Preserve the current original-provenance and pointer
+    # constraints, without introducing business parents for independent facts.
+    foreign_keys = await connection.execute(
+        text(
+            "SELECT child.relname, constraint_row.conname, "
+            "pg_catalog.pg_get_constraintdef(constraint_row.oid) "
+            "FROM pg_catalog.pg_constraint AS constraint_row "
+            "JOIN pg_catalog.pg_class AS child ON child.oid=constraint_row.conrelid "
+            "JOIN pg_catalog.pg_class AS parent ON parent.oid=constraint_row.confrelid "
+            "JOIN pg_catalog.pg_namespace AS child_namespace "
+            "ON child_namespace.oid=child.relnamespace "
+            "JOIN pg_catalog.pg_namespace AS parent_namespace "
+            "ON parent_namespace.oid=parent.relnamespace "
+            "WHERE constraint_row.contype='f' AND constraint_row.conparentid=0 "
+            "AND child_namespace.nspname='public' "
+            "AND parent_namespace.nspname='public' "
+            "AND parent.relname IN ('managed_original_creations','dataset_auxiliary_originals') "
+            "AND child.relname = ANY(CAST(:tables AS text[]))"
+        ),
+        {"tables": list(_CREATION_TABLES)},
+    )
+    for table, name, definition in foreign_keys:
+        for parent in ("managed_original_creations", "dataset_auxiliary_originals"):
+            definition = definition.replace(
+                f"REFERENCES public.{parent}", f'REFERENCES "{schema}".{parent}'
+            )
+        await connection.exec_driver_sql(
+            f'ALTER TABLE "{schema}"."{table}" ADD CONSTRAINT "{name}" {definition}'
+        )
+
+
 @pytest.fixture
 async def creation_db(test_engine):
-    # The test scaffold already verifies a disposable database. Keep truly
-    # committed immutable facts in an owned schema, then remove that namespace
-    # as a whole; never disable guards or DELETE creation history for cleanup.
+    # The scaffold verifies a disposable current-head database. Independent
+    # commits retain immutable facts until this whole owned namespace is dropped.
     schema = "creation_test_" + uuid.uuid4().hex
-    tables = (
-        "storage_connections",
-        "storage_locations",
-        "storage_bindings",
-        "storage_maintenance_gates",
-        "storage_operations",
-        "storage_usage_mutations",
-        "dataset_items",
-        "dataset_assets",
-        "dataset_asset_locations",
-        "managed_original_retirements",
-    )
-    async with test_engine.begin() as connection:
-        await connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-        source = await connection.scalar(text("SELECT current_schema()"))
-        for table in tables:
-            await connection.execute(
-                text(
-                    f'CREATE TABLE "{schema}"."{table}" (LIKE "{source}"."{table}" INCLUDING ALL)'
-                )
-            )
-        for table in ("dataset_asset_locations", "managed_original_retirements"):
-            await connection.execute(
-                text(
-                    f'ALTER TABLE "{schema}"."{table}" DROP COLUMN IF EXISTS creation_id'
-                )
-            )
-    engine = create_async_engine(
-        test_engine.url,
-        connect_args={"server_settings": {"search_path": schema + ",public"}},
-    )
+    engine = None
     try:
-        async with engine.begin() as connection:
-            await connection.run_sync(lambda sync: migration(sync).upgrade())
-            await connection.run_sync(
-                lambda sync: migration(
-                    sync, "0230_managed_original_task_scope.py"
-                ).upgrade()
-            )
-            # Keep this historical scope fixture usable by the current writer;
-            # the complete staging migration and its guards have separate tests.
-            await connection.execute(
-                text(
-                    "ALTER TABLE managed_original_creations ADD COLUMN staging_ref jsonb"
-                )
-            )
+        async with test_engine.begin() as connection:
+            await _clone_creation_schema(connection, schema)
+        engine = create_async_engine(
+            test_engine.url,
+            connect_args={"server_settings": {"search_path": schema + ",public"}},
+        )
         async with async_sessionmaker(engine, expire_on_commit=False)() as db:
             await ensure_legacy_bindings(db)
             await db.commit()
             yield db
     finally:
-        await engine.dispose()
+        if engine is not None:
+            await engine.dispose()
         async with test_engine.begin() as connection:
-            await connection.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+            await connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
 
 
 @pytest.fixture
@@ -672,24 +741,28 @@ async def test_report_attachment_switch_preserves_inflight_original_creation(
     assert current["status"] == "verified"
 
 
-async def test_schema_guards_are_real_and_refuse_downgrade_with_allocated_fact(
-    creation_db,
-):
+async def test_current_schema_guards_preserve_immutable_allocated_fact(creation_db):
     db = creation_db
     row = await allocation(db)
-    async with service.storage_access.engine(db).begin() as connection:
-        with pytest.raises(RuntimeError, match="creation facts"):
-            await connection.run_sync(lambda sync: migration(sync).downgrade())
     for values in (
         {"object_key": "changed"},
         {"max_bytes": 1000},
         {"status": "verified"},
+        {"staging_ref": {}},
+        {"failure_evidence": {"physical_settled": True, "physical_outcome": "not_written"}},
     ):
         with pytest.raises(IntegrityError):
             async with db.begin_nested():
                 await db.execute(
                     update(Creation).where(Creation.id == row["id"]).values(**values)
                 )
+    with pytest.raises(IntegrityError):
+        async with db.begin_nested():
+            await db.execute(delete(Creation).where(Creation.id == row["id"]))
+    with pytest.raises(IntegrityError):
+        await allocation(db, dataset_id=row["dataset_id"], logical_path=row["logical_path"])
+    await db.rollback()
+    assert await service._read(db, row["id"]) == row
     async with service.storage_access.engine(db).connect() as connection:
         columns = await connection.run_sync(
             lambda sync: inspect(sync).get_foreign_keys("managed_original_creations")
@@ -730,29 +803,62 @@ def test_operation_client_is_same_origin_nonretrying_and_uses_frozen_budget(
 
 
 async def test_observed_receipt_survives_failed_independent_persistence(
-    creation_db, client, monkeypatch
+    creation_db, client
 ):
     db = creation_db
     row = await allocation(db)
-    change = service._change
-
-    async def failed(db, identifier, expected, **values):
-        if values.get("status") == "written":
-            raise OSError("receipt storage unavailable")
-        return await change(db, identifier, expected, **values)
-
-    monkeypatch.setattr(service, "_change", failed)
+    client.versioned = True
+    # Reject the real writer's independent receipt transaction, not the physical
+    # response or its later evidence write. All fault DDL stays in this schema.
+    async with service.storage_access.engine(db).begin() as connection:
+        await connection.exec_driver_sql("""
+            CREATE FUNCTION reject_test_creation_receipt() RETURNS trigger
+            LANGUAGE plpgsql AS $$
+            BEGIN
+                RAISE EXCEPTION 'receipt storage unavailable' USING ERRCODE='23514';
+            END
+            $$;
+        """)
+        await connection.exec_driver_sql("""
+            CREATE TRIGGER test_creation_receipt_persistence
+            BEFORE UPDATE ON managed_original_creations
+            FOR EACH ROW WHEN (NEW.status='written')
+            EXECUTE FUNCTION reject_test_creation_receipt()
+        """)
     with pytest.raises(ContentError, match="managed_original_receipt_persistence_unknown"):
         await create(db, row)
 
+    await db.rollback()
     current = await service._read(db, row["id"])
     assert current["status"] == "unknown" and current["receipt"] is None
+    assert current["error_code"] == "managed_original_receipt_persistence_unknown"
+    assert current["acknowledged_at"] is None and current["settled_at"] is None
+    assert current["verification"] is None
     proof = current["failure_evidence"]
     assert proof["physical_settled"] is False
     assert proof["physical_outcome"] == "unknown"
-    assert proof["receipt"]["etag"]
-    assert client.objects[row["bucket"], row["object_key"]]["data"] == b"original"
+    physical = client.objects[row["bucket"], row["object_key"]]
+    assert physical["data"] == b"original"
+    assert proof["receipt"] == {
+        "etag": physical["ETag"],
+        "version_id": physical["VersionId"],
+        "request_id": "request",
+        "response": {
+            "ETag": physical["ETag"],
+            "VersionId": physical["VersionId"],
+            "ResponseMetadata": {"HTTPStatusCode": 200, "RequestId": "request"},
+        },
+    }
     assert current["operation_id"] in await operations(db)
+    with pytest.raises(IntegrityError):
+        async with db.begin_nested():
+            await db.execute(
+                update(Creation)
+                .where(Creation.id == row["id"])
+                .values(failure_evidence={**proof, "physical_settled": True})
+            )
+    await db.rollback()
+    assert await service._read(db, row["id"]) == current
     assert client.closed == 1
     assert len([call for call in client.calls if call[0] == "complete"]) == 1
     with pytest.raises(ContentError, match="managed_original_creation_terminal"):
