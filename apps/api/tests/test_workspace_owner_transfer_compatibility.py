@@ -16,6 +16,7 @@ from sqlalchemy import event, func, select, text
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from app.config import settings
 from app.core.security import create_access_token
@@ -50,10 +51,43 @@ def _actor_facts(user: User) -> IdentityActorFacts:
     )
 
 
+@pytest.fixture
+async def pending_write_model(test_engine, binding):
+    if binding != "caller":
+        yield None
+        return
+
+    class Base(DeclarativeBase):
+        pass
+
+    class PendingWrite(Base):
+        __tablename__ = "n5_owner_transfer_flush_" + uuid.uuid4().hex
+        __table_args__ = {"schema": "public"}
+        id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+
+    # Observe caller autoflush without granting writes to private Identity rows.
+    async with test_engine.begin() as connection:
+        await connection.run_sync(Base.metadata.create_all)
+        await connection.execute(
+            text(
+                f'GRANT SELECT, INSERT ON public."{PendingWrite.__tablename__}" '
+                "TO legacy_runtime"
+            )
+        )
+    try:
+        yield PendingWrite
+    finally:
+        async with test_engine.begin() as connection:
+            await connection.run_sync(Base.metadata.drop_all)
+        Base.registry.dispose()
+
+
 @pytest.mark.parametrize(
     "binding", ["caller", "dedicated", "remote_python", "remote_node"]
 )
-async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, binding):
+async def test_owner_transfer_matches_actual_legacy(
+    test_engine, monkeypatch, binding, pending_write_model
+):
     for field in (
         "identity_url",
         "identity_auth_database_url",
@@ -334,16 +368,7 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                     await holder.scalar(
                         select(table).where(table.id == key).with_for_update()
                     )
-                    caller.add(
-                        User(
-                            id=pending_id,
-                            name="pending",
-                            email=f"pending-{pending_id}@example.test",
-                            role="employee",
-                            password_hash="fixture",
-                            is_active=True,
-                        )
-                    )
+                    caller.add(pending_write_model(id=pending_id))
                     with pytest.raises(Exception) as rejected:
                         await transfer_project_owner(
                             caller,
@@ -372,20 +397,13 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                     await caller.rollback()
                     await holder.rollback()
                     async with maker() as observer:
-                        assert await observer.get(User, pending_id) is None
+                        assert await observer.get(pending_write_model, pending_id) is None
                     transactions[phase + "_busy"] = state
 
             for autoflush in (False, True):
                 pending_id = uuid.uuid4()
                 async with service(autoflush=autoflush) as caller:
-                    pending = User(
-                        id=pending_id,
-                        name="pending",
-                        email=f"pending-{pending_id}@example.test",
-                        role="employee",
-                        password_hash="fixture",
-                        is_active=True,
-                    )
+                    pending = pending_write_model(id=pending_id)
                     caller.add(pending)
                     evidence = await transfer_project_owner(
                         caller,
@@ -407,7 +425,7 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                         assert (
                             await observer.get(Project, projects["direct"].id)
                         ).owner_id == users["old_owner"].id
-                        assert await observer.get(User, pending_id) is None
+                        assert await observer.get(pending_write_model, pending_id) is None
                         for table, key in (
                             (User, users["actor"].id),
                             (User, users["receiver"].id),

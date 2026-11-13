@@ -463,3 +463,10 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 授权与兼容性两组交由指定 DeepSeek task 子代理在独立工作树修正；父代理修正目录类型投影和镜像数据库地址，后者复用已有 PostgreSQL 身份／bridge 核验 helper。源码修正与运行时通过分别记账，不延长超时或降低拒绝条件。
 - 另为旧完整门的原生图片夹具阻塞新增前向修订 `bo0461`：目标围栏要求同一 run／dataset／item、不可变金字塔代次绑定及当前存活 job／claim 租约；保留原目标身份、关闭状态、旧 producer 与 screenshot 判定。原始 `bo0446`／`bo0455` SQL 不改写；该修正尚待真实原生 worker／Raster 场景验证。
 - 兼容探针的旧 SQL 文本监听只识别 `INSERT INTO audit_logs`，实际请求已经由 `aap_audit_v1.append_events` 写入；现改在 middleware 的 `append_http_metadata` 派发边界观察，仍执行真实审计写入并保持原锁／超时。旧响应参考按项目的持久化 `guide_assets_revision` 扩展当前投影，不写死该字段的默认值。四组修正完成后再执行同一 12 文件集；镜像与已安装包的输入未改变，按原始身份复用，不重新构建或改贴来源标签。
+
+### N5 第二轮与最终事务探针修正
+
+- `n5-owner-2` 固定 `129107983b944d65c39c6d9b2895c4c1928284fc`，约 539 秒；70 项中 69 passed、1 failed、0 error／skip。N5-S 的 14 个运行时权限案例和 6 个 grant 案例通过；填充历史状态的迁移／拒绝／前向切换、恢复、Python／Node 真实容器重启重放也通过。
+- 剩余失败仅在 caller 事务探针：旧探针向 `public.users` 排入原始 INSERT，但当前普通调用方已经没有 Identity 私表写权限，尚未触达预期的 409 分支。改为仅该案例拥有的 UUID 命名 ORM 标记表，只授予该表的 INSERT／SELECT；仍由真实受限调用方执行 autoflush、跨连接不可见性和回滚检查，不恢复 User／Project 私表权限。后续仅复验四条兼容路径；其余 66 项生产输入与测试输入未改，不重跑已通过切片。
+- 第二轮正常资源清理通过；空 bootstrap 和临时证据根也已归档退役，见 `n5/n5-owner-2-cleanup.json`。六个已集成、干净且无运行环境的 N5 子代理工作树已移除，分支保留，见 `n5/agent-worktrees-retired.json`。
+- 同一冻结源的前端构建通过（约 98 秒），唯一已观察警告为 Vite chunk 超过 600 kB；378 个输出文件与 2417 个源输入已有摘要记录。构建不是浏览器通过；后续仅测试／账本变化可在输入摘要一致时复用构建，不重贴 Git 来源标签。
