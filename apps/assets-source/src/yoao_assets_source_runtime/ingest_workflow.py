@@ -590,13 +590,19 @@ class IngestWorkflow:
                 or facts.object_identity is None
                 or planned.item_id is None
                 or planned.file_path is None
-                or planned.publication_id is None
+                or (planned.source_key is None and planned.publication_id is None)
             ):
                 raise IngestFailure("invalid_response")
+            # A legacy scan adopts bytes without publishing them; its accepted
+            # entry owns the stable image-admission namespace instead.
             try:
                 await self._image_admission.admit_dataset_item(
                     item_id=planned.item_id,
-                    publication_id=planned.publication_id,
+                    operation_namespace=(
+                        planned.publication_id
+                        if planned.source_key is None
+                        else planned.entry_id
+                    ),
                     file_path=planned.file_path,
                     file_size=facts.file_size,
                     content_hash=facts.content_hash,

@@ -344,7 +344,9 @@ async def _admit_images(db, world, plan, completions):
         facts = world.image_facts[entry.entry_id]
         await admission.admit_dataset_item(
             item_id=entry.item_id,
-            publication_id=entry.publication_id,
+            operation_namespace=(
+                entry.publication_id if entry.source_key is None else entry.entry_id
+            ),
             file_path=entry.file_path,
             file_size=facts.file_size,
             content_hash=facts.content_hash,

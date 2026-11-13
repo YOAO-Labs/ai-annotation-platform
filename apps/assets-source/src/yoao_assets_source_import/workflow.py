@@ -816,7 +816,7 @@ class ImportWorkflow:
                         try:
                             await data.image_admission.admit_dataset_item(
                                 item_id=entry.item_id,
-                                publication_id=entry.publication_id,
+                                operation_namespace=entry.publication_id,
                                 file_path=entry.file_path,
                                 file_size=completion.file_size,
                                 content_hash=completion.content_hash,

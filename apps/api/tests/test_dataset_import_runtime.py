@@ -2006,7 +2006,7 @@ async def test_same_creation_drained_readbacks_settle_after_lease_reclaim(
                             identity = _object_identity_from_verified(verified, byte_size=verified.size_bytes)
                             await client.image_admission.admit_dataset_item(
                                 item_id=written["item_id"],
-                                publication_id=written["publication_id"],
+                                operation_namespace=written["publication_id"],
                                 file_path=written["file_path"],
                                 file_size=verified.size_bytes,
                                 content_hash=verified.md5,

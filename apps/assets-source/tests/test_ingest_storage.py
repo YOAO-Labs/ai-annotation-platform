@@ -230,6 +230,77 @@ async def test_scan_streams_more_than_one_s3_page_and_adopts_existing_objects() 
 
 
 @pytest.mark.asyncio
+async def test_scan_admits_verified_images_across_batches_without_publication_ids():
+    from PIL import Image
+
+    objects = {
+        f"dataset/item-{index:04}.dat": f"point-{index}".encode()
+        for index in range(199)
+    }
+    for name, color in (("first.png", "red"), ("second.png", "blue")):
+        output = BytesIO()
+        with Image.new("RGB", (19, 11), color) as picture:
+            picture.save(output, "PNG")
+        objects["dataset/nested/" + name] = output.getvalue()
+    listed = [
+        {
+            "Key": key,
+            "Size": len(body),
+            "ETag": '"' + hashlib.md5(body, usedforsecurity=False).hexdigest() + '"',
+        }
+        for key, body in objects.items()
+    ]
+    s3 = _S3(
+        objects=objects,
+        pages=[{"Contents": listed[:200]}, {"Contents": listed[200:]}],
+    )
+    verified = []
+
+    class VerifiedData(_Data):
+        async def original_verified(self, creation_id, verification):
+            verified.append(verification)
+            await super().original_verified(creation_id, verification)
+
+    data, admission = VerifiedData(), _ImageAdmission()
+    receipt = await IngestWorkflow(
+        data=data,
+        storage=IngestStorage(s3, "datasets"),
+        image_admission=admission,
+    ).scan(_command())
+
+    assert receipt.added == receipt.linked_tasks == 201
+    assert receipt.error_count == 0
+    assert data.calls.count("prepare") == data.calls.count("complete") == 2
+    assert len(verified) == 201
+    assert {proof["sha256"] for proof in verified} == {
+        hashlib.sha256(body).hexdigest() for body in objects.values()
+    }
+    assert all(proof["physical_settled"] for proof in verified)
+    planned_images = {
+        entry.item_id: entry
+        for entry in data.planned.values()
+        if entry.file_type == "image"
+    }
+    assert len(admission.calls) == len(planned_images) == 2
+    for request in admission.calls:
+        planned = planned_images[request["item_id"]]
+        body = objects[planned.file_path]
+        assert planned.publication_id is None
+        assert request["operation_namespace"] == planned.entry_id
+        assert request["file_path"] == planned.source_key == planned.file_path
+        assert request["file_size"] == len(body)
+        assert request["content_hash"] == hashlib.md5(
+            body, usedforsecurity=False
+        ).hexdigest()
+        assert request["object_identity"] == ObjectIdentity(
+            etag=request["content_hash"],
+            byte_size=len(body),
+            version_id=s3._current("datasets", planned.file_path)["version"],
+        )
+    assert not any(call[0] in {"create", "complete", "put"} for call in s3.calls)
+
+
+@pytest.mark.asyncio
 async def test_zip_publication_uses_conditional_create_and_full_readback() -> None:
     s3 = _S3()
     storage = IngestStorage(s3, "datasets")
