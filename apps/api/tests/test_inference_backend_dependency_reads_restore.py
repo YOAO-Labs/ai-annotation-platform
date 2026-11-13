@@ -18,7 +18,7 @@ from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.trained_model import ModelDeployment
 from tests.factory import create_user
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
-from tests.test_identity_recovery import _postgres_tool
+from tests.test_identity_recovery import _alembic, _postgres_tool
 from tests.test_inference_backend_dependency_reads_native import (
     _EVALUATION_FUNCTION,
     _JOBS_FUNCTION,
@@ -266,6 +266,37 @@ async def _assert_copied_authority_quarantined(engine) -> None:
         )
 
 
+async def _initialize_fresh_source(test_engine, admin, engine) -> None:
+    """Install a new source through the forward chain, never from copied authority."""
+    # The shared grant helpers import this module's database ownership helpers.
+    from tests.test_labeling_video_writer_restore import (
+        ROOT,
+        _grant_variables,
+        _revoke_public_temp,
+        _run_psql_file,
+    )
+
+    async with engine.connect() as connection:
+        assert await connection.scalar(
+            text("SELECT pg_catalog.to_regclass('public.alembic_version')")
+        ) is None
+    database = engine.url.database
+    await _revoke_public_temp(admin, test_engine, database)
+    migration = _alembic(engine.url, "upgrade", "head")
+    assert migration.returncode == 0, "fresh restore source migration failed"
+    _run_psql_file(
+        test_engine,
+        database,
+        ROOT / "infra/docker/module-data-grants.sql",
+        _grant_variables(database),
+    )
+    assert await _database_head(engine) == await _database_head(test_engine)
+    async with engine.connect() as connection:
+        assert await connection.scalar(
+            text("SELECT aap_inference_routing_v1._routing_secret() IS NOT NULL")
+        )
+
+
 async def _create_owned_clone(
     admin,
     test_engine,
@@ -451,7 +482,6 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
     assert len(restored_database.encode("utf-8")) <= 63
     source_owner = f"inference-backend-dependency-source:{uuid.uuid4()}"
     restored_owner = f"inference-backend-dependency-restore:{uuid.uuid4()}"
-    base_dump = tmp_path / "inference-backend-dependency-base.dump"
     source_dump = tmp_path / "inference-backend-dependency-source.dump"
     database_acl = await _database_acl(test_engine)
     database_created: set[str] = set()
@@ -466,16 +496,6 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             hide_parameters=True,
         )
 
-        base_dump.touch(mode=0o600)
-        base_dump.write_bytes(
-            _postgres_tool(
-                test_engine,
-                ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database],
-            )
-        )
-        assert base_dump.read_bytes().startswith(b"PGDMP")
-        assert stat.S_IMODE(base_dump.stat().st_mode) == 0o600
-
         await _create_owned_clone(
             admin,
             test_engine,
@@ -484,24 +504,11 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             database_acl,
             database_created,
         )
-        _verify_postgres(test_engine.url)
-        _postgres_tool(
-            test_engine,
-            [
-                "pg_restore",
-                "-U",
-                "owner",
-                "--exit-on-error",
-                "--dbname",
-                source_database,
-            ],
-            body=base_dump.read_bytes(),
-        )
         source_engine = create_async_engine(
             test_engine.url.set(database=source_database), hide_parameters=True
         )
+        await _initialize_fresh_source(test_engine, admin, source_engine)
         await _assert_clone_identity(source_engine, source_database, source_owner)
-        await _assert_copied_authority_quarantined(source_engine)
 
         world = await _seed_database(source_engine)
         source_function_metadata = await _function_metadata(source_engine)
@@ -519,6 +526,7 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
             "running_missing": 0,
         }
         await _assert_inference_has_no_raw_reads(source_engine)
+        database_acl = await _database_acl(source_engine)
 
         source_dump.touch(mode=0o600)
         source_dump.write_bytes(
@@ -669,11 +677,10 @@ async def test_dependency_functions_survive_nonempty_owned_dump_restore(
                     await admin.dispose()
                 except Exception as exc:  # pragma: no cover - acceptance cleanup path
                     cleanup_errors.append(exc)
-            for dump in (base_dump, source_dump):
-                try:
-                    dump.unlink(missing_ok=True)
-                except OSError as exc:  # pragma: no cover - acceptance cleanup path
-                    cleanup_errors.append(exc)
+            try:
+                source_dump.unlink(missing_ok=True)
+            except OSError as exc:  # pragma: no cover - acceptance cleanup path
+                cleanup_errors.append(exc)
         if cleanup_errors:
             if primary_error:
                 warnings.warn(

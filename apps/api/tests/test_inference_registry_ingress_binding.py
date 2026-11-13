@@ -196,6 +196,9 @@ async def test_seed_marker_preserves_pending_and_later_extra_param_edits(
     del row.extra_params["caller_before"]
     row.extra_params["seed"] = {"caller": "must not replace Native marker"}
     row.extra_params["caller_after"] = "after marker"
+    assert await db_session.scalar(
+        select(MLBackendRegistry.extra_params).where(MLBackendRegistry.id == row.id)
+    ) == {"seed": _MARKER}
 
     await data.flush()
 

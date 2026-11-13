@@ -74,9 +74,9 @@ def _merge_seed_extra(stage: _SeedMarkerStage, native_extra: Any) -> Any:
     baseline = _mapping(stage.database_extra_params)
     previous = _mapping(stage.previous_extra_params)
 
-    # Re-apply the caller's pending edits over the Native merge. The `seed` key
-    # belongs to the ingress marker, so the pending pre-staging value there must
-    # not overwrite the revision Native just applied.
+    # Identity stages capture `previous` at before_flush, after caller edits
+    # made since enqueueing. Re-apply that full pending delta over Native's
+    # merge, but never let the caller replace the Native-owned `seed` marker.
     missing = object()
     for key in baseline.keys() | previous.keys():
         if key == "seed" or baseline.get(key, missing) == previous.get(key, missing):
@@ -190,6 +190,8 @@ def _apply_seed_marker_identity(
         and "extra_params" in row.__dict__
         and row not in session.deleted
     ):
+        # The queued identity stage holds no extra-param snapshot. Capturing
+        # here includes later caller replacements and removals in this flush.
         current = deepcopy(row.extra_params)
         staged = {**_mapping(current), "seed": stage.marker}
         database = session.info.get(_BASELINES, {}).get(stage.registry_id, current)
