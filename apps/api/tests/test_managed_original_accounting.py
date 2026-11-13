@@ -18,6 +18,7 @@ from tests.test_managed_original_creation import (
     client as _client,
     create,
     creation_db as _creation_db,
+    operations,
 )
 
 creation_db = _creation_db
@@ -232,11 +233,30 @@ async def test_close_failure_cannot_confirm_even_with_complete_verification(
 ):
     row = await allocation(creation_db)
     client.versioned, client.close_failure = True, True
-    with pytest.raises(ContentError):
+    with pytest.raises(ExceptionGroup) as failure:
         await create(creation_db, row)
+    assert failure.value.storage_operation_unsettled is True
+    assert (
+        failure.value.subgroup(
+            lambda error: isinstance(error, ContentError)
+            and error.code == "managed_original_close_unknown"
+        )
+        is not None
+    )
+    assert (
+        failure.value.subgroup(
+            lambda error: isinstance(error, OSError)
+            and str(error) == "private close detail"
+        )
+        is not None
+    )
     fact = (await mutations(creation_db))[0]
     assert fact.physical_outcome == "written" and fact.evidence["full_readback"]
     assert fact.current_delta_bytes is None and fact.state == "unknown"
+    current = await service._read(creation_db, row["id"])
+    assert current["status"] == "unknown" and current["settled_at"] is None
+    assert current["receipt"] and current["verification"]
+    assert current["operation_id"] in await operations(creation_db)
 
 
 async def test_repeated_caller_cancellation_waits_for_native_close_and_fact(

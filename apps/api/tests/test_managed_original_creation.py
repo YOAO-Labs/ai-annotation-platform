@@ -64,6 +64,7 @@ _CREATION_TRIGGERS = {
     ("dataset_asset_locations", "trg_dataset_asset_locations_storage_ref"),
     ("dataset_auxiliary_originals", "trg_dataset_auxiliary_originals_storage_ref"),
     ("dataset_auxiliary_originals", "trg_auxiliary_original"),
+    ("dataset_auxiliary_originals", "trg_auxiliary_original_retirement"),
     ("dataset_items", "trg_auxiliary_raw_pointer"),
     ("scenes", "trg_auxiliary_map_pointer"),
     ("dataset_asset_locations", "trg_auxiliary_creation_asset"),
@@ -82,11 +83,20 @@ async def _clone_creation_schema(connection, schema):
                 f'(LIKE public."{table}" INCLUDING ALL)'
             )
         )
+    # The current DELETE guard uses a private transaction-local marker. Copy
+    # only its empty table, not the retirement command or shared fixture state.
+    await connection.execute(
+        text(
+            f'CREATE TABLE "{schema}".auxiliary_retirement_guard '
+            "(LIKE yoao_fixture_v1.auxiliary_retirement_guard INCLUDING ALL)"
+        )
+    )
     await connection.execute(text(f'SET LOCAL search_path = "{schema}", pg_catalog'))
     triggers = list(
         await connection.execute(
             text(
-                "SELECT relation.relname, trigger.tgname, function.proname, "
+                "SELECT relation.relname, trigger.tgname, "
+                "function_namespace.nspname || '.' || function.proname, "
                 "pg_catalog.pg_get_triggerdef(trigger.oid), "
                 "pg_catalog.pg_get_functiondef(function.oid) "
                 "FROM pg_catalog.pg_trigger AS trigger "
@@ -97,7 +107,7 @@ async def _clone_creation_schema(connection, schema):
                 "JOIN pg_catalog.pg_namespace AS function_namespace "
                 "ON function_namespace.oid=function.pronamespace "
                 "WHERE NOT trigger.tgisinternal AND namespace.nspname='public' "
-                "AND function_namespace.nspname='public' "
+                "AND function_namespace.nspname IN ('public', 'yoao_fixture_v1') "
                 "AND trigger.tgname = ANY(CAST(:names AS text[])) "
                 "ORDER BY relation.relname, trigger.tgname"
             ),
@@ -106,15 +116,20 @@ async def _clone_creation_schema(connection, schema):
     )
     assert {(table, name) for table, name, *_ in triggers} == _CREATION_TRIGGERS
     functions = {name: definition for _, _, name, _, definition in triggers}
+    objects = {
+        **{f"public.{name}": name for name in _CREATION_TABLES},
+        "yoao_fixture_v1.auxiliary_retirement_guard": "auxiliary_retirement_guard",
+        **{name: name.rsplit(".", 1)[1] for name in functions},
+    }
     for definition in functions.values():
         # Only these exact ledger guards and their owned relations are rebound;
         # never replace or recursively copy the shared native capability graph.
-        for name in (*_CREATION_TABLES, *functions):
-            definition = definition.replace(f"public.{name}", f'"{schema}".{name}')
+        for source, name in objects.items():
+            definition = definition.replace(source, f'"{schema}".{name}')
         await connection.exec_driver_sql(definition)
     for _, _, _, definition, _ in triggers:
-        for name in (*_CREATION_TABLES, *functions):
-            definition = definition.replace(f"public.{name}", f'"{schema}".{name}')
+        for source, name in objects.items():
+            definition = definition.replace(source, f'"{schema}".{name}')
         await connection.exec_driver_sql(definition)
     # LIKE omits FKs. Preserve the current original-provenance and pointer
     # constraints, without introducing business parents for independent facts.

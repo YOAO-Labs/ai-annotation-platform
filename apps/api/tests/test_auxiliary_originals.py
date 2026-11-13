@@ -100,6 +100,7 @@ async def test_independent_verified_owner_survives_business_rollback(
 @pytest.mark.parametrize("field", service.FACTS)
 async def test_saved_identity_cannot_change_or_be_deleted(auxiliary_db, client, field):
     owner, _, _ = await saved(auxiliary_db)
+    owner_id = owner.id
     value = getattr(owner, field)
     replacement = (
         uuid.uuid4()
@@ -112,16 +113,27 @@ async def test_saved_identity_cannot_change_or_be_deleted(auxiliary_db, client, 
         if isinstance(value, datetime)
         else "changed"
     )
-    with pytest.raises(IntegrityError):
+    with pytest.raises(IntegrityError, match="immutable"):
         async with auxiliary_db.begin_nested():
             await auxiliary_db.execute(
                 update(Original)
-                .where(Original.id == owner.id)
+                .where(Original.id == owner_id)
                 .values(**{field: replacement})
             )
-    with pytest.raises(IntegrityError):
+    # DELETE is guarded separately: only the native retirement command can
+    # qualify removal; an unreferenced verified owner is not disposable.
+    with pytest.raises(
+        IntegrityError, match="Auxiliary original responsibility cannot be deleted"
+    ) as refusal:
         async with auxiliary_db.begin_nested():
-            await auxiliary_db.execute(delete(Original).where(Original.id == owner.id))
+            await auxiliary_db.execute(delete(Original).where(Original.id == owner_id))
+    assert refusal.value.orig.sqlstate == "23514"
+    assert (
+        await auxiliary_db.scalar(
+            select(getattr(Original, field)).where(Original.id == owner_id)
+        )
+        == value
+    )
 
 
 async def test_creation_kind_and_contract_are_paired_at_database_boundary(
@@ -260,11 +272,12 @@ async def test_interrupted_late_unknown_keeps_durable_permit(
         max_bytes=100,
         authority={"policy": "owned-test"},
     )
+    late_failure = writer.WriterError("creation_complete_unknown", outcome="unknown")
 
     def unknown(*args, **kwargs):
         entered.set()
         release.wait(5)
-        raise writer.WriterError("creation_complete_unknown", outcome="unknown")
+        raise late_failure
 
     monkeypatch.setattr(writer, "prepare_stream", unknown)
     operation = asyncio.create_task(
@@ -277,11 +290,15 @@ async def test_interrupted_late_unknown_keeps_durable_permit(
     await asyncio.sleep(0)
     assert not operation.done()
     release.set()
-    with pytest.raises(ContentError) as failure:
+    with pytest.raises(BaseExceptionGroup) as failure:
         await operation
     assert failure.value.storage_operation_unsettled is True
+    assert failure.value.subgroup(asyncio.CancelledError) is not None
+    assert failure.value.subgroup(lambda error: error is late_failure) is not None
+    assert late_failure.outcome == "unknown"
     row = await creation._read(auxiliary_db, allocation["id"])
     assert row["status"] == "unknown"
+    assert row["settled_at"] is None
     async with service.storage_access.engine(auxiliary_db).connect() as connection:
         assert (
             await connection.scalar(
