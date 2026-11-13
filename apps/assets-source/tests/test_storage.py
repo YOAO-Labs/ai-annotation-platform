@@ -178,3 +178,18 @@ def test_storage_has_no_object_delete_or_bucket_management_surface() -> None:
     assert not hasattr(SourceStorage, "delete_prefix")
     assert not hasattr(SourceStorage, "ensure_bucket")
     assert not hasattr(SourceStorage, "list_objects")
+
+
+def test_public_storage_failure_preserves_uncertain_physical_ownership():
+    from yoao_assets_source_runtime.ingest_storage_errors import ManagedStorageError
+    from yoao_assets_source_runtime.workflow import _failure_evidence
+
+    failure = SourceStorage._source_failure(
+        ManagedStorageError("storage_write_failed", uncertain=True)
+    )
+    assert failure.code == "storage_unavailable"
+    assert _failure_evidence("write", failure) == {
+        "physical_settled": False,
+        "physical_outcome": "unknown",
+        "stage": "write",
+    }

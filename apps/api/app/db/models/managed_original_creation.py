@@ -79,23 +79,29 @@ staging_ref IS NULL OR COALESCE((
 class ManagedOriginalCreation(Base):
     __tablename__ = "managed_original_creations"
     __table_args__ = (
-        # Retaining a settled failed attempt must not release its reserved
-        # key for the next attempt; only terminal failed/conflict evidence may
-        # share it, while allocated/verified/unknown rows still own the key.
+        # Terminal labels never release a key without immutable proof that this
+        # attempt drained without publishing; written and uncertain attempts
+        # keep their reservation.
         Index(
             "uq_managed_creation_reserved_key_active",
             "storage_identity",
             "bucket",
             "object_key",
             unique=True,
-            postgresql_where=text("status NOT IN ('failed','conflict')"),
+            postgresql_where=text(
+                "status NOT IN ('failed','conflict') OR receipt IS NOT NULL "
+                "OR NOT COALESCE(failure_evidence @> "
+                "'{\"physical_settled\":true,\"physical_outcome\":\"not_written\"}'::jsonb, false)"
+            ),
         ),
         Index(
             "uq_managed_creation_staging_key_active",
             "staging_key",
             unique=True,
             postgresql_where=text(
-                "staging_key IS NOT NULL AND status NOT IN ('failed','conflict')"
+                "staging_key IS NOT NULL AND (status NOT IN ('failed','conflict') "
+                "OR receipt IS NOT NULL OR NOT COALESCE(failure_evidence @> "
+                "'{\"physical_settled\":true,\"physical_outcome\":\"not_written\"}'::jsonb, false))"
             ),
         ),
         Index("ix_managed_creation_dataset", "dataset_id", "allocated_at", "id"),
@@ -143,6 +149,16 @@ class ManagedOriginalCreation(Base):
         CheckConstraint(
             "error_code IS NULL OR error_code ~ '^[a-z][a-z0-9_]{0,79}$'",
             name="ck_managed_creation_error",
+        ),
+        CheckConstraint(
+            "failure_evidence IS NULL OR COALESCE(("
+            "status IN ('failed','conflict','unknown') "
+            "AND jsonb_typeof(failure_evidence) = 'object' "
+            "AND jsonb_typeof(failure_evidence -> 'physical_settled') = 'boolean' "
+            "AND failure_evidence ->> 'physical_outcome' IN ('not_written','written','unknown') "
+            "AND ((failure_evidence ->> 'physical_settled')::boolean "
+            "OR failure_evidence ->> 'physical_outcome' = 'unknown')), false)",
+            name="ck_managed_creation_failure_evidence",
         ),
         CheckConstraint(
             "(verification IS NULL AND readback_at IS NULL) OR (verification IS NOT NULL AND readback_at IS NOT NULL AND receipt IS NOT NULL)",
@@ -195,6 +211,7 @@ class ManagedOriginalCreation(Base):
     request_id: Mapped[str | None] = mapped_column(Text)
     verification: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     error_code: Mapped[str | None] = mapped_column(String(80))
+    failure_evidence: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     allocated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

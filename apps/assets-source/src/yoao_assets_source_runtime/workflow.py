@@ -155,6 +155,8 @@ def _failure_evidence(
     size_bytes: int | None = None,
     current_head_matches: bool | None = None,
 ) -> dict[str, Any]:
+    if receipt is None:
+        receipt = getattr(exc, "physical_receipt", None)
     uncertain = bool(
         getattr(exc, "storage_operation_unsettled", False)
         or getattr(exc, "outcome", None) == "unknown"
@@ -469,6 +471,11 @@ class UploadWorkflow:
                         target, "write", exc.code or "storage_write_failed", exc
                     )
                     raise
+                except asyncio.CancelledError as exc:
+                    await self._fail_original(
+                        target, "write", "storage_unavailable", exc
+                    )
+                    raise
                 except Exception as exc:
                     await self._fail_original(
                         target, "write", "storage_unavailable", exc
@@ -715,15 +722,14 @@ class UploadWorkflow:
         if target is None:
             return
         evidence = _failure_evidence(stage, exc)
-        try:
-            await self._upload_data.fail_original(
-                target.creation_id,
-                "unknown" if not evidence["physical_settled"] else "failed",
-                _safe_error_code("upload_" + code),
-                evidence,
-            )
-        except Exception:
-            logger.warning("Upload creation failure could not be settled code=%s", code)
+        await self._upload_data.fail_original(
+            target.creation_id,
+            "unknown"
+            if not evidence["physical_settled"]
+            else "conflict" if getattr(exc, "outcome", None) == "conflict" else "failed",
+            _safe_error_code("upload_" + code),
+            evidence,
+        )
 
     async def _close_read_operation(self, target, operation) -> None:
         """Settle the read permit only after the readback handle has drained."""
@@ -743,14 +749,9 @@ class UploadWorkflow:
             or getattr(exc, "outcome", None) == "unknown"
         ):
             return
-        try:
-            await self._upload_data.close_operation(
-                target.creation_id, operation.operation_id, True
-            )
-        except Exception:
-            logger.warning(
-                "Upload read permit close failed creation=%s", target.creation_id
-            )
+        await self._upload_data.close_operation(
+            target.creation_id, operation.operation_id, True
+        )
 
     async def _admit_image(
         self,

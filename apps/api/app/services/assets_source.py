@@ -357,9 +357,15 @@ class _LocalStoragePort:
     def _source_failure(exc) -> SourceFailure:
         # Managed-storage outcomes use their own taxonomy; only a proven source
         # change is a user-visible conflict, everything else is unavailable.
-        return SourceFailure(
+        failure = SourceFailure(
             "source_changed" if exc.code == "source_changed" else "storage_unavailable"
         )
+        failure.outcome = exc.outcome
+        if getattr(exc, "storage_operation_unsettled", False):
+            failure.storage_operation_unsettled = True
+        if getattr(exc, "physical_receipt", None) is not None:
+            failure.physical_receipt = exc.physical_receipt
+        return failure
 
     async def publish_managed_upload(
         self,

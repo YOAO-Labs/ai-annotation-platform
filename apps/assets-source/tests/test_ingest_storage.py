@@ -5,6 +5,7 @@ import hashlib
 from datetime import datetime, timezone
 from io import BytesIO
 from threading import Event
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -128,6 +129,7 @@ class _S3:
     def abort_multipart_upload(self, **kwargs):
         self.calls.append(("abort", kwargs))
         self.uploads.pop(kwargs.get("UploadId"), None)
+        return {"ResponseMetadata": {"HTTPStatusCode": 204}}
 
     def complete_multipart_upload(self, **kwargs):
         self.calls.append(("complete", kwargs))
@@ -355,3 +357,182 @@ async def test_cancellation_waits_for_inflight_blocking_storage_work() -> None:
     release.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+
+
+@pytest.mark.asyncio
+async def test_copy_uses_the_source_identity_for_reads_and_target_identity_for_writes():
+    from yoao_assets_source_runtime.managed_storage import ManagedStorage
+
+    body = b"separately authorized staging bytes"
+    source = _S3(objects={"incoming.dat": body})
+    destination = _S3()
+    target = _target("published.dat", max_bytes=len(body), mode="write")
+    written = await ManagedStorage(destination).publish_object(
+        target,
+        source_client=source,
+        source_bucket="datasets",
+        source_key="incoming.dat",
+        source_etag=source._current("datasets", "incoming.dat")["etag"],
+        source_version_id="v1",
+        content_type="application/octet-stream",
+        max_bytes=len(body),
+        image=False,
+    )
+
+    assert written.proof.sha256 == hashlib.sha256(body).hexdigest()
+    assert destination._current("datasets", "published.dat")["body"] == body
+    assert not source.uploads and not source.parts
+    assert all(
+        call[1]["Key"] == "published.dat"
+        for call in destination.calls
+        if call[0] in {"head", "get"}
+    )
+    assert all(
+        call[1].get("VersionId") == "v1"
+        for call in source.calls
+        if call[0] == "get"
+    )
+
+
+@pytest.mark.asyncio
+async def test_lost_completion_acknowledgement_keeps_unknown_physical_ownership():
+    class LostAck(_S3):
+        def complete_multipart_upload(self, **kwargs):
+            super().complete_multipart_upload(**kwargs)
+            raise TimeoutError("completion acknowledgement lost")
+
+    body = b"possibly published"
+    s3 = LostAck()
+    target = _target("published.dat", max_bytes=len(body), mode="write")
+    with pytest.raises(IngestEntryFailure) as caught:
+        await IngestStorage(s3, "datasets").publish(
+            BytesIO(body),
+            target,
+            content_type="application/octet-stream",
+            expected_size=len(body),
+        )
+
+    from yoao_assets_source_runtime.ingest_workflow import _failure_evidence
+
+    evidence = _failure_evidence("write", caught.value)
+    assert evidence["physical_outcome"] == "unknown"
+    assert evidence["physical_settled"] is False
+    assert s3._current("datasets", "published.dat")["body"] == body
+    assert not any(call[0] == "abort" for call in s3.calls)
+
+
+@pytest.mark.asyncio
+async def test_readback_failure_preserves_the_observed_write_receipt():
+    class MissingReadback(_S3):
+        def head_object(self, **kwargs):
+            raise self._error("NoSuchKey", 404, "HeadObject")
+
+    body = b"published before readback failed"
+    s3 = MissingReadback()
+    target = _target("published.dat", max_bytes=len(body), mode="write")
+    with pytest.raises(IngestEntryFailure) as caught:
+        await IngestStorage(s3, "datasets").publish(
+            BytesIO(body),
+            target,
+            content_type="application/octet-stream",
+            expected_size=len(body),
+        )
+
+    from yoao_assets_source_runtime.ingest_workflow import _failure_evidence
+
+    evidence = _failure_evidence("verify", caught.value)
+    assert evidence["physical_outcome"] == "written"
+    assert evidence["physical_settled"] is True
+    assert evidence["receipt"]["version_id"] == "v1"
+    assert s3._current("datasets", "published.dat")["body"] == body
+    assert not any(call[0] == "abort" for call in s3.calls)
+
+
+@pytest.mark.asyncio
+async def test_cancelled_part_upload_drains_before_aborting_its_exact_multipart():
+    started, release = Event(), Event()
+
+    class HeldPart(_S3):
+        def upload_part(self, **kwargs):
+            started.set()
+            assert release.wait(5)
+            return super().upload_part(**kwargs)
+
+    s3 = HeldPart()
+    body = BytesIO(b"held upload bytes")
+    target = _target("published.dat", max_bytes=len(body.getvalue()), mode="write")
+    task = asyncio.create_task(
+        IngestStorage(s3, "datasets").publish(
+            body,
+            target,
+            content_type="application/octet-stream",
+            expected_size=len(body.getvalue()),
+        )
+    )
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done() and not body.closed
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    assert not s3.uploads and not s3.objects
+    aborts = [call for call in s3.calls if call[0] == "abort"]
+    assert len(aborts) == 1 and aborts[0][1]["Key"] == target.object_key
+
+
+@pytest.mark.asyncio
+async def test_managed_readback_uses_its_operation_budget_not_the_socket_timeout(
+    monkeypatch,
+):
+    from yoao_assets_source import managed_original
+    from yoao_assets_source_runtime.storage import SourceStorage
+    from test_storage import _config, _Signer
+
+    elapsed = [0]
+    monkeypatch.setattr(
+        managed_original, "time", SimpleNamespace(monotonic=lambda: elapsed[0])
+    )
+
+    class SlowHead(_S3):
+        def head_object(self, **kwargs):
+            response = super().head_object(**kwargs)
+            elapsed[0] += 11
+            return response
+
+    body = b"bounded bytes"
+    storage = SourceStorage(_config(), internal_client=SlowHead(), public_signer=_Signer())
+    written = await storage.managed.publish_stream(
+        BytesIO(body),
+        _target("published.dat", max_bytes=len(body), mode="write"),
+        content_type="application/octet-stream",
+        expected_size=len(body),
+        expected_hash=None,
+        image=False,
+    )
+    assert written.proof.sha256 == hashlib.sha256(body).hexdigest()
+
+
+@pytest.mark.asyncio
+async def test_prepublication_failure_aborts_only_its_prepared_upload():
+    s3 = _S3()
+    target = _target("published.dat", max_bytes=4, mode="write")
+
+    async def refused(_prepared):
+        raise RuntimeError("publication fence refused")
+
+    with pytest.raises(RuntimeError, match="publication fence refused"):
+        await IngestStorage(s3, "datasets").publish(
+            BytesIO(b"data"),
+            target,
+            content_type="application/octet-stream",
+            expected_size=4,
+            on_prepared=refused,
+        )
+    assert not s3.uploads and not s3.objects
+    assert len([call for call in s3.calls if call[0] == "abort"]) == 1
+    assert not any(call[0] == "complete" for call in s3.calls)

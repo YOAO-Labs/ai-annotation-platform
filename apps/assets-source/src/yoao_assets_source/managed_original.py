@@ -170,19 +170,21 @@ def _status(response: Any, allowed: tuple[int, ...] = (200,)) -> None:
 
 
 def _failure(exc: BaseException, code: str = "creation_io_failed") -> WriterError:
+    if getattr(exc, "storage_operation_unsettled", False):
+        return WriterError(
+            exc.code if isinstance(exc, WriterError) else code, "unknown"
+        )
     if isinstance(exc, WriterError):
         return exc
     from botocore.exceptions import ClientError
 
     if isinstance(exc, ClientError):
-        error_code, status = _error(exc)
+        error_code, _status = _error(exc)
         # A pinned read or conditional write rejected by its own precondition
         # (or a vanished object) proves the source changed; it must not be
         # reported as an unknown storage outage.
         if error_code in ("PreconditionFailed", "412", "NoSuchKey", "404", "NotFound"):
             return WriterError("creation_source_changed")
-    if getattr(exc, "storage_operation_unsettled", False):
-        return WriterError(code, "unknown")
     return WriterError(code)
 
 
@@ -515,8 +517,10 @@ def _prepare_pinned_stream(
     content_type: str,
     timeout_seconds: float,
     check,
+    source_client: Any | None = None,
 ) -> Prepared:
     """Replace a server copy with a fully verified bounded stream read."""
+    reader = source_client if source_client is not None else client
     body, prepared = None, None
     params: dict[str, Any] = {
         "Bucket": source_bucket,
@@ -526,9 +530,9 @@ def _prepare_pinned_stream(
     }
     try:
         check()
-        _require_conditions(client, params)
+        _require_conditions(reader, params)
         check()
-        response = client.get_object(**params)
+        response = reader.get_object(**params)
         body = response.get("Body")
         check()
         if _observation(response, source_bucket, source_key) != source.observation:
@@ -562,7 +566,7 @@ def _prepare_pinned_stream(
     try:
         check()
         current = _observation(
-            client.head_object(Bucket=source_bucket, Key=source_key),
+            reader.head_object(Bucket=source_bucket, Key=source_key),
             source_bucket,
             source_key,
         )
@@ -619,6 +623,7 @@ def prepare_copy(
             content_type,
             timeout_seconds,
             check,
+            source_client=source_client,
         )
     if not source.size_bytes:
         return Prepared(

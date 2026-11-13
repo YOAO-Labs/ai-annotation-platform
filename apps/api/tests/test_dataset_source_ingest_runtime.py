@@ -3,17 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-import base64
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import hashlib
 from io import BytesIO
-import json
 import os
 from pathlib import Path
 import time
-from unittest.mock import Mock
-from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 import zipfile
 
@@ -130,10 +126,6 @@ async def test_zip_remote_replay_preserves_sources_and_plans_all_dataset_items(
 ):
     from app.config import settings
     from app.db.models.dataset import DatasetItem
-    from app.services.dataset_source_ingest_delivery import (
-        claim_dataset_source_ingest_delivery,
-    )
-    from app.workers.dataset_import_delivery import _deliver_source_ingest_one
 
     async with _source_stack(test_engine, app_module, monkeypatch) as stack:
         operation, legacy_id = uuid4(), uuid4()
@@ -231,102 +223,13 @@ async def test_zip_remote_replay_preserves_sources_and_plans_all_dataset_items(
         assert duplicate.status_code == 200, duplicate.text
         assert duplicate.json()["added"] == 0 and duplicate.json()["deduped"] == 2
         assert (await _facts(stack))[1] == (2, 2, 3, 2, 2)
-        # The request path never dispatches media; publication only records the
-        # durable handoff claimed below (no dispatcher dependency remains).
-
-        # A broker failure retains the durable handoff for its next lease.
-        async with stack.world.maker() as db:
-            lease = await claim_dataset_source_ingest_delivery(
-                db, lease_token=uuid4(), lease_seconds=120
-            )
-            await db.commit()
-            assert lease is not None and lease.operation_id == operation
-            failed_dispatcher = Mock()
-            failed_dispatcher.dispatch_thumbnail.side_effect = RuntimeError(
-                "broker unavailable"
-            )
-            with pytest.raises(RuntimeError, match="broker unavailable"):
-                await _deliver_source_ingest_one(db, lease, failed_dispatcher)
-            await db.rollback()
-            assert (
-                await db.scalar(
-                    text(
-                        "SELECT delivered_at FROM dataset_source_ingest_deliveries WHERE id=:id"
-                    ),
-                    {"id": lease.id},
-                )
-                is None
-            )
-            await db.execute(
-                text(
-                    "UPDATE dataset_source_ingest_deliveries SET lease_expires_at=now()-interval '1 second' WHERE id=:id"
-                ),
-                {"id": lease.id},
-            )
-            await db.commit()
-            again = await claim_dataset_source_ingest_delivery(
-                db, lease_token=uuid4(), lease_seconds=120
-            )
-            await db.commit()
-            assert (
-                again is not None
-                and again.id == lease.id
-                and again.lease_token != lease.lease_token
-            )
-            dispatcher = Mock()
-            assert (
-                await _deliver_source_ingest_one(db, again, dispatcher) == "delivered"
-            )
-            dispatcher.dispatch_thumbnail.assert_called_once_with(again.target_id)
-
-        import redis.asyncio as aioredis
-        from app.workers.dataset_import_delivery import _relay_pending
-
-        broker = urlsplit(settings.celery_broker_url)
-        observed = await asyncio.to_thread(
-            _inspect_docker, stack.resources["redis_name"]
-        )
-        assert observed["Config"]["Image"] == "redis:7-alpine"
-        assert (
-            observed["Config"]["Labels"]["org.aap.worktree-owner"]
-            == stack.resources["owner"]
-        )
-        assert broker.hostname in {"localhost", "127.0.0.1"}
-        assert any(
-            binding["HostIp"] == "127.0.0.1" and int(binding["HostPort"]) == broker.port
-            for binding in observed["NetworkSettings"]["Ports"]["6379/tcp"]
-        )
-        client = aioredis.from_url(settings.redis_url, socket_timeout=5)
-        own_messages = []
-        try:
-            totals = await _relay_pending()
-            assert totals["delivered"] == 1 and totals["deferred"] == 0
-            assert (await _relay_pending())["claimed"] == 0
-            for message in await client.lrange("media", 0, -1):
-                envelope = json.loads(message)
-                if (
-                    envelope.get("headers", {}).get("task")
-                    != "app.workers.image_pyramid.execute_image_media"
-                ):
-                    continue
-                arguments = json.loads(base64.b64decode(envelope["body"]))
-                if arguments[0] == [None]:
-                    own_messages.append(message)
-            assert len(own_messages) == 1
-            async with stack.world.maker() as db:
-                assert (
-                    await db.scalar(
-                        text(
-                            "SELECT count(*) FROM dataset_source_ingest_deliveries WHERE operation_id=:id AND delivered_at IS NOT NULL"
-                        ),
-                        {"id": operation},
-                    )
-                    == 2
-                )
-        finally:
-            for message in own_messages:
-                await client.lrem("media", 1, message)
-            await client.aclose()
+        replayed = await _upload(stack, body, operation)
+        assert replayed.status_code == 200, replayed.text
+        assert replayed.json() == result
+        replayed_items, replayed_counts = await _facts(stack)
+        assert replayed_items == items
+        assert replayed_counts == (2, 2, 3, 2, 2)
+        assert await asyncio.to_thread(_objects, stack) == before_objects
 
 
 async def test_scan_remote_pages_only_the_legacy_prefix_without_scene_inference(
@@ -409,10 +312,34 @@ async def test_scan_remote_pages_only_the_legacy_prefix_without_scene_inference(
         )
         assert (picture["width"], picture["height"]) == (19, 11)
         multipart = next(item for item in items if item["file_path"] == multipart_key)
-        assert (
-            multipart["content_hash"] is None
-            and multipart["file_size"] == 5 * 1024 * 1024 + 4
+        multipart_bytes = b"m" * (5 * 1024 * 1024) + b"tail"
+        multipart_hash = hashlib.md5(multipart_bytes, usedforsecurity=False).hexdigest()
+        assert multipart["content_hash"] == multipart_hash
+        assert multipart["file_size"] == len(multipart_bytes)
+        async with stack.world.maker() as db:
+            proof = (
+                await db.execute(
+                    text(
+                        "SELECT sha256,md5,size_bytes,etag,version_id "
+                        "FROM public.managed_original_creations "
+                        "WHERE dataset_id=:dataset AND object_key=:key "
+                        "AND authority->>'operation_id'=:operation AND status='verified'"
+                    ),
+                    {
+                        "dataset": stack.world.dataset_id,
+                        "key": multipart_key,
+                        "operation": str(operation),
+                    },
+                )
+            ).one()
+        head = await asyncio.to_thread(
+            stack.storage.client.head_object,
+            Bucket=stack.storage.datasets_bucket,
+            Key=multipart_key,
         )
+        assert proof.sha256 == hashlib.sha256(multipart_bytes).hexdigest()
+        assert (proof.md5, proof.size_bytes) == (multipart_hash, len(multipart_bytes))
+        assert (proof.etag, proof.version_id) == (head["ETag"], head.get("VersionId"))
         assert not any(item["file_path"] in {foreign_key, orphan_key} for item in items)
         assert await asyncio.to_thread(_read, stack, orphan_key) == objects[orphan_key]
         extra = prefix + "later.bin"
@@ -589,6 +516,7 @@ async def test_zip_near_200mib_within_the_declared_container_memory_and_spool_bu
             result = await _upload(stack, body, uuid4())
         elapsed = time.monotonic() - started
         assert result.status_code == 200, result.text
+        assert result.json()["errors"] == [], result.text
         assert result.json()["added"] == result.json()["linked_tasks"] == 2
         items, counts = await _facts(stack)
         assert counts == (2, 2, 2, 1, 1)

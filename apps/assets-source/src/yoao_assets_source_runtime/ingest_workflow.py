@@ -230,14 +230,23 @@ class IngestWorkflow:
                             exc.code,
                         )
                     except IngestEntryFailure as exc:
-                        await self._fail_original(target, "write", exc.code, exc)
+                        await self._fail_original(
+                            target, "write", exc.code, exc, operation=operation
+                        )
                         completions.append(_failed_completion(planned, exc.code))
                         expected_errors.append(
                             (_safe_label(proposal.source_name), exc.code)
                         )
+                    except asyncio.CancelledError as exc:
+                        await self._fail_original(
+                            target, "write", "storage_write_failed", exc,
+                            operation=operation,
+                        )
+                        raise
                     except Exception as exc:  # noqa: BLE001 - ZIP reader failures are per-entry.
                         await self._fail_original(
-                            target, "write", "archive_entry_read_failed", exc
+                            target, "write", "archive_entry_read_failed", exc,
+                            operation=operation,
                         )
                         completions.append(
                             _failed_completion(planned, "archive_entry_read_failed")
@@ -423,8 +432,8 @@ class IngestWorkflow:
                             target,
                             content_type=proposal.content_type,
                             expected_size=proposal.file_size,
-                            expected_hash=proposal.content_hash,
                             image=proposal.file_type == "image",
+                            source_etag=etag,
                             on_prepared=lambda prepared: self._data.original_prepared(
                                 target.creation_id, prepared.evidence()
                             ),
@@ -465,10 +474,19 @@ class IngestWorkflow:
                 )
                 completions.append(_failed_completion(planned, "source_read_failed"))
             except IngestEntryFailure as exc:
-                await self._fail_original(target, "write", exc.code, exc)
+                await self._fail_original(
+                    target, "write", exc.code, exc, operation=operation
+                )
                 completions.append(_failed_completion(planned, exc.code))
+            except asyncio.CancelledError as exc:
+                await self._fail_original(
+                    target, "adopt", "source_read_failed", exc, operation=operation
+                )
+                raise
             except Exception as exc:  # noqa: BLE001 - per-entry storage failures
-                await self._fail_original(target, "write", "source_read_failed", exc)
+                await self._fail_original(
+                    target, "write", "source_read_failed", exc, operation=operation
+                )
                 completions.append(_failed_completion(planned, "source_read_failed"))
             else:
                 completions.append(_ready_completion(planned, facts))
@@ -505,20 +523,27 @@ class IngestWorkflow:
         stage: str,
         code: str,
         exc: BaseException | None,
+        *,
+        operation=None,
     ) -> None:
         """Durably settle a failed attempt; never publish its bytes."""
         if target is None:
             return
         evidence = _failure_evidence(stage, exc)
-        try:
-            await self._data.fail_original(
-                target.creation_id,
-                "unknown" if not evidence["physical_settled"] else "failed",
-                _safe_error_code("ingest_" + code),
-                evidence,
-            )
-        except Exception:
-            logger.warning("Ingest creation failure could not be settled code=%s", code)
+        if operation is not None and operation.mode == "read":
+            if evidence["physical_settled"]:
+                await self._data.close_operation(
+                    target.creation_id, operation.operation_id, True
+                )
+            return
+        await self._data.fail_original(
+            target.creation_id,
+            "unknown"
+            if not evidence["physical_settled"]
+            else "conflict" if getattr(exc, "outcome", None) == "conflict" else "failed",
+            _safe_error_code("ingest_" + code),
+            evidence,
+        )
 
     async def _admit_batch_images(
         self,
@@ -1003,6 +1028,8 @@ def _failure_evidence(
     size_bytes: int | None = None,
     current_head_matches: bool | None = None,
 ) -> dict[str, Any]:
+    if receipt is None:
+        receipt = getattr(exc, "physical_receipt", None)
     uncertain = bool(
         exc is not None
         and (

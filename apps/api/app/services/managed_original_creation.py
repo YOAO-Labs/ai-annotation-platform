@@ -1668,12 +1668,27 @@ async def _execute(db, allocation, stream):
                         else "failed"
                     )
                 )
+                settled = not (
+                    operation or getattr(exc, "storage_operation_unsettled", False)
+                )
+                evidence = {
+                    "physical_settled": settled,
+                    "physical_outcome": (
+                        "unknown"
+                        if not settled
+                        else "written" if current["receipt"] is not None else "not_written"
+                    ),
+                }
+                if current["receipt"] is not None:
+                    evidence["receipt"] = current["receipt"]
                 await _change(
                     db,
                     row["id"],
                     current["status"],
                     status=outcome,
                     error_code=_error(exc),
+                    failure_evidence=evidence,
+                    settled_at=now() if settled else None,
                     completed_at=now(),
                 )
             status = (

@@ -33,9 +33,16 @@ _CHANGED_CODES = {"409", "412", "PreconditionFailed", "ConditionalRequestConflic
 class IngestEntryFailure(Exception):
     """A safe per-file outcome; details from S3 or ZIP readers never escape."""
 
-    def __init__(self, code: IngestEntryErrorCode) -> None:
+    def __init__(
+        self, code: IngestEntryErrorCode, *, cause: BaseException | None = None
+    ) -> None:
         super().__init__(code)
         self.code = code
+        self.outcome = getattr(cause, "outcome", "failed")
+        if getattr(cause, "storage_operation_unsettled", False):
+            self.storage_operation_unsettled = True
+        if getattr(cause, "physical_receipt", None) is not None:
+            self.physical_receipt = cause.physical_receipt
 
 
 @dataclass(frozen=True, slots=True)
@@ -222,7 +229,7 @@ class IngestStorage:
                 on_written=on_written,
             )
         except ManagedStorageError as exc:
-            raise IngestEntryFailure(exc.code) from None
+            raise IngestEntryFailure(exc.code, cause=exc) from None
         facts = IngestStorageFacts(
             written.file_size,
             written.content_hash,
@@ -239,42 +246,30 @@ class IngestStorage:
         *,
         content_type: str,
         expected_size: int,
-        expected_hash: str | None,
         image: bool,
+        source_etag: str | None = None,
         on_prepared=None,
         on_writing=None,
         on_written=None,
     ) -> tuple[IngestStorageFacts, ManagedOriginalProof]:
         """Copy an existing platform object into a connection-backed target."""
-        body = None
         try:
-            response = await run_in_thread(
-                self._client.get_object, Bucket=self.datasets_bucket, Key=source_key
-            )
-            body = response.get("Body")
-            if not callable(getattr(body, "read", None)):
-                raise IngestEntryFailure("source_read_failed")
-            written = await self.managed.publish_stream(
-                body,
+            written = await self.managed.publish_object(
                 target,
+                source_client=self._client,
+                source_bucket=self.datasets_bucket,
+                source_key=source_key,
+                source_etag=source_etag,
+                source_version_id=None,
                 content_type=content_type,
-                expected_size=expected_size,
-                expected_hash=expected_hash,
+                max_bytes=max(expected_size, 0),
                 image=image,
                 on_prepared=on_prepared,
                 on_writing=on_writing,
                 on_written=on_written,
             )
         except ManagedStorageError as exc:
-            raise IngestEntryFailure(exc.code) from None
-        finally:
-            if body is not None:
-                try:
-                    await run_in_thread(body.close)
-                except Exception:
-                    raise ManagedStorageError(
-                        "storage_write_failed", uncertain=True
-                    ) from None
+            raise IngestEntryFailure(exc.code, cause=exc) from None
         facts = IngestStorageFacts(
             written.file_size,
             written.content_hash,
@@ -300,7 +295,7 @@ class IngestStorage:
                 target, sha256=sha256, size_bytes=size_bytes, image=image
             )
         except ManagedStorageError as exc:
-            raise IngestEntryFailure(exc.code) from None
+            raise IngestEntryFailure(exc.code, cause=exc) from None
         object_identity = None
         if image:
             try:
@@ -332,7 +327,7 @@ class IngestStorage:
                 target, max_bytes=max(expected_size, 0), image=image
             )
         except ManagedStorageError as exc:
-            raise IngestEntryFailure(exc.code) from None
+            raise IngestEntryFailure(exc.code, cause=exc) from None
         if written.file_size != expected_size:
             raise IngestEntryFailure("source_changed")
         facts = IngestStorageFacts(

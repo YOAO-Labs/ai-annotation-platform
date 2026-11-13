@@ -50,7 +50,7 @@ class SourceStorage:
             s3={"addressing_style": "path"},
             connect_timeout=config.s3_connect_timeout_seconds,
             read_timeout=config.s3_read_timeout_seconds,
-            retries={"max_attempts": 2, "mode": "standard"},
+            retries={"total_max_attempts": 1, "mode": "standard"},
             proxies={},
         )
         self._client = internal_client or boto3.client(
@@ -74,7 +74,6 @@ class SourceStorage:
         self._config = config
         self.managed = ManagedStorage(
             self._client,
-            timeout_seconds=config.s3_read_timeout_seconds,
             client_for_target=self._connection_client,
         )
 
@@ -117,6 +116,18 @@ class SourceStorage:
         )
         return client
 
+    @staticmethod
+    def _source_failure(exc: ManagedStorageError) -> SourceFailure:
+        failure = SourceFailure(
+            "source_changed" if exc.code == "source_changed" else "storage_unavailable"
+        )
+        failure.outcome = exc.outcome
+        if getattr(exc, "storage_operation_unsettled", False):
+            failure.storage_operation_unsettled = True
+        if getattr(exc, "physical_receipt", None) is not None:
+            failure.physical_receipt = exc.physical_receipt
+        return failure
+
     async def publish_managed_upload(
         self,
         target: ManagedOriginalMaterial,
@@ -148,7 +159,7 @@ class SourceStorage:
                 on_written=on_written,
             )
         except ManagedStorageError as exc:
-            raise SourceFailure(exc.code) from None
+            raise self._source_failure(exc) from None
 
     @property
     def client(self) -> Any:
@@ -273,7 +284,7 @@ class SourceStorage:
         try:
             return await self.managed.adopt(target, max_bytes=max_bytes, image=image)
         except ManagedStorageError as exc:
-            raise SourceFailure(exc.code) from None
+            raise self._source_failure(exc) from None
 
     async def verify_managed_original(
         self,
@@ -289,4 +300,4 @@ class SourceStorage:
                 target, sha256=sha256, size_bytes=size_bytes, image=image
             )
         except ManagedStorageError as exc:
-            raise SourceFailure(exc.code) from None
+            raise self._source_failure(exc) from None
