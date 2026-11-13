@@ -25,6 +25,7 @@ from tests.test_workspace_owner_transfer_live import (
     _request,
     _seed_world,
     _snapshot,
+    _suppress_request_audit,
 )
 from tests.workspace_owner_transfer_helpers import (
     api_transfer_binding,
@@ -282,19 +283,25 @@ async def test_installed_runtime_combines_both_restricted_capabilities(test_engi
 
 @pytest.mark.parametrize("binding", ["dedicated", "remote_python", "remote_node"])
 async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
-    test_engine, httpx_client, binding
+    test_engine, httpx_client, monkeypatch, binding
 ):
+    _suppress_request_audit(monkeypatch)
     maker, actor, first, second, employee, project = await _seed_world(
         test_engine, f"foreign-public-{binding}"
     )
     users = [actor.id, first.id, second.id, employee.id]
-    initial = await _snapshot(maker, project.id, actor.id)
     token = secrets.token_urlsafe(32)
     schema = f"yoao_n5_ot_foreign_{uuid.uuid4().hex}_v1"
     created = False
     try:
         async with AsyncExitStack() as stack:
             await _binding(stack, test_engine, binding, token)
+            healthy = await _public_transfer(
+                httpx_client, project.id, first.id, actor
+            )
+            assert healthy.status_code == 200, healthy.text
+            initial = await _snapshot(maker, project.id, actor.id)
+            assert initial[0] == first.id
             async with test_engine.begin() as db:
                 await db.execute(text(f'CREATE SCHEMA "{schema}"'))
                 created = True
@@ -312,7 +319,7 @@ async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
                     )
                 )
             response = await _public_transfer(
-                httpx_client, project.id, first.id, actor
+                httpx_client, project.id, second.id, actor
             )
             assert response.status_code == 503, response.text
             assert await _snapshot(maker, project.id, actor.id) == initial
@@ -326,7 +333,7 @@ async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
                         ),
                         {"project": project.id},
                     )
-                    == 0
+                    == 1
                 )
     finally:
         if created:

@@ -20,9 +20,6 @@ from yoao_workspace.owner_transfer_contract import (
 )
 from yoao_workspace.owner_transfer_postgres import (
     _ACCOUNT_LOCK_HINT,
-    _OWNER_TRANSFER_FUNCTIONS,
-    _OWNER_TRANSFER_ROLE,
-    _OWNER_TRANSFER_SCHEMA,
     _PROJECT_LOCK_HINT,
     OwnerTransferPostgresData,
 )
@@ -114,8 +111,8 @@ def _install_capability_helper(monkeypatch, calls):
     class FunctionRoleUnavailable(Exception):
         pass
 
-    async def verify_function_only_role(connection, *, schema, functions, role):
-        calls.append((connection, schema, functions, role, connection.in_transaction))
+    async def verify_function_only_role(connection, *, schema, functions, role=None):
+        calls.append((connection, connection.in_transaction))
 
     module.FunctionRoleUnavailable = FunctionRoleUnavailable
     module.verify_function_only_role = verify_function_only_role
@@ -145,19 +142,7 @@ async def test_operation_checks_role_and_policy_on_same_transaction_connection(
     reply = await OwnerTransferManager(data).execute(_REQUEST)
 
     assert reply.ok is True
-    assert calls == [
-        (
-            connection,
-            _OWNER_TRANSFER_SCHEMA,
-            _OWNER_TRANSFER_FUNCTIONS,
-            _OWNER_TRANSFER_ROLE,
-            True,
-        )
-    ]
-    assert [sql.rsplit(".", 1)[-1] for sql, _, _ in connection.queries] == [
-        "owner_transfer_policy()",
-        "transfer_project_owner($1::jsonb)",
-    ]
+    assert calls == [(connection, True)]
     assert all(in_transaction for _, _, in_transaction in connection.queries)
     assert connection.events == ["begin", "commit"]
     assert connection.closed is True

@@ -677,8 +677,8 @@ F0 先冻结当前合同、历史输入、独立期望、准确资源清单和�
 | N4-D1 训练草稿          | `trainingDraftStorage`、`useTrainingDraft`、训练与研究创建页                   | F0；保持 `trainingDraftOwner(userId, projectId)` 接口           |
 | N4-D2 数据集请求草稿    | `trainingDatasetDraftStorage`、`ProjectLearningPage`                           | F0；不改 D1 文件，完整转换存储键及内嵌 `ownerKey`               |
 | N4-D3 导入文字草稿      | `storageNavigation`、`ImportDatasetWizard`                                     | F0；保持 sessionStorage、当前会话／数据集范围与非秘密字段白名单 |
-| N5-S 安全识别准备       | 当前 grants／权限分类器、`owner_data`；共享验证器及运行 ACL 由主进程集成       | 实施已批准；T1 基线后台独立核验，同时保护旧、新 namespace，不激活新 owner |
-| N5-W Workspace 能力试点 | 新前向迁移、owner-transfer 的 Python／Node 调用、专用 LOGIN 与两个公开函数     | 实施已批准；基于已集成 N5-S，真实停旧写者／前向切换单独验证；不改整个 Workspace |
+| N5-S 安全识别准备       | 当前 grants／权限分类器、`owner_data`；共享验证器及运行 ACL 由主进程集成       | 源码已集成；双 namespace 分类不扩大权限白名单，真实受限角色资格待完成 |
+| N5-W Workspace 能力试点 | 新前向迁移、owner-transfer 的 Python／Node 调用、专用 LOGIN 与两个公开函数     | 源码已集成；34 项单元检查通过，前向切换及真实消费者组合资格待完成；不改整个 Workspace |
 | N6-K 项目技能发现       | 仓内 `aap-*` skill 名、单一指令来源与符号链接／引用                            | F0；只改当前 checkout，在全新会话验证发现，不写用户全局目录     |
 | J1 首批集成验收         | 主进程审核合入、共享文件、真实消费者及文档                                     | 上述首批和 N5-W 均通过；人工集成门不替代真实 Git 证据           |
 | N6-S 新存储分配试点     | export 用途的分配／CHECK／IAM／读取／清理／恢复                                | J1＋准确范围批准门；其他用途和引用哨兵不随之切换                |
@@ -735,5 +735,5 @@ N6-E 只采用可销毁本地模式的新资源命名与 `YOAO_WORKTREE_MODE`。
 - **N4-D2 已完成独立验收：** `6a86e7987`／`f7df93b55`；完整新 `ownerKey`、幂等重放与冲突 409 通过。
 - **N4-D3 已完成独立验收：** `ec897f30b`；同标签页 sessionStorage 交接、单次消费与失败保留通过。
 - **N6-K 已完成：** `d4fc25259`；隔离 HOME 实际发现十个 `yoao-*` 技能，未改全局技能。
-- **N5-S 源码已集成，N5-W 开始实施：** 两个 `deepseek/deepseek-flash` task 子代理完成共享运行时与逐 owner grants 的新旧前缀识别；主代理审查、修正测试资源归属及 SQL 探针后集成 `2d7d887c4`／`ec47bcf7e`／`aa4814b80`，并同步共享 grants／verifier。正向权限白名单未扩大。N5-W 使用此源码基线，尚无本切片的真实 LOGIN／前向升级／restore／Node 资格；旧 T1 冻结运行结果不替代 N5 结果。
+- **N5-S／N5-W 源码已集成：** `deepseek/deepseek-flash` task 子代理分别完成运行时分类器、逐 owner grants、Workspace Python／Node／API 消费者及验收入口；主代理补齐共享授权、前向迁移与 verifier。34 项 Workspace owner-transfer 单元检查通过，但真实 LOGIN／有数据前向切换／当前恢复／进程与镜像组合资格尚未完成。旧 T1 冻结候选已失败，不重跑整套来阻塞每次开发，也不继承其结果为 N5 资格；详见运行账本。
 - T1／T2 的当前状态、未关闭问题与已关闭切片见[测试治理计划 §16.6–§16.8](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)，逐次运行历史与原始回执见[阶段 F 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。

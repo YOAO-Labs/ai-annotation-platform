@@ -441,4 +441,11 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 用户要求 v1 前完成技术及产品语言收尾，批准开始 N5；当前范围为 N5-S 双 namespace 安全识别及 N5-W 单项 Workspace owner-transfer。数据库 schema downgrade 仍不在 Beta 范围；事务回滚、受限权限、前向原子性和当前恢复资格保持。T1 的冻结候选 `bf1a38543` 继续后台验收，不因新开发重启，也不冒充 N5 结果。
 - 实际配置确认原有 `retry.fallbackChains.task` 已包含 `deepseek/deepseek-flash`；按用户要求及保存选择，将 `task.agentModelOverrides.task` 固定为同一模型并持久保存，其他角色配置不变。两份实现工作树基于 `d64af7e99`：`N5RuntimeSecurity` 负责活跃 Python／Node 安全分类器及真实 LOGIN 回归，`N5GrantSecurity` 负责逐 owner grants 识别及实际脚本消费者回归；均不运行构建／测试。主进程独占共享 grants／验证器／运行资源及集成验收，未激活新 owner，未改历史 SQL 工件或请求／回执身份。
 - **N5-S 源码集成：** `2d7d887c4`／`ec47bcf7e`／`aa4814b80` 集成运行时分类器、74 份 owner grants 与真实 PostgreSQL 回归入口；主代理补齐共享 grants、LAN 私有关系识别和 verifier 默认测试清单。审查中移除了固定名称的预清理，改为逐例 UUID 归属、准确 PostgreSQL 容器核验与实际 migration owner；拒绝断言使用 SQLSTATE／权限和事务状态。另修正两处重复 `()` SQL 探针，密码经子进程环境传入而非命令参数。两名子代理曾因相对路径工具边界误写主检出，均已将自己的变更移回独立工作树并撤回主检出的对应临时写入；共享父级文件未纳入其提交。
-- **资格边界：** 本次是源码集成，不是测试通过记录。仍等待独占真实验收窗口；`t1-gate-1` 固定在旧 `bf1a38543`，不修改其检出、不继承其结果为 N5 资格。N5-W 继续按批准的 owner-transfer 切片实施，后续集中执行定向组合验收。
+- **N5-W 源码集成：** `7474413be`、`f469befc2`、`7d50ccec7` 合入独立 DeepSeek 工作树的 Python／Node／API 消费者及真实验收入口。主代理提供 `bo0460` 前向迁移、明确的新 LOGIN 和共享授权／验证器切换；旧 wire schema、receipt、请求摘要及锁身份不变。新增迁移案例覆盖有数据切换及拒绝原子性，不新增 downgrade 验收；PUBLIC invoker 回归先完成真实成功请求，再验证三种受限绑定拒绝外来函数能力。四个 Workspace owner-transfer 单元文件在主检出通过 34 项（0.40 秒，`n5-owner-unit-1.junit.xml`）；首次启动器写错导入路径，测试未运行，修正启动器后才得到该结果。真实 PostgreSQL／恢复／进程／镜像组合资格尚未运行，不能据此宣布 N5 完成。
+
+## 2026-11-13 冻结完整门失败与证据保留
+
+- `t1-gate-1` 固定在 `bf1a38543`，约 8896 秒后失败：ordinary 的 JUnit 报告 2885 passed、286 failures、44 errors、5 skipped；两个案例同时有 call failure 与 teardown error，不能把条目相加当作去重案例数。后续十四个 profile 未运行，collection／JUnit 未完成协调，完整门不通过。
+- 227 条失败／错误含同一个 `fixture_dataset_job_scope_unknown`；75 条是 fixture operation／teardown 错误。首个大图种子的 image worker 日志记录 `fixture_native_target_owner_changed`，随后金字塔未就绪、admission settlement 409；只读库存确认六个 run 留在 sealing。另有非 loopback endpoint、制品身份、broker acknowledgement 等独立失败，尚未全部诊断，不将它们都归因于同一问题。
+- 正常 cleanup 已报 WorktreeError 并保留 `/tmp/aap-module-data-acceptance-n1vs07yn`；外层旧 driver 的失败分支却已移除 bootstrap，其对象数据无法从该实例补回。完整 JSON／JUnit／日志及 `t1-gate-1-failures.json`、精确 `t1-gate-1-retirement-inventory.json` 保存在私有 gate 证据目录。
+- 用户另行明确批准本次精确批次归档后管理性退役：专属 PostgreSQL／Redis／物理 MinIO、所属卷和网络、归属日志中 PID 与启动时间匹配的进程及临时根。该授权不扩展到日常环境，也不算正常产品清理通过；执行结果另记。本轮不原样重跑完整门，N5 使用独立的定向资格窗口。

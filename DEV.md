@@ -1056,8 +1056,18 @@ API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的
 独立 Compose 文件 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，
 secret 选择器为 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 和
 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE`，不改变原成员 Compose 所需 secret。
-受限 LOGIN `workspace_owner_transfer_client` 仅有 policy 和 transfer 两项 RPC。
+受限 LOGIN `yoao_workspace_owner_transfer_client` 仅有 `yoao_workspace_owner_transfer_v1` 中的 policy 和 transfer 两项 RPC。
 授权脚本在 `infra/docker/workspace-owner-transfer-grants.sql`，迁移与授权须指向同一数据库。
+
+已有数据库切换前先保留恢复点，停止旧 API／owner／worker 写入并排空连接池；
+把旧 `workspace_owner_transfer_client` 设为 `NOLOGIN`。LOGIN 是集群级身份，
+共享集群须协调所有使用它的调用方；迁移不会自动停用账号或终止会话。
+前向迁移拒绝仍启用的旧 LOGIN、仍能调用旧转移函数的连接及目标 namespace 冲突，
+通过后才原子切换到新 namespace。随后安装新 LOGIN 的精确 grants，
+更新相应 DSN secret 并启动新消费者；旧 namespace 不保留别名。
+既有 wire schema、operation UUID、请求摘要、锁身份和成功回执保持不变。
+本阶段不执行数据库 schema downgrade 验收；这不取消事务回滚及当前库备份恢复检查，
+也不承诺新写入后的无损回退。
 
 Node conformance provider 只用于本地替换实验，Native 持有业务策略与原子写入；
 它不代表整个 Workspace 已能替换或已选定生产实现语言。部署与失败语义见

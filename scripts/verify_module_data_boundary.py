@@ -136,6 +136,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0460_workspace_owner_transfer_namespace.sql",
     "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
     "aap_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
     "aap_assets_v1.reserve_import_original_read(jsonb)": "0453_import_original_verification.sql",
@@ -1347,7 +1348,7 @@ IDENTITY_CLIENT_ROLES = {
     "BRIEFS": "identity_briefs_client",
     "PROVISIONING": "identity_provisioning_client",
     "WORKSPACE_MEMBERSHIP": "workspace_membership_client",
-    "WORKSPACE_OWNER_TRANSFER": "workspace_owner_transfer_client",
+    "WORKSPACE_OWNER_TRANSFER": "yoao_workspace_owner_transfer_client",
     "WORKSPACE_PROJECT_MAINTENANCE": "workspace_project_maintenance_client",
     "WORKSPACE_PROJECT_DELETION": "workspace_project_deletion_client",
     "WORKSPACE_DATASET_UNLINK": "workspace_dataset_unlink_client",
@@ -1841,6 +1842,7 @@ SQL_ARTIFACTS = (
     "0457_inference_registry_seed_marker_revision.sql",
     "0458_upload_retry_after_failed_publication.sql",
     "0459_source_ingest_identity_and_retry.sql",
+    "0460_workspace_owner_transfer_namespace.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -2232,6 +2234,8 @@ TEST_FILES = (
     "tests/test_workspace_owner_transfer_native.py",
     "tests/test_workspace_owner_transfer_roles.py",
     "tests/test_workspace_owner_transfer_restore.py",
+    "tests/test_workspace_owner_transfer_namespace_migration.py",
+    "tests/test_workspace_owner_transfer_failures.py",
     "tests/test_owner_data_namespace_security.py",
     "tests/test_grant_namespace_security.py",
     "tests/test_workspace_configuration_dependencies_native.py",
@@ -6469,6 +6473,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
             "AND to_regnamespace('aap_workspace_membership_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
+            "AND to_regnamespace('yoao_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
             "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
@@ -10719,7 +10724,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
-                "workspace_owner_transfer_role": "workspace_owner_transfer_client",
+                "workspace_owner_transfer_role": "yoao_workspace_owner_transfer_client",
             },
         )
         phase = "install-workspace-project-maintenance-grants"
@@ -11998,6 +12003,7 @@ SELECT pg_catalog.jsonb_build_object(
             {
                 "AAP_MODULE_DATA_ROLE_ACCEPTANCE": "1",
                 "AAP_IDENTITY_BRIEFS_LIVE_ACCEPTANCE": "1",
+                "AAP_WORKSPACE_OWNER_TRANSFER_LIVE": "1",
                 "RUN_NATIVE_IMPORT_DELIVERY_LEASE_TEST": "1",
                 "AAP_MODULE_DATA_APPEND_URL": append_url,
                 "AAP_MODULE_DATA_AUDIT_MAINTENANCE_URL": audit_maintenance_url,

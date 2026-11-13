@@ -558,11 +558,8 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                     BEGIN
                         FOR namespace IN
                             SELECT nspname FROM pg_catalog.pg_namespace
-                            WHERE nspname NOT IN (
-                                'pg_catalog', 'information_schema'
-                            )
-                              AND nspname NOT LIKE 'pg_toast%'
-                              AND nspname NOT LIKE 'pg_temp_%'
+                            WHERE pg_catalog.left(nspname, 4) = 'aap_'
+                               OR pg_catalog.left(nspname, 5) = 'yoao_'
                         LOOP
                             EXECUTE pg_catalog.format(
                                 'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I '

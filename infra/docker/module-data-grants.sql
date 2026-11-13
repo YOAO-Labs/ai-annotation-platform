@@ -109,11 +109,11 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
     aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_membership_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
@@ -2127,7 +2127,7 @@ REVOKE CREATE ON SCHEMA aap_identity_briefs_v1 FROM :"identity_owner";
 GRANT CREATE ON SCHEMA aap_workspace_v1 TO :"workspace_owner";
 GRANT USAGE, CREATE ON SCHEMA aap_workspace_membership_v1
     TO :"workspace_owner";
-GRANT USAGE, CREATE ON SCHEMA aap_workspace_owner_transfer_v1
+GRANT USAGE, CREATE ON SCHEMA yoao_workspace_owner_transfer_v1
     TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference(uuid) OWNER TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_v1.lock_project_reference_nowait(uuid)
@@ -2441,13 +2441,13 @@ ALTER FUNCTION aap_workspace_membership_v1.prepare_membership_command(jsonb)
 ALTER FUNCTION aap_workspace_membership_v1.apply_membership_command(jsonb)
     OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_membership_v1 FROM :"workspace_owner";
-ALTER FUNCTION aap_workspace_owner_transfer_v1._failure(integer, jsonb, boolean)
+ALTER FUNCTION yoao_workspace_owner_transfer_v1._failure(integer, jsonb, boolean)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_owner_transfer_v1.owner_transfer_policy()
+ALTER FUNCTION yoao_workspace_owner_transfer_v1.owner_transfer_policy()
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
+ALTER FUNCTION yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_owner_transfer_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_owner_transfer_v1 FROM :"workspace_owner";
 GRANT CREATE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
 ALTER FUNCTION aap_workspace_configuration_v1.configuration_policy()
     OWNER TO :"workspace_owner";

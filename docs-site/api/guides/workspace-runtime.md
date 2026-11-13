@@ -47,6 +47,14 @@ Native 先按 UUID 顺序锁当前操作人与接收账号，再取 Project 排�
 
 API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRANSFER_DATABASE_URL(_FILE)`；未配置时使用 caller Session，显式失败不回退。共享成员命令的 control token 与 timeout。独立 runtime 支持只启用成员、只启用转移或同时启用，`/ready` 检查每个已配置能力和受限权限。可选 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，通过 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 挂载 secret。
 
+已有数据库必须先安排维护窗口：保留恢复点、停止旧写入并排空可调用转移函数的连接，
+显式关闭旧 `workspace_owner_transfer_client` LOGIN，再执行前向迁移。旧 LOGIN 是集群级身份，
+须协调共享它的调用方；迁移只校验停写条件，不代替操作者停用账号或终止连接。
+目标 namespace 冲突、旧入口仍可接入或仍有可写连接时，迁移拒绝且不留下部分切换。
+升级后安装新 LOGIN 的精确授权、更新 DSN secret，再启动匹配的新消费者；
+不提供旧 namespace 别名。wire schema、请求／回执身份及事务／锁语义不变。
+当前阶段不要求 schema downgrade；故障事务回滚与当前库恢复仍须验证。
+
 Node conformance provider以标准PostgreSQL协议调用相同的两项函数，不代理Python／API；业务规则仍由Native执行。该提供方仅用于本地单命令替换实验，不代表完整Workspace的另一语言提供方、独立数据库或生产容量资格。
 
 负责人转移切片的 66 个去重选定案例已完成本地限定验收，包含四条绑定路径与旧响应对照、受限数据库权限、事务错误、丢响应恢复、关联备份恢复和 Python／Node 镜像重启。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
