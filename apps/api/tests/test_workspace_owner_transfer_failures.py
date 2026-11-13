@@ -101,7 +101,7 @@ async def test_owner_failure_fences_rollback_partial_effects(
                         )
                     )
                 else:
-                    signature = "aap_workspace_owner_transfer_v1." + (
+                    signature = "yoao_workspace_owner_transfer_v1." + (
                         "owner_transfer_policy()"
                         if fault == "changed_policy"
                         else "transfer_project_owner(jsonb)"

@@ -22,7 +22,7 @@ def transfer_dsn(test_engine, database=None):
     value = make_url(
         _role_url(
             "AAP_MODULE_DATA_WORKSPACE_OWNER_TRANSFER_URL",
-            "workspace_owner_transfer_client",
+            "yoao_workspace_owner_transfer_client",
         )
     )
     assert (value.host, value.port, value.database) == (
@@ -66,7 +66,7 @@ async def _provider_url(
     dsn, token, *, node, drop_operation_id=None, membership_dsn=None
 ):
     parsed = make_url(dsn)
-    assert parsed.username == "workspace_owner_transfer_client"
+    assert parsed.username == "yoao_workspace_owner_transfer_client"
     assert parsed.database.endswith("_test")
     _verify_postgres(parsed)
     with tempfile.TemporaryDirectory(

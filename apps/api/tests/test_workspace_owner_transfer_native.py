@@ -39,7 +39,7 @@ def _transfer_dsn(test_engine) -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "workspace_owner_transfer_client"
+    assert parsed.username == "yoao_workspace_owner_transfer_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -154,7 +154,7 @@ async def test_owner_transfer_receipt_replays_after_supersession_and_noop_is_sta
             await asyncio.sleep(0.02)
             first_raw = json.loads(
                 await caller.fetchval(
-                    "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                    "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                     json.dumps(first_request.model_dump(mode="json", by_alias=True)),
                 )
             )
@@ -271,7 +271,7 @@ async def test_owner_transfer_lock_errors_carry_exact_phase_hints(test_engine):
             try:
                 with pytest.raises(asyncpg.PostgresError) as account_busy:
                     await client.fetchval(
-                        "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                        "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                         payload,
                     )
                 assert account_busy.value.sqlstate == "55P03"
@@ -299,7 +299,7 @@ async def test_owner_transfer_lock_errors_carry_exact_phase_hints(test_engine):
             try:
                 with pytest.raises(asyncpg.PostgresError) as project_busy:
                     await client.fetchval(
-                        "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                        "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                         payload,
                     )
                 assert project_busy.value.sqlstate == "55P03"
@@ -334,7 +334,7 @@ async def test_owner_transfer_operation_id_contention_is_nonblocking(test_engine
         first_started = True
         result = json.loads(
             await first.fetchval(
-                "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                 payload,
             )
         )
@@ -344,7 +344,7 @@ async def test_owner_transfer_operation_id_contention_is_nonblocking(test_engine
         second_started = True
         busy = json.loads(
             await second.fetchval(
-                "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                 payload,
             )
         )
@@ -448,7 +448,7 @@ async def test_owner_transfer_fails_closed_on_malformed_identity_lock_rows(
         )
         with pytest.raises(asyncpg.PostgresError) as malformed:
             await owner.fetchval(
-                "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                 request_json,
             )
         assert malformed.value.sqlstate == "XX000"

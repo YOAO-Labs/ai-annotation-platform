@@ -33,7 +33,7 @@ def _owner_transfer_dsn(test_engine, database: str | None = None) -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "workspace_owner_transfer_client"
+    assert parsed.username == "yoao_workspace_owner_transfer_client"
     if database is not None:
         parsed = parsed.set(database=database)
     else:

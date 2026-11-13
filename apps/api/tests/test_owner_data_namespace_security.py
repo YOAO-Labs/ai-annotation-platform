@@ -30,8 +30,8 @@ pytestmark = [
     ),
 ]
 
-_ROLE = "workspace_owner_transfer_client"
-_SCHEMA = "aap_workspace_owner_transfer_v1"
+_ROLE = "yoao_workspace_owner_transfer_client"
+_SCHEMA = "yoao_workspace_owner_transfer_v1"
 _FUNCTIONS = {
     ("owner_transfer_policy", ""),
     ("transfer_project_owner", "jsonb"),

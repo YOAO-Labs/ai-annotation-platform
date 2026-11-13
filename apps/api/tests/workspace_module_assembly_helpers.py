@@ -38,7 +38,7 @@ _WORKSPACE_ROLES = {
     ),
     "owner_transfer": (
         "AAP_MODULE_DATA_WORKSPACE_OWNER_TRANSFER_URL",
-        "workspace_owner_transfer_client",
+        "yoao_workspace_owner_transfer_client",
         "owner_transfer_database_url",
     ),
     "configuration": (

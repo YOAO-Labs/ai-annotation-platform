@@ -30,7 +30,7 @@ def _transfer_dsn(test_engine) -> str:
     assert value and os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "workspace_owner_transfer_client"
+    assert parsed.username == "yoao_workspace_owner_transfer_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -54,7 +54,7 @@ async def test_owner_transfer_client_has_exact_functions_and_no_raw_access(test_
     connection = await asyncpg.connect(_transfer_dsn(test_engine))
     try:
         assert await connection.fetchval("SELECT current_user") == (
-            "workspace_owner_transfer_client"
+            "yoao_workspace_owner_transfer_client"
         )
         rows = await connection.fetch(
             """
@@ -63,7 +63,7 @@ async def test_owner_transfer_client_has_exact_functions_and_no_raw_access(test_
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid = function.pronamespace
-            WHERE namespace.nspname = 'aap_workspace_owner_transfer_v1'
+            WHERE namespace.nspname = 'yoao_workspace_owner_transfer_v1'
               AND function.prokind = 'f'
               AND pg_catalog.has_function_privilege(
                   current_user, function.oid, 'EXECUTE'
@@ -72,17 +72,17 @@ async def test_owner_transfer_client_has_exact_functions_and_no_raw_access(test_
             """
         )
         assert [row["signature"] for row in rows] == [
-            "aap_workspace_owner_transfer_v1.owner_transfer_policy()",
-            "aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)",
+            "yoao_workspace_owner_transfer_v1.owner_transfer_policy()",
+            "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)",
         ]
         policy = await connection.fetchval(
-            "SELECT aap_workspace_owner_transfer_v1.owner_transfer_policy()"
+            "SELECT yoao_workspace_owner_transfer_v1.owner_transfer_policy()"
         )
         assert json.loads(policy) == {"schema": "aap-workspace-owner-transfer/v1"}
 
         invalid = json.loads(
             await connection.fetchval(
-                "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
+                "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)",
                 '{"schema":"aap-workspace-owner-transfer/v1","extra":true}',
             )
         )
@@ -102,7 +102,7 @@ async def test_owner_transfer_client_has_exact_functions_and_no_raw_access(test_
             "SELECT * FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
             "SELECT aap_identity_v1.lock_accounts_update('{}'::uuid[], false)",
             "SELECT aap_workspace_membership_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
-            "SELECT aap_workspace_owner_transfer_v1._failure(400, 'null'::jsonb, false)",
+            "SELECT yoao_workspace_owner_transfer_v1._failure(400, 'null'::jsonb, false)",
             "CREATE TEMP TABLE workspace_owner_transfer_forbidden(id integer)",
             "SET ROLE workspace_code",
         )
@@ -119,7 +119,7 @@ async def test_owner_transfer_readiness_rejects_raw_table_grant(test_engine):
     try:
         async with owner_engine.begin() as connection:
             await connection.execute(
-                text("GRANT SELECT ON public.users TO workspace_owner_transfer_client")
+                text("GRANT SELECT ON public.users TO yoao_workspace_owner_transfer_client")
             )
         with pytest.raises(OwnerTransferUnavailable):
             await OwnerTransferPostgresData(dsn).owner_transfer_policy()
@@ -127,7 +127,7 @@ async def test_owner_transfer_readiness_rejects_raw_table_grant(test_engine):
         async with owner_engine.begin() as connection:
             await connection.execute(
                 text(
-                    "REVOKE SELECT ON public.users FROM workspace_owner_transfer_client"
+                    "REVOKE SELECT ON public.users FROM yoao_workspace_owner_transfer_client"
                 )
             )
         await owner_engine.dispose()
@@ -154,7 +154,7 @@ async def test_owner_transfer_readiness_rejects_extra_public_function(test_engin
             await connection.execute(
                 text(
                     f"GRANT EXECUTE ON FUNCTION public.{function_name}() "
-                    "TO workspace_owner_transfer_client"
+                    "TO yoao_workspace_owner_transfer_client"
                 )
             )
         with pytest.raises(OwnerTransferUnavailable):
@@ -183,7 +183,7 @@ async def test_owner_transfer_readiness_rejects_database_temp(test_engine):
             await connection.execute(
                 text(
                     f"GRANT TEMP ON DATABASE {quoted_database} "
-                    "TO workspace_owner_transfer_client"
+                    "TO yoao_workspace_owner_transfer_client"
                 )
             )
         with pytest.raises(OwnerTransferUnavailable):
@@ -193,7 +193,7 @@ async def test_owner_transfer_readiness_rejects_database_temp(test_engine):
             await connection.execute(
                 text(
                     f"REVOKE TEMP ON DATABASE {quoted_database} "
-                    "FROM workspace_owner_transfer_client"
+                    "FROM yoao_workspace_owner_transfer_client"
                 )
             )
         await owner_engine.dispose()
