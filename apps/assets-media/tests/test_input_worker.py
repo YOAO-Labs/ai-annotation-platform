@@ -12,7 +12,8 @@ from yoao_assets_images import contract as image
 from yoao_assets_images.policy import ImagePolicy
 from yoao_assets_inputs import contract as c
 from yoao_assets_inputs_runtime import worker as input_worker
-from yoao_assets_inputs_runtime.worker import InputExecutor, InputGarbageCollector
+from yoao_assets_inputs_runtime.garbage import InputGarbageCollector
+from yoao_assets_inputs_runtime.worker import InputExecutor
 from input_fixtures import BODY, input_work
 
 

@@ -1,4 +1,6 @@
 import asyncio
+import subprocess
+import sys
 from uuid import uuid4
 
 import pytest
@@ -10,6 +12,39 @@ from yoao_assets_cleanup.input_gc import (
     collect_inputs_before_stop,
 )
 from yoao_assets_inputs import contract as inputs
+
+
+def test_cold_worker_import_does_not_require_media_execution_modules():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            """
+import sys
+
+for name in (
+    "app",
+    "celery",
+    "redis",
+    "sqlalchemy",
+    "yoao_assets_images_runtime",
+    "yoao_assets_media_runtime",
+    "yoao_assets_inputs_runtime.worker",
+    "yoao_assets_video_inputs_runtime.worker",
+):
+    sys.modules[name] = None
+
+from yoao_assets_cleanup.worker import run_worker
+
+assert callable(run_worker)
+""",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _environment():
