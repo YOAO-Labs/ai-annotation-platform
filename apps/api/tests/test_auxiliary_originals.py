@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import uuid
 
 import pytest
-from sqlalchemy import delete, select, text, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.exc import IntegrityError
 
 from app.db.models.dataset import Scene
@@ -21,7 +21,6 @@ from app.services.content_snapshot import ContentError
 from tests.test_managed_original_creation import (
     client as client,
     creation_db as creation_db,
-    migration,
 )
 
 
@@ -54,30 +53,9 @@ def raw_source():
 
 @pytest.fixture
 async def auxiliary_db(creation_db):
-    db = creation_db
-    connection = await db.connection()
-    await connection.execute(
-        text("CREATE TABLE scenes (LIKE public.scenes INCLUDING ALL)")
-    )
-    for table, column in (
-        ("dataset_items", "nuscenes_raw_original_id"),
-        ("scenes", "nuscenes_map_original_id"),
-    ):
-        await connection.execute(
-            text(f"ALTER TABLE {table} DROP COLUMN IF EXISTS {column}")
-        )
-    await connection.run_sync(
-        lambda sync: migration(sync, "0235_dataset_auxiliary_originals.py").upgrade()
-    )
-    # The historical scope setup precedes saved current-owner addresses.
-    await connection.execute(
-        text("ALTER TABLE dataset_asset_locations DROP COLUMN storage_ref")
-    )
-    await connection.run_sync(
-        lambda sync: migration(sync, "0251_dataset_original_targets.py").upgrade()
-    )
-    await db.commit()
-    return db
+    # creation_db owns the current auxiliary tables, provenance FKs and guards.
+    # Do not replay historical migrations over the current consumer schema.
+    return creation_db
 
 
 async def saved(db, *, kind="map", dataset_id=None, data=b"map"):
