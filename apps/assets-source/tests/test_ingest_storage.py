@@ -116,11 +116,14 @@ class _S3:
     def create_multipart_upload(self, **kwargs):
         self.calls.append(("create", kwargs))
         upload_id = f"upload-{uuid4()}"
-        self.uploads[upload_id] = {"bucket": kwargs["Bucket"], "key": kwargs["Key"]}
+        self.uploads[upload_id] = {
+            "bucket": kwargs["Bucket"], "key": kwargs["Key"], "parts": {}
+        }
         return {"UploadId": upload_id, "ResponseMetadata": {"HTTPStatusCode": 200}}
 
     def upload_part(self, *, PartNumber, Body, **kwargs):
         self.parts.append((PartNumber, Body))
+        self.uploads[kwargs["UploadId"]]["parts"][PartNumber] = Body
         return {
             "ETag": f'"part-{PartNumber}"',
             "ResponseMetadata": {"HTTPStatusCode": 200},
@@ -136,7 +139,9 @@ class _S3:
         if self._current(kwargs["Bucket"], kwargs["Key"]) is not None:
             raise self._error("PreconditionFailed", 412, "CompleteMultipartUpload")
         upload = self.uploads.pop(kwargs["UploadId"])
-        body = b"".join(part for _, part in sorted(self.parts))
+        body = b"".join(
+            part for _, part in sorted(upload["parts"].items())
+        )
         value = self._store(
             upload["bucket"], upload["key"], body, "application/octet-stream"
         )
@@ -536,3 +541,141 @@ async def test_prepublication_failure_aborts_only_its_prepared_upload():
     assert not s3.uploads and not s3.objects
     assert len([call for call in s3.calls if call[0] == "abort"]) == 1
     assert not any(call[0] == "complete" for call in s3.calls)
+
+
+@pytest.mark.asyncio
+async def test_ingest_receipt_persistence_gap_retains_the_actual_written_evidence():
+    from yoao_assets_source.managed_original_contract import ManagedOriginalFailure
+    from test_ingest_workflow import _zip_bytes
+
+    failures = []
+
+    class ReceiptPersistenceGap(_Data):
+        async def original_written(self, creation_id, receipt):
+            raise ManagedOriginalFailure("creation_evidence_mismatch")
+
+        async def fail_original(self, creation_id, outcome, error_code, evidence):
+            failures.append((creation_id, outcome, evidence))
+
+    body = b"bytes whose completion receipt has not been persisted"
+    s3 = _S3()
+    result = await IngestWorkflow(
+        data=ReceiptPersistenceGap(),
+        storage=IngestStorage(s3, "datasets"),
+        image_admission=_ImageAdmission(),
+    ).upload_zip(_command(), BytesIO(_zip_bytes({"frame.bin": body})))
+
+    assert result.added == 0 and len(result.errors) == 1
+    assert len(failures) == 1
+    _, outcome, evidence = failures[0]
+    assert outcome == "failed"
+    assert evidence["physical_settled"] is True
+    assert evidence["physical_outcome"] == "written"
+    stored = list(s3.objects.values())
+    assert len(stored) == 1 and stored[0]["body"] == body
+    assert evidence["receipt"]["etag"] == stored[0]["etag"]
+    assert evidence["receipt"]["version_id"] == stored[0]["version"]
+    assert not any(call[0] == "abort" for call in s3.calls)
+
+
+@pytest.mark.asyncio
+async def test_scan_accepts_a_32hex_etag_that_is_not_the_content_md5():
+    objects = {
+        "dataset/opaque.dat": b"opaque etags are not checksums",
+        "dataset/good.dat": b"unrelated accepted bytes",
+    }
+    s3 = _S3(objects=objects)
+    opaque = s3._current("datasets", "dataset/opaque.dat")
+    opaque["etag"] = '"0123456789abcdef0123456789abcdef"'
+    s3.pages = [
+        {
+            "Contents": [
+                {
+                    "Key": key,
+                    "Size": len(body),
+                    "ETag": s3._current("datasets", key)["etag"],
+                }
+                for key, body in objects.items()
+            ]
+        }
+    ]
+    verified = []
+
+    class VerifiedData(_Data):
+        async def original_verified(self, creation_id, verification):
+            verified.append(verification)
+            await super().original_verified(creation_id, verification)
+
+    result = await IngestWorkflow(
+        data=VerifiedData(),
+        storage=IngestStorage(s3, "datasets"),
+        image_admission=_ImageAdmission(),
+    ).scan(_command())
+
+    assert result.added == 2 and result.error_count == 0
+    assert {proof["sha256"] for proof in verified} == {
+        hashlib.sha256(body).hexdigest() for body in objects.values()
+    }
+    assert {proof["md5"] for proof in verified} == {
+        hashlib.md5(body, usedforsecurity=False).hexdigest()
+        for body in objects.values()
+    }
+    assert not any(call[0] in {"create", "complete", "put"} for call in s3.calls)
+
+
+@pytest.mark.asyncio
+async def test_postcopy_size_drift_keeps_its_receipt_and_isolates_the_bad_entry():
+    from yoao_assets_source.managed_original_contract import ManagedOriginalFailure
+
+    objects = {"dataset/bad.dat": b"bad", "dataset/good.dat": b"good"}
+    s3 = _S3(
+        objects=objects,
+        pages=[
+            {
+                "Contents": [
+                    {"Key": "dataset/bad.dat", "Size": 4},
+                    {"Key": "dataset/good.dat", "Size": 4},
+                ]
+            }
+        ],
+    )
+    written, failures = {}, []
+
+    class CopyData(_Data):
+        async def allocate(self, request):
+            target = await super().allocate(request)
+            return target.model_copy(
+                update={
+                    "mode": "write",
+                    "object_key": "copy/" + target.file_path,
+                    "key_prefix": "copy/",
+                }
+            )
+
+        async def original_written(self, creation_id, receipt):
+            written[creation_id] = receipt
+            await super().original_written(creation_id, receipt)
+
+        async def fail_original(self, creation_id, outcome, error_code, evidence):
+            if evidence["physical_outcome"] == "not_written" and creation_id in written:
+                raise ManagedOriginalFailure("creation_evidence_mismatch")
+            failures.append((creation_id, outcome, evidence))
+
+    data = CopyData()
+    result = await IngestWorkflow(
+        data=data,
+        storage=IngestStorage(s3, "datasets"),
+        image_admission=_ImageAdmission(),
+    ).scan(_command())
+
+    assert result.added == result.linked_tasks == 1
+    assert result.error_count == 1
+    assert [item.file_path for item in data.items] == ["dataset/good.dat"]
+    assert len(failures) == 1
+    creation_id, outcome, evidence = failures[0]
+    assert outcome == "failed"
+    assert evidence["physical_settled"] is True
+    assert evidence["physical_outcome"] == "written"
+    assert evidence["receipt"] == written[creation_id]
+    for key, body in objects.items():
+        assert s3._current("datasets", "copy/" + key)["body"] == body

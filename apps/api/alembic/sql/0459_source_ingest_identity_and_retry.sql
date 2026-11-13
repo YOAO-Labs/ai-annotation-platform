@@ -10,6 +10,9 @@ ALTER TABLE public.managed_original_creations
             AND failure_evidence ->> 'physical_outcome' IN ('not_written','written','unknown')
             AND ((failure_evidence ->> 'physical_settled')::boolean
                  OR failure_evidence ->> 'physical_outcome' = 'unknown')
+            AND (failure_evidence ->> 'physical_outcome' <> 'not_written'
+                 OR (receipt IS NULL AND COALESCE(
+                     failure_evidence -> 'receipt', 'null'::jsonb) = 'null'::jsonb))
         ), false)
     );
 -- aap-statement-break
@@ -611,6 +614,12 @@ BEGIN
     IF (NOT v_settled AND v_physical <> 'unknown')
        OR (p_outcome <> 'unknown' AND (NOT v_settled OR v_physical = 'unknown'))
        OR (p_outcome = 'conflict' AND v_physical <> 'not_written') THEN
+        RETURN aap_assets_v1._managed_original_reply(NULL, 'invalid_request');
+    END IF;
+    -- An observed write receipt contradicts a no-write claim even when its
+    -- independent persistence failed and the creation still says writing.
+    IF v_physical = 'not_written'
+       AND COALESCE(p_evidence -> 'receipt', 'null'::jsonb) <> 'null'::jsonb THEN
         RETURN aap_assets_v1._managed_original_reply(NULL, 'invalid_request');
     END IF;
     IF v_physical = 'written'

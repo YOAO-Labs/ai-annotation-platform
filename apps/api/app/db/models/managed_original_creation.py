@@ -157,7 +157,10 @@ class ManagedOriginalCreation(Base):
             "AND jsonb_typeof(failure_evidence -> 'physical_settled') = 'boolean' "
             "AND failure_evidence ->> 'physical_outcome' IN ('not_written','written','unknown') "
             "AND ((failure_evidence ->> 'physical_settled')::boolean "
-            "OR failure_evidence ->> 'physical_outcome' = 'unknown')), false)",
+            "OR failure_evidence ->> 'physical_outcome' = 'unknown') "
+            "AND (failure_evidence ->> 'physical_outcome' <> 'not_written' "
+            "OR (receipt IS NULL AND COALESCE(failure_evidence -> 'receipt', "
+            "'null'::jsonb) = 'null'::jsonb))), false)",
             name="ck_managed_creation_failure_evidence",
         ),
         CheckConstraint(

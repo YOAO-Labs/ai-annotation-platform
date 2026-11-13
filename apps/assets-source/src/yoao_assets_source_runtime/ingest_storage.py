@@ -320,6 +320,7 @@ class IngestStorage:
         *,
         expected_size: int,
         image: bool,
+        source_etag: str | None = None,
     ) -> tuple[IngestStorageFacts, ManagedOriginalProof]:
         """Pin an existing source object's exact version after a full read."""
         try:
@@ -328,7 +329,9 @@ class IngestStorage:
             )
         except ManagedStorageError as exc:
             raise IngestEntryFailure(exc.code, cause=exc) from None
-        if written.file_size != expected_size:
+        if written.file_size != expected_size or (
+            source_etag is not None and written.proof.etag != source_etag
+        ):
             raise IngestEntryFailure("source_changed")
         facts = IngestStorageFacts(
             written.file_size,

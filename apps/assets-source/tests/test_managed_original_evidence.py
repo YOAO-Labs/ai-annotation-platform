@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import pytest
+
 from yoao_assets_source.managed_original_contract import (
+    ManagedOriginalFailureEvidence,
     observed_current_head_match,
 )
 
@@ -54,3 +57,27 @@ def test_unknown_physical_work_is_not_reclassified_by_a_later_precondition_error
     )
     error.storage_operation_unsettled = True
     assert _failure(error).outcome == "unknown"
+
+
+@pytest.mark.parametrize("receipt", [{}, {"etag": "observed"}])
+def test_no_write_proof_rejects_any_observed_receipt(receipt):
+    with pytest.raises(ValueError, match="observed write receipt contradicts"):
+        ManagedOriginalFailureEvidence.build(
+            physical_settled=True,
+            physical_outcome="not_written",
+            stage="write",
+            receipt=receipt,
+        )
+
+
+def test_undrained_observed_write_retains_its_receipt_as_unknown():
+    receipt = {"etag": "observed", "version_id": "saved-version"}
+    evidence = ManagedOriginalFailureEvidence.build(
+        physical_settled=False,
+        physical_outcome="unknown",
+        stage="write",
+        receipt=receipt,
+    )
+    assert evidence["receipt"] == receipt
+    assert evidence["physical_settled"] is False
+    assert evidence["physical_outcome"] == "unknown"

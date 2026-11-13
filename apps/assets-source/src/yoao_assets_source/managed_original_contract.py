@@ -322,6 +322,8 @@ class ManagedOriginalFailureEvidence(_Value):
             raise ValueError("unsettled failures have an unknown outcome")
         if self.physical_outcome == "written" and self.receipt is None:
             raise ValueError("written evidence needs the observed receipt")
+        if self.physical_outcome == "not_written" and self.receipt is not None:
+            raise ValueError("observed write receipt contradicts a no-write outcome")
         if self.current_head_matches is not None and self.receipt is None:
             raise ValueError("head evidence needs the observed receipt")
         return self
