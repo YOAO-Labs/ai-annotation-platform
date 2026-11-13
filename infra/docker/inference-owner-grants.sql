@@ -138,7 +138,7 @@ BEGIN
               SELECT FROM pg_catalog.pg_depend d
               WHERE d.classid='pg_catalog.pg_proc'::pg_catalog.regclass AND d.objid=p.oid
                 AND d.refclassid='pg_catalog.pg_extension'::pg_catalog.regclass AND d.deptype='e'
-          ) AND (pg_catalog.left(n.nspname,4)='aap_' OR p.prosecdef OR EXISTS (
+          ) AND (pg_catalog.left(n.nspname,4)='aap_' OR pg_catalog.left(n.nspname,5)='yoao_' OR p.prosecdef OR EXISTS (
               SELECT FROM pg_catalog.aclexplode(COALESCE(p.proacl,pg_catalog.acldefault('f',p.proowner))) a
               WHERE a.privilege_type='EXECUTE' AND a.grantee<>0
                 AND pg_catalog.pg_has_role(v_client,a.grantee,'USAGE')

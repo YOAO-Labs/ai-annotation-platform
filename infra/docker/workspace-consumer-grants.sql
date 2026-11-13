@@ -113,14 +113,14 @@ BEGIN
         SELECT c.oid,n.nspname,c.relname,c.relkind
         FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE (c.relkind IN ('r','p','v','m','f') AND (
-            n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND (
                 c.relname IN ('projects','project_members','project_templates',
                     'project_deletion_operations','dataset_unlink_operations')
                 OR left(c.relname,10)='workspace_'
             ))
         )) OR (c.relkind='S' AND (
-            n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND c.relname IN (
                 'display_seq_projects','display_seq_project_templates'
             ))
@@ -142,7 +142,7 @@ BEGIN
         END IF;
     END LOOP;
     FOR v_schema IN SELECT nspname FROM pg_namespace
-        WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',v_schema.nspname,v_consumer);
         IF v_schema.nspname = 'aap_workspace_fixture_v1' THEN
@@ -166,12 +166,12 @@ BEGIN
     -- Effective privilege checks also catch PUBLIC grants and owned objects.
     IF EXISTS (
         SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
           AND has_function_privilege(v_consumer,p.oid,'EXECUTE') AND NOT p.oid=ANY(v_allowed)
     ) OR EXISTS (
         SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','v','m','f') AND (
-            n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND (
                 c.relname IN ('projects','project_members','project_templates',
                     'project_deletion_operations','dataset_unlink_operations')
@@ -188,14 +188,14 @@ BEGIN
     ) OR EXISTS (
         SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind='S' AND (
-            n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND c.relname IN ('display_seq_projects','display_seq_project_templates'))
         ) AND CASE WHEN c.relkind='S' THEN
             has_sequence_privilege(v_consumer,c.oid,'USAGE,SELECT,UPDATE')
             ELSE false END
     ) OR EXISTS (
         SELECT 1 FROM pg_namespace n
-        WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
           AND has_schema_privilege(v_consumer,n.oid,'CREATE')
     ) THEN
         RAISE EXCEPTION 'Workspace consumer retains private data or command privileges';

@@ -94,7 +94,7 @@ BEGIN
     FOR namespace IN
         SELECT ns.nspname
         FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1'
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE ALL ON SCHEMA %I FROM %I, %I',
@@ -349,7 +349,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
-        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND ns.nspname <> 'aap_assets_v1'
           AND (pg_catalog.has_schema_privilege(control_oid, ns.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(worker_oid, ns.oid, 'USAGE'))
@@ -419,7 +419,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid
-        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(control_oid, proc.oid, 'EXECUTE')
           AND (ns.nspname <> 'aap_assets_v1' OR (
@@ -429,7 +429,7 @@ BEGIN
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid
-        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
           AND pg_catalog.has_function_privilege(worker_oid, proc.oid, 'EXECUTE')
           AND (ns.nspname <> 'aap_assets_v1' OR proc.oid <> ALL(worker_functions))

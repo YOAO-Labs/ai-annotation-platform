@@ -93,7 +93,8 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname LIKE 'aap\_%' ESCAPE '\'
+        WHERE (namespace.nspname LIKE 'aap\_%' ESCAPE '\'
+               OR namespace.nspname LIKE 'yoao\_%' ESCAPE '\')
           AND namespace.nspname <> 'aap_audit_v1'
           AND pg_catalog.has_schema_privilege(client_oid, namespace.oid, 'USAGE')
     ) THEN

@@ -222,7 +222,8 @@ BEGIN
     FROM pg_catalog.pg_proc AS function
     JOIN pg_catalog.pg_namespace AS namespace
       ON namespace.oid = function.pronamespace
-    WHERE left(namespace.nspname, 4) = 'aap_'
+    WHERE (left(namespace.nspname, 4) = 'aap_'
+           OR left(namespace.nspname, 5) = 'yoao_')
       AND function.prokind IN ('f', 'p')
       AND function.prorettype NOT IN (
           'trigger'::pg_catalog.regtype, 'event_trigger'::pg_catalog.regtype
@@ -233,7 +234,8 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE left(namespace.nspname, 4) = 'aap_'
+        WHERE (left(namespace.nspname, 4) = 'aap_'
+               OR left(namespace.nspname, 5) = 'yoao_')
           AND namespace.nspname <> 'aap_identity_directory_v1'
           AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
     ) OR EXISTS (

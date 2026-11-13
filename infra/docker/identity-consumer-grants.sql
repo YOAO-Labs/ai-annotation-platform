@@ -93,7 +93,7 @@ BEGIN
         FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','v','m','f') AND (
-            n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND (
                 c.relname IN ('users','api_keys','groups','organizations',
                     'organization_members','user_invitations',
@@ -114,7 +114,7 @@ BEGIN
     END LOOP;
     FOR v_schema IN
         SELECT nspname FROM pg_catalog.pg_namespace
-        WHERE nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE pg_catalog.format('REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I FROM %I',
             v_schema.nspname,v_consumer);
@@ -156,14 +156,14 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
           AND pg_catalog.has_function_privilege(v_consumer,p.oid,'EXECUTE')
           AND NOT p.oid=ANY(v_allowed)
     ) OR EXISTS (
         SELECT 1 FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind IN ('r','p','v','m','f') AND (
-            n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND (
                 c.relname IN ('users','api_keys','groups','organizations',
                     'organization_members','user_invitations',

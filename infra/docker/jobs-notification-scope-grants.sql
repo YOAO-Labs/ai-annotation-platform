@@ -128,7 +128,8 @@ BEGIN
     ) OR EXISTS (
         SELECT FROM pg_catalog.pg_proc AS function
         JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid=function.pronamespace
-        WHERE namespace.nspname LIKE 'aap\_%' ESCAPE '\'
+        WHERE (namespace.nspname LIKE 'aap\_%' ESCAPE '\'
+               OR namespace.nspname LIKE 'yoao\_%' ESCAPE '\')
           AND pg_catalog.has_function_privilege(v_client, function.oid, 'EXECUTE')
     ) OR EXISTS (
         SELECT FROM pg_catalog.pg_namespace AS namespace

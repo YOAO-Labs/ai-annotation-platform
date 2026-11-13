@@ -172,7 +172,8 @@ BEGIN
     INTO actual_functions
     FROM pg_catalog.pg_proc AS function
     JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-    WHERE left(namespace.nspname, 4) = 'aap_'
+    WHERE (left(namespace.nspname, 4) = 'aap_'
+           OR left(namespace.nspname, 5) = 'yoao_')
       AND pg_catalog.has_function_privilege(role_oid, function.oid, 'EXECUTE');
     IF actual_functions IS DISTINCT FROM (
         SELECT pg_catalog.array_agg(allowed.oid ORDER BY allowed.oid)
@@ -182,7 +183,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND namespace.nspname <> 'aap_identity_groups_v1'
           AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
     ) THEN

@@ -257,7 +257,7 @@ BEGIN
         END IF;
         IF EXISTS (
             SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-            WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+            WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
               AND namespace.nspname <> role_entry.allowed_schema
               AND pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
         ) THEN
@@ -313,7 +313,7 @@ BEGIN
             SELECT 1
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
-            WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+            WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
               AND (namespace.nspname <> role_entry.allowed_schema
                    OR function.oid <> ALL (role_entry.allowed_functions))
               AND function.prokind IN ('f', 'p')

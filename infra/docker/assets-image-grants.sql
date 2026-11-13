@@ -79,7 +79,7 @@ BEGIN
     FOR namespace IN
         SELECT ns.nspname
         FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1'
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE ALL ON SCHEMA %I FROM %I', namespace.nspname, worker_role
@@ -162,7 +162,7 @@ BEGIN
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS ns
-        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND ns.nspname <> 'aap_assets_v1'
           AND pg_catalog.has_schema_privilege(role_oid, ns.oid, 'USAGE')
     ) THEN
@@ -226,7 +226,7 @@ BEGIN
         SELECT 1
         FROM pg_catalog.pg_namespace AS ns
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace = ns.oid
-        WHERE (ns.nspname ~ '^aap_[a-z0-9_]+_v1$' OR ns.nspname = 'yoao_fixture_v1')
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
           AND proc.oid <> ALL (worker_functions)
           AND proc.oid <> ALL (accepted_input_worker_functions)
