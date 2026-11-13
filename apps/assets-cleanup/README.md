@@ -36,7 +36,7 @@ At startup, the worker verifies that its login is a LOGIN without elevated attri
 
 ## Build and run
 
-Build from the repository root. The image contains the cleanup worker plus the portable Assets image/input contract packages; it does not install the media image-generation extras such as Pillow or libvips:
+Build from the repository root. The image contains the cleanup worker, portable Assets contracts, and only the input database, garbage-collection and exact-version storage runtime modules. Accepted-image cleanup is owned by `yoao_assets_inputs_runtime.garbage`, independently of the input materializer and its original-read admission dependencies. The image does not install API/application modules, image/video execution workers, or media image-generation extras such as Pillow or libvips:
 
 ```sh
 docker build -f apps/assets-cleanup/Dockerfile -t aap-assets-cleanup:local .

@@ -7,8 +7,8 @@ from contextlib import suppress
 from typing import Protocol
 
 from yoao_assets_inputs_runtime.database import AsyncpgInputDatabase
+from yoao_assets_inputs_runtime.garbage import InputGarbageCollector
 from yoao_assets_inputs_runtime.storage import S3InputStorage
-from yoao_assets_inputs_runtime.worker import InputGarbageCollector
 from yoao_assets_video_inputs_runtime.database import AsyncpgVideoInputDatabase
 from yoao_assets_video_inputs_runtime.garbage import VideoGarbageCollector
 from yoao_assets_video_inputs_runtime.storage import S3VideoInputStorage
