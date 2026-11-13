@@ -75,13 +75,13 @@ class ManagedStorage:
             yield self._platform_client
             return
         if self._client_for_target is None:
-            raise ManagedStorageError("destination_write_failed")
+            raise ManagedStorageError("storage_write_failed")
         try:
             client = self._client_for_target(target)
         except ManagedStorageError:
             raise
         except Exception:
-            raise ManagedStorageError("destination_write_failed") from None
+            raise ManagedStorageError("storage_write_failed") from None
         try:
             yield client
         except BaseException as exc:
@@ -141,8 +141,11 @@ class ManagedStorage:
         on_written: Callable[[Any], Any] | None = None,
     ) -> ManagedWrite:
         check = _deadline(before_io, self._timeout)
+        physical = _Physical()
+        prepared = receipt = None
+        completion_started = False
         try:
-            prepared = await _thread(
+            prepared = await physical.run(
                 managed_original.prepare_stream,
                 client,
                 target.bucket,
@@ -153,6 +156,7 @@ class ManagedStorage:
                 timeout_seconds=self._timeout,
                 _check=check,
             )
+            physical.check()
             if prepared.size_bytes != expected_size:
                 raise ManagedStorageError("archive_entry_read_failed")
             if expected_hash is not None and prepared.md5 != expected_hash:
@@ -161,7 +165,9 @@ class ManagedStorage:
                 await on_prepared(prepared)
             if on_writing is not None:
                 await on_writing()
-            receipt = await _thread(
+            physical.check()
+            completion_started = True
+            receipt = await physical.run(
                 managed_original.complete,
                 client,
                 target.bucket,
@@ -171,7 +177,8 @@ class ManagedStorage:
             )
             if on_written is not None:
                 await on_written(receipt)
-            verified = await _thread(
+            physical.check()
+            verified = await physical.run(
                 managed_original.verify,
                 client,
                 target.bucket,
@@ -182,9 +189,12 @@ class ManagedStorage:
                 max_bytes=max(expected_size, 0),
                 timeout_seconds=self._timeout,
             )
-        except managed_original.WriterError as exc:
-            raise _map_writer_error(exc) from None
-        return await _write_result(target, prepared, receipt, verified, image=image)
+            physical.check()
+            return await _write_result(target, prepared, receipt, verified, image=image)
+        except BaseException as exc:
+            raise await _publication_failure(
+                exc, client, target, prepared, receipt, completion_started
+            ) from None
 
     async def publish_object(
         self,
@@ -241,8 +251,11 @@ class ManagedStorage:
         on_written: Callable[[Any], Any] | None = None,
     ) -> ManagedWrite:
         self._check(before_io)
+        physical = _Physical()
+        prepared = receipt = None
+        completion_started = False
         try:
-            source = await _thread(
+            source = await physical.run(
                 managed_original.inspect_object,
                 source_client,
                 source_bucket,
@@ -250,11 +263,12 @@ class ManagedStorage:
                 max_bytes=max_bytes,
                 timeout_seconds=self._timeout,
             )
+            physical.check()
             if source_etag is not None and source.etag != source_etag:
                 raise ManagedStorageError("source_changed")
             if source_version_id is not None and source.version_id != source_version_id:
                 raise ManagedStorageError("source_changed")
-            prepared = await _thread(
+            prepared = await physical.run(
                 managed_original.prepare_copy,
                 client,
                 source_bucket,
@@ -266,11 +280,14 @@ class ManagedStorage:
                 timeout_seconds=self._timeout,
                 source_client=source_client,
             )
+            physical.check()
             if on_prepared is not None:
                 await on_prepared(prepared)
             if on_writing is not None:
                 await on_writing()
-            receipt = await _thread(
+            physical.check()
+            completion_started = True
+            receipt = await physical.run(
                 managed_original.complete,
                 client,
                 target.bucket,
@@ -280,7 +297,8 @@ class ManagedStorage:
             )
             if on_written is not None:
                 await on_written(receipt)
-            verified = await _thread(
+            physical.check()
+            verified = await physical.run(
                 managed_original.verify,
                 client,
                 target.bucket,
@@ -291,9 +309,12 @@ class ManagedStorage:
                 max_bytes=max_bytes,
                 timeout_seconds=self._timeout,
             )
-        except managed_original.WriterError as exc:
-            raise _map_writer_error(exc) from None
-        return await _write_result(target, prepared, receipt, verified, image=image)
+            physical.check()
+            return await _write_result(target, prepared, receipt, verified, image=image)
+        except BaseException as exc:
+            raise await _publication_failure(
+                exc, client, target, prepared, receipt, completion_started
+            ) from None
 
     async def adopt(
         self,
@@ -516,10 +537,10 @@ def _close_client(client: Any) -> None:
 
 
 def _map_writer_error(exc: managed_original.WriterError) -> ManagedStorageError:
-    if exc.code == "creation_source_changed" or exc.outcome == "conflict":
-        return ManagedStorageError("source_changed")
-    if exc.outcome == "unknown":
+    if exc.outcome == "unknown" or getattr(exc, "storage_operation_unsettled", False):
         return ManagedStorageError("storage_write_failed", uncertain=True)
+    if exc.code == "creation_source_changed" or exc.outcome == "conflict":
+        return ManagedStorageError("source_changed", outcome=exc.outcome)
     return ManagedStorageError("storage_write_failed")
 
 
@@ -537,6 +558,70 @@ def _deadline(before_io: Callable[[], None] | None, timeout: float):
     return check
 
 
+class _Physical:
+    """Adopt a late result before honoring cancellation or closing its owner."""
+
+    def __init__(self) -> None:
+        self.interrupted: BaseException | None = None
+
+    async def run(self, function, /, *args, **kwargs):
+        task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
+        try:
+            return await asyncio.shield(task)
+        except BaseException as exc:
+            if task.done() and (task.cancelled() or task.exception() is not None):
+                return task.result()
+            if self.interrupted is None:
+                self.interrupted = exc
+            while not task.done():
+                try:
+                    await asyncio.shield(task)
+                except BaseException:
+                    continue
+            return task.result()
+
+    def check(self) -> None:
+        if self.interrupted is not None:
+            raise self.interrupted
+
+
+async def _publication_failure(
+    exc, client, target, prepared, receipt, completion_started
+):
+    if prepared is not None and receipt is None and (
+        not completion_started or getattr(exc, "outcome", None) in {"failed", "conflict"}
+    ):
+        try:
+            await _thread(
+                managed_original.abort_prepared,
+                client,
+                target.bucket,
+                target.object_key,
+                prepared,
+            )
+        except BaseException as abort_error:
+            combined = BaseExceptionGroup(
+                "Managed original failure and multipart abort failed", [exc, abort_error]
+            )
+            combined.storage_operation_unsettled = True
+            return combined
+    error = _map_writer_error(exc) if isinstance(exc, managed_original.WriterError) else exc
+    if receipt is not None:
+        error.physical_receipt = receipt.evidence()
+    return error
+
+
 async def _thread(function, /, *args, **kwargs):
     task = asyncio.create_task(asyncio.to_thread(function, *args, **kwargs))
-    return await asyncio.shield(task)
+    try:
+        return await asyncio.shield(task)
+    except asyncio.CancelledError:
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except BaseException:
+                continue
+        # Propagate the completed physical failure rather than hide it behind
+        # cancellation; handles are no longer in use when this scope unwinds.
+        task.result()
+        raise

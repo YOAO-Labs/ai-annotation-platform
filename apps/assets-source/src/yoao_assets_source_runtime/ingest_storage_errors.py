@@ -18,9 +18,14 @@ class ManagedStorageError(Exception):
     """A safe per-file outcome; storage SDK details never escape."""
 
     def __init__(
-        self, code: ManagedStorageFailureCode, *, uncertain: bool = False
+        self,
+        code: ManagedStorageFailureCode,
+        *,
+        uncertain: bool = False,
+        outcome: str = "failed",
     ) -> None:
         super().__init__(code)
         self.code = code
+        self.outcome = "unknown" if uncertain else outcome
         if uncertain:
             self.storage_operation_unsettled = True

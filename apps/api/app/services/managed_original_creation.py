@@ -1329,6 +1329,7 @@ async def _physical(db, row, stream, *, source_target=None):
 
     client, source_client, source_context, target_context = None, None, None, None
     prepared, completion_started = None, False
+    observed_receipt = None
     physical = _Physical()
     failure = None
     mutation = None
@@ -1427,6 +1428,12 @@ async def _physical(db, row, stream, *, source_target=None):
             prepared,
             content_type=row["content_type"],
         )
+        observed_receipt = {
+            "etag": receipt.etag,
+            "version_id": receipt.version_id,
+            "request_id": receipt.request_id,
+            "response": _json(receipt.response),
+        }
         evidence.update(
             physical_outcome="written",
             physical_size_bytes=prepared.size_bytes,
@@ -1439,12 +1446,7 @@ async def _physical(db, row, stream, *, source_target=None):
                 "writing",
                 status="written",
                 acknowledged_at=now(),
-                receipt={
-                    "etag": receipt.etag,
-                    "version_id": receipt.version_id,
-                    "request_id": receipt.request_id,
-                    "response": _json(receipt.response),
-                },
+                receipt=observed_receipt,
                 etag=receipt.etag,
                 version_id=receipt.version_id,
                 request_id=receipt.request_id,
@@ -1576,6 +1578,9 @@ async def _physical(db, row, stream, *, source_target=None):
                     if late_failure is not publication_failure:
                         failures.append(late_failure)
         if failures:
+            if observed_receipt is not None:
+                for physical_failure in failures:
+                    physical_failure.physical_receipt = observed_receipt
             if len(failures) == 1:
                 if close_errors or accounting_failed:
                     storage_access.mark_unsettled(failures[0])
@@ -1583,6 +1588,8 @@ async def _physical(db, row, stream, *, source_target=None):
             combined = BaseExceptionGroup(
                 "Original creation did not settle cleanly", failures
             )
+            if observed_receipt is not None:
+                combined.physical_receipt = observed_receipt
             if (
                 close_errors
                 or accounting_failed
@@ -1668,12 +1675,30 @@ async def _execute(db, allocation, stream):
                         else "failed"
                     )
                 )
+                settled = not (
+                    operation or getattr(exc, "storage_operation_unsettled", False)
+                )
+                observed_receipt = current["receipt"] or getattr(
+                    exc, "physical_receipt", None
+                )
+                evidence = {
+                    "physical_settled": settled,
+                    "physical_outcome": (
+                        "unknown"
+                        if not settled
+                        else "written" if observed_receipt is not None else "not_written"
+                    ),
+                }
+                if observed_receipt is not None:
+                    evidence["receipt"] = observed_receipt
                 await _change(
                     db,
                     row["id"],
                     current["status"],
                     status=outcome,
                     error_code=_error(exc),
+                    failure_evidence=evidence,
+                    settled_at=now() if settled else None,
                     completed_at=now(),
                 )
             status = (

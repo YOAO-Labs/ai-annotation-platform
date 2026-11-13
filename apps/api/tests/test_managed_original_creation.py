@@ -727,3 +727,34 @@ def test_operation_client_is_same_origin_nonretrying_and_uses_frozen_budget(
     guard(SimpleNamespace(url=calls[0][1]["endpoint_url"] + "/bucket/key"))
     with pytest.raises(ContentError, match="managed_original_redirect_denied"):
         guard(SimpleNamespace(url="https://redirect.invalid/bucket/key"))
+
+
+async def test_observed_receipt_survives_failed_independent_persistence(
+    creation_db, client, monkeypatch
+):
+    db = creation_db
+    row = await allocation(db)
+    change = service._change
+
+    async def failed(db, identifier, expected, **values):
+        if values.get("status") == "written":
+            raise OSError("receipt storage unavailable")
+        return await change(db, identifier, expected, **values)
+
+    monkeypatch.setattr(service, "_change", failed)
+    with pytest.raises(ContentError, match="managed_original_receipt_persistence_unknown"):
+        await create(db, row)
+
+    current = await service._read(db, row["id"])
+    assert current["status"] == "unknown" and current["receipt"] is None
+    proof = current["failure_evidence"]
+    assert proof["physical_settled"] is False
+    assert proof["physical_outcome"] == "unknown"
+    assert proof["receipt"]["etag"]
+    assert client.objects[row["bucket"], row["object_key"]]["data"] == b"original"
+    assert current["operation_id"] in await operations(db)
+    assert client.closed == 1
+    assert len([call for call in client.calls if call[0] == "complete"]) == 1
+    with pytest.raises(ContentError, match="managed_original_creation_terminal"):
+        await create(db, row)
+    assert len([call for call in client.calls if call[0] == "complete"]) == 1

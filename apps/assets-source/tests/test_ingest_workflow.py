@@ -429,7 +429,7 @@ class _Storage:
             ),
         )
 
-    async def adopt(self, target, *, expected_size, image):
+    async def adopt(self, target, *, expected_size, image, source_etag=None):
         return (
             IngestStorageFacts(
                 file_size=expected_size,

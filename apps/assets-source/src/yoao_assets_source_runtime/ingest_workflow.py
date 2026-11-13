@@ -172,6 +172,15 @@ class IngestWorkflow:
                         continue
                     target: ManagedOriginalMaterial | None = None
                     operation = None
+                    written_receipt = None
+
+                    async def record_written(receipt):
+                        nonlocal written_receipt
+                        written_receipt = receipt.evidence()
+                        await self._data.original_written(
+                            target.creation_id, written_receipt
+                        )
+
                     try:
                         target = await self._data.allocate(
                             _ingest_original_request(command, planned, batch_id)
@@ -203,21 +212,19 @@ class IngestWorkflow:
                                     on_writing=lambda: self._data.original_writing(
                                         target.creation_id
                                     ),
-                                    on_written=lambda receipt: (
-                                        self._data.original_written(
-                                            target.creation_id,
-                                            {
-                                                "etag": receipt.etag,
-                                                "version_id": receipt.version_id,
-                                                "request_id": receipt.request_id,
-                                                "response": receipt.response,
-                                            },
-                                        )
-                                    ),
+                                    on_written=record_written,
                                 )
                             _validate_published_facts(proposal, facts)
                             await self._finish_original(target, proof)
                     except ManagedOriginalFailure as exc:
+                        if written_receipt is not None or getattr(
+                            exc, "physical_receipt", None
+                        ) is not None:
+                            await self._fail_original(
+                                target, "write", "storage_write_failed", exc,
+                                operation=operation,
+                                receipt=written_receipt,
+                            )
                         completions.append(
                             _failed_completion(planned, "storage_write_failed")
                         )
@@ -230,14 +237,26 @@ class IngestWorkflow:
                             exc.code,
                         )
                     except IngestEntryFailure as exc:
-                        await self._fail_original(target, "write", exc.code, exc)
+                        await self._fail_original(
+                            target, "write", exc.code, exc, operation=operation,
+                            receipt=written_receipt,
+                        )
                         completions.append(_failed_completion(planned, exc.code))
                         expected_errors.append(
                             (_safe_label(proposal.source_name), exc.code)
                         )
+                    except asyncio.CancelledError as exc:
+                        await self._fail_original(
+                            target, "write", "storage_write_failed", exc,
+                            operation=operation,
+                            receipt=written_receipt,
+                        )
+                        raise
                     except Exception as exc:  # noqa: BLE001 - ZIP reader failures are per-entry.
                         await self._fail_original(
-                            target, "write", "archive_entry_read_failed", exc
+                            target, "write", "archive_entry_read_failed", exc,
+                            operation=operation,
+                            receipt=written_receipt,
                         )
                         completions.append(
                             _failed_completion(planned, "archive_entry_read_failed")
@@ -333,7 +352,7 @@ class IngestWorkflow:
             if not relative:
                 continue
             proposals.append(
-                _scan_source_entry(relative, item.key, item.size, item.etag)
+                _scan_source_entry(relative, item.key, item.size)
             )
             listed.append((item.key, item.etag, item.size))
             if len(proposals) == INGEST_BATCH_SIZE:
@@ -396,6 +415,13 @@ class IngestWorkflow:
                 raise IngestFailure("invalid_response")
             target: ManagedOriginalMaterial | None = None
             operation = None
+            written_receipt = None
+
+            async def record_written(receipt):
+                nonlocal written_receipt
+                written_receipt = receipt.evidence()
+                await self._data.original_written(target.creation_id, written_receipt)
+
             try:
                 target = await self._data.allocate(
                     _ingest_original_request(command, planned, batch_id)
@@ -416,6 +442,7 @@ class IngestWorkflow:
                             target,
                             expected_size=proposal.file_size,
                             image=proposal.file_type == "image",
+                            source_etag=etag,
                         )
                     else:
                         facts, proof = await self._storage.publish_from_existing(
@@ -423,23 +450,15 @@ class IngestWorkflow:
                             target,
                             content_type=proposal.content_type,
                             expected_size=proposal.file_size,
-                            expected_hash=proposal.content_hash,
                             image=proposal.file_type == "image",
+                            source_etag=etag,
                             on_prepared=lambda prepared: self._data.original_prepared(
                                 target.creation_id, prepared.evidence()
                             ),
                             on_writing=lambda: self._data.original_writing(
                                 target.creation_id
                             ),
-                            on_written=lambda receipt: self._data.original_written(
-                                target.creation_id,
-                                {
-                                    "etag": receipt.etag,
-                                    "version_id": receipt.version_id,
-                                    "request_id": receipt.request_id,
-                                    "response": receipt.response,
-                                },
-                            ),
+                            on_written=record_written,
                         )
                     _validate_observed_facts(proposal, facts)
                     if target.mode == "adopt":
@@ -447,17 +466,24 @@ class IngestWorkflow:
                             target.creation_id, proof.prepared
                         )
                         await self._data.original_writing(target.creation_id)
+                        written_receipt = {
+                            "etag": proof.etag,
+                            "version_id": proof.version_id,
+                            "request_id": proof.request_id,
+                            "response": {},
+                        }
                         await self._data.original_written(
-                            target.creation_id,
-                            {
-                                "etag": proof.etag,
-                                "version_id": proof.version_id,
-                                "request_id": proof.request_id,
-                                "response": {},
-                            },
+                            target.creation_id, written_receipt
                         )
                     await self._finish_original(target, proof)
             except ManagedOriginalFailure as exc:
+                if written_receipt is not None or getattr(
+                    exc, "physical_receipt", None
+                ) is not None:
+                    await self._fail_original(
+                        target, "write", "source_read_failed", exc, operation=operation,
+                        receipt=written_receipt,
+                    )
                 logger.info(
                     "Ingest adoption refused operation=%s code=%s",
                     command.operation_id,
@@ -465,10 +491,22 @@ class IngestWorkflow:
                 )
                 completions.append(_failed_completion(planned, "source_read_failed"))
             except IngestEntryFailure as exc:
-                await self._fail_original(target, "write", exc.code, exc)
+                await self._fail_original(
+                    target, "write", exc.code, exc, operation=operation,
+                    receipt=written_receipt,
+                )
                 completions.append(_failed_completion(planned, exc.code))
+            except asyncio.CancelledError as exc:
+                await self._fail_original(
+                    target, "adopt", "source_read_failed", exc, operation=operation,
+                    receipt=written_receipt,
+                )
+                raise
             except Exception as exc:  # noqa: BLE001 - per-entry storage failures
-                await self._fail_original(target, "write", "source_read_failed", exc)
+                await self._fail_original(
+                    target, "write", "source_read_failed", exc, operation=operation,
+                    receipt=written_receipt,
+                )
                 completions.append(_failed_completion(planned, "source_read_failed"))
             else:
                 completions.append(_ready_completion(planned, facts))
@@ -505,20 +543,28 @@ class IngestWorkflow:
         stage: str,
         code: str,
         exc: BaseException | None,
+        *,
+        operation=None,
+        receipt=None,
     ) -> None:
         """Durably settle a failed attempt; never publish its bytes."""
         if target is None:
             return
-        evidence = _failure_evidence(stage, exc)
-        try:
-            await self._data.fail_original(
-                target.creation_id,
-                "unknown" if not evidence["physical_settled"] else "failed",
-                _safe_error_code("ingest_" + code),
-                evidence,
-            )
-        except Exception:
-            logger.warning("Ingest creation failure could not be settled code=%s", code)
+        evidence = _failure_evidence(stage, exc, receipt=receipt)
+        if operation is not None and operation.mode == "read":
+            if evidence["physical_settled"]:
+                await self._data.close_operation(
+                    target.creation_id, operation.operation_id, True
+                )
+            return
+        await self._data.fail_original(
+            target.creation_id,
+            "unknown"
+            if not evidence["physical_settled"]
+            else "conflict" if getattr(exc, "outcome", None) == "conflict" else "failed",
+            _safe_error_code("ingest_" + code),
+            evidence,
+        )
 
     async def _admit_batch_images(
         self,
@@ -919,7 +965,7 @@ async def _zip_source_entry(archive: SafeZipArchive, entry) -> IngestSourceEntry
 
 
 def _scan_source_entry(
-    relative: str, key: str, size: int | None, etag: str | None
+    relative: str, key: str, size: int | None
 ) -> IngestSourceEntry:
     basename = PurePosixPath(relative).name
     content_type = mimetypes.guess_type(basename)[0] or "application/octet-stream"
@@ -940,7 +986,7 @@ def _scan_source_entry(
         file_type=file_type,
         content_type=content_type,
         file_size=valid_size,
-        content_hash=_md5_etag(etag),
+        content_hash=None,
         width=None,
         height=None,
         error_code=None
@@ -1003,6 +1049,8 @@ def _failure_evidence(
     size_bytes: int | None = None,
     current_head_matches: bool | None = None,
 ) -> dict[str, Any]:
+    if receipt is None:
+        receipt = getattr(exc, "physical_receipt", None)
     uncertain = bool(
         exc is not None
         and (
@@ -1201,15 +1249,6 @@ async def _sha256_stream(source: BinaryIO) -> tuple[str, int]:
         raise
     except Exception:
         raise IngestFailure("invalid_request") from None
-
-
-def _md5_etag(etag: str | None) -> str | None:
-    if not etag:
-        return None
-    value = etag.strip().strip('"')
-    if len(value) != 32 or any(char not in "0123456789abcdefABCDEF" for char in value):
-        return None
-    return value.lower()
 
 
 def _safe_text(value: str, limit: int) -> str:
