@@ -449,3 +449,17 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 227 条失败／错误含同一个 `fixture_dataset_job_scope_unknown`；75 条是 fixture operation／teardown 错误。首个大图种子的 image worker 日志记录 `fixture_native_target_owner_changed`，随后金字塔未就绪、admission settlement 409；只读库存确认六个 run 留在 sealing。另有非 loopback endpoint、制品身份、broker acknowledgement 等独立失败，尚未全部诊断，不将它们都归因于同一问题。
 - 正常 cleanup 已报 WorktreeError 并保留 `/tmp/aap-module-data-acceptance-n1vs07yn`；外层旧 driver 的失败分支却已移除 bootstrap，其对象数据无法从该实例补回。完整 JSON／JUnit／日志及 `t1-gate-1-failures.json`、精确 `t1-gate-1-retirement-inventory.json` 保存在私有 gate 证据目录。
 - 用户另行明确批准本次精确批次归档后管理性退役：专属 PostgreSQL／Redis／物理 MinIO、所属卷和网络、归属日志中 PID 与启动时间匹配的进程及临时根。该授权不扩展到日常环境，也不算正常产品清理通过；执行结果另记。本轮不原样重跑完整门，N5 使用独立的定向资格窗口。
+
+### N5 限定制品准备与失败实例退役
+
+- `t1-gate-1` 已按两次明确授权完成**行政退役，不是资格通过**。最终数据库 dump／globals、运行状态与日志、物理 MinIO 数据均已归档；对象清单包含 11 个所属桶、61 个版本。按 PID + starttime 处理 59 个已记录／补充授权的进程身份，移除精确匹配的 PostgreSQL、Redis、MinIO 容器、所属卷／网络与临时根目录，未修改日常开发环境。最终回执：`runtime-private/stage-f-20261112/t1-gate/t1-gate-1-retirement/retirement-receipt.json`；旧驱动提前删除的外层 bootstrap 数据仍不可恢复。
+- N5 冻结候选为 `6ed5d22fa55fdd9277707cf3770ebc9c60b1ffe3`，仅准备本切片实际执行的 Python／Node owner-transfer 两项镜像，不重建无关的完整 18 工件集合。镜像构建与离线源码身份核对均通过；另核对独立非 editable Python 环境的 383 个已安装文件。限定索引：`runtime-private/stage-f-20261112/t1-gate/n5/index.json`。
+- `n5-owner-1` 使用索引中冻结的 12 个测试文件执行真实 PostgreSQL、迁移拒绝／前向切换、恢复、Python／Node 消费者与容器重启重放。此处仅记录启动；最终结果另记，不把构建／字节一致性或既有 34 项单元检查当作运行时资格。
+
+### N5 首轮真实验收与修正
+
+- `n5-owner-1` 在冻结候选 `6ed5d22fa` 上运行约 631 秒；70 项中 61 passed、9 failed、0 error／skip，不通过。失败分为四组：grant 探针把会被正常撤销的列 ACL 当成应拒绝的残留、Identity 探针缺少 CONNECT；迁移探针对 PostgreSQL `"char"` 的字节返回作了字符串断言；四条兼容路径等不到审计同步点；两个镜像等待 ready 超时，其旧启动代码固定将数据库地址改写为 `host.docker.internal`。
+- 正常 verifier cleanup 已通过，PostgreSQL／本地资源已移除；外层 bootstrap 经精确归属和空桶核验后也已移除。临时运行证据归档至 `n5/n5-owner-1-runtime-evidence.tar.gz`，清理回执为 `n5/n5-owner-1-cleanup.json`。归档后的 journal 注记首次使用只允许新建的 helper 写入已有文件而失败，随后仅修正该注记，未重复资源清理。
+- 授权与兼容性两组交由指定 DeepSeek task 子代理在独立工作树修正；父代理修正目录类型投影和镜像数据库地址，后者复用已有 PostgreSQL 身份／bridge 核验 helper。源码修正与运行时通过分别记账，不延长超时或降低拒绝条件。
+- 另为旧完整门的原生图片夹具阻塞新增前向修订 `bo0461`：目标围栏要求同一 run／dataset／item、不可变金字塔代次绑定及当前存活 job／claim 租约；保留原目标身份、关闭状态、旧 producer 与 screenshot 判定。原始 `bo0446`／`bo0455` SQL 不改写；该修正尚待真实原生 worker／Raster 场景验证。
+- 兼容探针的旧 SQL 文本监听只识别 `INSERT INTO audit_logs`，实际请求已经由 `aap_audit_v1.append_events` 写入；现改在 middleware 的 `append_http_metadata` 派发边界观察，仍执行真实审计写入并保持原锁／超时。旧响应参考按项目的持久化 `guide_assets_revision` 扩展当前投影，不写死该字段的默认值。四组修正完成后再执行同一 12 文件集；镜像与已安装包的输入未改变，按原始身份复用，不重新构建或改贴来源标签。

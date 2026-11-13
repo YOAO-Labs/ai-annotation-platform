@@ -260,7 +260,7 @@ async def _table_state(connection, operation_id) -> dict:
         (
             await connection.execute(
                 text(
-                    "SELECT relation.oid, relation.relkind "
+                    "SELECT relation.oid, relation.relkind::text AS relkind "
                     "FROM pg_catalog.pg_class AS relation "
                     "WHERE relation.oid = CAST(:receipts AS pg_catalog.regclass)"
                 ),

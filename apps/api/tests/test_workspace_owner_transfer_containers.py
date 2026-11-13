@@ -13,6 +13,7 @@ import pytest
 from sqlalchemy.engine import make_url
 
 from tests.test_asset_storage_cleanup_runtime import (
+    _container_database_url,
     _docker,
     _inspect_docker,
     _stop_remove_container,
@@ -50,11 +51,7 @@ async def _image_owner(test_engine, directory, token, provider):
     ] == "workspace-owner-transfer" + ("-node" if provider == "node" else "")
     assert image["Config"]["User"] == ("node" if provider == "node" else "10004:10004")
     directory.mkdir(parents=True)
-    dsn = (
-        make_url(transfer_dsn(test_engine))
-        .set(host="host.docker.internal")
-        .render_as_string(hide_password=False)
-    )
+    dsn = _container_database_url(make_url(transfer_dsn(test_engine)))
     dsn_file, token_file = directory / "database", directory / "control"
     for path, value in ((dsn_file, dsn), (token_file, token)):
         path.write_text(value, encoding="utf-8")
@@ -98,15 +95,20 @@ async def _image_owner(test_engine, directory, token, provider):
         mapped = metadata["NetworkSettings"]["Ports"][f"{port}/tcp"][0]["HostPort"]
         origin = f"http://127.0.0.1:{mapped}"
         deadline = time.monotonic() + 35
+        readiness = None
         async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
             while True:
                 try:
-                    if (await client.get(origin + "/ready")).status_code == 200:
+                    readiness = await client.get(origin + "/ready")
+                    if readiness.status_code == 200:
                         break
                 except httpx.HTTPError:
                     pass
                 assert _inspect_docker(container)["State"]["Running"]
-                assert time.monotonic() < deadline, "Owned image did not become ready"
+                assert time.monotonic() < deadline, (
+                    "Owned image did not become ready; last HTTP status: "
+                    f"{readiness.status_code if readiness is not None else 'no response'}"
+                )
                 await asyncio.sleep(0.1)
             assert (
                 await client.post(

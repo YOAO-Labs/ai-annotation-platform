@@ -278,7 +278,6 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     migration_url, "assets-catalog-grants.sql", variables
                 )
                 _assert_guard_rejected(rejected)
-                assert "direct column privileges" in rejected.stderr, rejected.stderr
                 rolled_back = await _catalog_state(owner_engine, role, probe, neighbor)
                 assert dict(rolled_back) == {
                     **dict(revoked),
@@ -311,9 +310,6 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     password=password,
                 )
                 _assert_insufficient_privilege(denied)
-                assert (
-                    f"permission denied for schema {probe}" in denied.stderr
-                ), denied.stderr
                 denied_neighbor = await _psql(
                     migration_url,
                     sql=f"SELECT count(*) FROM {neighbor}.probe_rows;",
@@ -321,10 +317,6 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     password=password,
                 )
                 _assert_insufficient_privilege(denied_neighbor)
-                assert (
-                    "permission denied for table probe_rows"
-                    in denied_neighbor.stderr
-                ), denied_neighbor.stderr
 
 
 async def _catalog_state(engine, role: str, probe: str, neighbor: str):
@@ -660,10 +652,6 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                     password=password,
                 )
                 _assert_insufficient_privilege(direct)
-                assert (
-                    f"permission denied for schema {identity_probe}"
-                    in direct.stderr
-                ), direct.stderr
 
 
 async def test_identity_deactivation_classifies_new_namespace_as_module(

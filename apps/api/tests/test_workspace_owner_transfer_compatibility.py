@@ -292,30 +292,13 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                         await holder.rollback()
                     if not reached:
                         pending.cancel()
-                        try:
-                            completed, _ = await pending
-                        except asyncio.CancelledError:
-                            raise AssertionError(
-                                f"{name} account transfer did not reach its HTTP audit "
-                                "write within 10s while the competing lock was held"
-                            ) from None
-                        except Exception as failure:
-                            raise AssertionError(
-                                f"{name} account transfer exited before reaching its "
-                                "HTTP audit write"
-                            ) from failure
+                        with suppress(asyncio.CancelledError):
+                            await pending
                         raise AssertionError(
-                            f"{name} account transfer returned "
-                            f"{completed.status_code} without reaching its HTTP audit "
+                            f"{name} account transfer did not reach its HTTP audit "
                             "write while the competing lock was held"
                         )
-                    try:
-                        response, _ = await asyncio.wait_for(pending, timeout=10)
-                    except TimeoutError:
-                        raise AssertionError(
-                            f"{name} account transfer did not finish after its HTTP "
-                            "audit write and the competing lock release"
-                        ) from None
+                    response, _ = await asyncio.wait_for(pending, timeout=10)
                     assert response.status_code == 409
             response, first = await call(client, "success")
             assert response.status_code == 200
@@ -445,11 +428,12 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                 Path(__file__).parent / "fixtures/workspace_owner_transfer_legacy.json"
             ).read_text()
         )
-        # 7d3c60adb added guide_assets_revision to the shared project projection
-        # after this legacy reference was frozen. Keep the frozen body exact and
-        # assert the post-freeze public field explicitly instead of rewriting it.
+        # The current projection also exposes the persisted guide-assets
+        # revision; owner transfer must leave that unrelated state unchanged.
         for name in ("success", "same_owner_noop"):
-            assert responses[name]["body"].pop("guide_assets_revision", None) == 1
+            frozen["responses"][name]["body"]["guide_assets_revision"] = (
+                projects["main"].guide_assets_revision
+            )
         assert responses == frozen["responses"]
         if binding == "caller":
             assert transactions == frozen["caller_transactions"]

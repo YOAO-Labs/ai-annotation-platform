@@ -136,6 +136,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
     "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0460_workspace_owner_transfer_namespace.sql",
     "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
     "aap_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
@@ -1843,6 +1844,7 @@ SQL_ARTIFACTS = (
     "0458_upload_retry_after_failed_publication.sql",
     "0459_source_ingest_identity_and_retry.sql",
     "0460_workspace_owner_transfer_namespace.sql",
+    "0461_fixture_native_pyramid_target.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
