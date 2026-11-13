@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack
+from contextlib import AsyncExitStack, suppress
 import json
 import secrets
 import asyncio
@@ -26,6 +26,7 @@ from app.db.models.project_member import ProjectMember
 from app.db.models.user import User
 from app.deps import get_db
 from app.main import app
+from app.middleware import audit as audit_middleware
 from app.application.project_workspace import transfer_project_owner
 from app.services.identity_contracts import IdentityActorFacts
 from tests.factory import create_project, create_user
@@ -133,12 +134,21 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
     previous = app.dependency_overrides.get(get_db)
     app.dependency_overrides[get_db] = session_per_request
     counter = [0]
-    audit_started = asyncio.Event()
+    http_audit_started = asyncio.Event()
+    persist_http_audit = audit_middleware.append_http_metadata
 
-    def count_sql(_connection, _cursor, statement, *_):
+    async def observe_http_audit(db, payload):
+        # The post-response HTTP audit row references the acting account, so its
+        # insert waits while a competing account lock is held. Observe the
+        # middleware at the persistence boundary, before the row is written, and
+        # then let the real write proceed.
+        http_audit_started.set()
+        return await persist_http_audit(db, payload)
+
+    monkeypatch.setattr(audit_middleware, "append_http_metadata", observe_http_audit)
+
+    def count_sql(_connection, _cursor, _statement, *_):
         counter[0] += 1
-        if statement.startswith("INSERT INTO audit_logs"):
-            audit_started.set()
 
     engines = {service_engine.sync_engine, api_engine.sync_engine}
     for engine in engines:
@@ -166,6 +176,21 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
             "www_authenticate": response.headers.get("www-authenticate"),
         }
         return response, payload
+
+    async def wait_for_http_audit(pending):
+        """Race the response's audit write against an unexpected request exit."""
+        observed = asyncio.create_task(http_audit_started.wait())
+        try:
+            await asyncio.wait(
+                {observed, pending},
+                timeout=10,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+        finally:
+            observed.cancel()
+            with suppress(asyncio.CancelledError):
+                await observed
+        return http_audit_started.is_set()
 
     stack = AsyncExitStack()
     try:
@@ -259,13 +284,38 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                     await holder.scalar(
                         select(User).where(User.id == users[name].id).with_for_update()
                     )
-                    audit_started.clear()
+                    http_audit_started.clear()
                     pending = asyncio.create_task(call(client, f"{name}_account_busy"))
                     try:
-                        await asyncio.wait_for(audit_started.wait(), timeout=10)
+                        reached = await wait_for_http_audit(pending)
                     finally:
                         await holder.rollback()
-                    response, _ = await asyncio.wait_for(pending, timeout=10)
+                    if not reached:
+                        pending.cancel()
+                        try:
+                            completed, _ = await pending
+                        except asyncio.CancelledError:
+                            raise AssertionError(
+                                f"{name} account transfer did not reach its HTTP audit "
+                                "write within 10s while the competing lock was held"
+                            ) from None
+                        except Exception as failure:
+                            raise AssertionError(
+                                f"{name} account transfer exited before reaching its "
+                                "HTTP audit write"
+                            ) from failure
+                        raise AssertionError(
+                            f"{name} account transfer returned "
+                            f"{completed.status_code} without reaching its HTTP audit "
+                            "write while the competing lock was held"
+                        )
+                    try:
+                        response, _ = await asyncio.wait_for(pending, timeout=10)
+                    except TimeoutError:
+                        raise AssertionError(
+                            f"{name} account transfer did not finish after its HTTP "
+                            "audit write and the competing lock release"
+                        ) from None
                     assert response.status_code == 409
             response, first = await call(client, "success")
             assert response.status_code == 200
@@ -395,6 +445,11 @@ async def test_owner_transfer_matches_actual_legacy(test_engine, monkeypatch, bi
                 Path(__file__).parent / "fixtures/workspace_owner_transfer_legacy.json"
             ).read_text()
         )
+        # 7d3c60adb added guide_assets_revision to the shared project projection
+        # after this legacy reference was frozen. Keep the frozen body exact and
+        # assert the post-freeze public field explicitly instead of rewriting it.
+        for name in ("success", "same_owner_noop"):
+            assert responses[name]["body"].pop("guide_assets_revision", None) == 1
         assert responses == frozen["responses"]
         if binding == "caller":
             assert transactions == frozen["caller_transactions"]
