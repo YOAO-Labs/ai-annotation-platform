@@ -110,16 +110,25 @@ class _Native:
 
 
 @pytest.mark.asyncio
-async def test_dataset_admission_binds_observed_bytes_before_scheduling_small_thumbnail():
+@pytest.mark.parametrize(
+    "file_path",
+    [
+        "dataset-sources/dataset/item/publication/photo.png",
+        "legacy-dataset/nested/photo.png",
+    ],
+)
+async def test_dataset_admission_binds_observed_bytes_before_scheduling_small_thumbnail(
+    file_path,
+):
     item_id = uuid4()
-    publication_id = uuid4()
-    source = _source(item_id=item_id)
+    operation_namespace = uuid4()
+    source = _source(item_id=item_id, file_path=file_path)
     identity = c.ObjectIdentity(etag='"final-etag"', byte_size=12, version_id="v1")
     native = _Native(source)
 
     accepted = await ImageAdmission(native, ImagePolicy()).admit_dataset_item(
         item_id=item_id,
-        publication_id=publication_id,
+        operation_namespace=operation_namespace,
         file_path=source.file_path,
         file_size=12,
         content_hash=source.content_hash,
@@ -136,7 +145,7 @@ async def test_dataset_admission_binds_observed_bytes_before_scheduling_small_th
     assert observe.expected_source_snapshot == source.source_snapshot
     assert observe.object_identity == identity
     schedule = native.calls[2][1]
-    assert schedule.operation_id == uuid5(publication_id, "aap-image:admission")
+    assert schedule.operation_id == uuid5(operation_namespace, "aap-image:admission")
     assert schedule.spec.kind == "thumbnail"
     assert accepted.work.kind == "thumbnail"
 
@@ -150,7 +159,7 @@ async def test_dataset_admission_preserves_pyramid_policy_and_known_large_dimens
 
     await ImageAdmission(native, policy).admit_dataset_item(
         item_id=item_id,
-        publication_id=uuid4(),
+        operation_namespace=uuid4(),
         file_path=source.file_path,
         file_size=12,
         content_hash=source.content_hash,
@@ -168,7 +177,7 @@ async def test_large_image_with_auto_pyramids_disabled_binds_without_preview_job
 
     accepted = await ImageAdmission(native, ImagePolicy()).admit_dataset_item(
         item_id=item_id,
-        publication_id=uuid4(),
+        operation_namespace=uuid4(),
         file_path=source.file_path,
         file_size=12,
         content_hash=source.content_hash,
@@ -191,7 +200,7 @@ async def test_unknown_dimensions_and_task_sources_request_native_preview_contin
 
     await ImageAdmission(native, ImagePolicy()).admit_dataset_item(
         item_id=item_id,
-        publication_id=uuid4(),
+        operation_namespace=uuid4(),
         file_path=source.file_path,
         file_size=12,
         content_hash=source.content_hash,
@@ -230,7 +239,7 @@ async def test_delayed_old_publication_cannot_bind_a_new_item_descriptor():
     with pytest.raises(c.ImageFailure, match="source_changed"):
         await ImageAdmission(native, ImagePolicy()).admit_dataset_item(
             item_id=item_id,
-            publication_id=uuid4(),
+            operation_namespace=uuid4(),
             file_path="dataset-sources/old/photo.png",
             file_size=12,
             content_hash=source.content_hash,
@@ -248,7 +257,7 @@ async def test_deduped_ingest_item_can_skip_missing_item_without_scheduling():
 
     accepted = await ImageAdmission(native, ImagePolicy()).admit_dataset_item(
         item_id=source.item_id,
-        publication_id=uuid4(),
+        operation_namespace=uuid4(),
         file_path=source.file_path,
         file_size=12,
         content_hash=source.content_hash,

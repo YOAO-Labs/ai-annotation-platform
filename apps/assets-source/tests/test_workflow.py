@@ -563,7 +563,7 @@ async def test_modern_upload_copies_conditionally_before_native_acceptance() -> 
     assert len(workflow._image_admission.calls) == 1
     admission = workflow._image_admission.calls[0]
     assert admission["item_id"] == item_id
-    assert admission["publication_id"] == intent.publication_id
+    assert admission["operation_namespace"] == intent.publication_id
     assert admission["file_path"] == intent.file_path
     assert admission["object_identity"].etag == "published"
 

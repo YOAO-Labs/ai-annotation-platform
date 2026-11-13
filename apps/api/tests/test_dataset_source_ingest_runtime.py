@@ -7,10 +7,11 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 import hashlib
 from io import BytesIO
+import json
 import os
 from pathlib import Path
 import time
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 import zipfile
 
 import httpx
@@ -332,6 +333,40 @@ async def test_scan_remote_pages_only_the_legacy_prefix_without_scene_inference(
                     },
                 )
             ).one()
+            image_entry = (
+                await db.execute(
+                    text(
+                        "SELECT entry_id,publication_id "
+                        "FROM public.dataset_source_ingest_entries "
+                        "WHERE operation_id=:operation AND item_id=:item"
+                    ),
+                    {"operation": operation, "item": picture["id"]},
+                )
+            ).one()
+            assert image_entry.publication_id is None
+            image_operation = uuid5(image_entry.entry_id, "aap-image:admission")
+            image_receipt = await db.scalar(
+                text(
+                    "SELECT result FROM public.asset_image_operations "
+                    "WHERE operation_id=:operation"
+                ),
+                {"operation": image_operation},
+            )
+            assert image_receipt is not None
+            image_identity = await db.scalar(
+                text(
+                    "SELECT media_object_identity FROM public.dataset_items WHERE id=:item"
+                ),
+                {"item": picture["id"]},
+            )
+        image_head = await asyncio.to_thread(
+            stack.storage.client.head_object,
+            Bucket=stack.storage.datasets_bucket,
+            Key=picture["file_path"],
+        )
+        assert image_identity["etag"] == image_head["ETag"].strip('"')
+        assert image_identity["byte_size"] == len(objects[picture["file_path"]])
+        assert image_identity.get("version_id") == image_head.get("VersionId")
         head = await asyncio.to_thread(
             stack.storage.client.head_object,
             Bucket=stack.storage.datasets_bucket,
@@ -349,8 +384,21 @@ async def test_scan_remote_pages_only_the_legacy_prefix_without_scene_inference(
             Key=extra,
             Body=b"added after the receipt",
         )
-        assert (await _scan(stack, operation)).json() == result.json()
-        assert (await _facts(stack))[1] == counts
+        replayed = await _scan(stack, operation)
+        assert replayed.status_code == 200, replayed.text
+        assert replayed.json() == result.json()
+        assert await _facts(stack) == (items, counts)
+        async with stack.world.maker() as db:
+            assert (
+                await db.scalar(
+                    text(
+                        "SELECT result FROM public.asset_image_operations "
+                        "WHERE operation_id=:operation"
+                    ),
+                    {"operation": image_operation},
+                )
+                == image_receipt
+            )
         fresh = await _scan(stack, uuid4())
         assert fresh.status_code == 200 and fresh.json()["new_items"] == 1, fresh.text
         assert (await _facts(stack))[1] == (1004, 1004, 1004, 0, 2)
@@ -479,6 +527,40 @@ async def test_zip_process_loss_rolls_back_the_entire_ingest_and_keeps_orphan_by
                     await asyncio.wait_for(request, 15)
 
 
+def _cgroup_memory_budget(container):
+    probe = """
+import json
+from pathlib import Path, PurePosixPath
+
+groups = [
+    line.split(":", 2)[2]
+    for line in Path("/proc/self/cgroup").read_text().splitlines()
+    if line.startswith("0::")
+]
+mounts = [
+    line.split(" - ", 1)[0].split()
+    for line in Path("/proc/self/mountinfo").read_text().splitlines()
+    if line.split(" - ", 1)[1].split()[0] == "cgroup2"
+]
+assert len(groups) == len(mounts) == 1, "expected one cgroup-v2 memory controller"
+mount = mounts[0]
+relative = PurePosixPath(groups[0]).relative_to(PurePosixPath(mount[3]))
+directory = Path(mount[4]).joinpath(*relative.parts)
+events = dict(
+    (name, int(value))
+    for name, value in (
+        line.split() for line in (directory / "memory.events").read_text().splitlines()
+    )
+)
+print(json.dumps({
+    "cgroup_path": str(directory),
+    "memory_max": int((directory / "memory.max").read_text()),
+    "events": events,
+}))
+"""
+    return json.loads(_docker("exec", container, "python", "-c", probe))
+
+
 def _near_limit_zip(path):
     expected = {}
     with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_STORED) as archive:
@@ -507,6 +589,8 @@ async def test_zip_near_200mib_within_the_declared_container_memory_and_spool_bu
         assert limits["HostConfig"]["Memory"] == 512 * 1024 * 1024
         assert limits["HostConfig"]["NanoCpus"] == 500_000_000
         assert "size=256m" in limits["HostConfig"]["Tmpfs"]["/tmp"]
+        memory_before = await asyncio.to_thread(_cgroup_memory_budget, stack.container)
+        assert memory_before["memory_max"] == 512 * 1024 * 1024
         path = stack.directory / "near-limit.zip"
         expected = await asyncio.to_thread(_near_limit_zip, path)
         size = path.stat().st_size
@@ -539,14 +623,19 @@ async def test_zip_near_200mib_within_the_declared_container_memory_and_spool_bu
                 return size, digest.hexdigest()
 
             assert await asyncio.to_thread(stored_facts) == expected[item["file_name"]]
-        memory_peak = int(
-            await asyncio.to_thread(
-                _docker, "exec", stack.container, "cat", "/sys/fs/cgroup/memory.peak"
-            )
-        )
+        memory_after = await asyncio.to_thread(_cgroup_memory_budget, stack.container)
+        assert memory_after["cgroup_path"] == memory_before["cgroup_path"]
+        assert memory_after["memory_max"] == memory_before["memory_max"]
+        for event in ("oom", "oom_kill"):
+            assert memory_after["events"][event] == memory_before["events"][event]
         state = await asyncio.to_thread(_inspect_docker, stack.container)
         assert state["State"]["Running"] and not state["State"]["OOMKilled"]
-        assert memory_peak <= 512 * 1024 * 1024
         record_property("zip_bytes", size)
         record_property("elapsed_seconds", round(elapsed, 3))
-        record_property("memory_peak_bytes", memory_peak)
+        record_property(
+            "memory_measurement_method", "cgroup_v2_enforced_memory_max_and_oom_events"
+        )
+        record_property("memory_cgroup_path", memory_after["cgroup_path"])
+        record_property("memory_limit_bytes", memory_after["memory_max"])
+        record_property("memory_events_before", json.dumps(memory_before["events"]))
+        record_property("memory_events_after", json.dumps(memory_after["events"]))

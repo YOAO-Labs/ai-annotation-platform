@@ -766,7 +766,7 @@ class UploadWorkflow:
         try:
             await self._image_admission.admit_dataset_item(
                 item_id=item_id,
-                publication_id=operation_id,
+                operation_namespace=operation_id,
                 file_path=file_path,
                 file_size=file_size,
                 content_hash=content_hash,
