@@ -216,8 +216,13 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                         f"REVOKE ALL ON FUNCTION {probe}.probe_read() FROM PUBLIC",
                         f"GRANT USAGE, CREATE ON SCHEMA {probe} TO {role}",
                         f"GRANT SELECT, INSERT ON {probe}.probe_rows TO {role}",
+                        # An independent column ACL inside the classified
+                        # namespace: the installer must revoke it, not reject it.
+                        f"GRANT UPDATE (name) ON {probe}.probe_rows TO {role}",
                         f"GRANT USAGE ON SEQUENCE {probe}.probe_seq TO {role}",
                         f"GRANT EXECUTE ON FUNCTION {probe}.probe_read() TO {role}",
+                        f"CREATE TABLE {neighbor}.probe_rows "
+                        "(id integer, name text)",
                         f"GRANT USAGE ON SCHEMA {neighbor} TO {role}",
                     ],
                 )
@@ -232,10 +237,12 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     "usage": True,
                     "create": True,
                     "table_access": True,
-                    "column_update": False,
+                    "column_update": True,
                     "sequence_access": True,
                     "function_access": True,
                     "neighbor_usage": True,
+                    "neighbor_table_access": False,
+                    "neighbor_column_access": False,
                     "approved_usage": False,
                     "approved_function": False,
                 }
@@ -252,25 +259,34 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     "sequence_access": False,
                     "function_access": False,
                     "neighbor_usage": True,
+                    "neighbor_table_access": False,
+                    "neighbor_column_access": False,
                     "approved_usage": True,
                     "approved_function": True,
                 }
-                # A table-level revoke does not remove an independent column ACL.
+                # The classifier's table revoke drops the probe column ACL too,
+                # per SQL spec. A table outside the classifier keeps its ACL,
+                # and only the installer's own column inventory can reject it.
                 await _execute(
                     owner_engine,
-                    [f"GRANT UPDATE (name) ON {probe}.probe_rows TO {role}"],
+                    [f"GRANT UPDATE (name) ON {neighbor}.probe_rows TO {role}"],
                 )
                 injected = await _catalog_state(owner_engine, role, probe, neighbor)
-                assert injected["column_update"] is True
+                assert injected["neighbor_column_access"] is True
+                assert injected["neighbor_table_access"] is False
                 rejected = await _apply(
                     migration_url, "assets-catalog-grants.sql", variables
                 )
                 _assert_guard_rejected(rejected)
+                assert "direct column privileges" in rejected.stderr, rejected.stderr
                 rolled_back = await _catalog_state(owner_engine, role, probe, neighbor)
-                assert dict(rolled_back) == {**dict(revoked), "column_update": True}
+                assert dict(rolled_back) == {
+                    **dict(revoked),
+                    "neighbor_column_access": True,
+                }
                 await _execute(
                     owner_engine,
-                    [f"REVOKE UPDATE (name) ON {probe}.probe_rows FROM {role}"],
+                    [f"REVOKE UPDATE (name) ON {neighbor}.probe_rows FROM {role}"],
                 )
                 recovered = await _apply(
                     migration_url, "assets-catalog-grants.sql", variables
@@ -278,6 +294,16 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                 assert recovered.returncode == 0, recovered.stderr
                 final = await _catalog_state(owner_engine, role, probe, neighbor)
                 assert dict(final) == dict(revoked)
+                # The install grants CONNECT; the login can open a session but
+                # cannot resolve or read the private module namespace.
+                connected = await _psql(
+                    migration_url,
+                    sql="SELECT 1;",
+                    username=role,
+                    password=password,
+                )
+                assert connected.returncode == 0, connected.stderr
+                assert connected.stdout.strip() == "1"
                 denied = await _psql(
                     migration_url,
                     sql=f"SELECT count(*) FROM {probe}.probe_rows;",
@@ -285,6 +311,20 @@ async def test_catalog_classifier_revokes_new_namespace_and_rejects_column_acl(
                     password=password,
                 )
                 _assert_insufficient_privilege(denied)
+                assert (
+                    f"permission denied for schema {probe}" in denied.stderr
+                ), denied.stderr
+                denied_neighbor = await _psql(
+                    migration_url,
+                    sql=f"SELECT count(*) FROM {neighbor}.probe_rows;",
+                    username=role,
+                    password=password,
+                )
+                _assert_insufficient_privilege(denied_neighbor)
+                assert (
+                    "permission denied for table probe_rows"
+                    in denied_neighbor.stderr
+                ), denied_neighbor.stderr
 
 
 async def _catalog_state(engine, role: str, probe: str, neighbor: str):
@@ -304,6 +344,14 @@ async def _catalog_state(engine, role: str, probe: str, neighbor: str):
                 :role, :function, 'EXECUTE') AS function_access,
             pg_catalog.has_schema_privilege(
                 :role, :neighbor, 'USAGE') AS neighbor_usage,
+            pg_catalog.has_table_privilege(
+                :role, :neighbor_rows,
+                'SELECT,INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'
+            ) AS neighbor_table_access,
+            pg_catalog.has_any_column_privilege(
+                :role, :neighbor_rows,
+                'SELECT,INSERT,UPDATE,REFERENCES'
+            ) AS neighbor_column_access,
             pg_catalog.has_schema_privilege(
                 :role, 'aap_assets_v1', 'USAGE') AS approved_usage,
             pg_catalog.has_function_privilege(
@@ -318,6 +366,7 @@ async def _catalog_state(engine, role: str, probe: str, neighbor: str):
         sequence=f"{probe}.probe_seq",
         function=f"{probe}.probe_read()",
         neighbor=neighbor,
+        neighbor_rows=f"{neighbor}.probe_rows",
     )
 
 
@@ -512,6 +561,12 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                         f"CREATE TABLE {workspace_probe}.probe_rows (id integer)",
                         f"GRANT USAGE ON SCHEMA {workspace_probe} TO {role}",
                         f"GRANT SELECT ON {workspace_probe}.probe_rows TO {role}",
+                        # The verifier's installation profile revokes CONNECT
+                        # from PUBLIC. This throwaway role needs the database
+                        # access a live API role already has, so the boundary
+                        # asserted below is the object ACL and not login.
+                        f'GRANT CONNECT ON DATABASE "{migration_url.database}" '
+                        f"TO {role}",
                     ],
                 )
                 result = await _apply(
@@ -588,13 +643,8 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                     "read_actor": True,
                     "identity_functions": 8,
                 }
-                direct = await _psql(
-                    migration_url,
-                    sql=f"SELECT count(*) FROM {identity_probe}.probe_rows;",
-                    username=role,
-                    password=password,
-                )
-                _assert_insufficient_privilege(direct)
+                # The scoped role can connect and read the namespace it keeps;
+                # the Identity probe is then denied at the object boundary.
                 retained = await _psql(
                     migration_url,
                     sql=f"SELECT count(*) FROM {workspace_probe}.probe_rows;",
@@ -603,6 +653,17 @@ async def test_identity_consumer_scopes_new_namespace_revocation(
                 )
                 assert retained.returncode == 0, retained.stderr
                 assert retained.stdout.strip() == "0"
+                direct = await _psql(
+                    migration_url,
+                    sql=f"SELECT count(*) FROM {identity_probe}.probe_rows;",
+                    username=role,
+                    password=password,
+                )
+                _assert_insufficient_privilege(direct)
+                assert (
+                    f"permission denied for schema {identity_probe}"
+                    in direct.stderr
+                ), direct.stderr
 
 
 async def test_identity_deactivation_classifies_new_namespace_as_module(
