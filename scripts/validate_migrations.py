@@ -6,11 +6,12 @@ Each phase uses a newly created, ownership-tagged database:
 2. ``forward`` - seed authentic pre-0174 rows, check their role conversion, then
    upgrade to head and verify that historical facts and access semantics survive.
 
-Database downgrade/rollback and snapshot recovery are not Beta acceptance
-requirements; revisit their qualification for stable release. This runner never
-stamps revisions, downgrades a database, or reports an omitted rollback as passed.
-Forward refusal guards and transactional failure atomicity remain mandatory and
-are exercised by the migration-specific live tests.
+Schema downgrades are not a Beta acceptance requirement; revisit downgrade
+qualification for stable release. Current-head dump/restore, quarantine and
+consumer restore suites remain required separately: this forward-migration
+runner does not execute or qualify them. It never stamps revisions, downgrades
+a database, or reports an omitted check as passed. Forward refusal guards and
+transactional failure atomicity remain mandatory in migration-specific live tests.
 
 Safety: the base database's schema is never modified. Only ownership-tagged
 ``<base>__mv_{fresh,forward}`` databases are created and removed, including on

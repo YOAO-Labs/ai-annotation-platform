@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -206,7 +207,7 @@ async def _allocate(connection, scope):
     return UUID(facts["creation_id"])
 
 
-async def _settle_failure(connection, creation_id, outcome, evidence):
+async def _failure_reply(connection, creation_id, outcome, evidence):
     reply = await connection.scalar(text(
         "SELECT aap_assets_v1.fail_operator_original("
         "CAST(:id AS uuid),:outcome,:error,CAST(:evidence AS jsonb))"
@@ -214,28 +215,96 @@ async def _settle_failure(connection, creation_id, outcome, evidence):
         "id": creation_id, "outcome": outcome, "error": f"test_{outcome}",
         "evidence": json.dumps(evidence),
     })
-    reply = json.loads(reply) if isinstance(reply, str) else reply
-    assert reply["ok"] is True, reply
-    saved = (await connection.execute(text(
-        "SELECT failure_evidence,settled_at FROM public.managed_original_creations "
+    return json.loads(reply) if isinstance(reply, str) else reply
+
+
+async def _attempt_state(connection, creation_id):
+    creation = await connection.scalar(text(
+        "SELECT to_jsonb(creation) FROM public.managed_original_creations AS creation "
         "WHERE id=:id"
-    ), {"id": creation_id})).one()
-    assert saved.failure_evidence == evidence
-    assert (saved.settled_at is not None) == evidence["physical_settled"]
+    ), {"id": creation_id})
+    operation = await connection.scalar(text(
+        "SELECT to_jsonb(operation) FROM public.storage_operations AS operation "
+        "WHERE id=CAST(:id AS uuid)"
+    ), {"id": creation["operation_id"]})
+    mutation = await connection.scalar(text(
+        "SELECT to_jsonb(mutation) FROM public.storage_usage_mutations AS mutation "
+        "WHERE owner_id=:id AND producer='managed_original_creation' AND kind='create' "
+        "ORDER BY started_at DESC,id DESC LIMIT 1"
+    ), {"id": creation_id})
+    return {"creation": creation, "operation": operation, "mutation": mutation}
+
+
+async def _settle_failure(connection, creation_id, outcome, evidence):
+    before = await _attempt_state(connection, creation_id)
+    assert before["operation"] is not None
+    assert before["mutation"]["state"] == "pending"
+    reply = await _failure_reply(connection, creation_id, outcome, evidence)
+    assert reply["ok"] is True, reply
+    after = await _attempt_state(connection, creation_id)
+    assert after["creation"]["failure_evidence"] == evidence
+    assert (after["creation"]["settled_at"] is not None) == evidence["physical_settled"]
+    assert after["mutation"]["id"] == before["mutation"]["id"]
+    for key, value in before["mutation"]["evidence"].items():
+        assert after["mutation"]["evidence"][key] == value
+    if evidence["physical_settled"]:
+        assert after["operation"] is None
+        assert after["mutation"]["finished_at"] is not None
+        assert after["mutation"]["physical_outcome"] == evidence["physical_outcome"]
+        if evidence["physical_outcome"] == "not_written":
+            assert after["mutation"]["state"] == "confirmed"
+            assert after["mutation"]["current_delta_bytes"] == 0
+        else:
+            assert after["mutation"]["state"] == "unknown"
+            assert after["mutation"]["current_delta_bytes"] is None
+    else:
+        assert after["operation"] == before["operation"]
+        assert after["mutation"]["state"] == "pending"
+        assert after["mutation"]["physical_outcome"] == "unknown"
+        assert after["mutation"]["finished_at"] is None
+        assert after["mutation"]["current_delta_bytes"] is None
 
 
 async def _mark_writing(connection, creation_id):
-    for statement, values in (
-        ("UPDATE public.managed_original_creations SET "
-         "status='preparing',claimed_at=now() WHERE id=:id", {}),
-        ("UPDATE public.managed_original_creations SET status='prepared',"
-         "operation_id=:operation,prepared='{}'::jsonb,sha256=:sha,md5=:md5,"
-         "size_bytes=0,frozen_at=now() WHERE id=:id",
-         {"operation": uuid4(), "sha": "c" * 64, "md5": "d" * 32}),
-        ("UPDATE public.managed_original_creations SET "
-         "status='writing',write_started_at=now() WHERE id=:id", {}),
-    ):
-        await connection.execute(text(statement), {"id": creation_id, **values})
+    opened = await connection.scalar(text(
+        "SELECT aap_assets_v1.open_operator_storage_operation(CAST(:id AS uuid))"
+    ), {"id": creation_id})
+    opened = json.loads(opened) if isinstance(opened, str) else opened
+    assert opened["ok"] is True, opened
+    assert opened["data"]["mode"] == "write"
+    content = b"abc"
+    prepared = await connection.scalar(text(
+        "SELECT aap_assets_v1.record_operator_original_prepared("
+        "CAST(:id AS uuid),CAST(:prepared AS jsonb))"
+    ), {
+        "id": creation_id,
+        "prepared": json.dumps({
+            "sha256": hashlib.sha256(content).hexdigest(),
+            "md5": hashlib.md5(content, usedforsecurity=False).hexdigest(),
+            "size_bytes": len(content),
+        }),
+    })
+    prepared = json.loads(prepared) if isinstance(prepared, str) else prepared
+    assert prepared["ok"] is True, prepared
+    writing = await connection.scalar(text(
+        "SELECT aap_assets_v1.mark_operator_original_writing(CAST(:id AS uuid))"
+    ), {"id": creation_id})
+    writing = json.loads(writing) if isinstance(writing, str) else writing
+    assert writing["ok"] is True, writing
+    state = await _attempt_state(connection, creation_id)
+    assert state["creation"]["status"] == "writing"
+    assert state["creation"]["receipt"] is None
+    assert state["creation"]["operation_id"] == opened["data"]["operation_id"]
+    assert state["operation"]["id"] == opened["data"]["operation_id"]
+    assert state["operation"]["location_id"] == state["creation"]["location_id"]
+    assert state["operation"]["revision"] == state["creation"]["maintenance_revision"]
+    assert state["operation"]["purpose"] == "managed_original_creation"
+    assert state["mutation"]["id"] == writing["data"]["mutation_id"]
+    assert state["mutation"]["owner_id"] == str(creation_id)
+    assert state["mutation"]["object_key"] == state["creation"]["object_key"]
+    assert state["mutation"]["state"] == "pending"
+    assert state["mutation"]["physical_outcome"] == "unknown"
+    assert state["mutation"]["finished_at"] is None
 
 
 async def _retry_schema(connection):
@@ -301,6 +370,29 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
     async with AsyncSession(bind=engine) as session:
         await bootstrap(session)
 
+    contradictory = scopes["contradictory-evidence"] = _scope("contradictory-evidence")
+    async with engine.begin() as connection:
+        contradictory_id = await _allocate(connection, contradictory)
+        await _mark_writing(connection, contradictory_id)
+    async with engine.begin() as connection:
+        contradictory_state = await _attempt_state(connection, contradictory_id)
+        before_rows = await _rows(connection)
+        assert contradictory_state["creation"]["receipt"] is None
+        rejected = await _failure_reply(connection, contradictory_id, "failed", {
+            "physical_settled": True, "physical_outcome": "not_written",
+            "receipt": {"etag": "observed"},
+        })
+        assert rejected["ok"] is False
+        assert rejected["error"]["code"] == "invalid_request"
+        assert await _attempt_state(connection, contradictory_id) == contradictory_state
+        assert await _rows(connection) == before_rows
+        active = await _admit(connection, contradictory)
+        assert active["ok"] is True, active
+        assert active["data"]["creation_id"] == str(contradictory_id)
+        assert active["data"]["status"] == "writing"
+        assert await _attempt_state(connection, contradictory_id) == contradictory_state
+        assert await _rows(connection) == before_rows
+
     for outcome in ("failed", "conflict"):
         label = f"proven-{outcome}"
         scope = scopes[label] = _scope(label)
@@ -308,6 +400,7 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
             creation_id = await _allocate(connection, scope)
             await _mark_writing(connection, creation_id)
             history_ids[label] = creation_id
+        async with engine.begin() as connection:
             await _settle_failure(connection, creation_id, outcome, {
                 "physical_settled": True, "physical_outcome": "not_written",
             })
@@ -345,6 +438,7 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
             creation_id = await _allocate(connection, scope)
             await _mark_writing(connection, creation_id)
             history_ids[label] = creation_id
+        async with engine.begin() as connection:
             await _settle_failure(connection, creation_id, outcome, evidence)
         async with engine.begin() as connection:
             reply = await _admit(connection, scope)
@@ -353,7 +447,7 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
 
     async with engine.begin() as connection:
         with_retries = await _rows(connection)
-        assert len(with_retries) == len(history) + 6
+        assert len(with_retries) == len(history) + 7
         assert all(row in with_retries for row in legacy_after)
         # Only positively settled no-write evidence releases keys. Active,
         # unproven and possibly-written attempts exclude both locators.
@@ -388,6 +482,9 @@ async def test_upload_retry_forward_migration_preserves_history_and_permissions(
                         )
                 assert immutable.value.orig.sqlstate == "23514"
                 assert await _rows(connection) == with_retries
+        # Settling these attempts must not release another active writer's
+        # exact permit or rewrite its unresolved accounting window.
+        assert await _attempt_state(connection, contradictory_id) == contradictory_state
 
 
 @pytest.mark.parametrize("locator", ["reserved", "staging"])

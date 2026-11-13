@@ -33,11 +33,12 @@ uv run alembic history             # 查看版本历史
 
 ## Beta 前向迁移资格
 
-Beta 阶段不把数据库 downgrade／数据库回滚作为 Stage F 或 CI 的验收条件；
-稳定版发布前重新评估降级与备份恢复资格。此决定**不免除事务失败原子性、当前权限
-检查、不可变回执和精确资源清理**，也不允许通过 `stamp`、删依赖对象、`CASCADE`
-或跳过用例伪造迁移成功。已经发布的迁移和历史 `downgrade()` 保持原样；发现问题以
-新的前向迁移修复，不重写历史 SQL。
+Beta 阶段仅不把 **schema downgrade** 作为 Stage F 或 CI 的验收条件；稳定版发布前
+重新评估降级资格。**当前 head 的 dump/restore、恢复隔离／quarantine 和现有消费者
+恢复套件仍是 T1 必需项**，不因本次政策调整而跳过或延后。事务失败原子性、当前权限
+检查、不可变回执和精确资源清理同样不变；不允许通过 `stamp`、删依赖对象、
+`CASCADE` 或跳过用例伪造成功。已经发布的迁移和历史 `downgrade()` 保持原样；
+发现问题以新的前向迁移修复，不重写历史 SQL。
 
 `scripts/validate_migrations.py` 在独立的一次性数据库执行两个真实阶段：
 
@@ -62,10 +63,12 @@ head，保留旧尝试，验证只有具备已结算未写入证据的失败可�
   run: uv run python ../../scripts/validate_migrations.py
 ```
 
-运行要求：目标是一次性本地 PostgreSQL 库，连接角色可 `CREATE DATABASE`。
-脚本只创建/删除 `<库名>__mv_{fresh,forward}` 并做归属标记，成功与失败都会清理，
-绝不改动基础库 schema；不再依赖 `pg_dump`／`pg_restore`。`--json` 的
-`qualification: beta-forward-only` 明确记录本次资格，不声称未执行的降级或恢复已通过。
+本前向 runner 要求一次性本地 PostgreSQL 库和可 `CREATE DATABASE` 的连接角色；
+它只创建/删除有归属标记的 `<库名>__mv_{fresh,forward}`，成功与失败都会清理，
+绝不改动基础库 schema。它不调用 `pg_dump`／`pg_restore`；这些客户端仍由独立的
+当前 head 备份／恢复和消费者恢复验收使用。`--json` 的
+`qualification: beta-forward-only` 仅记录这两个前向阶段，不声称降级、备份恢复或
+quarantine 已通过，也不能替代仍必需的恢复套件。
 `--fail-after {create,fresh,forward}` 保留失败路径清理的注入入口。
 
 `scripts/alembic_migration_policy.py` 只报告完整的 base→head 修订链：默认打印 head，
