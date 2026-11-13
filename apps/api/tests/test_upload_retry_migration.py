@@ -1,239 +1,421 @@
-"""Round-trip bo0458 and its retry-history downgrade guard."""
+"""Forward-qualify upload retry history, key exclusion and installed permissions."""
 
 from __future__ import annotations
 
 import asyncio
+import json
 from pathlib import Path
-import re
-import uuid
+from uuid import UUID, uuid4
 
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 import pytest
 from sqlalchemy import text
-from sqlalchemy.engine import make_url
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+from app.services.managed_original_creation import bootstrap
 
 pytestmark = pytest.mark.asyncio
-
 API_ROOT = Path(__file__).resolve().parents[1]
-SQL_ROOT = API_ROOT / "alembic" / "sql"
-_FUNCTION_BODY = re.compile(r"\$function\$(?P<body>.*?)\$function\$", re.DOTALL)
-
 _RESERVED_KEY = "dataset-sources/retry/dataset/item/publication/file.png"
 _STAGING_KEY = "dataset-uploads/item/source"
+_SIGNATURE = "aap_assets_v1.begin_operator_auxiliary(jsonb)"
 
 
-def _frozen_body(name: str) -> str:
-    source = (SQL_ROOT / name).read_text(encoding="utf-8")
-    match = re.search(
-        r"CREATE OR REPLACE FUNCTION\s+aap_assets_v1\.begin_operator_auxiliary\s*\("
-        r".*?\$function\$(?P<body>.*?)\$function\$;",
-        source,
-        re.DOTALL,
-    )
-    assert match is not None
-    return match.group("body")
-
-
-def _config(url: str) -> Config:
+def _config(url):
     config = Config(str(API_ROOT / "alembic.ini"))
     config.set_main_option("script_location", str(API_ROOT / "alembic"))
-    config.set_main_option("sqlalchemy.url", url)
+    config.set_main_option(
+        "sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%")
+    )
     return config
 
 
-async def _state(url: str) -> tuple[str, str, str, set[str], set[str]]:
-    engine = create_async_engine(url)
-    try:
-        async with engine.connect() as connection:
-            version = await connection.scalar(
-                text("SELECT version_num FROM public.alembic_version")
-            )
-            definition = await connection.scalar(
-                text("SELECT pg_get_functiondef(CAST(:signature AS regprocedure))"),
-                {"signature": "aap_assets_v1.begin_operator_auxiliary(jsonb)"},
-            )
-            indexes = set(
-                await connection.scalars(
-                    text(
-                        "SELECT indexname FROM pg_indexes "
-                        "WHERE schemaname='public' "
-                        "AND tablename='managed_original_creations'"
-                    )
-                )
-            )
-            constraints = set(
-                await connection.scalars(
-                    text(
-                        "SELECT conname FROM pg_constraint "
-                        "WHERE conrelid='public.managed_original_creations'::regclass "
-                        "AND contype='u'"
-                    )
-                )
-            )
-            acl = await connection.scalar(
-                text(
-                    "SELECT proacl::text FROM pg_proc "
-                    "WHERE oid=CAST(:signature AS regprocedure)"
-                ),
-                {"signature": "aap_assets_v1.begin_operator_auxiliary(jsonb)"},
-            )
-    finally:
-        await engine.dispose()
-    match = _FUNCTION_BODY.search(definition)
-    assert match is not None
-    return version, match.group("body"), acl, indexes, constraints
-
-
-async def _insert_retry_rows(url: str) -> uuid.UUID:
-    engine = create_async_engine(url)
-    dataset_id = uuid.uuid4()
-    rows = [
-        {
-            "id": uuid.uuid4(),
-            "status": "failed",
-            "completed_at": "now()",
-            "error_code": "test_failed",
-        },
-        {"id": uuid.uuid4(), "status": "allocated"},
-    ]
-    try:
-        async with engine.begin() as connection:
-            for row in rows:
-                await connection.execute(
-                    text(
-                        "INSERT INTO public.managed_original_creations ("
-                        "id, owner_kind, dataset_id, location_id, storage_identity, "
-                        "bucket, object_key, logical_path, origin, max_bytes, "
-                        "timeout_seconds, content_type, requested_by, authority, "
-                        "configuration, input_fingerprint, maintenance_revision, "
-                        "staging_bucket, staging_key, status, completed_at, error_code"
-                        ") VALUES ("
-                        ":id, 'dataset', :dataset, :location, :identity, "
-                        ":bucket, :object_key, 'file.png', 'direct', 1048576, "
-                        "60, 'image/png', :actor, "
-                        'CAST(\'{"kind":"dataset_upload"}\' AS jsonb), '
-                        "CAST('{}' AS jsonb), :fingerprint, 1, "
-                        ":staging_bucket, :staging_key, :status, "
-                        + (
-                            "now(), :error_code"
-                            if row["status"] == "failed"
-                            else "NULL, NULL"
-                        )
-                        + ")"
-                    ),
-                    {
-                        "id": row["id"],
-                        "dataset": dataset_id,
-                        "location": uuid.uuid4(),
-                        "identity": "a" * 64,
-                        "bucket": "retry-acceptance",
-                        "object_key": _RESERVED_KEY,
-                        "actor": uuid.uuid4(),
-                        "fingerprint": "b" * 64,
-                        "staging_bucket": "retry-staging",
-                        "staging_key": _STAGING_KEY,
-                        "status": row["status"],
-                        **(
-                            {"error_code": row["error_code"]}
-                            if "error_code" in row
-                            else {}
-                        ),
-                    },
-                )
-    finally:
-        await engine.dispose()
-    return rows[0]["id"]
-
-
-async def test_upload_retry_migration_roundtrip_and_refusal(test_engine):
-    async with test_engine.connect() as connection:
-        can_create = await connection.scalar(
-            text(
-                "SELECT rolsuper OR rolcreatedb FROM pg_roles "
-                "WHERE rolname=current_user"
-            )
-        )
-    if not can_create:
-        pytest.skip("migration roundtrip needs a disposable database owner")
-
-    admin_url = make_url(test_engine.url).set(database="postgres")
-    name = f"aap_wt_{uuid.uuid4().hex[:12]}_upload_retry_test"
-    target_url = make_url(test_engine.url).set(database=name)
-    admin = create_async_engine(admin_url, isolation_level="AUTOCOMMIT")
+@pytest.fixture
+async def retry_migration_database(test_engine):
+    assert test_engine.url.host in {"localhost", "127.0.0.1", "::1"}
+    assert test_engine.url.database.endswith("_test")
+    async with test_engine.connect() as source:
+        assert await source.scalar(text(
+            "SELECT rolsuper OR rolcreatedb FROM pg_roles WHERE rolname=current_user"
+        )), "forward migration qualification requires a disposable database owner"
+        acl = (
+            await source.execute(text(
+                "SELECT COALESCE(role.rolname,'PUBLIC'), entry.privilege_type, "
+                "entry.is_grantable FROM pg_database AS database "
+                "CROSS JOIN LATERAL aclexplode(COALESCE(database.datacl, "
+                "acldefault('d',database.datdba))) AS entry "
+                "LEFT JOIN pg_roles AS role ON role.oid=entry.grantee "
+                "WHERE database.datname=current_database()"
+            ))
+        ).all()
+    name = f"aap_upload_retry_{uuid4().hex[:12]}_test"
+    ownership = f"upload-retry-migration:{uuid4()}"
+    target = test_engine.url.set(database=name)
+    admin = create_async_engine(
+        test_engine.url.set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    engine = create_async_engine(target)
+    created = False
+    tagged = False
     try:
         async with admin.connect() as connection:
-            await connection.execute(text(f'CREATE DATABASE "{name}"'))
-        url = target_url.render_as_string(hide_password=False)
-        config = _config(url)
-        old_body = _frozen_body("0379_operator_auxiliary.sql")
-        new_body = _frozen_body("0458_upload_retry_after_failed_publication.sql")
-        assert old_body != new_body
-
-        await asyncio.to_thread(command.upgrade, config, "bo0456")
-        version, body, original_acl, indexes, constraints = await _state(url)
-        assert version == "bo0456"
-        assert body == old_body
-        assert "uq_managed_creation_reserved_key" in constraints
-        assert "managed_original_creations_staging_key_key" in constraints
-        assert "uq_managed_creation_reserved_key_active" not in indexes
-
-        await asyncio.to_thread(command.upgrade, config, "head")
-        version, body, acl, indexes, constraints = await _state(url)
-        assert version == "bo0458"
-        assert body == new_body
-        assert acl == original_acl
-        assert "uq_managed_creation_reserved_key_active" in indexes
-        assert "uq_managed_creation_staging_key_active" in indexes
-        assert "uq_managed_creation_reserved_key" not in constraints
-        assert "managed_original_creations_staging_key_key" not in constraints
-
-        await asyncio.to_thread(command.downgrade, config, "bo0456")
-        version, body, acl, indexes, constraints = await _state(url)
-        assert version == "bo0456"
-        assert body == old_body
-        assert acl == original_acl
-        assert "uq_managed_creation_reserved_key_active" not in indexes
-        assert "uq_managed_creation_staging_key_active" not in indexes
-        assert "uq_managed_creation_reserved_key" in constraints
-        assert "managed_original_creations_staging_key_key" in constraints
-
-        await asyncio.to_thread(command.upgrade, config, "head")
-        failed_id = await _insert_retry_rows(url)
-        before = await _state(url)
-        with pytest.raises(Exception) as refused:
-            await asyncio.to_thread(command.downgrade, config, "bo0456")
-        assert "reserved original keys have retry history" in str(refused.value)
-        assert await _state(url) == before
-        engine = create_async_engine(url)
-        try:
-            async with engine.connect() as connection:
-                assert (
-                    await connection.scalar(
-                        text(
-                            "SELECT count(*) FROM public.managed_original_creations "
-                            "WHERE object_key=:key AND staging_key=:staging"
-                        ),
-                        {"key": _RESERVED_KEY, "staging": _STAGING_KEY},
-                    )
-                    == 2
-                )
-                assert (
-                    await connection.scalar(
-                        text(
-                            "SELECT status FROM public.managed_original_creations "
-                            "WHERE id=:id"
-                        ),
-                        {"id": failed_id},
-                    )
-                    == "failed"
-                )
-        finally:
-            await engine.dispose()
-    finally:
-        async with admin.connect() as connection:
+            await connection.execute(text(f'CREATE DATABASE "{name}" TEMPLATE template0'))
+            created = True
             await connection.execute(
-                text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)')
+                text(f"COMMENT ON DATABASE \"{name}\" IS '{ownership}'")
             )
-        await admin.dispose()
+            tagged = True
+            quote = connection.dialect.identifier_preparer.quote_identifier
+            await connection.execute(text(f'REVOKE ALL ON DATABASE "{name}" FROM PUBLIC'))
+            for grantee, privilege, grantable in acl:
+                assert privilege in {"CREATE", "CONNECT", "TEMPORARY"}
+                role = "PUBLIC" if grantee == "PUBLIC" else quote(grantee)
+                suffix = " WITH GRANT OPTION" if grantable else ""
+                await connection.execute(
+                    text(f'GRANT {privilege} ON DATABASE "{name}" TO {role}{suffix}')
+                )
+        config = _config(target)
+        await asyncio.to_thread(command.upgrade, config, "bo0457")
+        yield config, engine
+    finally:
+        await engine.dispose()
+        try:
+            if created:
+                async with admin.connect() as connection:
+                    marker = await connection.scalar(text(
+                        "SELECT shobj_description(oid,'pg_database') "
+                        "FROM pg_database WHERE datname=:name"
+                    ), {"name": name})
+                    assert marker == ownership or (not tagged and marker is None)
+                    # An untagged partial CREATE is still this run's resource.
+                    await connection.execute(text(f'DROP DATABASE "{name}"'))
+        finally:
+            await admin.dispose()
+
+
+async def _installed_contract(connection):
+    function = (await connection.execute(text(
+        "SELECT pg_get_userbyid(proowner) AS owner,prosecdef,proconfig FROM pg_proc "
+        "WHERE oid=CAST(:signature AS regprocedure)"
+    ), {"signature": _SIGNATURE})).one()
+    function_acl = (await connection.execute(text(
+        "SELECT COALESCE(role.rolname,'PUBLIC') AS grantee,"
+        "entry.privilege_type,entry.is_grantable FROM pg_proc AS proc "
+        "CROSS JOIN LATERAL aclexplode(COALESCE(proc.proacl, "
+        "acldefault('f',proc.proowner))) AS entry "
+        "LEFT JOIN pg_roles AS role ON role.oid=entry.grantee "
+        "WHERE proc.oid=CAST(:signature AS regprocedure) "
+        "ORDER BY grantee,entry.privilege_type,entry.is_grantable"
+    ), {"signature": _SIGNATURE})).all()
+    table_acl = (await connection.execute(text(
+        "SELECT COALESCE(role.rolname,'PUBLIC') AS grantee,"
+        "entry.privilege_type,entry.is_grantable FROM pg_class AS relation "
+        "CROSS JOIN LATERAL aclexplode(COALESCE(relation.relacl, "
+        "acldefault('r',relation.relowner))) AS entry "
+        "LEFT JOIN pg_roles AS role ON role.oid=entry.grantee "
+        "WHERE relation.oid='public.managed_original_creations'::regclass "
+        "ORDER BY grantee,entry.privilege_type,entry.is_grantable"
+    ))).all()
+    settings = dict(setting.split("=", 1) for setting in function.proconfig or [])
+    assert function.prosecdef
+    assert settings["search_path"] == "pg_catalog, pg_temp"
+    assert all(row.grantee != "PUBLIC" for row in function_acl)
+    assert all(row.grantee != "PUBLIC" for row in table_acl)
+    return function.owner, function.prosecdef, settings, function_acl, table_acl
+
+
+async def _rows(connection):
+    return (await connection.scalars(text(
+        "SELECT to_jsonb(creation) FROM public.managed_original_creations AS creation "
+        "ORDER BY id"
+    ))).all()
+
+
+def _scope(label):
+    item, publication = uuid4(), uuid4()
+    return {
+        "dataset": uuid4(), "location": uuid4(), "actor": uuid4(),
+        "object_key": f"{_RESERVED_KEY}/{label}",
+        "staging_key": f"{_STAGING_KEY}/{label}",
+        "authority": {
+            "kind": "dataset_upload", "item_id": str(item),
+            "publication_id": str(publication),
+        },
+        "item": item, "publication": publication,
+    }
+
+
+async def _insert_creation(connection, scope, status, **overrides):
+    creation_id = uuid4()
+    await connection.execute(text(
+        "INSERT INTO public.managed_original_creations ("
+        "id,owner_kind,dataset_id,location_id,storage_identity,bucket,object_key,"
+        "logical_path,origin,max_bytes,timeout_seconds,content_type,requested_by,"
+        "authority,configuration,input_fingerprint,maintenance_revision,"
+        "staging_bucket,staging_key,status,completed_at,error_code) VALUES ("
+        ":id,'dataset',:dataset,:location,:identity,:bucket,:object_key,"
+        ":logical_path,'direct',1048576,60,'image/png',:actor,CAST(:authority AS jsonb),"
+        "'{}'::jsonb,:fingerprint,1,:staging_bucket,:staging_key,:status,"
+        "CASE WHEN :terminal THEN now() ELSE NULL END,:error)"
+    ), {
+        **{key: scope[key] for key in (
+            "dataset", "location", "actor", "object_key", "staging_key"
+        )},
+        "id": creation_id, "identity": scope.get("identity", "a" * 64),
+        "bucket": scope.get("bucket", "retry-acceptance"),
+        "staging_bucket": scope.get("staging_bucket", "retry-staging"),
+        "fingerprint": "b" * 64,
+        "logical_path": scope["object_key"],
+        "authority": json.dumps(scope["authority"]), "status": status,
+        "terminal": status in {"failed", "conflict", "unknown"},
+        "error": f"test_{status}" if status != "allocated" else None,
+        **overrides,
+    })
+    return creation_id
+
+
+async def _admit(connection, scope, **changes):
+    request = {
+        "dataset_id": str(scope["dataset"]), "kind": "role_media",
+        "item_id": str(scope["item"]), "publication_id": str(scope["publication"]),
+        "file_path": scope["object_key"], "authority": scope["authority"],
+        "origin": "direct", "requested_by": str(scope["actor"]),
+        "max_bytes": 1048576, "content_type": "image/png",
+        "staging": {"key": scope["staging_key"]}, **changes,
+    }
+    reply = await connection.scalar(text(
+        "SELECT aap_assets_v1.begin_operator_auxiliary(CAST(:request AS jsonb))"
+    ), {"request": json.dumps(request)})
+    return json.loads(reply) if isinstance(reply, str) else reply
+
+
+async def _allocate(connection, scope):
+    reply = await _admit(connection, scope)
+    assert reply["ok"] is True, reply
+    facts = reply["data"]
+    assert facts["publication_id"] == str(scope["publication"])
+    assert facts["object_key"] == scope["object_key"]
+    assert facts["staging"]["key"] == scope["staging_key"]
+    scope.update(
+        location=UUID(facts["location_id"]), identity=facts["storage_identity"],
+        bucket=facts["bucket"], staging_bucket=facts["staging"]["bucket"],
+    )
+    return UUID(facts["creation_id"])
+
+
+async def _settle_failure(connection, creation_id, outcome, evidence):
+    reply = await connection.scalar(text(
+        "SELECT aap_assets_v1.fail_operator_original("
+        "CAST(:id AS uuid),:outcome,:error,CAST(:evidence AS jsonb))"
+    ), {
+        "id": creation_id, "outcome": outcome, "error": f"test_{outcome}",
+        "evidence": json.dumps(evidence),
+    })
+    reply = json.loads(reply) if isinstance(reply, str) else reply
+    assert reply["ok"] is True, reply
+    saved = (await connection.execute(text(
+        "SELECT failure_evidence,settled_at FROM public.managed_original_creations "
+        "WHERE id=:id"
+    ), {"id": creation_id})).one()
+    assert saved.failure_evidence == evidence
+    assert (saved.settled_at is not None) == evidence["physical_settled"]
+
+
+async def _mark_writing(connection, creation_id):
+    for statement, values in (
+        ("UPDATE public.managed_original_creations SET "
+         "status='preparing',claimed_at=now() WHERE id=:id", {}),
+        ("UPDATE public.managed_original_creations SET status='prepared',"
+         "operation_id=:operation,prepared='{}'::jsonb,sha256=:sha,md5=:md5,"
+         "size_bytes=0,frozen_at=now() WHERE id=:id",
+         {"operation": uuid4(), "sha": "c" * 64, "md5": "d" * 32}),
+        ("UPDATE public.managed_original_creations SET "
+         "status='writing',write_started_at=now() WHERE id=:id", {}),
+    ):
+        await connection.execute(text(statement), {"id": creation_id, **values})
+
+
+async def _retry_schema(connection):
+    columns = (await connection.execute(text(
+        "SELECT column_name,data_type,column_default,is_nullable "
+        "FROM information_schema.columns WHERE table_schema='public' "
+        "AND table_name='managed_original_creations' ORDER BY ordinal_position"
+    ))).all()
+    indexes = (await connection.scalars(text(
+        "SELECT indexdef FROM pg_indexes WHERE schemaname='public' "
+        "AND tablename='managed_original_creations' ORDER BY indexname"
+    ))).all()
+    definitions = (await connection.scalars(text(
+        "SELECT pg_get_functiondef(proc.oid) FROM pg_proc AS proc "
+        "JOIN pg_namespace AS namespace ON namespace.oid=proc.pronamespace "
+        "WHERE namespace.nspname='aap_assets_v1' "
+        "AND proc.proname IN ('begin_operator_auxiliary','fail_operator_original') "
+        "ORDER BY proc.proname"
+    ))).all()
+    return columns, indexes, definitions
+
+
+async def test_upload_retry_forward_migration_preserves_history_and_permissions(
+    retry_migration_database,
+):
+    config, engine = retry_migration_database
+    scopes = {status: _scope(status) for status in (
+        "failed", "conflict", "unknown", "allocated"
+    )}
+    history_ids = {}
+    async with engine.begin() as connection:
+        assert await connection.scalar(text(
+            "SELECT version_num FROM public.alembic_version"
+        )) == "bo0457"
+        before_contract = await _installed_contract(connection)
+        for status, scope in scopes.items():
+            history_ids[status] = await _insert_creation(connection, scope, status)
+        history = await _rows(connection)
+        # The actual pre-upgrade schema disallows reuse even after a failed
+        # attempt. Nothing has been stamped or retroactively declared safe.
+        with pytest.raises(IntegrityError) as blocked:
+            async with connection.begin_nested():
+                await _insert_creation(connection, scopes["failed"], "allocated")
+        assert blocked.value.orig.sqlstate == "23505"
+        assert await _rows(connection) == history
+
+    await asyncio.to_thread(command.upgrade, config, "head")
+    async with engine.begin() as connection:
+        assert await connection.scalar(text(
+            "SELECT version_num FROM public.alembic_version"
+        )) == ScriptDirectory.from_config(config).get_current_head()
+        assert await _installed_contract(connection) == before_contract
+        legacy_after = await _rows(connection)
+        assert [
+            {key: value for key, value in row.items() if key != "failure_evidence"}
+            for row in legacy_after
+        ] == history
+        assert all(row["failure_evidence"] is None for row in legacy_after)
+        for status in ("failed", "conflict", "unknown"):
+            reply = await _admit(connection, scopes[status])
+            assert reply["ok"] is False
+            assert reply["error"]["code"] == "creation_terminal"
+    async with AsyncSession(bind=engine) as session:
+        await bootstrap(session)
+
+    for outcome in ("failed", "conflict"):
+        label = f"proven-{outcome}"
+        scope = scopes[label] = _scope(label)
+        async with engine.begin() as connection:
+            creation_id = await _allocate(connection, scope)
+            await _mark_writing(connection, creation_id)
+            history_ids[label] = creation_id
+            await _settle_failure(connection, creation_id, outcome, {
+                "physical_settled": True, "physical_outcome": "not_written",
+            })
+        # A settled attempt commits before a later retry is admitted. This also
+        # preserves the actual allocation ordering used by current admission.
+        async with engine.begin() as connection:
+            for changes in (
+                {"max_bytes": 1048577},
+                {"requested_by": str(uuid4())},
+                {"file_path": "changed.png"},
+                {"publication_id": str(uuid4())},
+            ):
+                changed = await _admit(connection, scope, **changes)
+                assert changed["ok"] is False
+                assert changed["error"]["code"] == "creation_configuration_changed"
+            retry_id = await _allocate(connection, scope)
+            assert retry_id != creation_id
+        async with engine.begin() as connection:
+            reply = await _admit(connection, scope)
+            assert reply["ok"] is True, reply
+            assert reply["data"]["creation_id"] == str(retry_id)
+            assert reply["data"]["status"] == "allocated"
+
+    for label, outcome, evidence in (
+        ("written-failure", "failed", {
+            "physical_settled": True, "physical_outcome": "written",
+            "physical_size_bytes": 3, "receipt": {"etag": "possibly-written"},
+        }),
+        ("unsettled", "unknown", {
+            "physical_settled": False, "physical_outcome": "unknown",
+        }),
+    ):
+        scope = scopes[label] = _scope(label)
+        async with engine.begin() as connection:
+            creation_id = await _allocate(connection, scope)
+            await _mark_writing(connection, creation_id)
+            history_ids[label] = creation_id
+            await _settle_failure(connection, creation_id, outcome, evidence)
+        async with engine.begin() as connection:
+            reply = await _admit(connection, scope)
+            assert reply["ok"] is False
+            assert reply["error"]["code"] == "creation_terminal"
+
+    async with engine.begin() as connection:
+        with_retries = await _rows(connection)
+        assert len(with_retries) == len(history) + 6
+        assert all(row in with_retries for row in legacy_after)
+        # Only positively settled no-write evidence releases keys. Active,
+        # unproven and possibly-written attempts exclude both locators.
+        for scope in scopes.values():
+            for override in (
+                {"staging_key": f"{_STAGING_KEY}/{uuid4()}"},
+                {"object_key": f"{_RESERVED_KEY}/{uuid4()}"},
+            ):
+                with pytest.raises(IntegrityError) as blocked:
+                    async with connection.begin_nested():
+                        await _insert_creation(
+                            connection, scope, "allocated", **override
+                        )
+                assert blocked.value.orig.sqlstate == "23505"
+                assert await _rows(connection) == with_retries
+        for label, creation_id in history_ids.items():
+            if label == "allocated":
+                continue
+            for statement in (
+                "UPDATE public.managed_original_creations SET error_code='rewritten' "
+                "WHERE id=:id",
+                "DELETE FROM public.managed_original_creations WHERE id=:id",
+                "UPDATE public.managed_original_creations SET failure_evidence="
+                "'{\"physical_settled\":true,\"physical_outcome\":\"not_written\","
+                "\"tampered\":true}'::jsonb "
+                "WHERE id=:id",
+            ):
+                with pytest.raises(IntegrityError) as immutable:
+                    async with connection.begin_nested():
+                        await connection.execute(
+                            text(statement), {"id": creation_id}
+                        )
+                assert immutable.value.orig.sqlstate == "23514"
+                assert await _rows(connection) == with_retries
+
+
+@pytest.mark.parametrize("locator", ["reserved", "staging"])
+async def test_forward_upgrade_refuses_unproven_shared_keys_atomically(
+    retry_migration_database, locator,
+):
+    config, engine = retry_migration_database
+    await asyncio.to_thread(command.upgrade, config, "bo0458")
+    async with engine.begin() as connection:
+        first, second = _scope("legacy-failure"), _scope("legacy-retry")
+        await _insert_creation(connection, first, "failed")
+        shared = (
+            {"object_key": first["object_key"]}
+            if locator == "reserved"
+            else {"staging_key": first["staging_key"]}
+        )
+        await _insert_creation(connection, second, "allocated", **shared)
+        before_rows = await _rows(connection)
+        before_schema = await _retry_schema(connection)
+        before_contract = await _installed_contract(connection)
+
+    with pytest.raises(IntegrityError) as refused:
+        await asyncio.to_thread(command.upgrade, config, "head")
+    assert refused.value.orig.sqlstate == "23505"
+    async with engine.connect() as connection:
+        assert await connection.scalar(text(
+            "SELECT version_num FROM public.alembic_version"
+        )) == "bo0458"
+        assert await _rows(connection) == before_rows
+        assert await _retry_schema(connection) == before_schema
+        assert await _installed_contract(connection) == before_contract

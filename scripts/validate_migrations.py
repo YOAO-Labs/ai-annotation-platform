@@ -1,44 +1,28 @@
-"""Real disposable-database migration validation (plan section 7.2).
+"""Qualify Beta migrations with real disposable-database forward upgrades.
 
-The old CI round trip was ``upgrade head`` -> ``alembic stamp <floor>`` ->
-``downgrade base`` -> ``upgrade head``.  ``stamp`` only rewrites the version
-marker; it does not execute the skipped schema/data rollback, so the irreversible
-segment was never validated.
+Each phase uses a newly created, ownership-tagged database:
 
-This runner performs the four checks the plan asks for, each on its own freshly
-created, ownership-tagged database derived from the current disposable target:
+1. ``fresh`` - execute the complete base-to-head upgrade and inspect its schema.
+2. ``forward`` - seed authentic pre-0174 rows, check their role conversion, then
+   upgrade to head and verify that historical facts and access semantics survive.
 
-1. ``fresh``     - a brand new database upgraded straight to head.
-2. ``reversible``- ``upgrade <floor>`` (a real schema, not a stamp), then a real
-                   ``downgrade base`` and ``upgrade head``.  ``<floor>`` is the
-                   revision below the unique irreversible revision, so the
-                   irreversible ``downgrade()`` is never executed.  When a
-                   reversible suffix exists above it, also run ``downgrade
-                   <irreversible>`` and ``upgrade head`` on that real schema.
-3. ``forward``   - seed authentic legacy rows at ``<floor>``, snapshot them, run
-                   the irreversible ``upgrade`` and assert the forward data
-                   semantics (converted roles, preserved history, new server
-                   default, no invented memberships).  It also proves the
-                   irreversible ``downgrade`` refuses at the barrier before
-                   upgrading its reversible suffix to head.
-4. ``restore``   - restore the pre-conversion ``pg_dump`` snapshot into an
-                   independent database and assert the authentic pre-conversion
-                   state is recoverable.
+Database downgrade/rollback and snapshot recovery are not Beta acceptance
+requirements; revisit their qualification for stable release. This runner never
+stamps revisions, downgrades a database, or reports an omitted rollback as passed.
+Forward refusal guards and transactional failure atomicity remain mandatory and
+are exercised by the migration-specific live tests.
 
-Safety: the runner never touches the base database's schema.  It creates only
-``<base>__mv_<phase>`` databases, tags each with the run owner, refuses to adopt
-or drop a database without a matching owner comment, refuses non-local or
-``prod``/``annotation`` targets, and drops every database and dump it created in
-a ``finally`` block (proven by ``--fail-after``).
+Safety: the base database's schema is never modified. Only ownership-tagged
+``<base>__mv_{fresh,forward}`` databases are created and removed, including on
+failure. Non-local, shared, unowned and production targets are refused.
 
-Run it through the owned-worktree launcher, e.g.::
+Run through the owned-worktree launcher from apps/api::
 
-    pnpm dev:worktree -- init --mode test
-    pnpm dev:worktree -- exec --mode test -- \
-        uv run python ../../scripts/validate_migrations.py
+    pnpm dev:worktree -- exec --mode test -- \\
+        uv run python ../../scripts/validate_migrations.py --json
 
-CI (single disposable service database, no worktree launcher) must opt in with a
-unique owner, e.g. ``AAP_MIGRATION_VALIDATION_OWNER="ci:$GITHUB_RUN_ID"``.
+CI must opt in with a unique ``AAP_MIGRATION_VALIDATION_OWNER``, for example
+``ci:$GITHUB_RUN_ID``. The connection role must be able to create databases.
 """
 
 from __future__ import annotations
@@ -74,7 +58,9 @@ SENTINEL_TABLE_COLUMNS = {
         "review_submitter_id",
     },
 }
-IRREVERSIBLE_DEFAULT_FLOOR = "annotator"
+LEGACY_REVISION = "0173"
+CONVERSION_REVISION = "0174"
+LEGACY_DEFAULT = "annotator"
 HEAD_DEFAULT = "employee"
 
 #: Set by ``--fail-after create`` to inject a failure between CREATE and COMMENT.
@@ -98,7 +84,6 @@ class Anchor:
 @dataclass
 class RunState:
     created: list[str] = field(default_factory=list)
-    dumps: list[Path] = field(default_factory=list)
     phases: list[str] = field(default_factory=list)
 
 
@@ -297,7 +282,9 @@ async def create_owned_database(anchor: Anchor, state: RunState, name: str) -> N
         async with engine.connect() as connection:
             if action == "recreate":
                 await connection.exec_driver_sql(f'DROP DATABASE "{name}"')
-            await connection.exec_driver_sql(f'CREATE DATABASE "{name}"')
+            await connection.exec_driver_sql(
+                f'CREATE DATABASE "{name}" TEMPLATE template0'
+            )
             # Register inside the live connection block, before the fallible
             # connection close / engine disposal: a dispose, COMMENT or verify
             # failure must still clean up the freshly created database.
@@ -380,9 +367,7 @@ async def execute_statements(
         await engine.dispose()
 
 
-def run_alembic(
-    anchor: Anchor, database: str, *arguments: str, check: bool = True
-) -> str:
+def run_alembic(anchor: Anchor, database: str, *arguments: str) -> str:
     target = anchor.url.set(database=database).render_as_string(hide_password=False)
     environment = dict(os.environ)
     environment["MIGRATION_DATABASE_URL"] = target
@@ -395,7 +380,7 @@ def run_alembic(
         text=True,
         timeout=900,
     )
-    if check and result.returncode:
+    if result.returncode:
         raise ValidationError(
             f"alembic {' '.join(arguments)} failed (rc={result.returncode}) on {database}"
         )
@@ -404,7 +389,7 @@ def run_alembic(
 
 def graph_policy():
     sys.path.insert(0, str(REPO / "scripts"))
-    from alembic_reversible_floor import build_config, classify_chain, load_revisions
+    from alembic_migration_policy import build_config, classify_chain, load_revisions
 
     return classify_chain(*load_revisions(build_config()))
 
@@ -588,10 +573,7 @@ async def phase_fresh(anchor: Anchor, state: RunState) -> None:
     database = derived_database(anchor, "fresh")
     policy = graph_policy()
     await create_owned_database(anchor, state, database)
-    upgrade_output = run_alembic(anchor, database, "upgrade", "head")
-    upgrades = sum(
-        1 for line in upgrade_output.splitlines() if "Running upgrade" in line
-    )
+    run_alembic(anchor, database, "upgrade", "head")
     current = await current_revision(anchor, database)
     if current != [policy.head]:
         raise ValidationError(f"fresh database not at head: {current}")
@@ -601,70 +583,7 @@ async def phase_fresh(anchor: Anchor, state: RunState) -> None:
         raise ValidationError(
             f"users.role default is not {HEAD_DEFAULT!r}: {default!r}"
         )
-    state.phases.append(f"fresh:{database}@{policy.head}(upgrades={upgrades})")
-
-
-async def phase_reversible(anchor: Anchor, state: RunState) -> None:
-    database = derived_database(anchor, "reversible")
-    policy = graph_policy()
-    floor = policy.reversible_floor
-    if floor == policy.head:
-        raise ValidationError("no irreversible revision present; nothing to validate")
-    await create_owned_database(anchor, state, database)
-    run_alembic(anchor, database, "upgrade", floor)
-    if await current_revision(anchor, database) != [floor]:
-        raise ValidationError(f"reversible start is not at floor {floor}")
-    floor_default = await column_default(anchor, database, "users", "role")
-    if floor_default is None or IRREVERSIBLE_DEFAULT_FLOOR not in floor_default:
-        raise ValidationError(
-            f"pre-conversion users.role default changed unexpectedly: {floor_default!r}"
-        )
-    await assert_sentinel_columns(anchor, database)
-    downgrade_output = run_alembic(anchor, database, "downgrade", "base")
-    downgrades = sum(
-        1 for line in downgrade_output.splitlines() if "Running downgrade" in line
-    )
-    if downgrades != len(policy.reversible_segment):
-        raise ValidationError(
-            f"downgrade base executed {downgrades} steps; "
-            f"expected {len(policy.reversible_segment)} real downgrades"
-        )
-    if await current_revision(anchor, database):
-        raise ValidationError("downgrade base left an alembic_version row")
-    run_alembic(anchor, database, "upgrade", "head")
-    if await current_revision(anchor, database) != [policy.head]:
-        raise ValidationError("re-upgrade did not reach head")
-    await assert_sentinel_columns(anchor, database)
-    state.phases.append(
-        f"reversible:{database}@{floor}->base({downgrades} downgrades)->{policy.head}"
-    )
-    if policy.post_irreversible_segment:
-        barrier = policy.irreversible[0]
-        downgrade_output = run_alembic(anchor, database, "downgrade", barrier)
-        downgrades = sum(
-            1 for line in downgrade_output.splitlines() if "Running downgrade" in line
-        )
-        if downgrades != len(policy.post_irreversible_segment):
-            raise ValidationError(
-                f"suffix downgrade executed {downgrades} steps; "
-                f"expected {len(policy.post_irreversible_segment)} real downgrades"
-            )
-        if await current_revision(anchor, database) != [barrier]:
-            raise ValidationError(f"suffix downgrade did not stop at barrier {barrier}")
-        await assert_sentinel_columns(anchor, database)
-        default = await column_default(anchor, database, "users", "role")
-        if default is None or HEAD_DEFAULT not in default:
-            raise ValidationError(
-                "suffix downgrade changed the irreversible role default"
-            )
-        run_alembic(anchor, database, "upgrade", "head")
-        if await current_revision(anchor, database) != [policy.head]:
-            raise ValidationError("suffix re-upgrade did not reach head")
-        await assert_sentinel_columns(anchor, database)
-        state.phases.append(
-            f"reversible-suffix:{database}@{policy.head}->{barrier}"
-            f"({downgrades} downgrades)->{policy.head}"
-        )
+    state.phases.append(f"fresh:{database}@base->{policy.head}")
 
 
 async def seed_legacy_rows(anchor: Anchor, database: str) -> dict:
@@ -845,95 +764,37 @@ async def assert_forward_conversion(anchor: Anchor, database: str, ids: dict) ->
         raise ValidationError(f"head users.role default is not {HEAD_DEFAULT!r}")
 
 
-async def phase_forward(anchor: Anchor, state: RunState, backend: DumpBackend) -> Path:
+async def phase_forward(anchor: Anchor, state: RunState) -> None:
     database = derived_database(anchor, "forward")
     policy = graph_policy()
-    floor = policy.reversible_floor
-    barrier = policy.irreversible[0]
+    if (
+        LEGACY_REVISION not in policy.upgrade_path
+        or CONVERSION_REVISION not in policy.upgrade_path
+        or policy.upgrade_path.index(CONVERSION_REVISION)
+        != policy.upgrade_path.index(LEGACY_REVISION) + 1
+    ):
+        raise ValidationError("role-conversion qualification revisions are not adjacent")
     await create_owned_database(anchor, state, database)
-    run_alembic(anchor, database, "upgrade", floor)
+    run_alembic(anchor, database, "upgrade", LEGACY_REVISION)
+    if await current_revision(anchor, database) != [LEGACY_REVISION]:
+        raise ValidationError("forward start is not at the authentic legacy revision")
+    await assert_sentinel_columns(anchor, database)
+    default = await column_default(anchor, database, "users", "role")
+    if default is None or LEGACY_DEFAULT not in default:
+        raise ValidationError(f"legacy users.role default changed: {default!r}")
     ids = await seed_legacy_rows(anchor, database)
-    snapshot = anchor.dump_dir / f"{database}__pre_conversion.dump"
-    state.dumps.append(snapshot)
-    pg_dump_database(backend, anchor, database, snapshot)
-    run_alembic(anchor, database, "upgrade", barrier)
-    await assert_forward_conversion(anchor, database, ids)
-    refusal = run_alembic(anchor, database, "downgrade", floor, check=False)
-    if "not reversible" not in refusal.lower():
-        raise ValidationError(
-            "irreversible downgrade did not refuse with the documented error"
-        )
-    if await current_revision(anchor, database) != [barrier]:
-        raise ValidationError("refused downgrade mutated the version marker")
+    run_alembic(anchor, database, "upgrade", CONVERSION_REVISION)
+    if await current_revision(anchor, database) != [CONVERSION_REVISION]:
+        raise ValidationError("forward conversion did not reach its target revision")
     await assert_forward_conversion(anchor, database, ids)
     run_alembic(anchor, database, "upgrade", "head")
     if await current_revision(anchor, database) != [policy.head]:
         raise ValidationError("forward conversion did not reach head")
-    await assert_forward_conversion(anchor, database, ids)
-    state.phases.append(f"forward:{database}@base->{floor}->{barrier}->{policy.head}")
-    return snapshot
-
-
-def check_restored_history(rows: list) -> None:
-    """Require exactly one untouched pre-conversion historical invitation row."""
-    if len(rows) != 1:
-        raise ValidationError(
-            "restored snapshot historical invitation count is "
-            f"{len(rows)}, expected exactly 1"
-        )
-    row = rows[0]
-    if row["role"] != "annotator" or row["project_role"] is not None:
-        raise ValidationError(f"restored historical invitation changed: {dict(row)}")
-
-
-async def phase_restore(
-    anchor: Anchor, state: RunState, snapshot: Path, backend: DumpBackend
-) -> None:
-    database = derived_database(anchor, "restore")
-    policy = graph_policy()
-    floor = policy.reversible_floor
-    await create_owned_database(anchor, state, database)
-    pg_restore_database(backend, anchor, database, snapshot)
-    if await current_revision(anchor, database) != [floor]:
-        raise ValidationError("restored snapshot is not at the pre-conversion floor")
     await assert_sentinel_columns(anchor, database)
-    default = await column_default(anchor, database, "users", "role")
-    if default is None or IRREVERSIBLE_DEFAULT_FLOOR not in default:
-        raise ValidationError(
-            f"restored snapshot lost the pre-conversion role default: {default!r}"
-        )
-    legacy = await fetch_all(
-        anchor,
-        database,
-        "SELECT email, role FROM users WHERE email LIKE 'mv-%@test.local' ORDER BY email",
+    await assert_forward_conversion(anchor, database, ids)
+    state.phases.append(
+        f"forward:{database}@base->{LEGACY_REVISION}->{CONVERSION_REVISION}->{policy.head}"
     )
-    roles = sorted(row["role"] for row in legacy)
-    if roles != ["annotator", "project_admin", "reviewer"]:
-        raise ValidationError(f"restored snapshot lost legacy roles: {roles}")
-    membership = await fetch_scalar(
-        anchor,
-        database,
-        "SELECT pm.role FROM project_members pm JOIN users u ON u.id = pm.user_id "
-        "WHERE u.email = 'mv-anno@test.local'",
-    )
-    if membership != "annotator":
-        raise ValidationError(f"restored project membership changed: {membership!r}")
-    pre_conversion_project_role = await fetch_scalar(
-        anchor,
-        database,
-        "SELECT project_role FROM user_invitations WHERE email = 'mv-pending@test.local'",
-    )
-    if pre_conversion_project_role is not None:
-        raise ValidationError(
-            "restored snapshot already contains the converted project_role"
-        )
-    accepted = await fetch_all(
-        anchor,
-        database,
-        "SELECT role, project_role FROM user_invitations WHERE email = 'mv-accepted@test.local'",
-    )
-    check_restored_history(list(accepted))
-    state.phases.append(f"restore:{database}@{floor}")
 
 
 def cleanup(anchor: Anchor, state: RunState) -> list[str]:
@@ -944,11 +805,6 @@ def cleanup(anchor: Anchor, state: RunState) -> list[str]:
             asyncio.run(drop_created_database(anchor, database))
         except Exception as error:  # noqa: BLE001 - keep cleaning the rest
             errors.append(f"{database}: {type(error).__name__}: {error}")
-    for dump in state.dumps:
-        try:
-            dump.unlink(missing_ok=True)
-        except Exception as error:  # noqa: BLE001 - keep cleaning the rest
-            errors.append(f"{dump}: {type(error).__name__}: {error}")
     return errors
 
 
@@ -968,7 +824,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--fail-after",
-        choices=["create", "fresh", "reversible", "forward"],
+        choices=["create", "fresh", "forward"],
         help="test hook: abort after the named phase to prove failure cleanup",
     )
     parser.add_argument("--json", action="store_true", help="emit a JSON summary")
@@ -985,23 +841,17 @@ def main(argv: list[str] | None = None) -> int:
     }
     try:
         asyncio.run(verify_anchor(anchor))
-        backend = detect_dump_backend(anchor)
         asyncio.run(phase_fresh(anchor, state))
         if arguments.fail_after == "fresh":
             raise ValidationError("injected failure after fresh")
-        asyncio.run(phase_reversible(anchor, state))
-        if arguments.fail_after == "reversible":
-            raise ValidationError("injected failure after reversible")
-        snapshot = asyncio.run(phase_forward(anchor, state, backend))
+        asyncio.run(phase_forward(anchor, state))
         if arguments.fail_after == "forward":
             raise ValidationError("injected failure after forward")
-        asyncio.run(phase_restore(anchor, state, snapshot, backend))
         summary.update(
             {
                 "head": policy.head,
-                "reversible_floor": policy.reversible_floor,
-                "irreversible": list(policy.irreversible),
-                "post_irreversible_segment": list(policy.post_irreversible_segment),
+                "qualification": "beta-forward-only",
+                "upgrade_path": list(policy.upgrade_path),
                 "phases": state.phases,
                 "result": "passed",
             }

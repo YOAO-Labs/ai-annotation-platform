@@ -1,4 +1,4 @@
-"""Exercise every migration phase using only a verified disposable owner target."""
+"""Qualify real Beta forward migrations on a verified disposable owner target."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ pytestmark = [
 ]
 
 
-async def test_registry_ingress_full_migration_roundtrip(test_engine):
+async def test_registry_ingress_full_forward_migration_qualification(test_engine):
     await assert_owned_test_database(test_engine)
     _verify_postgres(test_engine.url)
     root = Path(__file__).resolve().parents[3]
@@ -40,8 +40,6 @@ async def test_registry_ingress_full_migration_roundtrip(test_engine):
     result = await asyncio.to_thread(
         subprocess.run,
         [
-            "rtk",
-            "proxy",
             sys.executable,
             str(root / "scripts/validate_migrations.py"),
             "--json",
@@ -62,6 +60,12 @@ async def test_registry_ingress_full_migration_roundtrip(test_engine):
     output.write_text(json.dumps(report, indent=2) + "\n")
     assert result.returncode == 0, report
     assert report["result"] == "passed"
+    assert report["qualification"] == "beta-forward-only"
+    assert report["upgrade_path"][-1] == report["head"]
+    assert len(report["phases"]) == 2
+    assert {phase.split(":", 1)[0] for phase in report["phases"]} == {
+        "fresh", "forward"
+    }
 
     assert report["cleanup_errors"] == []
     assert report["leftover_owned_databases"] == []

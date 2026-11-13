@@ -1,7 +1,7 @@
 """Unit tests for the migration-chain policy and the ownership guards.
 
 These are pure-logic tests (no database, no Alembic environment): they pin the
-fail-closed behaviour of ``alembic_reversible_floor.classify_chain`` and the
+fail-closed behaviour of ``alembic_migration_policy.classify_chain`` and the
 refusals in ``validate_migrations.resolve_anchor``.  Run with the API venv::
 
     apps/api/.venv/bin/python scripts/test_alembic_migration_policy.py
@@ -12,11 +12,11 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from alembic_reversible_floor import (  # noqa: E402
+from alembic_migration_policy import (  # noqa: E402
     Revision,
     UnsupportedChain,
     classify_chain,
@@ -24,71 +24,44 @@ from alembic_reversible_floor import (  # noqa: E402
 )
 from validate_migrations import (  # noqa: E402
     ValidationError,
-    check_restored_history,
     create_action,
     derived_database,
     drop_action,
+    assert_forward_conversion,
     phase_forward,
-    phase_reversible,
     resolve_anchor,
     RunState,
 )
 
 
-def rev(revision: str, down, irreversible: bool = False) -> Revision:
-    return Revision(revision=revision, down_revision=down, irreversible=irreversible)
+def rev(revision: str, down) -> Revision:
+    return Revision(revision=revision, down_revision=down)
 
 
 class ClassifyChainTests(unittest.TestCase):
-    def test_single_irreversible_at_head_returns_its_parent(self):
+    def test_complete_forward_path_is_ordered_from_base_to_head(self):
         revisions = {
-            "0174": rev("0174", "0173", irreversible=True),
-            "0173": rev("0173", "0172"),
-            "0172": rev("0172", None),
-        }
-        policy = classify_chain(revisions, "0174")
-        self.assertEqual(policy.reversible_floor, "0173")
-        self.assertEqual(policy.irreversible, ("0174",))
-        self.assertEqual(policy.reversible_segment, ("0173", "0172"))
-
-    def test_fully_reversible_chain_returns_head(self):
-        revisions = {"0002": rev("0002", "0001"), "0001": rev("0001", None)}
-        self.assertEqual(classify_chain(revisions, "0002").reversible_floor, "0002")
-
-    def test_reversible_suffix_is_separated_from_prefix_at_barrier(self):
-        revisions = {
-            "0176": rev("0176", "0175"),
-            "0175": rev("0175", "0174"),
-            "0174": rev("0174", "0173", irreversible=True),
+            "bo0458": rev("bo0458", "0174"),
+            "0174": rev("0174", "0173"),
             "0173": rev("0173", None),
         }
-        policy = classify_chain(revisions, "0176")
-        self.assertEqual(policy.reversible_floor, "0173")
-        self.assertEqual(policy.reversible_segment, ("0173",))
-        self.assertEqual(policy.post_irreversible_segment, ("0176", "0175"))
-        self.assertEqual(policy.irreversible, ("0174",))
+        policy = classify_chain(revisions, "bo0458")
+        self.assertEqual(policy.head, "bo0458")
+        self.assertEqual(policy.upgrade_path, ("0173", "0174", "bo0458"))
 
-    def test_irreversible_at_base_with_suffix_still_fails_closed(self):
-        revisions = {
-            "0002": rev("0002", "0001"),
-            "0001": rev("0001", None, irreversible=True),
-        }
-        with self.assertRaises(UnsupportedChain):
-            classify_chain(revisions, "0002")
+    def test_single_revision_includes_the_real_base_upgrade(self):
+        policy = classify_chain({"0001": rev("0001", None)}, "0001")
+        self.assertEqual(policy.upgrade_path, ("0001",))
 
-    def test_multiple_irreversible_revisions_fail_closed(self):
-        revisions = {
-            "0175": rev("0175", "0174", irreversible=True),
-            "0174": rev("0174", "0173", irreversible=True),
-            "0173": rev("0173", None),
-        }
-        with self.assertRaises(UnsupportedChain):
-            classify_chain(revisions, "0175")
+    def test_single_parent_tuple_is_supported(self):
+        policy = classify_chain(
+            {"0002": rev("0002", ("0001",)), "0001": rev("0001", None)}, "0002"
+        )
+        self.assertEqual(policy.upgrade_path, ("0001", "0002"))
 
-    def test_irreversible_at_base_fails_closed(self):
-        revisions = {"0001": rev("0001", None, irreversible=True)}
+    def test_unknown_head_fails_closed(self):
         with self.assertRaises(UnsupportedChain):
-            classify_chain(revisions, "0001")
+            classify_chain({"0001": rev("0001", None)}, "missing")
 
     def test_merge_revision_fails_closed(self):
         revisions = {
@@ -234,137 +207,124 @@ class DatabaseOwnershipActionTests(unittest.TestCase):
         )
 
 
-class RestoredHistoryTests(unittest.TestCase):
-    def test_missing_history_row_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            check_restored_history([])
-
-    def test_single_correct_history_row_is_accepted(self):
-        check_restored_history([{"role": "annotator", "project_role": None}])
-
-    def test_wrong_role_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            check_restored_history([{"role": "employee", "project_role": None}])
-
-    def test_converted_project_role_is_rejected(self):
-        with self.assertRaises(ValidationError):
-            check_restored_history([{"role": "annotator", "project_role": "annotator"}])
-
-    def test_duplicate_history_rows_are_rejected(self):
-        with self.assertRaises(ValidationError):
-            check_restored_history(
-                [
-                    {"role": "annotator", "project_role": None},
-                    {"role": "annotator", "project_role": None},
-                ]
-            )
-
-
-class SegmentValidationTests(unittest.IsolatedAsyncioTestCase):
-    def setUp(self):
-        self.policy = classify_chain(
-            {
-                "0176": rev("0176", "0175"),
-                "0175": rev("0175", "0174"),
-                "0174": rev("0174", "0173", irreversible=True),
-                "0173": rev("0173", "0172"),
-                "0172": rev("0172", None),
-            },
-            "0176",
-        )
-        self.anchor = resolve_anchor(
-            {
-                "MIGRATION_DATABASE_URL": AnchorGuardTests.base,
-                "AAP_MIGRATION_VALIDATION_OWNER": "ci:segment-test",
-            }
-        )
-
-    async def run_reversible(self, *, suffix_output=None, suffix_revision="0174"):
-        prefix = "Running downgrade 0173 -> 0172\nRunning downgrade 0172 -> base"
-        suffix = (
-            "Running downgrade 0176 -> 0175\nRunning downgrade 0175 -> 0174"
-            if suffix_output is None
-            else suffix_output
-        )
+class ForwardConversionTests(unittest.IsolatedAsyncioTestCase):
+    async def check_conversion(
+        self,
+        *,
+        roles=("employee", "employee"),
+        inactive=False,
+        memberships=0,
+        member_role="annotator",
+        pending=None,
+        populated=None,
+        accepted=None,
+        default="'employee'",
+    ):
         with (
-            patch("validate_migrations.graph_policy", return_value=self.policy),
-            patch("validate_migrations.create_owned_database", new_callable=AsyncMock),
             patch(
-                "validate_migrations.assert_sentinel_columns", new_callable=AsyncMock
+                "validate_migrations.fetch_scalar",
+                new_callable=AsyncMock,
+                side_effect=[*roles, inactive, memberships, member_role],
             ),
             patch(
-                "validate_migrations.column_default", new_callable=AsyncMock
-            ) as default,
-            patch(
-                "validate_migrations.current_revision", new_callable=AsyncMock
-            ) as current,
-            patch("validate_migrations.run_alembic") as alembic,
-        ):
-            default.side_effect = ["'annotator'", "'employee'"]
-            current.side_effect = [["0173"], [], ["0176"], [suffix_revision], ["0176"]]
-            alembic.side_effect = ["", prefix, "", suffix, ""]
-            state = RunState()
-            await phase_reversible(self.anchor, state)
-            return alembic.call_args_list, state
-
-    async def test_both_segments_execute_real_round_trips_without_crossing_barrier(
-        self,
-    ):
-        calls, state = await self.run_reversible()
-        database = derived_database(self.anchor, "reversible")
-        self.assertEqual(
-            calls,
-            [
-                call(self.anchor, database, "upgrade", "0173"),
-                call(self.anchor, database, "downgrade", "base"),
-                call(self.anchor, database, "upgrade", "head"),
-                call(self.anchor, database, "downgrade", "0174"),
-                call(self.anchor, database, "upgrade", "head"),
-            ],
-        )
-        self.assertEqual(len(state.phases), 2)
-
-    async def test_suffix_without_real_downgrades_is_rejected(self):
-        with self.assertRaisesRegex(ValidationError, "downgrade"):
-            await self.run_reversible(suffix_output="")
-
-    async def test_suffix_must_stop_at_exact_barrier(self):
-        with self.assertRaisesRegex(ValidationError, "0174"):
-            await self.run_reversible(suffix_revision="0173")
-
-    async def test_forward_conversion_and_refusal_stay_at_barrier_before_head(self):
-        with (
-            patch("validate_migrations.graph_policy", return_value=self.policy),
-            patch("validate_migrations.create_owned_database", new_callable=AsyncMock),
-            patch(
-                "validate_migrations.seed_legacy_rows", new_callable=AsyncMock
-            ) as seed,
-            patch(
-                "validate_migrations.assert_forward_conversion", new_callable=AsyncMock
-            ) as check,
-            patch(
-                "validate_migrations.current_revision", new_callable=AsyncMock
-            ) as current,
-            patch("validate_migrations.pg_dump_database"),
-            patch("validate_migrations.run_alembic") as alembic,
-        ):
-            current.side_effect = [["0174"], ["0176"]]
-            alembic.side_effect = ["", "", "RuntimeError: not reversible", ""]
-            seed.return_value = {"authentic": "legacy rows"}
-            state = RunState()
-            snapshot = await phase_forward(self.anchor, state, object())
-            database = derived_database(self.anchor, "forward")
-            self.assertEqual(
-                alembic.call_args_list,
-                [
-                    call(self.anchor, database, "upgrade", "0173"),
-                    call(self.anchor, database, "upgrade", "0174"),
-                    call(self.anchor, database, "downgrade", "0173", check=False),
-                    call(self.anchor, database, "upgrade", "head"),
+                "validate_migrations.fetch_all",
+                new_callable=AsyncMock,
+                side_effect=[
+                    [pending or {"role": "employee", "project_role": "annotator"}],
+                    [populated or {"role": "employee", "project_role": "annotator"}],
+                    [accepted or {"role": "annotator", "project_role": None}],
                 ],
+            ),
+            patch(
+                "validate_migrations.column_default",
+                new_callable=AsyncMock,
+                return_value=default,
+            ),
+        ):
+            await assert_forward_conversion(
+                None,
+                "owned_test",
+                dict.fromkeys(
+                    ("anno", "rev", "member", "pending", "populated", "accepted")
+                ),
             )
-            self.assertEqual(check.await_count, 3)
-            self.assertEqual(state.dumps, [snapshot])
+
+    async def test_converted_accounts_preserve_membership_and_invitation_history(self):
+        await self.check_conversion()
+
+    async def test_lost_roles_activation_or_membership_semantics_are_rejected(self):
+        for change in (
+            {"roles": ("annotator", "employee")},
+            {"roles": ("employee", "reviewer")},
+            {"inactive": True},
+            {"memberships": 1},
+            {"member_role": "reviewer"},
+            {"default": "'annotator'"},
+        ):
+            with self.subTest(change=change), self.assertRaises(ValidationError):
+                await self.check_conversion(**change)
+
+    async def test_lost_or_rewritten_invitation_facts_are_rejected(self):
+        for change in (
+            {"pending": {"role": "annotator", "project_role": None}},
+            {"populated": {"role": "employee", "project_role": "reviewer"}},
+            {"accepted": {"role": "employee", "project_role": None}},
+            {"accepted": {"role": "annotator", "project_role": "annotator"}},
+        ):
+            with self.subTest(change=change), self.assertRaises(ValidationError):
+                await self.check_conversion(**change)
+
+
+class ForwardPhaseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_incomplete_upgrades_cannot_publish_a_completed_phase(self):
+        policy = classify_chain(
+            {
+                "bo0458": rev("bo0458", "0174"),
+                "0174": rev("0174", "0173"),
+                "0173": rev("0173", None),
+            },
+            "bo0458",
+        )
+        anchor = resolve_anchor(
+            {
+                "MIGRATION_DATABASE_URL": AnchorGuardTests.base,
+                "AAP_MIGRATION_VALIDATION_OWNER": "ci:forward-test",
+            }
+        )
+        for revisions in (
+            [["0172"]],
+            [["0173"], ["0173"]],
+            [["0173"], ["0174"], ["bo0457"]],
+        ):
+            state = RunState()
+            with (
+                self.subTest(revisions=revisions),
+                patch("validate_migrations.graph_policy", return_value=policy),
+                patch("validate_migrations.create_owned_database", new_callable=AsyncMock),
+                patch(
+                    "validate_migrations.assert_sentinel_columns",
+                    new_callable=AsyncMock,
+                ),
+                patch(
+                    "validate_migrations.column_default",
+                    new_callable=AsyncMock,
+                    return_value="'annotator'",
+                ),
+                patch("validate_migrations.seed_legacy_rows", new_callable=AsyncMock),
+                patch(
+                    "validate_migrations.assert_forward_conversion",
+                    new_callable=AsyncMock,
+                ),
+                patch(
+                    "validate_migrations.current_revision",
+                    new_callable=AsyncMock,
+                    side_effect=revisions,
+                ),
+                patch("validate_migrations.run_alembic"),
+            ):
+                with self.assertRaises(ValidationError):
+                    await phase_forward(anchor, state)
+                self.assertEqual(state.phases, [])
 
 
 if __name__ == "__main__":
