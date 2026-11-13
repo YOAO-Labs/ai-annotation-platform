@@ -57,7 +57,7 @@ API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRA
 
 Node conformance provider以标准PostgreSQL协议调用相同的两项函数，不代理Python／API；业务规则仍由Native执行。该提供方仅用于本地单命令替换实验，不代表完整Workspace的另一语言提供方、独立数据库或生产容量资格。
 
-负责人转移切片的 66 个去重选定案例已完成本地限定验收，包含四条绑定路径与旧响应对照、受限数据库权限、事务错误、丢响应恢复、关联备份恢复和 Python／Node 镜像重启。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
+当前命名试点的本地限定验收通过 70 个去重案例：20 项双 namespace 安全识别／授权，50 项负责人转移；另有 34 项单元检查通过。覆盖有数据旧库的前向切换与拒绝路径、四条绑定与旧响应对照、受限 LOGIN、事务失败、丢响应／当前备份恢复，以及 Python／Node 受限镜像重启重放。结果由 66 项未变更的通过证据和四条最终兼容路径复验组成，不代表完整默认资格或全部 namespace 切换。独立 Node 提供方只覆盖这个命令的传输与事务，完整 Workspace 的语言替换仍待后续工作。验证范围见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer)。
 
 ## 配置命令实现与验收状态
 

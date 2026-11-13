@@ -1396,11 +1396,11 @@ Node、排序锁等待、缓存与时间字段、精确授权和异常回复回�
 
 ## Workspace 项目负责人转移命令
 
-直接负责人转移已使用 `aap-workspace-owner-transfer/v1` 和独立两项 RPC 凭据，保留公开路由、错误顺序、默认调用方提交边界、账号／项目锁冲突差异、事务时间戳及同一负责人不写入的行为。私有回执与 owner 更新原子提交；响应丢失后可用同一私有 UUID 重放，后续转移不会被旧回执重新覆盖。无需公开幂等头，也不额外写业务 Audit。
+直接负责人转移已使用 `aap-workspace-owner-transfer/v1` 和独立两项 RPC 凭据；当前 Native namespace 为 `yoao_workspace_owner_transfer_v1`，专用 LOGIN 为 `yoao_workspace_owner_transfer_client`。前向迁移要求先关闭旧 LOGIN、停止旧写入并排空可调用连接；迁移拒绝不满足条件的旧库，不主动终止连接，也不提供旧入口别名。保留公开路由、错误顺序、默认调用方提交边界、账号／项目锁冲突差异、事务时间戳及同一负责人不写入的行为。私有回执与 owner 更新原子提交；响应丢失后可用同一私有 UUID 重放，后续转移不会被旧回执重新覆盖。无需公开幂等头，也不额外写业务 Audit。
 
-本地限定验收最终通过 66 个去重选定案例（59 DB/process、7 pure/static），无有效失败或跳过；源码和非 editable 安装包各通过 85 项。四条绑定路径均对照 17 组实际旧接口响应，另核对 4 组调用方事务探针。受限权限、畸形回复回滚、原始 DML／延迟提交错误、丢响应恢复、九项关联恢复检查，以及 Python／Node 镜像的真实调用和重启重放均通过。Python owner 镜像匹配 14 个包文件，Node 匹配 5 个运行输入；新 API 镜像匹配 136 个包文件、72 个应用／Native 输入及 head 0254。API 冷启动使用显式普通 UID、禁网、只读文件系统和固定预算，不改变镜像默认用户。
+当前命名试点通过 70 个去重选定案例：20 项双 namespace 安全识别／授权及 50 项负责人转移，另有 34 项单元检查通过。最终结果组合了 66 项未变更的通过证据与四条兼容路径的定向复验，并非一次全量运行。填充历史状态的前向切换与拒绝原子性、四条绑定的旧响应和调用方事务、受限权限、丢响应恢复、当前备份恢复，以及 Python／Node 受限镜像的真实调用和重启重放均通过。两个镜像和非 editable 安装包保留原始来源；按当前输入摘要复用，没有因测试修正重新构建或改贴标签。
 
-Node 仅提供本地单命令 transport conformance；Native 继续持有业务策略。此结果不代表整个 Workspace、完整业务语言替换、独立数据库或生产容量已完成。API 仍使用过渡期宽角色装配；配置命令验收见后续说明，模板读取接入与验证见后文，项目读取仍待迁移。详见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer) 与 [Workspace 运行指南](/api/guides/workspace-runtime)。
+Node 仅提供本地单命令 transport conformance；Native 继续持有业务策略。此结果不代表整个 Workspace、完整业务语言替换、独立数据库、全部 namespace 或生产容量已完成，也不继承旧完整默认门的通过状态。当前阶段不要求 schema downgrade；事务回滚与当前库恢复仍是必验项。其余能力与完整组合资格按本页台账跟踪。详见 [ADR-0134](/dev/adr/0134-workspace-project-owner-transfer) 与 [Workspace 运行指南](/api/guides/workspace-runtime)。
 
 ## Workspace 模板查询
 

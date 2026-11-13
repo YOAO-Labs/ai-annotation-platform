@@ -668,22 +668,22 @@ C1–C5 已由五个隔离工作树完成，主进程审核合入并完成组合
 
 F0 先冻结当前合同、历史输入、独立期望、准确资源清单和共享文件责任。批准后可并行启动七路：T1、T2、N4-F、N4-D1、N4-D2、N4-D3、N6-K；N4-F 另有公开格式合同门。源码并行不等于同库、同桶、同设备或验收进程可以任意并行。
 
-| 任务                    | 独占范围／交付                                                                 | 依赖与边界                                                      |
-| ----------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------- |
-| F0 合同与证据冻结       | 历史文件摘要、当前包／消费者身份、命名决定、旧执行清单、迁移及恢复约束         | 总实施批准门；只准备事实与精确范围，不先改数据                  |
-| T1 当前 Native 资格     | 现有完整默认验证器、collection／JUnit 对账、受限角色／Node／冷消费者／恢复证据 | F0；不是重建结果框架，也不是重复确认旧超时                      |
-| T2 精确夹具清理         | 全局 teardown、截图、scale，以及实际媒体读者和 dataset 级作业的必要 owner 协议 | F0；已批准扩展；真实读者闭环前保留原回收保护                    |
-| N4-F 原生公开格式       | API／worker／目录／冻结数据读取、Web 与 SDK／CLI／TUI 同一合同切换             | F0＋格式批准门；同一 worker 持有完整纵向切片                    |
-| N4-D1 训练草稿          | `trainingDraftStorage`、`useTrainingDraft`、训练与研究创建页                   | F0；保持 `trainingDraftOwner(userId, projectId)` 接口           |
-| N4-D2 数据集请求草稿    | `trainingDatasetDraftStorage`、`ProjectLearningPage`                           | F0；不改 D1 文件，完整转换存储键及内嵌 `ownerKey`               |
-| N4-D3 导入文字草稿      | `storageNavigation`、`ImportDatasetWizard`                                     | F0；保持 sessionStorage、当前会话／数据集范围与非秘密字段白名单 |
-| N5-S 安全识别准备       | 当前 grants／权限分类器、`owner_data`；共享验证器及运行 ACL 由主进程集成       | 源码已集成；双 namespace 分类不扩大权限白名单，真实受限角色资格待完成 |
-| N5-W Workspace 能力试点 | 新前向迁移、owner-transfer 的 Python／Node 调用、专用 LOGIN 与两个公开函数     | 源码已集成；34 项单元检查通过，前向切换及真实消费者组合资格待完成；不改整个 Workspace |
-| N6-K 项目技能发现       | 仓内 `aap-*` skill 名、单一指令来源与符号链接／引用                            | F0；只改当前 checkout，在全新会话验证发现，不写用户全局目录     |
-| J1 首批集成验收         | 主进程审核合入、共享文件、真实消费者及文档                                     | 上述首批和 N5-W 均通过；人工集成门不替代真实 Git 证据           |
-| N6-S 新存储分配试点     | export 用途的分配／CHECK／IAM／读取／清理／恢复                                | J1＋准确范围批准门；其他用途和引用哨兵不随之切换                |
-| N6-E 可销毁环境采用     | worktree 命名、owner 标签、模式变量及所有真实生产者／消费者                    | J1＋准确环境批准门；与 N6-S 独立工作树，不触碰日常／生产环境    |
-| J2 状态性组合收尾       | 新环境上的新分配、旧数据读取、恢复、精确退役与记录                             | N6-S、N6-E 汇合；由主进程执行最终批准／集成门                   |
+| 任务                    | 独占范围／交付                                                                 | 依赖与边界                                                                                      |
+| ----------------------- | ------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| F0 合同与证据冻结       | 历史文件摘要、当前包／消费者身份、命名决定、旧执行清单、迁移及恢复约束         | 总实施批准门；只准备事实与精确范围，不先改数据                                                  |
+| T1 当前 Native 资格     | 现有完整默认验证器、collection／JUnit 对账、受限角色／Node／冷消费者／恢复证据 | F0；不是重建结果框架，也不是重复确认旧超时                                                      |
+| T2 精确夹具清理         | 全局 teardown、截图、scale，以及实际媒体读者和 dataset 级作业的必要 owner 协议 | F0；已批准扩展；真实读者闭环前保留原回收保护                                                    |
+| N4-F 原生公开格式       | API／worker／目录／冻结数据读取、Web 与 SDK／CLI／TUI 同一合同切换             | F0＋格式批准门；同一 worker 持有完整纵向切片                                                    |
+| N4-D1 训练草稿          | `trainingDraftStorage`、`useTrainingDraft`、训练与研究创建页                   | F0；保持 `trainingDraftOwner(userId, projectId)` 接口                                           |
+| N4-D2 数据集请求草稿    | `trainingDatasetDraftStorage`、`ProjectLearningPage`                           | F0；不改 D1 文件，完整转换存储键及内嵌 `ownerKey`                                               |
+| N4-D3 导入文字草稿      | `storageNavigation`、`ImportDatasetWizard`                                     | F0；保持 sessionStorage、当前会话／数据集范围与非秘密字段白名单                                 |
+| N5-S 安全识别准备       | 当前 grants／权限分类器、`owner_data`；共享验证器及运行 ACL 由主进程集成       | 20 项限定检查通过；双 namespace 分类不扩大权限白名单                                            |
+| N5-W Workspace 能力试点 | 新前向迁移、owner-transfer 的 Python／Node 调用、专用 LOGIN 与两个公开函数     | 50 项去重案例及 34 项单元检查通过；有数据前向切换、当前恢复与受限消费者闭合；不改整个 Workspace |
+| N6-K 项目技能发现       | 仓内 `aap-*` skill 名、单一指令来源与符号链接／引用                            | F0；只改当前 checkout，在全新会话验证发现，不写用户全局目录                                     |
+| J1 首批集成验收         | 主进程审核合入、共享文件、真实消费者及文档                                     | 上述首批和 N5-W 均通过；人工集成门不替代真实 Git 证据                                           |
+| N6-S 新存储分配试点     | export 用途的分配／CHECK／IAM／读取／清理／恢复                                | J1＋准确范围批准门；其他用途和引用哨兵不随之切换                                                |
+| N6-E 可销毁环境采用     | worktree 命名、owner 标签、模式变量及所有真实生产者／消费者                    | J1＋准确环境批准门；与 N6-S 独立工作树，不触碰日常／生产环境                                    |
+| J2 状态性组合收尾       | 新环境上的新分配、旧数据读取、恢复、精确退役与记录                             | N6-S、N6-E 汇合；由主进程执行最终批准／集成门                                                   |
 
 实施 worker 使用 OMP 内置 `task` 与用户指定的 `deepseek/deepseek-flash`，各用独立工作树和真实提交；主进程负责审核、合入和组合验收。后继任务必须从已包含审核后前置提交的集成基线开始，不因子代理 completed 就假定源码已合并。迁移 head、共享 grants／验证器、两份总计划和 CHANGELOG 均只有一个集成 owner；N4-F 独占其生成合同。子代理不在实施中运行 build／test／lint／formatter，主进程在完整切片边界集中执行受影响验收。
 
@@ -735,5 +735,5 @@ N6-E 只采用可销毁本地模式的新资源命名与 `YOAO_WORKTREE_MODE`。
 - **N4-D2 已完成独立验收：** `6a86e7987`／`f7df93b55`；完整新 `ownerKey`、幂等重放与冲突 409 通过。
 - **N4-D3 已完成独立验收：** `ec897f30b`；同标签页 sessionStorage 交接、单次消费与失败保留通过。
 - **N6-K 已完成：** `d4fc25259`；隔离 HOME 实际发现十个 `yoao-*` 技能，未改全局技能。
-- **N5-S／N5-W 源码已集成：** `deepseek/deepseek-flash` task 子代理分别完成运行时分类器、逐 owner grants、Workspace Python／Node／API 消费者及验收入口；主代理补齐共享授权、前向迁移与 verifier。34 项 Workspace owner-transfer 单元检查通过，但真实 LOGIN／有数据前向切换／当前恢复／进程与镜像组合资格尚未完成。旧 T1 冻结候选已失败，不重跑整套来阻塞每次开发，也不继承其结果为 N5 资格；详见运行账本。
+- **N5-S／N5-W 已完成限定资格：** `deepseek/deepseek-flash` task 子代理完成运行时分类器、逐 owner grants、Workspace Python／Node／API 消费者及验收入口，主代理补齐共享授权、前向迁移与 verifier。最终 70 个去重案例通过（20 项安全识别／授权、50 项 owner-transfer），另有 34 项单元检查通过；由 `n5-owner-2` 的 66 项未变更通过证据与 `n5-owner-3 @ 0a62314f1` 的四条兼容路径复验组成。真实 LOGIN、有数据前向切换及拒绝原子性、当前恢复、进程与受限镜像重启重放均有证据；旧完整 T1 仍未通过，不重跑整套来阻塞每次开发。六个实施工作树已退役，日常环境未切换；此结果不放行 N6-S／N6-E／J1／J2，也不扩大到所有 namespace。详见运行账本。
 - T1／T2 的当前状态、未关闭问题与已关闭切片见[测试治理计划 §16.6–§16.8](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)，逐次运行历史与原始回执见[阶段 F 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
