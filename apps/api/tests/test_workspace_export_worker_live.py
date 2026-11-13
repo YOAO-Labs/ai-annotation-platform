@@ -54,6 +54,8 @@ from tests.test_workspace_cross_frame_worker_live import (
 from tests.test_workspace_worker_assembly_live import (
     _broker_state,
     _delete_owned_queue,
+    _owned_unacked,
+    _unacked_snapshot,
     _wait_broker_ack,
     _wait_worker_ready,
 )
@@ -714,32 +716,69 @@ async def _wait_failure_delivery_ack(
 ) -> dict:
     result = sender.AsyncResult(task_id)
     deadline = asyncio.get_running_loop().time() + timeout
+    last_state = None
+    last_observation = None
     while asyncio.get_running_loop().time() < deadline:
-        state = await asyncio.to_thread(lambda: result.state)
-        if state == "FAILURE":
-            broker = await asyncio.to_thread(_broker_snapshot, sender, worker.queue)
+        last_state = await asyncio.to_thread(lambda: result.state)
+        if last_state == "FAILURE":
+            snapshot = await asyncio.to_thread(
+                _unacked_snapshot, sender, worker.queue
+            )
+            owned_unacked = _owned_unacked(snapshot, worker.queue, task_id)
             inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
             active = await asyncio.to_thread(inspect.active)
             reserved = await asyncio.to_thread(inspect.reserved)
+            active_tasks = [
+                task
+                for tasks in (active or {}).values()
+                for task in tasks or []
+            ]
+            reserved_tasks = [
+                task
+                for tasks in (reserved or {}).values()
+                for task in tasks or []
+            ]
             outstanding = [
                 task
-                for snapshot in (active or {}, reserved or {})
-                for tasks in snapshot.values()
-                for task in tasks or []
+                for task in active_tasks + reserved_tasks
                 if task.get("id") == task_id
             ]
+            last_observation = {
+                "state": last_state,
+                "queue_size": snapshot["queue_size"],
+                "unacknowledged": len(owned_unacked),
+                "foreign_unacknowledged": len(snapshot["entries"]) - len(owned_unacked),
+                "active_replied": active is not None,
+                "reserved_replied": reserved is not None,
+                "active_contains_delivery": any(
+                    task.get("id") == task_id for task in active_tasks
+                ),
+                "reserved_contains_delivery": any(
+                    task.get("id") == task_id for task in reserved_tasks
+                ),
+            }
             if (
                 active is not None
                 and reserved is not None
                 and worker.node_name in active
                 and worker.node_name in reserved
-                and broker["queue_size"] == 0
-                and broker["unacknowledged"] == 0
+                and snapshot["queue_size"] == 0
+                and not owned_unacked
                 and not outstanding
             ):
-                return {"task_id": task_id, "state": state, **broker}
+                return {
+                    "task_id": task_id,
+                    "state": last_state,
+                    "queue_size": snapshot["queue_size"],
+                    "unacknowledged": len(owned_unacked),
+                    "foreign_unacknowledged": len(snapshot["entries"])
+                    - len(owned_unacked),
+                }
         await asyncio.sleep(0.25)
-    raise AssertionError("Failed export was not acknowledged by the broker")
+    raise AssertionError(
+        "Failed export was not acknowledged by the broker: "
+        f"{last_observation}"
+    )
 
 
 async def _create_fresh_job(

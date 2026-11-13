@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import contextmanager
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -13,6 +14,8 @@ from urllib.parse import urlsplit
 import uuid
 
 from celery import Celery
+from kombu.transport.redis import bytes_to_str as _kombu_bytes_to_str
+from kombu.transport.redis import loads as _kombu_loads
 from redis import Redis
 from sqlalchemy import select, text
 from sqlalchemy.engine import make_url
@@ -252,36 +255,68 @@ async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_i
     result = sender.AsyncResult(str(task_id))
     deadline = asyncio.get_running_loop().time() + 20
     last_state = None
+    last_observation = None
     while asyncio.get_running_loop().time() < deadline:
         last_state = await asyncio.to_thread(lambda: result.state)
         if last_state in {"FAILURE", "REVOKED"}:
             await asyncio.to_thread(result.get, propagate=True)
         if last_state == "SUCCESS":
-            broker = await asyncio.to_thread(_broker_state, sender, worker.queue)
+            snapshot = await asyncio.to_thread(
+                _unacked_snapshot, sender, worker.queue
+            )
+            owned_unacked = _owned_unacked(snapshot, worker.queue, task_id)
             inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
             active = await asyncio.to_thread(inspect.active)
             reserved = await asyncio.to_thread(inspect.reserved)
+            active_tasks = [
+                task
+                for tasks in (active or {}).values()
+                for task in tasks or []
+            ]
+            reserved_tasks = [
+                task
+                for tasks in (reserved or {}).values()
+                for task in tasks or []
+            ]
             outstanding = [
                 task
-                for snapshot in (active or {}, reserved or {})
-                for tasks in snapshot.values()
-                for task in tasks or []
+                for task in active_tasks + reserved_tasks
                 if task.get("id") == str(task_id)
             ]
+            last_observation = {
+                "queue_size": snapshot["queue_size"],
+                "unacknowledged": len(owned_unacked),
+                "foreign_unacknowledged": len(snapshot["entries"]) - len(owned_unacked),
+                "active_replied": active is not None,
+                "reserved_replied": reserved is not None,
+                "active_contains_delivery": any(
+                    task.get("id") == str(task_id) for task in active_tasks
+                ),
+                "reserved_contains_delivery": any(
+                    task.get("id") == str(task_id) for task in reserved_tasks
+                ),
+            }
             if (
                 active is not None
                 and reserved is not None
                 and worker.node_name in active
                 and worker.node_name in reserved
-                and broker["queue_size"] == 0
-                and broker["unacknowledged"] == 0
+                and snapshot["queue_size"] == 0
+                and not owned_unacked
                 and not outstanding
             ):
-                return {"task_id": str(task_id), **broker, "worker_answered": True}
+                return {
+                    "task_id": str(task_id),
+                    "queue_size": snapshot["queue_size"],
+                    "unacknowledged": len(owned_unacked),
+                    "foreign_unacknowledged": len(snapshot["entries"])
+                    - len(owned_unacked),
+                    "worker_answered": True,
+                }
         await asyncio.sleep(0.25)
     raise AssertionError(
         f"Celery task {task_id} did not reach success plus broker acknowledgement "
-        f"(last result state: {last_state})"
+        f"(last result state: {last_state}, last broker observation: {last_observation})"
     )
 
 
@@ -291,13 +326,68 @@ async def _wait_backend_request(event: threading.Event, worker) -> None:
     worker.assert_runtime()
 
 
-def _broker_state(sender: Celery, queue: str) -> dict[str, int]:
+def _unacked_snapshot(sender: Celery, queue: str) -> dict:
+    """Read the owned queue size and Kombu's per-tag unacked bookkeeping.
+
+    Kombu keeps every unacknowledged delivery in one Redis hash for the whole
+    database, so entries must be attributed to their envelope route before they
+    can be used as evidence about one worker's queue.
+    """
     with sender.connection_for_read() as connection:
         channel = connection.default_channel
+        client = channel.client
+        routes: dict[tuple[str, str], list[str]] = {}
+        entries = []
+        for raw_tag, raw_payload in client.hgetall(channel.unacked_key).items():
+            envelope = _kombu_loads(_kombu_bytes_to_str(raw_payload))
+            if not isinstance(envelope, list) or len(envelope) != 3:
+                raise AssertionError(
+                    "Kombu Redis unacked entry has an invalid envelope"
+                )
+            message, exchange, routing_key = envelope
+            if not isinstance(exchange, str) or not isinstance(routing_key, str):
+                raise AssertionError(
+                    "Kombu Redis unacked envelope has an invalid route"
+                )
+            route = (exchange, routing_key)
+            if route not in routes:
+                routes[route] = list(channel._lookup(exchange, routing_key))
+            headers = message.get("headers") if isinstance(message, dict) else None
+            entries.append(
+                {
+                    "tag_sha256": hashlib.sha256(
+                        _kombu_bytes_to_str(raw_tag).encode()
+                    ).hexdigest(),
+                    "task_id": headers.get("id") if isinstance(headers, dict) else None,
+                    "exchange": exchange,
+                    "routing_key": routing_key,
+                    "queues": routes[route],
+                }
+            )
         return {
             "queue_size": channel._size(queue),
-            "unacknowledged": channel.client.hlen(channel.unacked_key),
+            "entries": entries,
         }
+
+
+def _owned_unacked(snapshot: dict, queue: str, task_id=None) -> list[dict]:
+    """Select unacked deliveries routed to the owned queue or carrying its ID."""
+    wanted = str(task_id) if task_id is not None else None
+    return [
+        entry
+        for entry in snapshot["entries"]
+        if queue in entry["queues"]
+        or (wanted is not None and entry["task_id"] == wanted)
+    ]
+
+
+def _broker_state(sender: Celery, queue: str) -> dict[str, int]:
+    """Report only queue-scoped length and unacknowledged deliveries."""
+    snapshot = _unacked_snapshot(sender, queue)
+    return {
+        "queue_size": snapshot["queue_size"],
+        "unacknowledged": len(_owned_unacked(snapshot, queue)),
+    }
 
 
 async def _assert_worker_database_identity(test_engine, worker) -> None:
