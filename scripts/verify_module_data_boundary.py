@@ -185,6 +185,7 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_registry_ingress_v1.apply_observation(uuid,text,text,text,boolean,text,timestamptz,text,boolean,text)": "0388_inference_plugin_ingress.sql",
     "aap_inference_registry_ingress_v1.disconnect_env_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
     "aap_inference_registry_ingress_v1.tag_seed_registry(uuid,text)": "0388_inference_plugin_ingress.sql",
+    "aap_inference_registry_ingress_v1.tag_seed_registry_plugin_legacy(uuid,text)": "0457_inference_registry_seed_marker_revision.sql",
     "aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,uuid)": "0389_inference_deployment_usage.sql",
     "aap_labeling_v1.retryable_deployment_usage(uuid,uuid,uuid)": "0389_labeling_deployment_usage.sql",
     "aap_inference_backend_endpoint_v1.capture_backend_endpoint_subject(uuid,uuid,text,text)": "0371_inference_backend_endpoint_auth_revision.sql",
@@ -454,7 +455,7 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1._managed_original_import_prefix(text)",
             "aap_assets_v1._managed_original_scope_key(text,text)",
             "aap_assets_v1._operator_read_permit_purpose(uuid)",
-            "aap_assets_v1.begin_operator_auxiliary(jsonb)",
+            # begin_operator_auxiliary(jsonb) is superseded by 0458 below.
             "aap_assets_v1.publish_operator_auxiliary(uuid)",
             "aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)",
             "aap_assets_v1.operator_auxiliary_material(uuid,uuid)",
@@ -472,6 +473,7 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
         )
     },
+    "aap_assets_v1.begin_operator_auxiliary(jsonb)": "0458_upload_retry_after_failed_publication.sql",
     "aap_assets_v1.classify_fixture_original_reclaim(uuid,text)": "0432_assets_fixture_reclaim_guard.sql",
     "aap_assets_v1.is_fixture_original_source(text,text)": "0432_assets_fixture_source_guard.sql",
     "aap_assets_v1.guard_fixture_operator_source_receipt()": "0432_assets_fixture_source_guard.sql",
@@ -1830,6 +1832,8 @@ SQL_ARTIFACTS = (
     "0454_identity_first_seed_account.sql",
     "0455_images_output_ownership.sql",
     "0456_prediction_dataset_scope.sql",
+    "0457_inference_registry_seed_marker_revision.sql",
+    "0458_upload_retry_after_failed_publication.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
