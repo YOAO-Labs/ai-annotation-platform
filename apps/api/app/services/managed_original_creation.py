@@ -1180,11 +1180,21 @@ async def for_key(db, *, dataset_id, object_key):
         row = (
             (
                 await connection.execute(
-                    select(Creation.__table__).where(
+                    select(Creation.__table__)
+                    .where(
                         Creation.owner_kind == "dataset",
                         Creation.dataset_id == dataset_id,
                         Creation.object_key == object_key,
                     )
+                    # A retried publication keeps the same reserved key, so the
+                    # verified attempt is the current row; immutable failed
+                    # evidence for earlier attempts may also exist.
+                    .order_by(
+                        (Creation.status == "verified").desc(),
+                        Creation.allocated_at.desc(),
+                        Creation.id.desc(),
+                    )
+                    .limit(1)
                 )
             )
             .mappings()
@@ -1202,11 +1212,18 @@ async def for_task(db, *, task_id, object_key):
         row = (
             (
                 await connection.execute(
-                    select(Creation.__table__).where(
+                    select(Creation.__table__)
+                    .where(
                         Creation.owner_kind == "task",
                         Creation.task_id == task_id,
                         Creation.object_key == object_key,
                     )
+                    .order_by(
+                        (Creation.status == "verified").desc(),
+                        Creation.allocated_at.desc(),
+                        Creation.id.desc(),
+                    )
+                    .limit(1)
                 )
             )
             .mappings()

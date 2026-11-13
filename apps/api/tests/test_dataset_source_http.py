@@ -20,6 +20,14 @@ from tests.factory import create_project
 pytestmark = pytest.mark.asyncio
 
 
+@pytest.fixture(autouse=True)
+async def _source_storage_registry(db_session):
+    """Seed the committed storage registry facts the native source owner reads."""
+    from app.services.managed_original_creation import bootstrap
+
+    await bootstrap(db_session)
+
+
 def _headers(token, key=None):
     result = {"Authorization": f"Bearer {token}"}
     if key is not None:
@@ -207,31 +215,35 @@ async def _reserve(client, token, dataset_id, name="sub/source.jpg"):
 async def test_upload_staging_publication_and_duplicate_preserve_source(
     httpx_client, db_session, super_admin, monkeypatch
 ):
+    from io import BytesIO
+
+    from PIL import Image
+    from app.services import assets_source
+    from tests.test_datasets_upload_zip import (
+        _FakeDatasetSourceStorage,
+        _patch_storage_clients,
+    )
+
     user, token = super_admin
     dataset = await _dataset(db_session, user.id)
     dataset_id = dataset.id
     project = await create_project(db_session, owner_id=user.id)
     db_session.add(ProjectDataset(dataset_id=dataset_id, project_id=project.id))
     await db_session.flush()
-    signed, copied = [], []
+    signed = []
+    body = BytesIO()
+    Image.new("RGB", (20, 30), "red").save(body, format="PNG")
+    published_bytes = body.getvalue()
+    fake = _FakeDatasetSourceStorage()
+    _patch_storage_clients(monkeypatch, fake)
+    # The native workflow publishes through its own bounded managed client.
+    monkeypatch.setattr(assets_source, "_managed_client", lambda storage: fake)
 
     def sign(key, content_type, **kwargs):
         signed.append((key, kwargs["bucket"]))
         return "http://upload.test/opaque"
 
-    def copy(staging, final, **kwargs):
-        copied.append((staging, final, kwargs["etag"]))
-
     monkeypatch.setattr(storage_service, "generate_upload_url", sign)
-    monkeypatch.setattr(
-        storage_service,
-        "verify_upload",
-        lambda *args, **kwargs: {"ETag": '"' + "a" * 32 + '"', "ContentLength": 32},
-    )
-    monkeypatch.setattr(
-        storage_service, "read_image_dimensions", lambda *args, **kwargs: (20, 30)
-    )
-    monkeypatch.setattr(storage_service, "publish_dataset_upload", copy)
     _no_deletes(monkeypatch)
     first = await _reserve(httpx_client, token, dataset_id)
     second = await _reserve(httpx_client, token, dataset_id)
@@ -240,6 +252,8 @@ async def test_upload_staging_publication_and_duplicate_preserve_source(
         (f"dataset-uploads/{first}/source", storage_service.import_bucket),
         (f"dataset-uploads/{second}/source", storage_service.import_bucket),
     ]
+    fake.objects[f"dataset-uploads/{first}/source"] = published_bytes
+    fake.objects[f"dataset-uploads/{second}/source"] = published_bytes
     assert await db_session.get(DatasetItem, first) is None
     assert (
         await db_session.scalar(
@@ -252,21 +266,37 @@ async def test_upload_staging_publication_and_duplicate_preserve_source(
     assert response.status_code == 200, response.text
     assert response.json()["linked_tasks"] == 1
     item = await db_session.get(DatasetItem, first, populate_existing=True)
-    assert (item.width, item.height, item.file_size) == (20, 30, 32)
-    assert copied == [
-        (f"dataset-uploads/{first}/source", item.file_path, '"' + "a" * 32 + '"')
-    ]
+    assert (item.width, item.height, item.file_size) == (
+        20,
+        30,
+        len(published_bytes),
+    )
     assert item.file_path.startswith(f"dataset-sources/{dataset_id}/{first}/")
+    publications = [
+        key
+        for key in fake.objects
+        if key.startswith(f"dataset-sources/{dataset_id}/{first}/")
+    ]
+    assert len(publications) == 1
+    assert fake.objects[publications[0]] == published_bytes
     replay = await httpx_client.post(path, headers=_headers(token))
     assert replay.json() == response.json()
-    assert len(copied) == 1
+    assert (
+        len(
+            [
+                key
+                for key in fake.objects
+                if key.startswith(f"dataset-sources/{dataset_id}/{first}/")
+            ]
+        )
+        == 1
+    )
     duplicate = await httpx_client.post(
         f"/api/v1/datasets/{dataset_id}/items/upload-complete/{second}",
         headers=_headers(token),
     )
     assert duplicate.status_code == 409, duplicate.text
     assert duplicate.json()["detail"]["duplicate_of"] == str(first)
-    assert len(copied) == 1
     assert await db_session.get(DatasetItem, second) is None
     assert (
         await db_session.scalar(
@@ -320,6 +350,11 @@ async def test_upload_parent_mismatch_is_missing_and_other_actor_cannot_adopt(
         lambda *args, **kwargs: "http://upload.test/opaque",
     )
     item_id = await _reserve(httpx_client, token, left_id)
+    reserved = await db_session.get(
+        DatasetUploadIntent, item_id, populate_existing=True
+    )
+    initial_publication = reserved.publication_id
+    assert initial_publication is not None
 
     def forbidden(*args, **kwargs):
         pytest.fail("An invalid upload scope reached object storage")
@@ -339,7 +374,7 @@ async def test_upload_parent_mismatch_is_missing_and_other_actor_cannot_adopt(
     assert (
         intent.actor_id == user.id
         and intent.state == "pending"
-        and intent.publication_id is None
+        and intent.publication_id == initial_publication
     )
 
 

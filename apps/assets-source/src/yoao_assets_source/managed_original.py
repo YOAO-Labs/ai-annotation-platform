@@ -172,6 +172,15 @@ def _status(response: Any, allowed: tuple[int, ...] = (200,)) -> None:
 def _failure(exc: BaseException, code: str = "creation_io_failed") -> WriterError:
     if isinstance(exc, WriterError):
         return exc
+    from botocore.exceptions import ClientError
+
+    if isinstance(exc, ClientError):
+        error_code, status = _error(exc)
+        # A pinned read or conditional write rejected by its own precondition
+        # (or a vanished object) proves the source changed; it must not be
+        # reported as an unknown storage outage.
+        if error_code in ("PreconditionFailed", "412", "NoSuchKey", "404", "NotFound"):
+            return WriterError("creation_source_changed")
     if getattr(exc, "storage_operation_unsettled", False):
         return WriterError(code, "unknown")
     return WriterError(code)

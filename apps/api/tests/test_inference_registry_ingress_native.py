@@ -47,7 +47,9 @@ _FUNCTIONS = (
     f"{_SCHEMA}.sync_result(uuid,text)",
     f"{_SCHEMA}.record_sync_result(uuid,text,integer)",
 )
-_CATALOG_FUNCTIONS = (
+# The eleven fixed functions the ingress LOGIN may execute. Plugin installation
+# wraps four of them and keeps the renamed implementations in the same schema.
+_CLIENT_FUNCTIONS = (
     f"{_SCHEMA}.registry_ingress_policy()",
     f"{_SCHEMA}.registry_by_url(text)",
     f"{_SCHEMA}.registry_candidates(text)",
@@ -60,6 +62,13 @@ _CATALOG_FUNCTIONS = (
     f"{_SCHEMA}.sync_result(uuid, text)",
     f"{_SCHEMA}.record_sync_result(uuid, text, integer)",
 )
+_PLUGIN_LEGACY_FUNCTIONS = (
+    f"{_SCHEMA}.create_registry_plugin_legacy(uuid, text, text, text, boolean, text)",
+    f"{_SCHEMA}.apply_observation_plugin_legacy(uuid, text, text, text, boolean, text, timestamp with time zone, text, boolean, text)",
+    f"{_SCHEMA}.disconnect_env_registry_plugin_legacy(uuid, text)",
+    f"{_SCHEMA}.tag_seed_registry_plugin_legacy(uuid, text)",
+)
+_CATALOG_FUNCTIONS = tuple(sorted(_CLIENT_FUNCTIONS + _PLUGIN_LEGACY_FUNCTIONS))
 _POLICY_VALUE = {
     "schema": "aap-inference-registry-ingress-native/v1",
     "data_protocol": "aap-inference-registry-ingress/v1",
@@ -823,7 +832,7 @@ async def test_registry_ingress_client_has_only_the_eleven_fixed_functions(
                ORDER BY signature""",
             _SCHEMA,
         )
-        assert [row["signature"] for row in metadata] == sorted(_CATALOG_FUNCTIONS)
+        assert {row["signature"] for row in metadata} == set(_CATALOG_FUNCTIONS)
         for function in metadata:
             assert function["owner"] == "inference_code"
             assert function["security_definer"] is True
@@ -846,7 +855,7 @@ async def test_registry_ingress_client_has_only_the_eleven_fixed_functions(
             _SCHEMA,
             _ROLE,
         )
-        assert {row["signature"] for row in actual} == set(_CATALOG_FUNCTIONS)
+        assert {row["signature"] for row in actual} == set(_CLIENT_FUNCTIONS)
         assert await owner.fetchval(
             "SELECT pg_catalog.has_schema_privilege($1, $2, 'USAGE')",
             _ROLE,

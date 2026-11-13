@@ -10,8 +10,8 @@ from sqlalchemy import (
     Index,
     String,
     Text,
-    UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -79,11 +79,24 @@ staging_ref IS NULL OR COALESCE((
 class ManagedOriginalCreation(Base):
     __tablename__ = "managed_original_creations"
     __table_args__ = (
-        UniqueConstraint(
+        # Retaining a settled failed attempt must not release its reserved
+        # key for the next attempt; only terminal failed/conflict evidence may
+        # share it, while allocated/verified/unknown rows still own the key.
+        Index(
+            "uq_managed_creation_reserved_key_active",
             "storage_identity",
             "bucket",
             "object_key",
-            name="uq_managed_creation_reserved_key",
+            unique=True,
+            postgresql_where=text("status NOT IN ('failed','conflict')"),
+        ),
+        Index(
+            "uq_managed_creation_staging_key_active",
+            "staging_key",
+            unique=True,
+            postgresql_where=text(
+                "staging_key IS NOT NULL AND status NOT IN ('failed','conflict')"
+            ),
         ),
         Index("ix_managed_creation_dataset", "dataset_id", "allocated_at", "id"),
         Index("ix_managed_creation_task", "task_id", "allocated_at", "id"),
@@ -165,7 +178,7 @@ class ManagedOriginalCreation(Base):
     input_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     maintenance_revision: Mapped[int] = mapped_column(nullable=False)
     staging_bucket: Mapped[str | None] = mapped_column(String(255))
-    staging_key: Mapped[str | None] = mapped_column(String(1000), unique=True)
+    staging_key: Mapped[str | None] = mapped_column(String(1000))
     staging_ref: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="allocated"

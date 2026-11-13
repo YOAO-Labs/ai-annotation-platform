@@ -12,13 +12,14 @@ from __future__ import annotations
 
 import hashlib
 import io
+from datetime import datetime, timezone
 import uuid
 import zipfile
-from unittest.mock import AsyncMock
 
 import pytest
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import async_sessionmaker
 from botocore.exceptions import ClientError
 
 from app.config import settings
@@ -26,6 +27,15 @@ from app.db.models.dataset import Dataset, DatasetItem, Scene
 from app.services.storage import TRUSTED_NUSCENES_PREFIX, storage_service
 
 pytestmark = pytest.mark.asyncio
+
+
+@pytest.fixture(autouse=True)
+async def _source_storage_registry(test_engine):
+    """The native source owner reads committed storage registry facts."""
+    from app.services.managed_original_creation import bootstrap
+
+    async with async_sessionmaker(test_engine, expire_on_commit=False)() as db:
+        await bootstrap(db)
 
 
 # ──────────────────────────── helpers ────────────────────────────────────────
@@ -48,6 +58,10 @@ class _FakeDatasetSourceStorage:
     def _etag(body: bytes) -> str:
         return f'"{hashlib.md5(body).hexdigest()}"'
 
+    @staticmethod
+    def _ok(payload):
+        return {**payload, "ResponseMetadata": {"HTTPStatusCode": 200}}
+
     def put_object(self, *, Bucket, Key, Body, ContentType=None, IfNoneMatch=None):
         if hasattr(Body, "read"):
             Body = Body.read()
@@ -55,7 +69,7 @@ class _FakeDatasetSourceStorage:
         if Key in self.objects:
             raise ClientError({"Error": {"Code": "PreconditionFailed"}}, "PutObject")
         self.objects[Key] = body
-        return {"ETag": self._etag(body)}
+        return self._ok({"ETag": self._etag(body)})
 
     def head_object(self, *, Bucket, Key, IfMatch=None):
         body = self.objects.get(Key)
@@ -64,7 +78,15 @@ class _FakeDatasetSourceStorage:
         etag = self._etag(body)
         if IfMatch is not None and IfMatch != etag:
             raise ClientError({"Error": {"Code": "412"}}, "HeadObject")
-        return {"ContentLength": len(body), "ETag": etag}
+        return self._ok(
+            {
+                "ContentLength": len(body),
+                "ETag": etag,
+                # Managed publication pins the observed object identity.
+                "LastModified": datetime(2024, 1, 1, tzinfo=timezone.utc),
+                "ContentType": "application/octet-stream",
+            }
+        )
 
     def get_object(self, *, Bucket, Key, Range=None, IfMatch=None):
         metadata = self.head_object(Bucket=Bucket, Key=Key, IfMatch=IfMatch)
@@ -110,11 +132,11 @@ class _FakeDatasetSourceStorage:
         self._next_upload_id += 1
         upload_id = str(self._next_upload_id)
         self.parts[upload_id] = []
-        return {"UploadId": upload_id}
+        return self._ok({"UploadId": upload_id})
 
     def upload_part(self, *, Bucket, Key, PartNumber, UploadId, Body):
         self.parts[UploadId].append(bytes(Body))
-        return {"ETag": f'"part-{PartNumber}"'}
+        return self._ok({"ETag": f'"part-{PartNumber}"'})
 
     def complete_multipart_upload(
         self, *, Bucket, Key, UploadId, MultipartUpload, IfNoneMatch="*"
@@ -124,7 +146,7 @@ class _FakeDatasetSourceStorage:
                 {"Error": {"Code": "PreconditionFailed"}}, "CompleteMultipartUpload"
             )
         self.objects[Key] = b"".join(self.parts.pop(UploadId))
-        return {"ETag": self._etag(self.objects[Key])}
+        return self._ok({"ETag": self._etag(self.objects[Key])})
 
     def abort_multipart_upload(self, *, Bucket, Key, UploadId):
         self.parts.pop(UploadId, None)
@@ -423,10 +445,15 @@ async def test_upload_zip_cross_dir_same_name_dedup_by_hash(
 async def test_upload_zip_rollback_retains_old_and_new_immutable_source_bytes(
     httpx_client, db_session, super_admin, monkeypatch
 ):
+    from app.services import assets_source
+
     _, token = super_admin
     _use_local_source_runtime(monkeypatch)
     fake_client = _FakeDatasetSourceStorage()
     _patch_storage_clients(monkeypatch, fake_client)
+    # Managed publications use a dedicated bounded client; bind it to the fake
+    # for this test only so the immutable source bytes stay inspectable.
+    monkeypatch.setattr(assets_source, "_managed_client", lambda storage: fake_client)
     ds = await _create_dataset(
         httpx_client, token, f"immutable-{uuid.uuid4().hex[:6]}", "other"
     )
@@ -453,11 +480,18 @@ async def test_upload_zip_rollback_retains_old_and_new_immutable_source_bytes(
     old_key = first_item.file_path
     assert fake_client.objects[old_key] == first_bytes
 
-    monkeypatch.setattr(
-        db_session,
-        "commit",
-        AsyncMock(side_effect=SQLAlchemyError("forced outer commit failure")),
-    )
+    # The ingest endpoint commits twice while admitting authority before it
+    # parses the archive; fail only the publication commit that follows.
+    original_commit = db_session.commit
+    commits = {"count": 0}
+
+    async def fail_publication_commit():
+        commits["count"] += 1
+        if commits["count"] >= 3:
+            raise SQLAlchemyError("forced outer commit failure")
+        return await original_commit()
+
+    monkeypatch.setattr(db_session, "commit", fail_publication_commit)
     replacement_bytes = b"new source bytes"
     failed_response = await httpx_client.post(
         f"/api/v1/datasets/{ds_id}/items/upload-zip",
