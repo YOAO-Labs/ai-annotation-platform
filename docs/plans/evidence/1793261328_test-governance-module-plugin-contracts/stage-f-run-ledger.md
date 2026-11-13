@@ -435,3 +435,10 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - 第三轮修正候选：`370f886e0` 补齐 0440 已拆出的准确辅助原件 DELETE guard 及其空事务 marker 表，不复制退役命令、授权或共享 fixture 状态；复合异常消费者保留取消、原始关闭错误、unknown 状态和持久 permit。`2eb2dcde5` 让原生扫描案例从已有字节经过实际 adoption／全量读校验后完成，断言没有上传／删除、摘要已持久化且不生成场景。主进程将断言限定到 SQLSTATE／错误类型等语义，并把 API-only 目录夹具的缩略图公开地址配置为本次真实 MinIO，不新增产品兼容分支。尚待第三轮定向验证。
 - 候选 `bf1a38543` 刷新十八项索引并通过预检，本次仅 API／Workspace API／Identity API 三个变化制品重建，七项已有当前输入有效回执、八项未变复用。第三轮 `t1-repairs-3` 四个夹具／目录文件加原生扫描单项共 77 passed、0 failures／errors／skipped，JUnit 109.399 秒；迁移头 `bo0459`，cleanup errors 为空，数据库／存储／bootstrap 正常退役。完整 `t1-gate-1` 已在同一冻结候选上启动，未传 test-file 或 retain 标志；在完整 profile 结果返回前不判 T1／T2 通过。
 - 三个已验证的 follow-up 实现工作树经准确 HEAD、干净状态和任务进程工作目录检查后正常移除，分支保留；本轮累计退役十三个实现工作树。系统 PAM／SSH 的不可读 cwd 按已核对的 PID／启动身份排除，并记入私有 `retirement-20261113/followup-worktree-retirement.json`。完整门仍使用独立 gate checkout；没有清理日常服务、共享缓存、最新制品或未合入的 downgrade 候选。
+
+## 2026-11-13 N5 授权与安全识别准备
+
+- 用户要求 v1 前完成技术及产品语言收尾，批准开始 N5；当前范围为 N5-S 双 namespace 安全识别及 N5-W 单项 Workspace owner-transfer。数据库 schema downgrade 仍不在 Beta 范围；事务回滚、受限权限、前向原子性和当前恢复资格保持。T1 的冻结候选 `bf1a38543` 继续后台验收，不因新开发重启，也不冒充 N5 结果。
+- 实际配置确认原有 `retry.fallbackChains.task` 已包含 `deepseek/deepseek-flash`；按用户要求及保存选择，将 `task.agentModelOverrides.task` 固定为同一模型并持久保存，其他角色配置不变。两份实现工作树基于 `d64af7e99`：`N5RuntimeSecurity` 负责活跃 Python／Node 安全分类器及真实 LOGIN 回归，`N5GrantSecurity` 负责逐 owner grants 识别及实际脚本消费者回归；均不运行构建／测试。主进程独占共享 grants／验证器／运行资源及集成验收，未激活新 owner，未改历史 SQL 工件或请求／回执身份。
+- **N5-S 源码集成：** `2d7d887c4`／`ec47bcf7e`／`aa4814b80` 集成运行时分类器、74 份 owner grants 与真实 PostgreSQL 回归入口；主代理补齐共享 grants、LAN 私有关系识别和 verifier 默认测试清单。审查中移除了固定名称的预清理，改为逐例 UUID 归属、准确 PostgreSQL 容器核验与实际 migration owner；拒绝断言使用 SQLSTATE／权限和事务状态。另修正两处重复 `()` SQL 探针，密码经子进程环境传入而非命令参数。两名子代理曾因相对路径工具边界误写主检出，均已将自己的变更移回独立工作树并撤回主检出的对应临时写入；共享父级文件未纳入其提交。
+- **资格边界：** 本次是源码集成，不是测试通过记录。仍等待独占真实验收窗口；`t1-gate-1` 固定在旧 `bf1a38543`，不修改其检出、不继承其结果为 N5 资格。N5-W 继续按批准的 owner-transfer 切片实施，后续集中执行定向组合验收。

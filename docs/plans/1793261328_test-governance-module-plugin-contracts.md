@@ -1166,6 +1166,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 
 2026-11-13 用户进一步明确：当前 Beta 阶段不要求数据库降级／回退资格，正式版发布时再评估。阶段 F 的迁移验收聚焦全新库前向安装、既有状态前向升级及当前合同；不再为历史降级链补实现或把降级 roundtrip 作为 T1 阻塞。事务失败回滚、升级拒绝时的原子性、当前 head 的 dump／restore、权限隔离、数据完整性和物理排空仍必须验证。历史降级证据仅作为历史保留，不冒称当前具备回退能力。
 
+用户随后明确以 v1 正式版前完成技术与产品语言收尾为目标，并批准开始 N5-S 及既定的 N5-W 负责人移交能力切片。当前 T1 在冻结候选上继续后台运行，N5 的源码实施不再等待这一长任务结束；这不是豁免 T1／T2 或把旧候选结果记为 N5 通过。N5-S 先补齐新旧 namespace 的安全识别，N5-W 再沿已审核的安全基线实施前向切换；真实切换和验收仅使用准确归属的可销毁环境，不采用到日常／生产。OMP `task` 子代理按用户指定使用 `deepseek/deepseek-flash`，主进程仍持有共享文件、审核、集成及真实验收。日常修改只运行受影响检查，完整门用于收口或后台基线，不因每次局部修改重新启动。
+
 ### 16.2 T1：补完整资格，不重建结果门
 
 当前 `scripts/test-suites.json` 和 `verify_module_data_boundary.py::_passed_test_count` 已有真实执行归属与严格结果对账，分别不再当作“拟新增清单”和“仅要求至少一项通过”的缺口。本轮重点是阶段 E 四项函数权限场景没有覆盖的 **当前默认 module-data 验证器组合门**。
@@ -1238,15 +1240,15 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 | N4-D1 run／study 草稿         | 已完成功能验收                                                                   | `38e3ce262`（`fc4a32760`／`e28776742`／`250b168b8`）                                                                         | 无（`cleanup_safety_qualified=false` 见 §16.8） |
 | N4-D2 数据集请求草稿          | 已完成独立验收                                                                   | `6a86e7987`／`f7df93b55`                                                                                                     | 无                                              |
 | N4-D3 导入文字草稿            | 已完成独立验收                                                                   | `ec897f30b`                                                                                                                  | 无                                              |
-| N5-S 新 namespace 安全识别    | 阻塞，批准门未开放                                                               | §16.4 合同                                                                                                                   | 需单独批准与真实拒绝证据                        |
-| N5-W Workspace owner-transfer | 阻塞，批准门未开放                                                               | §16.4 合同                                                                                                                   | 需单独批准；依赖 N5-S                           |
+| N5-S 新 namespace 安全识别    | 源码已集成，真实资格待完成                                                       | `2d7d887c4`／`ec47bcf7e`／`aa4814b80`，共享 grants／verifier 同步补齐；未改变正向权限白名单                                    | 实际受限 LOGIN 与越权拒绝证据待完成            |
+| N5-W Workspace owner-transfer | 实施中，使用 N5-S 集成基线                                                       | §16.4 合同；保留旧请求／回执身份和历史 SQL，不保留活跃 RPC alias                                                               | 前向切换与真实消费者组合验收待完成              |
 | N6-K 技能发现                 | 已完成                                                                           | `d4fc25259`                                                                                                                  | 无                                              |
 | J1 集成组合门                 | 阻塞，批准门未开放                                                               | §16.5                                                                                                                        | 依赖 T1／T2 与 N5 切片                          |
 | N6-S export 新分配            | 阻塞，批准门未开放                                                               | §16.4 合同                                                                                                                   | 需单独批准                                      |
 | N6-E 本地环境采用             | 阻塞，批准门未开放                                                               | §16.4 合同                                                                                                                   | 需单独批准；依赖 N6-S                           |
 | J2 新命名环境收口             | 阻塞，批准门未开放                                                               | §16.5                                                                                                                        | 依赖 N6-S／N6-E                                 |
 
-八个批准门中只有 F0 实施批准与 N4-F 格式批准两项解除，其余六项（N5-S、N5-W、N6-S、N6-E、J1、J2）保持未开放。阶段 F 集成线已作为 `c60d8c734` 合入 `feat/backend-opt`，这是 Git 集成，不是 J1 判定，也不改变上表任何任务的状态。
+八个批准门中 F0、N4-F、N5-S、N5-W 已获批准；N6-S、N6-E、J1、J2 四项仍未开放。批准实施不等于资格通过。阶段 F 集成线已作为 `c60d8c734` 合入 `feat/backend-opt`，这是 Git 集成，不是 J1 判定，也不改变上表未完成任务的验收状态。
 
 2026-11-12 用户暂停阶段 F（不推进整体计划）。全部保留的阶段 F 测试环境、旧验收镜像、`/tmp` 根和 83 个干净工作树已在导出证据后整实例退役，回执、数据库 dump 与对象清单见 Run 私有目录 `retired-environments/20261112/README.md`；这是强制整实例退役，不是产品清理资格，也不关闭 §16.7 的任何一项。日常／生产／F0 保护资源、本 checkout 的 `yoao-stage-f-*-074930` 私有基础设施及最新 18 个制品镜像保留。保留规则改为“保留失败证据，不保留失败现场”，见 runtime 技能的[环境保留规则](../../.agents/skills/yoao-runtime/references/environment-retention.md)。
 
@@ -1258,7 +1260,7 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 - **held-inference 邻居测试与 `batch_predict` 数据集范围（已通过）。** 此前 A 的真实 `batch_predict` 被物理挂起时，清理无关的 run C 得到 409 `fixture_dataset_job_unsettled`：`guard_fixture_dataset_jobs` 遇到任何范围未知、未退役的 Job 都拒绝清理，而 `fixture_job_dataset_scope` 不识别 `batch_predict`。`bo0456`（集成为 `59675c3f6`）在 fixture 预测 Job 出生时，由出生 payload 的准确 `task_ids` 经 Task、DatasetItem 解析出数据集集合，写入只允许出生触发器插入、不可更新或删除的 `aap_jobs_v1.fixture_prediction_job_datasets`；只有出生记录的 project／actor 与 Job 一致时，范围函数才返回这些数据集。缺少绑定、旧行或不一致时仍为 unknown 并继续阻塞。该 `task_ids` 是请求选择器，执行集合只会更小；全项目作业不带 `task_ids`，保持 unknown。两个守卫函数与退役证明均未改动。module-data 验证器单项 1 通过、exit 0，迁移头 `bo0456`，同时首次证明了新授权；测试模式 `test_fixture_run_ownership.py` 19 项通过。
 - **T2 组合门的最低剩余范围。** 单个 family 的通过只关闭自己：四项入口均已单独通过，T2 仍须由默认完整 T1 的 owned、截图、identity 双运行与 scale profile 覆盖交错通道。任何一项使用静态检查、`--help` 烟测或邻居单方面通过都不构成组合门通过。
 - **#151／#152 与单次原件身份 409。** 三项仍按原归属单独跟踪：#152 的三视频／126-output 退出门未通过，精确清理的一组通过不关闭它；#151 的长驻环境延迟与 409 归因也未被任何切片证明关闭。修复只跟随有因果证据且阻塞已批准切片的问题，不增加重试或时限、不删除失败项。
-- **六个后继批准门。** N5-S、N5-W、N6-S、N6-E、J1、J2 从未开放，账本中也没有它们的通过记录；当前 Beta 只做明确单次切换，不新增旧任务续跑兼容层、永久双写或孤立对象自动认领。
+- **四个后继批准门。** N6-S、N6-E、J1、J2 仍未开放，账本中也没有它们的通过记录；新获批准的 N5 只覆盖共享安全识别与负责人移交能力，不扩到全部 owner／GUC 或环境采用。当前 Beta 只做明确单次切换，不新增旧任务续跑兼容层、永久双写或孤立对象自动认领。
 - **暂停期间的未提交工作（2026-11-12 已处置）。** 六个保留工作树经审查后处置：`stage-f-raster-retirement-diagnostic`／`-guard` 只含向冻结 `0434` SQL 写入的 `RAISE LOG` 与 stderr 诊断插桩，丢弃；`worktree-agent-stage-f-config-authority`、`-integration-074930`、`-reader-drain` 的提交已在 `feat/backend-opt`（patch-equivalent，或 `e810718d3` 等同名后续修订），未提交新增行均已在主线中或被更新实现取代，丢弃。`worktree-agent-stage-f-pyramid-owner-read` 的 native pyramid output ownership 半成品（含 `bo0455`）迁入新工作树完成后集成为 `6304b7969`。另删除 114 个无工作树、已合入（祖先、完整 patch-equivalent 或新增行全部在主线）的阶段 F 历史分支；21 个仍含主线缺失行的历史分支保留待需要时单独审查。各工作树补丁、HEAD、`.worktree/` 状态及两份分支清单保存在 Run 私有目录 `retired-environments/20261112/paused-worktrees/`。
 
 ### 16.8 已关闭切片

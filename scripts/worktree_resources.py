@@ -382,7 +382,7 @@ BEGIN
                     'password_reset_tokens','email_verification_tokens')
                 OR pg_catalog.left(c.relname,9)='identity_'
             )) OR (
-                n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+                n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
                 AND c.relkind <> 'v'
             )
         )

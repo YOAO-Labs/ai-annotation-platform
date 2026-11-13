@@ -3693,7 +3693,8 @@ BEGIN
            JOIN pg_catalog.pg_namespace AS namespace
              ON namespace.oid = proc.pronamespace
            WHERE namespace.nspname <> 'aap_assets_v1'
-             AND pg_catalog.left(namespace.nspname, 4) = 'aap_'
+             AND (pg_catalog.left(namespace.nspname, 4) = 'aap_'
+                  OR pg_catalog.left(namespace.nspname, 5) = 'yoao_')
              AND pg_catalog.right(namespace.nspname, 3) = '_v1'
              AND pg_catalog.has_function_privilege(
                  current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'

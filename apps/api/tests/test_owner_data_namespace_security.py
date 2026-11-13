@@ -42,6 +42,7 @@ def _client_dsn(test_engine) -> str:
     value = os.environ.get("AAP_MODULE_DATA_WORKSPACE_OWNER_TRANSFER_URL")
     assert value
     parsed = make_url(value)
+    assert parsed.host == "127.0.0.1"
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
     assert parsed.username == _ROLE
     assert (parsed.host, parsed.port, parsed.database) == (

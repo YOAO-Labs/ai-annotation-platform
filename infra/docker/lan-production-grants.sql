@@ -1082,7 +1082,7 @@ BEGIN
             SELECT c.oid FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE c.relkind IN ('r','p','v','m','f') AND (
-                n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+                n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
                 OR (n.nspname='public' AND (
                     c.relname IN ('projects','project_members','project_templates',
                         'project_deletion_operations','dataset_unlink_operations')
@@ -1098,9 +1098,9 @@ BEGIN
         SELECT relowner FROM pg_catalog.pg_class WHERE oid=ANY(v_relations)
         UNION SELECT p.proowner FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
         UNION SELECT nspowner FROM pg_catalog.pg_namespace
-        WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
         UNION SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user
     );
     IF EXISTS (SELECT FROM pg_catalog.unnest(v_owners) owner_oid
@@ -1142,7 +1142,7 @@ BEGIN
         SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind='S' AND (
-            n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+            n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
             OR (n.nspname='public' AND c.relname IN (
                 'display_seq_projects','display_seq_project_templates'
             ))
@@ -1160,7 +1160,7 @@ BEGIN
         END IF;
     END LOOP;
     FOR v_schema IN SELECT oid,nspname FROM pg_catalog.pg_namespace
-        WHERE nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE pg_catalog.format('REVOKE CREATE ON SCHEMA %I FROM %I, PUBLIC',
             v_schema.nspname,v_runtime);
@@ -1176,7 +1176,7 @@ BEGIN
         LEFT JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace
         WHERE d.defaclrole=ANY(v_owners) AND d.defaclobjtype IN ('r','S')
           AND (d.defaclnamespace=0 OR n.nspname='public'
-               OR n.nspname ~ '^aap_workspace(_[a-z0-9]+)*_v[0-9]+$')
+               OR n.nspname ~ '^(aap|yoao)_workspace(_[a-z0-9]+)*_v[0-9]+$')
           AND EXISTS (SELECT FROM pg_catalog.aclexplode(d.defaclacl) a
                       WHERE a.grantee IN (0,v_runtime_oid))
     LOOP
@@ -1271,7 +1271,8 @@ BEGIN
         FROM pg_catalog.pg_proc AS proc
         JOIN pg_catalog.pg_namespace AS namespace
           ON namespace.oid = proc.pronamespace
-        WHERE pg_catalog.left(namespace.nspname, 4) = 'aap_'
+        WHERE (pg_catalog.left(namespace.nspname, 4) = 'aap_'
+               OR pg_catalog.left(namespace.nspname, 5) = 'yoao_')
           AND pg_catalog.right(namespace.nspname, 3) = '_v1'
           AND NOT proc.oid = ANY(cleanup_functions)
           AND pg_catalog.has_function_privilege(
@@ -1312,7 +1313,7 @@ BEGIN
                     'password_reset_tokens','email_verification_tokens')
                 OR pg_catalog.left(c.relname,9)='identity_'
             )) OR (
-                n.nspname ~ '^aap_identity(_[a-z0-9]+)*_v[0-9]+$'
+                n.nspname ~ '^(aap|yoao)_identity(_[a-z0-9]+)*_v[0-9]+$'
                 AND c.relkind <> 'v'
             )
         )
@@ -1382,7 +1383,7 @@ BEGIN
             SELECT c.oid FROM pg_catalog.pg_class c
             JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
             WHERE (n.nspname='public' AND c.relname=ANY(v_tables))
-               OR (n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+               OR (n.nspname ~ '^(aap|yoao)_labeling(_[a-z0-9]+)*_v[0-9]+$'
                    AND c.relkind IN ('r','p','m','f'))
             UNION
             SELECT i.inhrelid FROM pg_catalog.pg_inherits i
@@ -1393,7 +1394,7 @@ BEGIN
         SELECT relowner FROM pg_catalog.pg_class WHERE oid=ANY(v_private)
         UNION SELECT p.proowner FROM pg_catalog.pg_proc p
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
-        WHERE n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE n.nspname ~ '^(aap|yoao)_labeling(_[a-z0-9]+)*_v[0-9]+$'
         UNION SELECT oid FROM pg_catalog.pg_roles WHERE rolname=current_user
     );
     IF EXISTS (SELECT FROM pg_catalog.unnest(v_owners) owner_oid
@@ -1428,7 +1429,7 @@ BEGIN
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
         WHERE c.relkind='S' AND (
             (n.nspname='public' AND c.relname IN ('display_seq_tasks','display_seq_batches'))
-            OR n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+            OR n.nspname ~ '^(aap|yoao)_labeling(_[a-z0-9]+)*_v[0-9]+$'
             OR EXISTS (SELECT FROM pg_catalog.pg_depend d
                        WHERE d.classid='pg_catalog.pg_class'::pg_catalog.regclass
                          AND d.objid=c.oid AND d.refclassid=d.classid
@@ -1445,7 +1446,7 @@ BEGIN
     FOR v_relation IN
         SELECT c.oid,n.nspname,c.relname FROM pg_catalog.pg_class c
         JOIN pg_catalog.pg_namespace n ON n.oid=c.relnamespace
-        WHERE c.relkind='v' AND n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$'
+        WHERE c.relkind='v' AND n.nspname ~ '^(aap|yoao)_labeling(_[a-z0-9]+)*_v[0-9]+$'
     LOOP
         EXECUTE pg_catalog.format(
             'REVOKE INSERT,UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER ON TABLE %I.%I FROM %I, PUBLIC',
@@ -1473,7 +1474,7 @@ BEGIN
         LEFT JOIN pg_catalog.pg_namespace n ON n.oid=d.defaclnamespace
         WHERE d.defaclrole=ANY(v_owners) AND d.defaclobjtype IN ('r','S')
           AND (d.defaclnamespace=0 OR n.nspname='public'
-               OR n.nspname ~ '^aap_labeling(_[a-z0-9]+)*_v[0-9]+$')
+               OR n.nspname ~ '^(aap|yoao)_labeling(_[a-z0-9]+)*_v[0-9]+$')
           AND EXISTS (SELECT FROM pg_catalog.aclexplode(d.defaclacl) a
                       WHERE a.grantee IN (0,v_runtime_oid))
     LOOP

@@ -662,6 +662,8 @@ C1–C5 已由五个隔离工作树完成，主进程审核合入并完成组合
 
 2026-11-13 用户补充：本阶段不要求数据库降级／回退，正式版再评估；当前只验证前向安装／升级及现行合同，不削减事务失败回滚、数据完整性、受限权限和物理退役。具体执行口径与逐次证据以测试治理计划第 16 节和运行账本为准。
 
+用户随后明确要求在 v1 正式版前完成技术与产品语言收尾，并批准先推进 N5-S／N5-W。本轮仍只切负责人移交这一项能力，不因此授权全部 owner／GUC、N6 环境采用或公开发布。T1 在冻结候选上后台独立验收，不阻塞 N5 源码实施，也不把旧候选的结果标成新切片通过。子代理改用 OMP 内置 `task` 的 `deepseek/deepseek-flash`，各自独立工作树；主进程审核集成并完成定向真实验收。
+
 ### 16.2 七路首批与受控后继
 
 F0 先冻结当前合同、历史输入、独立期望、准确资源清单和共享文件责任。批准后可并行启动七路：T1、T2、N4-F、N4-D1、N4-D2、N4-D3、N6-K；N4-F 另有公开格式合同门。源码并行不等于同库、同桶、同设备或验收进程可以任意并行。
@@ -675,15 +677,15 @@ F0 先冻结当前合同、历史输入、独立期望、准确资源清单和�
 | N4-D1 训练草稿          | `trainingDraftStorage`、`useTrainingDraft`、训练与研究创建页                   | F0；保持 `trainingDraftOwner(userId, projectId)` 接口           |
 | N4-D2 数据集请求草稿    | `trainingDatasetDraftStorage`、`ProjectLearningPage`                           | F0；不改 D1 文件，完整转换存储键及内嵌 `ownerKey`               |
 | N4-D3 导入文字草稿      | `storageNavigation`、`ImportDatasetWizard`                                     | F0；保持 sessionStorage、当前会话／数据集范围与非秘密字段白名单 |
-| N5-S 安全识别准备       | 当前 grants／权限分类器、`owner_data`；共享验证器及运行 ACL 由主进程集成       | T1＋独立批准门；同时保护旧、新 namespace，不激活新 owner        |
-| N5-W Workspace 能力试点 | 新前向迁移、owner-transfer 的 Python／Node 调用、专用 LOGIN 与两个公开函数     | N5-S＋停止旧写者／恢复批准门；不改整个 `aap_workspace_v1`       |
+| N5-S 安全识别准备       | 当前 grants／权限分类器、`owner_data`；共享验证器及运行 ACL 由主进程集成       | 实施已批准；T1 基线后台独立核验，同时保护旧、新 namespace，不激活新 owner |
+| N5-W Workspace 能力试点 | 新前向迁移、owner-transfer 的 Python／Node 调用、专用 LOGIN 与两个公开函数     | 实施已批准；基于已集成 N5-S，真实停旧写者／前向切换单独验证；不改整个 Workspace |
 | N6-K 项目技能发现       | 仓内 `aap-*` skill 名、单一指令来源与符号链接／引用                            | F0；只改当前 checkout，在全新会话验证发现，不写用户全局目录     |
 | J1 首批集成验收         | 主进程审核合入、共享文件、真实消费者及文档                                     | 上述首批和 N5-W 均通过；人工集成门不替代真实 Git 证据           |
 | N6-S 新存储分配试点     | export 用途的分配／CHECK／IAM／读取／清理／恢复                                | J1＋准确范围批准门；其他用途和引用哨兵不随之切换                |
 | N6-E 可销毁环境采用     | worktree 命名、owner 标签、模式变量及所有真实生产者／消费者                    | J1＋准确环境批准门；与 N6-S 独立工作树，不触碰日常／生产环境    |
 | J2 状态性组合收尾       | 新环境上的新分配、旧数据读取、恢复、精确退役与记录                             | N6-S、N6-E 汇合；由主进程执行最终批准／集成门                   |
 
-实施 worker 沿用 OMP `openai-codex/gpt-6.1-terra`、reasoning `xhigh`，各用独立工作树和真实提交；主进程负责审核、合入和组合验收。后继任务必须从已包含审核后前置提交的集成基线开始，不因 Orca dependency completed 就假定源码已合并。迁移 head、共享 grants／验证器、两份总计划和 CHANGELOG 均只有一个集成 owner；N4-F 独占其生成合同。实施中不逐文件启动检查，完整切片后执行对应验收，正常提交钩子不绕过。
+实施 worker 使用 OMP 内置 `task` 与用户指定的 `deepseek/deepseek-flash`，各用独立工作树和真实提交；主进程负责审核、合入和组合验收。后继任务必须从已包含审核后前置提交的集成基线开始，不因子代理 completed 就假定源码已合并。迁移 head、共享 grants／验证器、两份总计划和 CHANGELOG 均只有一个集成 owner；N4-F 独占其生成合同。子代理不在实施中运行 build／test／lint／formatter，主进程在完整切片边界集中执行受影响验收。
 
 ### 16.3 N4 的具体合同与验收边界
 
@@ -733,4 +735,5 @@ N6-E 只采用可销毁本地模式的新资源命名与 `YOAO_WORKTREE_MODE`。
 - **N4-D2 已完成独立验收：** `6a86e7987`／`f7df93b55`；完整新 `ownerKey`、幂等重放与冲突 409 通过。
 - **N4-D3 已完成独立验收：** `ec897f30b`；同标签页 sessionStorage 交接、单次消费与失败保留通过。
 - **N6-K 已完成：** `d4fc25259`；隔离 HOME 实际发现十个 `yoao-*` 技能，未改全局技能。
+- **N5-S 源码已集成，N5-W 开始实施：** 两个 `deepseek/deepseek-flash` task 子代理完成共享运行时与逐 owner grants 的新旧前缀识别；主代理审查、修正测试资源归属及 SQL 探针后集成 `2d7d887c4`／`ec47bcf7e`／`aa4814b80`，并同步共享 grants／verifier。正向权限白名单未扩大。N5-W 使用此源码基线，尚无本切片的真实 LOGIN／前向升级／restore／Node 资格；旧 T1 冻结运行结果不替代 N5 结果。
 - T1／T2 的当前状态、未关闭问题与已关闭切片见[测试治理计划 §16.6–§16.8](1793261328_test-governance-module-plugin-contracts.md#166-当前状态)，逐次运行历史与原始回执见[阶段 F 运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。

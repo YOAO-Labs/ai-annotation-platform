@@ -2232,6 +2232,8 @@ TEST_FILES = (
     "tests/test_workspace_owner_transfer_native.py",
     "tests/test_workspace_owner_transfer_roles.py",
     "tests/test_workspace_owner_transfer_restore.py",
+    "tests/test_owner_data_namespace_security.py",
+    "tests/test_grant_namespace_security.py",
     "tests/test_workspace_configuration_dependencies_native.py",
     "tests/test_workspace_configuration_dependencies_roles.py",
     "tests/test_workspace_project_query_support_native.py",
@@ -8821,7 +8823,7 @@ def main(
                               AND n.nspname NOT LIKE 'pg_toast%'
                               AND n.nspname NOT LIKE 'pg_temp_%'
                               AND (n.nspname LIKE 'aap\\_%' ESCAPE '\\'
-                                   OR n.nspname='yoao_fixture_v1' OR p.prosecdef)
+                                   OR n.nspname LIKE 'yoao\\_%' ESCAPE '\\' OR p.prosecdef)
                               AND p.prorettype NOT IN (
                                   'pg_catalog.trigger'::pg_catalog.regtype,
                                   'pg_catalog.event_trigger'::pg_catalog.regtype)

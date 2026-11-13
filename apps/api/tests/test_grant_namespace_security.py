@@ -68,7 +68,12 @@ async def migration_url(test_engine) -> URL:
     _verify_postgres(url)
     observed = (url.host, url.port, url.database)
     expected = (test_engine.url.host, test_engine.url.port, test_engine.url.database)
-    if observed != expected or not url.username or not url.password:
+    if (
+        url.host != "127.0.0.1"
+        or observed != expected
+        or not url.username
+        or not url.password
+    ):
         pytest.fail(
             "the migration connection does not match the verified test database"
         )
@@ -86,10 +91,8 @@ async def owner_engine(migration_url: URL):
         await engine.dispose()
 
 
-def _psql_command(url: URL, *, username: str, password: str | None, database: str):
-    command = ["docker", "exec", "-i"]
-    if password is not None:
-        command.extend(("-e", f"PGPASSWORD={password}"))
+def _psql_command(*, username: str, database: str):
+    command = ["docker", "exec", "-i", "-e", "PGPASSWORD"]
     command.extend(
         [
             os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"],
@@ -121,20 +124,19 @@ async def _psql(
     sql: str,
     variables: dict[str, str] | None = None,
     username: str,
-    password: str | None,
+    password: str,
 ):
-    command = _psql_command(
-        url, username=username, password=password, database=url.database
-    )
+    command = _psql_command(username=username, database=url.database)
     for name, value in (variables or {}).items():
         command.extend(("-v", f"{name}={value}"))
     return await asyncio.to_thread(
         subprocess.run,
         command,
+        env={**os.environ, "PGPASSWORD": password},
         input=sql,
         capture_output=True,
         text=True,
-        timeout=180,
+        timeout=120,
     )
 
 
@@ -408,7 +410,7 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
         await _execute(
             owner_engine,
             [
-                f"CREATE FUNCTION {function}() RETURNS jsonb "
+                f"CREATE FUNCTION {function} RETURNS jsonb "
                 "LANGUAGE sql AS 'SELECT ''{}''::jsonb'",
                 f"GRANT EXECUTE ON FUNCTION {function} TO {role}",
                 f"GRANT EXECUTE ON FUNCTION {function} TO PUBLIC",
@@ -625,7 +627,7 @@ async def test_identity_deactivation_classifies_new_namespace_as_module(
         await _execute(
             owner_engine,
             [
-                f"CREATE FUNCTION {function}() RETURNS jsonb "
+                f"CREATE FUNCTION {function} RETURNS jsonb "
                 "LANGUAGE sql AS 'SELECT ''{}''::jsonb'",
                 f"GRANT EXECUTE ON FUNCTION {function} TO {role}",
                 f"GRANT EXECUTE ON FUNCTION {function} TO PUBLIC",

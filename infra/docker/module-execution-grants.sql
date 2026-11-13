@@ -129,7 +129,8 @@ BEGIN
            ) OR EXISTS (
                SELECT FROM pg_catalog.pg_proc AS function
                JOIN pg_catalog.pg_namespace AS ns ON ns.oid=function.pronamespace
-               WHERE (ns.nspname LIKE 'aap\_%' ESCAPE '\' OR ns.nspname='yoao_fixture_v1')
+               WHERE (ns.nspname LIKE 'aap\_%' ESCAPE '\'
+                      OR ns.nspname LIKE 'yoao\_%' ESCAPE '\')
                  AND function.oid<>ALL(capability_oids)
                  AND pg_catalog.has_function_privilege(client_oid,function.oid,'EXECUTE')
            ) OR EXISTS (
