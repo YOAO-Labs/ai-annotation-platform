@@ -15,7 +15,8 @@ from .owner_transfer_contract import (
     owner_transfer_failure_reply,
 )
 
-_OWNER_TRANSFER_SCHEMA = "aap_workspace_owner_transfer_v1"
+_OWNER_TRANSFER_SCHEMA = "yoao_workspace_owner_transfer_v1"
+_OWNER_TRANSFER_ROLE = "yoao_workspace_owner_transfer_client"
 _OWNER_TRANSFER_FUNCTIONS = {
     ("owner_transfer_policy", ""),
     ("transfer_project_owner", "jsonb"),
@@ -117,6 +118,7 @@ class OwnerTransferPostgresData:
                 connection,
                 schema=_OWNER_TRANSFER_SCHEMA,
                 functions=_OWNER_TRANSFER_FUNCTIONS,
+                role=_OWNER_TRANSFER_ROLE,
             )
             raw = await connection.fetchval(
                 f"SELECT {_OWNER_TRANSFER_SCHEMA}.owner_transfer_policy()"

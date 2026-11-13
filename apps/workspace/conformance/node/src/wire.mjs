@@ -2,7 +2,7 @@ import { TextDecoder } from "node:util";
 
 export const SCHEMA = "aap-workspace-owner-transfer/v1";
 export const ENDPOINT = "/v1/workspace/owner-transfer/execute";
-export const ROLE = "workspace_owner_transfer_client";
+export const ROLE = "yoao_workspace_owner_transfer_client";
 export const MAX_BODY_BYTES = 16 * 1024;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

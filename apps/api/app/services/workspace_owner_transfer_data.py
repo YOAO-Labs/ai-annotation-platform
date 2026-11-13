@@ -60,7 +60,7 @@ class WorkspaceOwnerTransferData:
             try:
                 policy = await self.db.scalar(
                     text(
-                        "SELECT aap_workspace_owner_transfer_v1.owner_transfer_policy()"
+                        "SELECT yoao_workspace_owner_transfer_v1.owner_transfer_policy()"
                     )
                 )
             except SQLAlchemyError:
@@ -79,7 +79,7 @@ class WorkspaceOwnerTransferData:
         try:
             return await self.db.scalar(
                 text(
-                    "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner"
+                    "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner"
                     "(CAST(:command AS jsonb))"
                 ),
                 {"command": json.dumps(request, allow_nan=False)},

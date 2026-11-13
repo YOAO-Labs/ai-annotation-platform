@@ -43,7 +43,7 @@ API 默认使用本地 caller Session；可选 `WORKSPACE_MEMBERSHIP_DATABASE_UR
 
 Native 先按 UUID 顺序锁当前操作人与接收账号，再取 Project 排他 NOWAIT 锁；目标账号启用检查在 Project 之前，目标 `project_admin` 角色检查在 Project 之后。只修改 owner；同一 owner 不执行 UPDATE，保留 updated_at。不额外写业务 Audit 或 membership。默认 API 数据适配器始终借用调用方事务，成功不提交；账号锁异常回滚，项目锁冲突保留原失败事务状态。专用 DSN／HTTP owner 提交或回滚自己的事务。
 
-受限 `workspace_owner_transfer_client` 仅能执行 `owner_transfer_policy()` 和 `transfer_project_owner(jsonb)`。成功回执与 owner 更新原子提交；匹配重放返回原成功内容，即使之后再次转移也不重做旧写入。每次重放仍检查当前 active super-admin 与 Project 存在并锁定，不要求旧接收者仍存在或仍有原角色。operation UUID 与 actor／project／target 不匹配返回 409。公开调用不增加幂等头；API 仅在传输失败时，用同一私有 UUID 最多重试一次。
+受限 `yoao_workspace_owner_transfer_client` LOGIN 仅能执行 `yoao_workspace_owner_transfer_v1` 中的 `owner_transfer_policy()` 和 `transfer_project_owner(jsonb)`。成功回执与 owner 更新原子提交；匹配重放返回原成功内容，即使之后再次转移也不重做旧写入。每次重放仍检查当前 active super-admin 与 Project 存在并锁定，不要求旧接收者仍存在或仍有原角色。operation UUID 与 actor／project／target 不匹配返回 409。公开调用不增加幂等头；API 仅在传输失败时，用同一私有 UUID 最多重试一次。
 
 API 可选 `WORKSPACE_OWNER_TRANSFER_URL`，或二选一的 `WORKSPACE_OWNER_TRANSFER_DATABASE_URL(_FILE)`；未配置时使用 caller Session，显式失败不回退。共享成员命令的 control token 与 timeout。独立 runtime 支持只启用成员、只启用转移或同时启用，`/ready` 检查每个已配置能力和受限权限。可选 `docker-compose.workspace-owner-transfer.yml` 使用宿主端口 8173，通过 `WORKSPACE_RUNTIME_OWNER_TRANSFER_DATABASE_URL_FILE` 与 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 挂载 secret。
 

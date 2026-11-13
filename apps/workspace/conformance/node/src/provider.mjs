@@ -13,8 +13,8 @@ import {
   validateRequest,
 } from "./wire.mjs";
 
-const POLICY_FUNCTION = "aap_workspace_owner_transfer_v1.owner_transfer_policy()";
-const COMMAND_FUNCTION = "aap_workspace_owner_transfer_v1.transfer_project_owner(jsonb)";
+const POLICY_FUNCTION = "yoao_workspace_owner_transfer_v1.owner_transfer_policy()";
+const COMMAND_FUNCTION = "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)";
 
 function unavailable() {
   throw new Error("Workspace owner transfer unavailable");
@@ -143,7 +143,7 @@ const CAPABILITY_QUERY = `
         AND namespace.nspname NOT LIKE 'pg_temp_%'
         AND (
           pg_catalog.has_schema_privilege(current_user, namespace.oid, 'CREATE')
-          OR (namespace.nspname NOT IN ('public', 'aap_workspace_owner_transfer_v1')
+          OR (namespace.nspname NOT IN ('public', 'yoao_workspace_owner_transfer_v1')
               AND pg_catalog.has_schema_privilege(current_user, namespace.oid, 'USAGE'))
         )
     ) AS broad_schema_access,
@@ -226,7 +226,7 @@ async function verifyRole(client) {
 
 async function verifyPolicy(client) {
   const result = await client.query(
-    `SELECT aap_workspace_owner_transfer_v1.owner_transfer_policy()::text AS policy`,
+    `SELECT yoao_workspace_owner_transfer_v1.owner_transfer_policy()::text AS policy`,
   );
   if (result.rowCount !== 1) unavailable();
   validatePolicy(parseJson(result.rows[0].policy));
@@ -271,7 +271,7 @@ async function execute(config, request) {
     await verifyPolicy(client);
     stage = "command";
     const result = await client.query(
-      "SELECT aap_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)::text AS reply",
+      "SELECT yoao_workspace_owner_transfer_v1.transfer_project_owner($1::jsonb)::text AS reply",
       [JSON.stringify(request)],
     );
     stage = "decode";

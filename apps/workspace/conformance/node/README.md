@@ -8,7 +8,7 @@ It does not replace the complete Workspace module or select a production languag
 Run `pnpm install --ignore-workspace --frozen-lockfile --ignore-scripts` in this directory, then `pnpm run check`. Start with
 `node provider.mjs`; supply `WORKSPACE_OWNER_TRANSFER_DATABASE_URL_FILE` and
 `WORKSPACE_MEMBERSHIP_CONTROL_TOKEN_FILE`. The DSN must use the exact-two-function
-`workspace_owner_transfer_client` LOGIN. `WORKSPACE_HOST` defaults to loopback
+`yoao_workspace_owner_transfer_client` LOGIN. `WORKSPACE_HOST` defaults to loopback
 and `WORKSPACE_PORT` to 8173. The Dockerfile is built from the repository root.
 
 `GET /health` reports liveness. `GET /ready` checks policy and actual grants.
