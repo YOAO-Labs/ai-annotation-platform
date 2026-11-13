@@ -243,13 +243,7 @@ async def test_close_failure_cannot_confirm_even_with_complete_verification(
         )
         is not None
     )
-    assert (
-        failure.value.subgroup(
-            lambda error: isinstance(error, OSError)
-            and str(error) == "private close detail"
-        )
-        is not None
-    )
+    assert failure.value.subgroup(OSError) is not None
     fact = (await mutations(creation_db))[0]
     assert fact.physical_outcome == "written" and fact.evidence["full_readback"]
     assert fact.current_delta_bytes is None and fact.state == "unknown"

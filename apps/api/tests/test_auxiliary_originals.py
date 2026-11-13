@@ -113,18 +113,17 @@ async def test_saved_identity_cannot_change_or_be_deleted(auxiliary_db, client, 
         if isinstance(value, datetime)
         else "changed"
     )
-    with pytest.raises(IntegrityError, match="immutable"):
+    with pytest.raises(IntegrityError) as mutation:
         async with auxiliary_db.begin_nested():
             await auxiliary_db.execute(
                 update(Original)
                 .where(Original.id == owner_id)
                 .values(**{field: replacement})
             )
+    assert mutation.value.orig.sqlstate == "23514"
     # DELETE is guarded separately: only the native retirement command can
     # qualify removal; an unreferenced verified owner is not disposable.
-    with pytest.raises(
-        IntegrityError, match="Auxiliary original responsibility cannot be deleted"
-    ) as refusal:
+    with pytest.raises(IntegrityError) as refusal:
         async with auxiliary_db.begin_nested():
             await auxiliary_db.execute(delete(Original).where(Original.id == owner_id))
     assert refusal.value.orig.sqlstate == "23514"

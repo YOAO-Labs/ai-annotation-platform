@@ -272,6 +272,10 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
         app_module.dependency_overrides[get_db] = gateway_database
         monkeypatch.setattr(settings, "assets_catalog_token", service_token)
         scheme = "https" if settings.minio_use_ssl else "http"
+        # This API-only fixture has no frontend /s3 reverse proxy.
+        monkeypatch.setattr(
+            settings, "minio_public_url", f"{scheme}://{settings.minio_endpoint}"
+        )
         values = {
             "ASSETS_CATALOG_DATABASE_URL": _container_database_url(catalog_url),
             "ASSETS_CATALOG_TOKEN": service_token,
@@ -411,7 +415,7 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 item = items.json()["items"][0]
                 assert "thumbnail_path" not in item
                 assert item["metadata"]["future_field"] == {"retained": True}
-                # Native image originals and thumbnails are authenticated API reads.
+                # Original reads require API auth; thumbnails use signed storage URLs.
                 original_identity = await api.get(
                     item["original_identity_path"], headers=headers
                 )
@@ -421,7 +425,8 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 )
                 assert downloaded.status_code == 200, downloaded.text
                 assert downloaded.content == key.encode()
-                preview = await api.get(item["thumbnail_url"], headers=headers)
+                async with httpx.AsyncClient(trust_env=False) as storage:
+                    preview = await storage.get(item["thumbnail_url"])
                 assert preview.status_code == 200, preview.text
                 assert preview.content == thumbnail.encode()
                 _expect_s3_denied(
