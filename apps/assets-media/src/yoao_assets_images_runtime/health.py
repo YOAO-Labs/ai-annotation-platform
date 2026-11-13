@@ -36,7 +36,7 @@ FROM pg_roles r WHERE r.rolname=current_user
 _FUNCTION_SQL = """
 SELECT p.oid, p.prosecdef
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE n.nspname ~ '^aap_[a-z_]+_v1$'
+WHERE n.nspname ~ '^(aap|yoao)_[a-z_]+_v1$'
   AND has_function_privilege(current_user,p.oid,'EXECUTE')
 ORDER BY p.oid
 """

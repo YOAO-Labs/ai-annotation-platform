@@ -90,7 +90,7 @@ class PolicyConnection:
             and not namespace.startswith(("pg_toast", "pg_temp_"))
             and kind in {"f", "p", "a", "w"}
             and return_type not in {"trigger", "event_trigger"}
-            and (namespace.startswith("aap_") or security_definer)
+            and (namespace.startswith(("aap_", "yoao_")) or security_definer)
         ]
 
     async def close(self, timeout):

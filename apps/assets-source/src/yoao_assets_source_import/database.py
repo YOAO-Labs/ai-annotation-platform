@@ -177,7 +177,7 @@ SELECT
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND namespace.nspname <> 'aap_assets_v1'
           AND pg_catalog.has_schema_privilege(
               current_user, namespace.oid, 'USAGE'

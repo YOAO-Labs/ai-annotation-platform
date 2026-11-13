@@ -101,7 +101,7 @@ class FakeConnection:
                 "prorettype": return_type,
             }
             for schema, name, args, prosecdef, return_type in self.grants
-            if (schema.startswith("aap_") or prosecdef)
+            if (schema.startswith(("aap_", "yoao_")) or prosecdef)
             and return_type not in {"trigger", "event_trigger"}
         ]
 

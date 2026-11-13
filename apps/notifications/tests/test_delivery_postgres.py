@@ -199,7 +199,7 @@ class PolicyConnection(FakeConnection):
                 "prosecdef": prosecdef,
             }
             for schema, name, args, prosecdef in self.grants
-            if schema.startswith("aap_") or prosecdef
+            if schema.startswith(("aap_", "yoao_")) or prosecdef
         ]
 
 

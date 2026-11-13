@@ -33,7 +33,7 @@ _FUNCTIONS = """
 SELECT n.nspname || '.' || p.proname || '(' || oidvectortypes(p.proargtypes) || ')' AS signature,
        p.prosecdef
 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
-WHERE n.nspname ~ '^aap_[a-z_]+_v1$'
+WHERE n.nspname ~ '^(aap|yoao)_[a-z_]+_v1$'
   AND has_function_privilege(current_user,p.oid,'EXECUTE')
 ORDER BY 1
 """

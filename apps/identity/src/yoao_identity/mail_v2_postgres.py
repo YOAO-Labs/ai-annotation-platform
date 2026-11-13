@@ -130,6 +130,7 @@ class MailV2PostgresData:
                   )
                   AND (
                       pg_catalog.left(namespace.nspname, 4) = 'aap_'
+                      OR pg_catalog.left(namespace.nspname, 5) = 'yoao_'
                       OR function.prosecdef
                   )
                   AND pg_catalog.has_function_privilege(

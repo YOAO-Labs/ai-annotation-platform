@@ -94,7 +94,7 @@ SELECT
     AND NOT EXISTS (
         SELECT 1
         FROM pg_catalog.pg_namespace AS ns
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND ns.nspname <> 'aap_assets_v1'
           AND (
               pg_catalog.has_schema_privilege(current_user, ns.oid, 'USAGE')
@@ -115,7 +115,7 @@ SELECT
         JOIN pg_catalog.pg_proc AS proc
           ON proc.pronamespace = ns.oid
         CROSS JOIN allowed_functions AS allowed
-        WHERE ns.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE ns.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
           AND proc.oid <> COALESCE(allowed.pending_oid, 0::oid)
           AND proc.oid <> COALESCE(allowed.complete_oid, 0::oid)

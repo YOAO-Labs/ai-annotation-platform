@@ -319,7 +319,8 @@ async function verifyListQueryRole() {
         "pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature " +
         "FROM pg_catalog.pg_proc AS p " +
         "JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname LIKE 'aap\\_%' ESCAPE '\\' " +
+        "WHERE (n.nspname LIKE 'aap\\_%' ESCAPE '\\' " +
+        "OR n.nspname LIKE 'yoao\\_%' ESCAPE '\\') " +
         "AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') " +
         "ORDER BY signature",
     );
@@ -381,7 +382,8 @@ async function verifyListQueryRole() {
 
     const aapSchemas = await client.query(
       "SELECT n.nspname FROM pg_catalog.pg_namespace AS n " +
-        "WHERE n.nspname LIKE 'aap\\_%' ESCAPE '\\' " +
+        "WHERE (n.nspname LIKE 'aap\\_%' ESCAPE '\\' " +
+        "OR n.nspname LIKE 'yoao\\_%' ESCAPE '\\') " +
         "AND pg_catalog.has_schema_privilege(current_user,n.oid,'USAGE') ORDER BY n.nspname",
     );
     assert.deepEqual(

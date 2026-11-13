@@ -331,7 +331,8 @@ async function verifyLifecycle() {
       "SELECT n.nspname || '.' || p.proname || '(' || " +
         "pg_catalog.oidvectortypes(p.proargtypes) || ')' AS signature " +
         "FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace " +
-        "WHERE n.nspname LIKE 'aap\\_%' ESCAPE '\\' " +
+        "WHERE (n.nspname LIKE 'aap\\_%' ESCAPE '\\' " +
+        "OR n.nspname LIKE 'yoao\\_%' ESCAPE '\\') " +
         "AND pg_catalog.has_function_privilege(current_user,p.oid,'EXECUTE') " +
         "ORDER BY signature",
     );
