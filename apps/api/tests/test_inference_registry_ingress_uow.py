@@ -1,4 +1,4 @@
-"""Preserve caller edits and concurrent untouched configuration during seed apply."""
+"""Preserve caller edits, the Native seed marker and concurrent untouched keys."""
 
 from __future__ import annotations
 
@@ -76,6 +76,8 @@ async def test_seed_apply_merges_only_caller_changed_keys_and_keeps_outer_rollba
             )
             row.extra_params["caller_after"] = "later"
             del row.extra_params["remove"]
+            # The ingress marker owns the `seed` key: a later caller replacement
+            # must not survive the merge, while every other pending key applies.
             row.extra_params["seed"] = {"explicit": "later caller edit"}
             row.updated_at = late_stamp
             await db.flush()
@@ -84,7 +86,7 @@ async def test_seed_apply_merges_only_caller_changed_keys_and_keeps_outer_rollba
                 "caller_base": 2,
                 "new": "other writer",
                 "caller_after": "later",
-                "seed": {"explicit": "later caller edit"},
+                "seed": _MARKER,
             }
             assert row.extra_params == desired and row.updated_at == late_stamp
             assert (
