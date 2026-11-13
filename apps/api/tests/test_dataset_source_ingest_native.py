@@ -713,7 +713,17 @@ async def test_prepare_cannot_be_committed_then_continued_as_another_transaction
 
 
 async def test_scan_publishes_existing_prefix_objects_without_scenes(ingest_world):
+    from app.services.assets_source_ingest import DatasetSourceIngestData
+    from yoao_assets_source_runtime.ingest_storage import IngestStorage
+    from yoao_assets_source_runtime.ingest_workflow import (
+        IngestWorkflow,
+        _initial_progress,
+        _scan_source_entry,
+    )
+
     world, command = ingest_world, ingest_world.command()
+    source_bytes = b"existing point cloud bytes"
+    content_hash = hashlib.md5(source_bytes, usedforsecurity=False).hexdigest()
     async with world.maker.begin() as db:
         await db.execute(
             text("UPDATE datasets SET is_temporal=true WHERE id=:id"),
@@ -722,19 +732,78 @@ async def test_scan_publishes_existing_prefix_objects_without_scenes(ingest_worl
     async with world.source_maker.begin() as db:
         context = await _begin(db, command, _descriptor("scan"))
         key = context.source_prefix + "nested/frame.pcd"
-        plan = await _prepare(
-            db,
-            world,
-            command,
-            [_entry("nested/frame.pcd", kind="point_cloud", key=key)],
+        # Seed existing bytes, not an ingest upload or a synthetic verification.
+        world.physical.objects[key] = source_bytes
+        storage = IngestStorage(world.physical, settings.minio_datasets_bucket)
+        [listed] = [item async for item in storage.iter_objects(context.source_prefix)]
+        source = _scan_source_entry(
+            listed.key[len(context.source_prefix) :], listed.key, listed.size
         )
+        assert source.content_hash is None
+        workflow = IngestWorkflow(
+            data=DatasetSourceIngestData(db), storage=storage, image_admission=None
+        )
+        batch_id, plan, completions, image_facts = await workflow._scan_batch(
+            command,
+            context.source_prefix,
+            [source],
+            [(listed.key, listed.etag, listed.size)],
+            context.next_index,
+            _initial_progress(context),
+        )
+        world.batch_ids.add(batch_id)
         assert plan.entries[0].file_path == key
         assert plan.entries[0].publication_id is None
-        await _complete(db, command, plan)
+        [completion] = completions
+        assert completion.status == "ready" and completion.publication_id is None
+        assert completion.file_size == len(source_bytes)
+        assert completion.content_hash == content_hash
+        assert image_facts == {}
+        settled = await _invoke(
+            db,
+            command,
+            "complete_dataset_ingest_batch",
+            IngestBatchResult,
+            batch=batch_id,
+            payload=completions,
+        )
+        assert settled.progress.added == settled.progress.linked_tasks == 1
         result = await _finish(db, command, infer=False)
         assert result.kind == "scan" and result.added == 1
         assert result.scene_inference_notes == [] and result.total_in_zip is None
+    assert world.physical.objects == {key: source_bytes}
+    assert not world.physical.uploads
+    assert not any(
+        call[0] in {"put", "create", "complete", "abort", "delete"}
+        for call in world.physical.calls
+    )
     async with world.maker() as db:
+        item = (
+            await db.execute(
+                text(
+                    "SELECT file_path,file_size,content_hash,scene_id,frame_index "
+                    "FROM dataset_items WHERE dataset_id=:id"
+                ),
+                {"id": world.dataset_id},
+            )
+        ).one()
+        assert tuple(item) == (key, len(source_bytes), content_hash, None, None)
+        verification = (
+            await db.execute(
+                text(
+                    "SELECT status,sha256,md5,size_bytes "
+                    "FROM managed_original_creations "
+                    "WHERE dataset_id=:id AND authority->>'operation_id'=:operation"
+                ),
+                {"id": world.dataset_id, "operation": str(command.operation_id)},
+            )
+        ).one()
+        assert tuple(verification) == (
+            "verified",
+            hashlib.sha256(source_bytes).hexdigest(),
+            content_hash,
+            len(source_bytes),
+        )
         assert (
             await db.scalar(
                 text("SELECT count(*) FROM scenes WHERE dataset_id=:id"),
