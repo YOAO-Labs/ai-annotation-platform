@@ -538,23 +538,62 @@ def _verify_worker_container(container_id: str, name: str, image: str, identity:
         )
 
 
+async def _fail_container_readiness(container_id: str, observed: dict, reason: str):
+    output = await asyncio.to_thread(
+        subprocess.run,
+        ["docker", "logs", "--tail", "200", container_id],
+        capture_output=True,
+        text=True,
+        timeout=20,
+        check=False,
+    )
+    diagnostic = json.dumps(observed.get("State", {}), sort_keys=True)
+    diagnostic += "\n" + output.stdout + output.stderr
+    for assignment in observed.get("Config", {}).get("Env") or ():
+        name, _, value = assignment.partition("=")
+        if "DATABASE_URL" in name:
+            password = make_url(value).password
+            if password:
+                diagnostic = diagnostic.replace(password, "<redacted>")
+        if value and any(
+            marker in name for marker in ("TOKEN", "SECRET", "PASSWORD", "ACCESS_KEY", "URL")
+        ):
+            diagnostic = diagnostic.replace(value, "<redacted>")
+    with tempfile.NamedTemporaryFile(
+        mode="w",
+        prefix=f"assets-runtime-start-{container_id[:12]}-",
+        suffix=".log",
+        dir=_required_env("TMPDIR"),
+        delete=False,
+    ) as log:
+        log.write(diagnostic)
+        path = log.name
+    pytest.fail(f"{reason}; container diagnostics: {path}\n{diagnostic}")
+
+
 async def _wait_healthy(container_id: str, timeout: float = 100) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         observed = await asyncio.to_thread(_inspect_docker, container_id)
         state = observed.get("State", {})
         if state.get("Running") is not True:
-            pytest.fail("standalone cleanup container exited before becoming ready")
+            await _fail_container_readiness(
+                container_id, observed, "standalone container exited before becoming ready"
+            )
         health = state.get("Health", {}).get("Status")
         if health == "healthy":
             return
         if health == "unhealthy":
-            pytest.fail("standalone cleanup container failed its readiness check")
+            await _fail_container_readiness(
+                container_id, observed, "standalone container failed its readiness check"
+            )
         await asyncio.sleep(0.2)
-    pytest.fail("standalone cleanup container did not become ready")
+    await _fail_container_readiness(
+        container_id, observed, "standalone container did not become ready"
+    )
 
 
-def _stop_remove_container(container_id: str, identity: str) -> None:
+def _stop_owned_container(container_id: str, identity: str) -> None:
     observed = _inspect_docker(container_id)
     labels = observed.get("Config", {}).get("Labels") or {}
     if not (
@@ -563,16 +602,28 @@ def _stop_remove_container(container_id: str, identity: str) -> None:
         and labels.get(_CONTAINER_ID_LABEL) == identity
     ):
         pytest.fail("refusing to stop a container outside this acceptance")
-    if observed.get("State", {}).get("Running") is True:
+    was_running = observed.get("State", {}).get("Running") is True
+    if was_running:
         _docker("stop", "--time", "45", container_id, timeout=60)
     stopped = _inspect_docker(container_id)
     stopped_labels = stopped.get("Config", {}).get("Labels") or {}
-    if (
+    if not (
         stopped.get("Id") == container_id
         and stopped_labels.get(_CONTAINER_LABEL) == "module-data-boundary"
         and stopped_labels.get(_CONTAINER_ID_LABEL) == identity
+        and stopped.get("State", {}).get("Running") is False
+        and not stopped.get("State", {}).get("OOMKilled")
+        and (
+            not was_running
+            or stopped.get("State", {}).get("ExitCode") in {0, 143}
+        )
     ):
-        _docker("rm", container_id, timeout=30)
+        pytest.fail("owned acceptance container did not stop normally")
+
+
+def _stop_remove_container(container_id: str, identity: str) -> None:
+    _stop_owned_container(container_id, identity)
+    _docker("rm", container_id, timeout=30)
 
 
 def _remove_worker_image(tag: str, identity: str) -> None:
@@ -1410,7 +1461,7 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
             assert _object_exists(
                 owner_client, datasets_bucket, fixture["target_source_key"]
             )
-            await asyncio.to_thread(_docker, "stop", "--time", "45", container_id)
+            await asyncio.to_thread(_stop_owned_container, container_id, image_identity)
             stopped = _inspect_docker(container_id)
             assert stopped.get("State", {}).get("Running") is False
 

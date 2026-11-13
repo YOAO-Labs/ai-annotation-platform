@@ -6,6 +6,7 @@ import asyncio
 from datetime import timedelta
 import os
 import subprocess
+from types import SimpleNamespace
 from uuid import uuid4
 
 import asyncpg
@@ -25,6 +26,7 @@ from yoao_labeling_mask_gc import contract as c
 from yoao_labeling_mask_gc.coordinator import run_cycle
 from yoao_labeling_mask_gc_runtime.database import AsyncpgMaskGcData
 from tests.test_asset_storage_cleanup_runtime import _object_exists, _required_env
+from tests.test_assets_catalog_runtime import _lost_response_proxy
 from tests.test_mask_content_live import (
     _owned_resources,
     _rle,
@@ -133,7 +135,7 @@ async def test_s3_reply_loss_survives_restart_without_repeating_payload_delete(
         owner.close()
 
 
-def _start_delayed_byte_runtime(bucket, credentials, tmp_path, monkeypatch):
+def _start_delayed_byte_runtime(bucket, credentials, object_key, tmp_path, monkeypatch):
     entered = tmp_path / "delete-return-pending"
     release = tmp_path / "release-delete-return"
     bootstrap = f"""
@@ -144,7 +146,7 @@ from yoao_assets_mask_content_runtime.__main__ import main
 original = BaseClient._make_api_call
 def invoke(self, name, arguments):
     result = original(self, name, arguments)
-    if name == 'DeleteObject' and arguments['Key'].startswith('raster-masks/sha256/'):
+    if name == 'DeleteObject' and arguments['Key'] == {object_key!r}:
         Path({str(entered)!r}).touch()
         deadline = time.monotonic() + 20
         while not Path({str(release)!r}).exists():
@@ -226,14 +228,23 @@ async def test_late_http_delete_keeps_durable_fence_until_exact_receipt(
         )
         assert staged.staged == 1
         runtime, entered, release = _start_delayed_byte_runtime(
-            bucket, cleanup, tmp_path, monkeypatch
+            bucket, cleanup, candidate.object_key, tmp_path, monkeypatch
         )
         process, log, origin, token = runtime
-        client = MaskGcClient(origin, token, timeout_seconds=0.1)
-        stats = await run_cycle(data, client, worker_id=worker, delete_limit=1)
+        client = MaskGcClient(origin, token)
+        async with _lost_response_proxy(
+            origin, after_physical_return=entered
+        ) as broken_origin:
+            with MaskGcClient(broken_origin, token) as lost_reply:
+                storage = SimpleNamespace(
+                    scan=client.scan,
+                    execute=lost_reply.execute,
+                    status=client.status,
+                )
+                stats = await run_cycle(data, storage, worker_id=worker, delete_limit=1)
         assert stats.indeterminate == 1 and stats.durable_uncertainties == 1
-        # The client timeout ends the HTTP call before the runtime's S3 work
-        # returns; wait for the in-flight owned delete instead of racing it.
+        # Lose the real HTTP reply only after this exact S3 delete returned.
+        # Its owner remains occupied until the physical-return gate is released.
         for _ in range(200):
             if entered.exists():
                 break

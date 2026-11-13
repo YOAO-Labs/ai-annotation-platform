@@ -1,4 +1,4 @@
-"""Nonempty two-clone restore of the probe key, grants and actual setup execution."""
+"""Nonempty source/target restore of probe keys, grants and actual setup execution."""
 
 from __future__ import annotations
 
@@ -18,11 +18,12 @@ from tests.inference_backend_probe_helpers import probe_provider
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_identity_recovery import _postgres_tool
 from tests.test_inference_backend_dependency_reads_restore import (
+    _assert_copied_authority_quarantined,
     _assert_clone_identity,
     _create_owned_clone,
     _database_acl,
     _drop_owned_clone,
-    _rebind_copied_authority,
+    _initialize_fresh_source,
 )
 from tests.test_inference_backend_probe_bindings import setup_backend
 from tests.test_inference_backend_probe_native import (
@@ -89,7 +90,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
     owners = {name: "inference-probe-restore:" + str(uuid.uuid4()) for name in names}
     created = set()
     engines = []
-    base_dump, source_dump = tmp_path / "base.dump", tmp_path / "source.dump"
+    source_dump = tmp_path / "source.dump"
     acl = await _database_acl(test_engine)
     admin = create_async_engine(
         test_engine.url.set(database="postgres"),
@@ -99,27 +100,30 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
     source_origin = None
     source_transaction = None
     try:
-        for dump in (base_dump, source_dump):
-            dump.touch(mode=0o600)
-        base_dump.write_bytes(
-            _postgres_tool(
-                test_engine, ["pg_dump", "-U", "owner", "-Fc", test_engine.url.database]
-            )
-        )
+        source_dump.touch(mode=0o600)
         await _create_owned_clone(
             admin, test_engine, names[0], owners[names[0]], acl, created
-        )
-        _postgres_tool(
-            test_engine,
-            ["pg_restore", "-U", "owner", "--exit-on-error", "--dbname", names[0]],
-            body=base_dump.read_bytes(),
         )
         source = create_async_engine(
             test_engine.url.set(database=names[0]), hide_parameters=True
         )
         engines.append(source)
+        await _initialize_fresh_source(test_engine, admin, source)
         await _assert_clone_identity(source, names[0], owners[names[0]])
-        await _rebind_copied_authority(source)
+        from tests.test_labeling_video_writer_restore import ROOT, _run_psql_file
+
+        _run_psql_file(
+            test_engine,
+            names[0],
+            ROOT / "infra/docker/inference-backend-probe-grants.sql",
+            {
+                "expected_database": names[0],
+                "migration_role": "owner",
+                "inference_owner": "inference_code",
+                "inference_backend_probe_role": "inference_backend_probe_client",
+            },
+        )
+        acl = await _database_acl(source)
         with setup_backend() as (url, calls):
             registry_id = uuid.uuid4()
             seed = await _connect(source)
@@ -145,9 +149,8 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
             source_dump.write_bytes(
                 _postgres_tool(test_engine, ["pg_dump", "-U", "owner", "-Fc", names[0]])
             )
-            for dump in (base_dump, source_dump):
-                assert dump.read_bytes().startswith(b"PGDMP")
-                assert stat.S_IMODE(dump.stat().st_mode) == 0o600
+            assert source_dump.read_bytes().startswith(b"PGDMP")
+            assert stat.S_IMODE(source_dump.stat().st_mode) == 0o600
             await _create_owned_clone(
                 admin, test_engine, names[1], owners[names[1]], acl, created
             )
@@ -161,6 +164,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
             )
             engines.append(restored)
             await _assert_clone_identity(restored, names[1], owners[names[1]])
+            await _assert_copied_authority_quarantined(restored)
 
             assert await _state(restored) == before
             probe = await _connect(restored, role="inference_backend_probe_client")
@@ -230,8 +234,7 @@ async def test_probe_key_and_snapshot_execution_survive_nonempty_owned_restore(
                 except Exception as error:
                     errors.append(type(error).__name__)
         await admin.dispose()
-        for dump in (base_dump, source_dump):
-            dump.unlink(missing_ok=True)
+        source_dump.unlink(missing_ok=True)
         if errors:
             if original_error:
                 warnings.warn("Owned probe restore cleanup failed: " + ",".join(errors))

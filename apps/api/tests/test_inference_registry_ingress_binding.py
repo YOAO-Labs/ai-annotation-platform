@@ -166,7 +166,10 @@ async def test_singleton_pool_returns_immutable_pool_facts(db_session):
     assert loaded.capability_snapshot is None
 
 
-async def test_seed_marker_preserves_pending_and_later_extra_param_edits(db_session):
+@pytest.mark.parametrize("replace_extra", [False, True])
+async def test_seed_marker_preserves_pending_and_later_extra_param_edits(
+    db_session, replace_extra
+):
     data = InferenceRegistryIngressData(db_session)
     created = await data.create_seed_registry(
         "ingress-binding", "http://seed-marker-binding.test", _MARKER
@@ -187,7 +190,15 @@ async def test_seed_marker_preserves_pending_and_later_extra_param_edits(db_sess
         _NEW_MARKER,
     )
     assert updated.id == row.id
+    if replace_extra:
+        row.extra_params = dict(row.extra_params)
+    row.extra_params["persisted"] = "changed after staging"
+    del row.extra_params["caller_before"]
+    row.extra_params["seed"] = {"caller": "must not replace Native marker"}
     row.extra_params["caller_after"] = "after marker"
+    assert await db_session.scalar(
+        select(MLBackendRegistry.extra_params).where(MLBackendRegistry.id == row.id)
+    ) == {"seed": _MARKER}
 
     await data.flush()
 
@@ -195,8 +206,7 @@ async def test_seed_marker_preserves_pending_and_later_extra_param_edits(db_sess
         select(MLBackendRegistry.extra_params).where(MLBackendRegistry.id == row.id)
     )
     assert stored == {
-        "persisted": "kept",
-        "caller_before": "before marker",
+        "persisted": "changed after staging",
         "caller_after": "after marker",
         "seed": _NEW_MARKER,
     }
