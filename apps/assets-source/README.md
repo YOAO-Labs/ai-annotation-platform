@@ -268,8 +268,11 @@ admission; it never settles a different admission or assumes an unclosed read.
 
 For the built-in datasets target, the Source S3 identity needs `s3:GetObject`
 and `s3:GetObjectVersion` on the existing `dataset-sources/*` managed-original
-scope. Connection-backed targets must grant their own configured Source
-credentials the same operations on their saved managed-original scope.
+scope and on the Dataset scan roots it is already allowed to read. Scan adoption
+reads the observed exact version to verify bytes; multipart ETags are not content
+hashes. This does not grant writes or deletes on those scan roots.
+Connection-backed targets must grant their own configured Source credentials
+the same read operations on their saved managed-original scope.
 The built-in importer identity does not receive destination read permissions.
 Connection-backed destinations retain the existing shared connection principal:
 the importer can decrypt those configured credentials for writes, so any read

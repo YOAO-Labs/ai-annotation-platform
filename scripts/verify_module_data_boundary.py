@@ -455,7 +455,7 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1._managed_original_import_prefix(text)",
             "aap_assets_v1._managed_original_scope_key(text,text)",
             "aap_assets_v1._operator_read_permit_purpose(uuid)",
-            # begin_operator_auxiliary(jsonb) is superseded by 0458 below.
+            # begin_operator_auxiliary(jsonb) is superseded by 0459 below.
             "aap_assets_v1.publish_operator_auxiliary(uuid)",
             "aap_assets_v1.operator_auxiliary_owner(uuid,text,jsonb,uuid)",
             "aap_assets_v1.operator_auxiliary_material(uuid,uuid)",
@@ -469,11 +469,17 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.mark_operator_original_writing(uuid)",
             "aap_assets_v1.record_operator_original_written(uuid,jsonb)",
             "aap_assets_v1.record_operator_original_verified(uuid,jsonb)",
-            "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
             "aap_assets_v1.close_operator_storage_operation(uuid,uuid,boolean)",
         )
     },
-    "aap_assets_v1.begin_operator_auxiliary(jsonb)": "0458_upload_retry_after_failed_publication.sql",
+    **{
+        signature: "0459_source_ingest_identity_and_retry.sql"
+        for signature in (
+            "aap_assets_v1.begin_operator_auxiliary(jsonb)",
+            "aap_assets_v1.fail_operator_original(uuid,text,text,jsonb)",
+            "aap_assets_v1.complete_dataset_ingest_batch(uuid,uuid,uuid,uuid,jsonb)",
+        )
+    },
     "aap_assets_v1.classify_fixture_original_reclaim(uuid,text)": "0432_assets_fixture_reclaim_guard.sql",
     "aap_assets_v1.is_fixture_original_source(text,text)": "0432_assets_fixture_source_guard.sql",
     "aap_assets_v1.guard_fixture_operator_source_receipt()": "0432_assets_fixture_source_guard.sql",
@@ -1834,6 +1840,7 @@ SQL_ARTIFACTS = (
     "0456_prediction_dataset_scope.sql",
     "0457_inference_registry_seed_marker_revision.sql",
     "0458_upload_retry_after_failed_publication.sql",
+    "0459_source_ingest_identity_and_retry.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -2334,6 +2341,7 @@ TEST_FILES = (
     "tests/test_dataset_upload_native.py",
     "tests/test_dataset_upload_storage.py",
     "tests/test_dataset_upload_s3_runtime.py",
+    "tests/test_upload_retry_migration.py",
     "tests/test_dataset_source_retention.py",
     "tests/test_dataset_unlink_labeling.py",
     "tests/test_dataset_unlink_assets.py",
@@ -4810,15 +4818,8 @@ def _create_source_storage_scope(scope: dict) -> None:
             },
             {
                 "Effect": "Allow",
-                "Action": ["s3:GetObject"],
+                "Action": ["s3:GetObject", "s3:GetObjectVersion"],
                 "Resource": [f"arn:aws:s3:::{scope['datasets_bucket']}/*"],
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:GetObjectVersion"],
-                "Resource": [
-                    f"arn:aws:s3:::{scope['datasets_bucket']}/dataset-sources/*"
-                ],
             },
             {
                 "Effect": "Allow",
