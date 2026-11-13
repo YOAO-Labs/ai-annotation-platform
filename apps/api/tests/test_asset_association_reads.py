@@ -18,6 +18,10 @@ from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from app.db.models.user import User
 
+# ADR-0102 adds twenty-two spatial capabilities to the catalog LOGIN; the
+# catalog-native module owns the exact installed surface.
+from tests.test_assets_catalog_native import _CATALOG_LOGIN_FUNCTIONS
+
 pytestmark = pytest.mark.asyncio
 
 _LIST_DATASET_PROJECTS = text(
@@ -30,15 +34,6 @@ _LIST_PROJECT_DATASETS = text(
 )
 _ROLE_ACCEPTANCE = os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
 _CATALOG_URL = "AAP_MODULE_DATA_ASSET_CATALOG_URL"
-_CATALOG_FUNCTIONS = {
-    "aap_assets_v1.list_catalog_datasets(uuid,text,text,boolean,integer,bigint)",
-    "aap_assets_v1.get_catalog_dataset(uuid,uuid)",
-    "aap_assets_v1.list_catalog_items(uuid,uuid,integer,bigint)",
-    "aap_assets_v1.create_catalog_dataset(uuid,uuid,jsonb)",
-    "aap_assets_v1.update_catalog_dataset(uuid,uuid,uuid,jsonb)",
-    "aap_assets_v1.list_dataset_projects(uuid,uuid)",
-    "aap_assets_v1.list_project_datasets(uuid,uuid)",
-}
 
 
 def _success(reply: dict, result_key: str) -> list[dict]:
@@ -550,7 +545,7 @@ async def test_project_dataset_visibility_preserves_current_error_and_role_polic
     not _ROLE_ACCEPTANCE,
     reason="requires the disposable module-data boundary verifier",
 )
-async def test_catalog_login_has_only_seven_public_reads_and_no_owner_relations():
+async def test_catalog_login_has_exactly_the_catalog_and_spatial_reads():
     raw_url = os.environ.get(_CATALOG_URL)
     if not raw_url:
         pytest.fail(f"the module-data verifier did not provide {_CATALOG_URL}")
@@ -571,7 +566,7 @@ async def test_catalog_login_has_only_seven_public_reads_and_no_owner_relations(
                 )
             )
             assert {row[0].replace(", ", ",") for row in functions} == {
-                signature.replace(", ", ",") for signature in _CATALOG_FUNCTIONS
+                signature.replace(", ", ",") for signature in _CATALOG_LOGIN_FUNCTIONS
             }
             direct_relations = await catalog.scalar(
                 text(

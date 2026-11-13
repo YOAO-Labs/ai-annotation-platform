@@ -66,6 +66,50 @@ async def test_upgrade_refuses_legacy_writers_and_restores_pre_cutover_schema(
                     )
                 )
                 await db.flush()
+            # The guard inspects committed owner state, so retain only this
+            # test's facts. TRUNCATE bypasses the row immutability triggers and,
+            # like every cleanup here, rolls back with the test transaction.
+            await connection.execute(
+                text(
+                    "TRUNCATE public.asset_image_jobs, "
+                    "public.asset_image_operations, public.asset_image_garbage"
+                )
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.asset_storage_deletions SET retained=false "
+                    "WHERE retained"
+                )
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.tasks SET media_source_generation=1, "
+                    "media_object_identity=NULL, media_source_drifted=false "
+                    "WHERE media_source_generation<>1 "
+                    "OR media_object_identity IS NOT NULL OR media_source_drifted"
+                )
+            )
+            await connection.execute(
+                text(
+                    "UPDATE public.image_pyramid_generations SET job_id=NULL, "
+                    "job_generation=NULL, source_generation=NULL, "
+                    "source_snapshot=NULL, output_prefix=NULL, manifest=NULL, "
+                    "policy=NULL WHERE job_id IS NOT NULL "
+                    "OR job_generation IS NOT NULL OR source_generation IS NOT NULL "
+                    "OR source_snapshot IS NOT NULL OR output_prefix IS NOT NULL "
+                    "OR manifest IS NOT NULL OR policy IS NOT NULL"
+                )
+            )
+            await connection.execute(
+                text(
+                    "DELETE FROM public.image_pyramid_assets AS asset "
+                    "WHERE (asset.dataset_item_id IS NOT NULL AND NOT EXISTS ("
+                    "SELECT 1 FROM public.dataset_items AS item "
+                    "WHERE item.id=asset.dataset_item_id)) "
+                    "OR (asset.task_id IS NOT NULL AND NOT EXISTS ("
+                    "SELECT 1 FROM public.tasks AS task WHERE task.id=asset.task_id))"
+                )
+            )
             await connection.run_sync(_invoke, "downgrade")
             if legacy in {"pending", "building"}:
                 asset = uuid4()

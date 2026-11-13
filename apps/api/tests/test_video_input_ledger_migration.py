@@ -3,6 +3,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import re
 
 import pytest
 
@@ -10,6 +11,34 @@ from yoao_assets_video_inputs import evidence, execution
 
 ROOT = Path(__file__).resolve().parents[3]
 SQL = ROOT / "apps/api/alembic/sql"
+
+
+def _contract_subset(document: dict, frozen: dict) -> dict:
+    """The bo0225 artifact freezes only the operations that revision installs.
+
+    Later migrations add owner capabilities additively (bo0432 original reads),
+    so the current portable contract is a superset of this snapshot.
+    """
+    return {
+        "$schema": document["$schema"],
+        "$id": document["$id"],
+        "$defs": {name: document["$defs"][name] for name in frozen["$defs"]},
+        "x-stage": document["x-stage"],
+        "x-budgets": document["x-budgets"],
+        "x-manifest-digest": document["x-manifest-digest"],
+        "x-native": {name: document["x-native"][name] for name in frozen["x-native"]},
+    }
+
+
+def _installed_operation_names() -> set[str]:
+    pattern = re.compile(
+        r"(?im)^CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+"
+        r"aap_assets_v1\.([a-z_][a-z0-9_]*)\s*\("
+    )
+    names: set[str] = set()
+    for artifact in SQL.glob("*.sql"):
+        names.update(pattern.findall(artifact.read_text(encoding="utf-8")))
+    return names
 
 
 def _migration():
@@ -23,21 +52,25 @@ def _migration():
 
 
 def test_video_execution_and_evidence_artifacts_match_portable_contracts():
-    assert (
-        json.loads((SQL / "0225_video_inputs.schema.json").read_text())
-        == execution.contract_document()
-    )
+    document = execution.contract_document()
+    frozen = json.loads((SQL / "0225_video_inputs.schema.json").read_text())
+    assert frozen == _contract_subset(document, frozen)
+    for name, definition in frozen["x-native"].items():
+        assert document["x-native"][name] == definition
     assert (
         json.loads((SQL / "0225_video_input_evidence.schema.json").read_text())
         == evidence.contract_document()
     )
     migration = _migration()
     signatures = {signature.replace(" ", "") for signature in migration._signatures()}
-    for name, definition in execution.OPERATIONS.items():
-        assert f"aap_assets_v1.{name}({','.join(definition.sql_types)})" in signatures
+    for definition in frozen["x-native"].values():
+        assert definition["signature"].replace(" ", "") in signatures
     assert not any(
         signature.split("(")[0] in migration._REPLACED for signature in signatures
     )
+    installed = _installed_operation_names()
+    for name in execution.OPERATIONS:
+        assert name in installed, name
 
 
 @pytest.mark.parametrize(

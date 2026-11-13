@@ -397,7 +397,17 @@ async def test_catalog_container_public_consumer_replay_and_local_switch(
                 assert "thumbnail_path" not in item
                 assert item["metadata"]["future_field"] == {"retained": True}
                 async with httpx.AsyncClient(trust_env=False) as source:
-                    assert (await source.get(item["file_url"])).content == key.encode()
+                    # Non-video originals are authenticated identity reads, not
+                    # presigned catalog URLs (791ce8f30).
+                    identity = await api.get(
+                        item["original_identity_path"], headers=headers
+                    )
+                    assert identity.status_code == 200, identity.text
+                    original = await api.get(
+                        identity.json()["download_path"], headers=headers
+                    )
+                    assert original.status_code == 200, original.text
+                    assert original.content == key.encode()
                     assert (
                         await source.get(item["thumbnail_url"])
                     ).content == thumbnail.encode()
