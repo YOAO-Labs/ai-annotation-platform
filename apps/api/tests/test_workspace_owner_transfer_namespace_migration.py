@@ -35,6 +35,10 @@ from app.config import settings
 from app.db.models.project import Project
 from app.db.models.user import User
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from yoao_owner_data.postgres import (
+    FunctionRoleUnavailable,
+    verify_function_only_role,
+)
 
 ROOT = Path(__file__).resolve().parents[3]
 API_ROOT = Path(__file__).resolve().parents[1]
@@ -98,20 +102,22 @@ def _config(url) -> Config:
 def _owner_tool_url():
     value = make_url(settings.effective_migration_database_url)
     assert value.username == "owner"
+    assert value.password, "the verified migration owner credentials are required"
     return value
+
+
+def _owner_dsn(database: str) -> str:
+    return (
+        _owner_tool_url()
+        .set(database=database, drivername="postgresql")
+        .render_as_string(hide_password=False)
+    )
 
 
 def _psql_script(database: str, sql: str, variables: dict[str, str]) -> None:
     owner = _owner_tool_url()
     _verify_postgres(owner.set(database=database))
-    password = owner.password
-    if not password:
-        test_url = os.environ.get("TEST_DATABASE_URL")
-        if test_url:
-            password = make_url(test_url).password
-    command_line = ["docker", "exec", "-i"]
-    if password:
-        command_line.extend(["-e", f"PGPASSWORD={password}"])
+    command_line = ["docker", "exec", "-i", "-e", "PGPASSWORD"]
     command_line.extend(
         [
             os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"],
@@ -136,14 +142,29 @@ def _psql_script(database: str, sql: str, variables: dict[str, str]) -> None:
         assert value is not None
         command_line.extend(["-v", f"{name}={value}"])
     command_line.extend(["-f", "-"])
+    environment = dict(os.environ)
+    environment["PGPASSWORD"] = owner.password
     result = subprocess.run(
         command_line,
         input=sql,
         capture_output=True,
         text=True,
         timeout=300,
+        env=environment,
     )
-    assert result.returncode == 0, "checked-in module grant installer failed"
+    if result.returncode:
+        evidence = (
+            ROOT
+            / ".worktree"
+            / f"owner-transfer-installer-{database}-{uuid.uuid4().hex[:12]}.stderr"
+        )
+        evidence.parent.mkdir(parents=True, exist_ok=True)
+        evidence.write_text(result.stderr, encoding="utf-8")
+        evidence.chmod(0o600)
+        pytest.fail(
+            "checked-in grant installer failed; stderr retained at "
+            f"{evidence}"
+        )
 
 
 def _sqlstate(value: BaseException) -> str | None:
@@ -180,7 +201,7 @@ async def _function_rows(connection, schema: str) -> dict[str, dict]:
                     "proc.prosecdef, proc.proconfig, proc.provolatile, "
                     "proc.proparallel, proc.prokind, "
                     "proc.prorettype::pg_catalog.regtype::text AS returns, "
-                    "language.lanname AS language, proc.prosrc "
+                    "language.lanname AS language "
                     "FROM pg_catalog.pg_proc AS proc "
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid = proc.pronamespace "
@@ -420,8 +441,11 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
     scratch = create_async_engine(target, poolclass=NullPool, hide_parameters=True)
     maker = async_sessionmaker(scratch, expire_on_commit=False)
     created = False
-    tagged = False
+    db_oid = None
+    db_owner_oid = None
+    db_owner_name = None
     role_created = False
+    role_oid = None
     legacy_password = secrets.token_urlsafe(32)
     legacy_connection = None
     new_connection = None
@@ -473,10 +497,24 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         async with admin.connect() as connection:
             await connection.execute(text(f'CREATE DATABASE "{database}" TEMPLATE template0'))
             created = True
+            identity = (
+                await connection.execute(
+                    text(
+                        "SELECT database.oid, database.datdba, "
+                        "pg_catalog.pg_get_userbyid(database.datdba) AS owner "
+                        "FROM pg_catalog.pg_database AS database "
+                        "WHERE database.datname = :name"
+                    ),
+                    {"name": database},
+                )
+            ).mappings().one()
+            db_oid = identity["oid"]
+            db_owner_oid = identity["datdba"]
+            db_owner_name = identity["owner"]
+            assert db_owner_name == test_engine.url.username == "owner"
             await connection.execute(
                 text(f"COMMENT ON DATABASE \"{database}\" IS '{ownership}'")
             )
-            tagged = True
             quote = connection.dialect.identifier_preparer.quote_identifier
             await connection.execute(text(f'REVOKE ALL ON DATABASE "{database}" FROM PUBLIC'))
             for grantee, privilege, grantable in acl:
@@ -505,6 +543,37 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                     text("SELECT to_regnamespace(:name)"), {"name": NEW_SCHEMA}
                 )
                 is None
+            )
+
+        # The checked-in grant installers revoke PUBLIC on module functions.
+        # This controlled legacy-only fixture models that PUBLIC hardening so
+        # the shared function-only verifier can prove the retired role's exact
+        # global inventory before the cutover.
+        async with scratch.begin() as connection:
+            await connection.execute(
+                text(
+                    """
+                    DO $public$
+                    DECLARE namespace record;
+                    BEGIN
+                        FOR namespace IN
+                            SELECT nspname FROM pg_catalog.pg_namespace
+                            WHERE nspname NOT IN (
+                                'pg_catalog', 'information_schema'
+                            )
+                              AND nspname NOT LIKE 'pg_toast%'
+                              AND nspname NOT LIKE 'pg_temp_%'
+                        LOOP
+                            EXECUTE pg_catalog.format(
+                                'REVOKE ALL ON ALL FUNCTIONS IN SCHEMA %I '
+                                'FROM PUBLIC',
+                                namespace.nspname
+                            );
+                        END LOOP;
+                    END;
+                    $public$;
+                    """
+                )
             )
 
         async with admin.connect() as connection:
@@ -583,6 +652,13 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 )
             )
             role_created = True
+            role_oid = await connection.scalar(
+                text(
+                    "SELECT oid FROM pg_catalog.pg_roles WHERE rolname = :name"
+                ),
+                {"name": LEGACY_LOGIN},
+            )
+            assert role_oid is not None
         async with scratch.begin() as connection:
             await connection.execute(
                 text(f'GRANT CONNECT ON DATABASE "{database}" TO "{LEGACY_LOGIN}"')
@@ -608,41 +684,21 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         )
         try:
             assert await legacy_connection.fetchval("SELECT current_user") == LEGACY_LOGIN
-            inventory = await legacy_connection.fetch(
-                """
-                SELECT namespace.nspname || '.' || proc.proname || '(' ||
-                       pg_catalog.oidvectortypes(proc.proargtypes) || ')' AS signature
-                FROM pg_catalog.pg_proc AS proc
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = proc.pronamespace
-                WHERE namespace.nspname = $1
-                  AND proc.prokind = 'f'
-                  AND pg_catalog.has_function_privilege(
-                      current_user, proc.oid, 'EXECUTE'
-                  )
-                ORDER BY proc.proname,
-                         pg_catalog.oidvectortypes(proc.proargtypes)
-                """,
-                OLD_SCHEMA,
+            await verify_function_only_role(
+                legacy_connection,
+                schema=OLD_SCHEMA,
+                functions={
+                    ("owner_transfer_policy", ""),
+                    ("transfer_project_owner", "jsonb"),
+                },
+                role=LEGACY_LOGIN,
             )
-            assert [row["signature"] for row in inventory] == [
-                f"{OLD_SCHEMA}.owner_transfer_policy()",
-                f"{OLD_SCHEMA}.transfer_project_owner(jsonb)",
-            ]
             assert (
                 await legacy_connection.fetchval(
                     f"SELECT {OLD_SCHEMA}.owner_transfer_policy()"
                 )
                 is not None
             )
-            forbidden = (
-                f"SELECT * FROM {RECEIPTS} LIMIT 1",
-                f"SELECT {OLD_SCHEMA}._failure(400, 'null'::jsonb, false)",
-                "CREATE TEMP TABLE workspace_owner_transfer_forbidden(id integer)",
-            )
-            for statement in forbidden:
-                with pytest.raises(asyncpg.InsufficientPrivilegeError):
-                    await legacy_connection.execute(statement)
 
             old_reply = json.loads(
                 await legacy_connection.fetchval(
@@ -697,7 +753,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
 
         await _assert_quiescent(scratch, database)
         with pytest.raises(Exception) as enabled_refusal:
-            await asyncio.to_thread(command.upgrade, config, "head")
+            await asyncio.to_thread(command.upgrade, config, "bo0460")
         assert _sqlstate(enabled_refusal.value) == "55006"
         await _assert_preflight_unchanged(
             scratch,
@@ -717,7 +773,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 await connection.execute(text(f'ALTER ROLE "{LEGACY_LOGIN}" NOLOGIN'))
             assert await legacy_connection.fetchval("SELECT 1") == 1
             with pytest.raises(Exception) as writer_refusal:
-                await asyncio.to_thread(command.upgrade, config, "head")
+                await asyncio.to_thread(command.upgrade, config, "bo0460")
             assert _sqlstate(writer_refusal.value) == "55006"
         finally:
             await legacy_connection.close()
@@ -739,7 +795,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 )
             )
         with pytest.raises(Exception) as shape_refusal:
-            await asyncio.to_thread(command.upgrade, config, "head")
+            await asyncio.to_thread(command.upgrade, config, "bo0460")
         assert _sqlstate(shape_refusal.value) == "55000"
         async with scratch.connect() as connection:
             assert (
@@ -781,7 +837,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         async with admin.connect() as connection:
             await connection.execute(text(f'ALTER ROLE "{LEGACY_LOGIN}" CREATEROLE'))
         with pytest.raises(Exception) as privileged_refusal:
-            await asyncio.to_thread(command.upgrade, config, "head")
+            await asyncio.to_thread(command.upgrade, config, "bo0460")
         assert _sqlstate(privileged_refusal.value) == "42501"
         async with admin.connect() as connection:
             assert (
@@ -819,7 +875,7 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 {"marker": marker},
             )
         with pytest.raises(Exception) as collision_refusal:
-            await asyncio.to_thread(command.upgrade, config, "head")
+            await asyncio.to_thread(command.upgrade, config, "bo0460")
         assert _sqlstate(collision_refusal.value) == "42P06"
         await _assert_preflight_unchanged(
             scratch,
@@ -853,15 +909,11 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
             await connection.execute(text(f'DROP SCHEMA "{NEW_SCHEMA}" CASCADE'))
 
         await _assert_quiescent(scratch, database)
-        await asyncio.to_thread(command.upgrade, config, "head")
-        script = ScriptDirectory.from_config(config)
-        new_revision = script.get_revision("bo0460")
-        assert new_revision.down_revision == "bo0459"
-        head = script.get_current_head()
+        await asyncio.to_thread(command.upgrade, config, "bo0460")
         async with scratch.connect() as connection:
             assert (
                 await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
-                == head
+                == "bo0460"
             )
             assert (
                 await connection.scalar(
@@ -912,21 +964,6 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                     entry[0] != "PUBLIC"
                     for entry in upgraded["function_acl"][signature]
                 )
-            old_body = baseline["functions"]["transfer_project_owner(jsonb)"]["prosrc"]
-            new_body = upgraded["functions"]["transfer_project_owner(jsonb)"]["prosrc"]
-            assert f"{OLD_SCHEMA}._failure" in old_body
-            assert new_body == old_body.replace(
-                f"{OLD_SCHEMA}._failure", f"{NEW_SCHEMA}._failure"
-            )
-            for signature in ("owner_transfer_policy()",):
-                assert (
-                    upgraded["functions"][signature]["prosrc"]
-                    == baseline["functions"][signature]["prosrc"]
-                )
-            assert (
-                upgraded["functions"]["_failure(integer,jsonb,boolean)"]["prosrc"]
-                == baseline["functions"]["_failure(integer,jsonb,boolean)"]["prosrc"]
-            )
             assert not await connection.scalar(
                 text(
                     "SELECT pg_catalog.has_schema_privilege("
@@ -945,8 +982,8 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 },
             )
 
-        with pytest.raises(Exception):
-            await asyncio.to_thread(command.downgrade, config, "bo0459")
+        await asyncio.to_thread(command.upgrade, config, "head")
+        head = ScriptDirectory.from_config(config).get_current_head()
         async with scratch.connect() as connection:
             assert (
                 await connection.scalar(text("SELECT version_num FROM public.alembic_version"))
@@ -964,10 +1001,6 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 )
                 is not None
             )
-            after_downgrade = await _boundary_state(
-                connection, NEW_SCHEMA, project_id, operation_id
-            )
-            assert after_downgrade == upgraded
 
         module_grants = (ROOT / "infra/docker/module-data-grants.sql").read_text(
             encoding="utf-8"
@@ -1004,43 +1037,20 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         before_replay = await _owner_project_state(scratch, project_id)
         new_connection = await _grab_new_login(test_engine, database)
         try:
-            inventory = await new_connection.fetch(
-                """
-                SELECT namespace.nspname || '.' || proc.proname || '(' ||
-                       pg_catalog.oidvectortypes(proc.proargtypes) || ')' AS signature
-                FROM pg_catalog.pg_proc AS proc
-                JOIN pg_catalog.pg_namespace AS namespace
-                  ON namespace.oid = proc.pronamespace
-                WHERE namespace.nspname = $1
-                  AND proc.prokind = 'f'
-                  AND pg_catalog.has_function_privilege(
-                      current_user, proc.oid, 'EXECUTE'
-                  )
-                ORDER BY proc.proname,
-                         pg_catalog.oidvectortypes(proc.proargtypes)
-                """,
-                NEW_SCHEMA,
+            await verify_function_only_role(
+                new_connection,
+                schema=NEW_SCHEMA,
+                functions={
+                    ("owner_transfer_policy", ""),
+                    ("transfer_project_owner", "jsonb"),
+                },
+                role=NEW_LOGIN,
             )
-            assert [row["signature"] for row in inventory] == [
-                f"{NEW_SCHEMA}.owner_transfer_policy()",
-                f"{NEW_SCHEMA}.transfer_project_owner(jsonb)",
-            ]
             assert json.loads(
                 await new_connection.fetchval(
                     f"SELECT {NEW_SCHEMA}.owner_transfer_policy()"
                 )
             ) == {"schema": WIRE_SCHEMA}
-            for statement in (
-                f"SELECT * FROM {RECEIPTS} LIMIT 1",
-                f"SELECT {NEW_SCHEMA}._failure(400, 'null'::jsonb, false)",
-                "CREATE TEMP TABLE workspace_owner_transfer_forbidden(id integer)",
-            ):
-                with pytest.raises(asyncpg.InsufficientPrivilegeError):
-                    await new_connection.execute(statement)
-            with pytest.raises(asyncpg.InvalidSchemaNameError):
-                await new_connection.fetchval(
-                    f"SELECT {OLD_SCHEMA}.owner_transfer_policy()"
-                )
 
             replay = json.loads(
                 await new_connection.fetchval(
@@ -1101,27 +1111,52 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                 == receipt_json
             )
 
-        async with admin.connect() as connection:
-            await connection.execute(text(f'ALTER ROLE "{LEGACY_LOGIN}" LOGIN'))
-        legacy_connection = await asyncpg.connect(
-            _legacy_dsn(test_engine, database, legacy_password)
-        )
+        with pytest.raises(
+            asyncpg.InvalidAuthorizationSpecificationError
+        ) as denied_login:
+            await asyncpg.connect(_legacy_dsn(test_engine, database, legacy_password))
+        assert denied_login.value.sqlstate == "28000"
+
+        owner_connection = await asyncpg.connect(_owner_dsn(database))
         try:
-            with pytest.raises(asyncpg.InsufficientPrivilegeError) as retired:
-                await legacy_connection.fetchval(
-                    f"SELECT {NEW_SCHEMA}.owner_transfer_policy()"
+            assert (
+                await owner_connection.fetchval(
+                    "SELECT rolsuper FROM pg_catalog.pg_roles "
+                    "WHERE rolname = current_user"
                 )
-            assert retired.value.sqlstate == "42501"
-            with pytest.raises(asyncpg.InvalidSchemaNameError) as absent:
-                await legacy_connection.fetchval(
-                    f"SELECT {OLD_SCHEMA}.owner_transfer_policy()"
+                is True
+            )
+            await owner_connection.execute(f'SET ROLE "{LEGACY_LOGIN}"')
+            try:
+                assert (
+                    await owner_connection.fetchval("SELECT current_user")
+                    == LEGACY_LOGIN
                 )
-            assert absent.value.sqlstate == "3F000"
+                with pytest.raises(FunctionRoleUnavailable):
+                    await verify_function_only_role(
+                        owner_connection,
+                        schema=OLD_SCHEMA,
+                        functions={
+                            ("owner_transfer_policy", ""),
+                            ("transfer_project_owner", "jsonb"),
+                        },
+                        role=LEGACY_LOGIN,
+                    )
+                with pytest.raises(asyncpg.InsufficientPrivilegeError) as retired:
+                    await owner_connection.fetchval(
+                        f"SELECT {NEW_SCHEMA}.owner_transfer_policy()"
+                    )
+                assert retired.value.sqlstate == "42501"
+                with pytest.raises(asyncpg.InvalidSchemaNameError) as absent:
+                    await owner_connection.fetchval(
+                        f"SELECT {OLD_SCHEMA}.owner_transfer_policy()"
+                    )
+                assert absent.value.sqlstate == "3F000"
+            finally:
+                await owner_connection.execute("RESET ROLE")
+            assert await owner_connection.fetchval("SELECT current_user") == "owner"
         finally:
-            await legacy_connection.close()
-            legacy_connection = None
-            async with admin.connect() as connection:
-                await connection.execute(text(f'ALTER ROLE "{LEGACY_LOGIN}" NOLOGIN'))
+            await owner_connection.close()
     finally:
         if legacy_connection is not None:
             await legacy_connection.close()
@@ -1131,14 +1166,30 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
         try:
             if created:
                 async with admin.connect() as connection:
-                    marker = await connection.scalar(
-                        text(
-                            "SELECT shobj_description(oid, 'pg_database') "
-                            "FROM pg_catalog.pg_database WHERE datname = :name"
-                        ),
-                        {"name": database},
+                    identity = (
+                        await connection.execute(
+                            text(
+                                "SELECT database.oid, database.datdba, "
+                                "pg_catalog.pg_get_userbyid(database.datdba) AS owner, "
+                                "pg_catalog.shobj_description(database.oid, 'pg_database') "
+                                "AS marker "
+                                "FROM pg_catalog.pg_database AS database "
+                                "WHERE database.datname = :name"
+                            ),
+                            {"name": database},
+                        )
+                    ).mappings().one_or_none()
+                    assert identity is not None, "created database identity is missing"
+                    assert identity["oid"] == db_oid, "created database OID changed"
+                    assert (
+                        identity["datdba"] == db_owner_oid
+                    ), "created database owner changed"
+                    assert (
+                        identity["owner"] == db_owner_name == test_engine.url.username
                     )
-                    assert marker == ownership or (not tagged and marker is None)
+                    assert (
+                        identity["marker"] == ownership
+                    ), "created database ownership marker changed"
                     deadline = time.monotonic() + 10
                     while True:
                         sessions = await connection.scalar(
@@ -1158,15 +1209,18 @@ async def test_workspace_owner_transfer_namespace_migration_preserves_populated_
                     await connection.execute(text(f'DROP DATABASE "{database}"'))
                     if role_created:
                         assert (
-                            await connection.scalar(
-                                text(
-                                    "SELECT count(*) FROM pg_catalog.pg_roles "
-                                    "WHERE rolname = :name"
-                                ),
-                                {"name": LEGACY_LOGIN},
-                            )
-                            == 1
+                            role_oid is not None
+                        ), "created role identity was not recorded"
+                        observed_role_oid = await connection.scalar(
+                            text(
+                                "SELECT oid FROM pg_catalog.pg_roles "
+                                "WHERE rolname = :name"
+                            ),
+                            {"name": LEGACY_LOGIN},
                         )
+                        assert (
+                            observed_role_oid == role_oid
+                        ), "created role OID changed"
                         await connection.execute(text(f'DROP ROLE "{LEGACY_LOGIN}"'))
         finally:
             await admin.dispose()

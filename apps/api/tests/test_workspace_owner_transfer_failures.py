@@ -278,3 +278,58 @@ async def test_installed_runtime_combines_both_restricted_capabilities(test_engi
         await _cleanup_world(
             maker, actor.id, project.id, [actor.id, first.id, second.id, employee.id]
         )
+
+
+@pytest.mark.parametrize("binding", ["dedicated", "remote_python", "remote_node"])
+async def test_foreign_public_invoker_function_fails_closed_after_healthy_start(
+    test_engine, httpx_client, binding
+):
+    maker, actor, first, second, employee, project = await _seed_world(
+        test_engine, f"foreign-public-{binding}"
+    )
+    users = [actor.id, first.id, second.id, employee.id]
+    initial = await _snapshot(maker, project.id, actor.id)
+    token = secrets.token_urlsafe(32)
+    schema = f"yoao_n5_ot_foreign_{uuid.uuid4().hex}_v1"
+    created = False
+    try:
+        async with AsyncExitStack() as stack:
+            await _binding(stack, test_engine, binding, token)
+            async with test_engine.begin() as db:
+                await db.execute(text(f'CREATE SCHEMA "{schema}"'))
+                created = True
+                await db.execute(text(f'REVOKE ALL ON SCHEMA "{schema}" FROM PUBLIC'))
+                await db.execute(
+                    text(
+                        f'CREATE FUNCTION "{schema}".probe_public_invoker() '
+                        "RETURNS integer LANGUAGE sql AS $$ SELECT 1 $$"
+                    )
+                )
+                await db.execute(
+                    text(
+                        f'GRANT EXECUTE ON FUNCTION "{schema}".'
+                        "probe_public_invoker() TO PUBLIC"
+                    )
+                )
+            response = await _public_transfer(
+                httpx_client, project.id, first.id, actor
+            )
+            assert response.status_code == 503, response.text
+            assert await _snapshot(maker, project.id, actor.id) == initial
+            async with maker() as observer:
+                assert (
+                    await observer.scalar(
+                        text(
+                            "SELECT count(*) FROM public."
+                            "workspace_owner_transfer_operation_receipts "
+                            "WHERE project_id = :project"
+                        ),
+                        {"project": project.id},
+                    )
+                    == 0
+                )
+    finally:
+        if created:
+            async with test_engine.begin() as db:
+                await db.execute(text(f'DROP SCHEMA "{schema}" CASCADE'))
+        await _cleanup_world(maker, actor.id, project.id, users)
