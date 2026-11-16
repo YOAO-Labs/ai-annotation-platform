@@ -527,7 +527,6 @@ class S3ImageStorage:
     async def _upload_fixture_pyramid_member(
         self, writer, path, key, digest, size, content_type
     ):
-        from yoao_assets_media_runtime.fixture_native_outputs import verify_object
         from yoao_assets_media_runtime.storage import _run_blocking
 
         await writer.prepare()
@@ -536,16 +535,6 @@ class S3ImageStorage:
             identity = await _run_blocking(
                 self._fixture_member_put, writer, path, key, digest, size, content_type
             )
-            await _run_blocking(
-                verify_object,
-                writer.client,
-                writer.bucket,
-                key,
-                digest,
-                size,
-                identity.etag,
-                identity.version_id,
-            )
             return identity
         except BaseException as exc:
             exc.storage_operation_unsettled = True
@@ -553,6 +542,8 @@ class S3ImageStorage:
 
     @staticmethod
     def _fixture_member_put(writer, path, key, digest, size, content_type):
+        from yoao_assets_media_runtime.fixture_native_outputs import verify_object
+
         with path.open("rb") as source:
             try:
                 result = writer.client.put_object(
@@ -581,6 +572,7 @@ class S3ImageStorage:
             or version == "null"
         ):
             raise ImageFailure("upload_verification_failed")
+        verify_object(writer.client, writer.bucket, key, digest, size, etag, version)
         return ObjectIdentity(
             etag=etag.strip().strip('"'), byte_size=size, version_id=version
         )
