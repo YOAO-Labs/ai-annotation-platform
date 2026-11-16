@@ -23,7 +23,7 @@ _unsettled_consumers = []
 def _proc_stat(pid):
     try:
         raw = Path(f"/proc/{pid}/stat").read_text()
-    except FileNotFoundError:
+    except (FileNotFoundError, ProcessLookupError):
         return None
     fields = raw.rsplit(")", 1)[1].split()
     return fields[0], int(fields[1]), int(fields[2])
@@ -42,12 +42,12 @@ def _track_consumer_descendants(root_pid, tracked):
         visited.add(parent)
         try:
             tasks = list(Path(f"/proc/{parent}/task").iterdir())
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             continue
         for task in tasks:
             try:
                 children = (task / "children").read_text().split()
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 continue
             for value in children:
                 pid = int(value)

@@ -293,6 +293,50 @@ os._exit(0)
                         for descriptor in tracked.values():
                             os.close(descriptor)
 
+    def test_procfs_exit_race_preserves_live_descendant_tracking(self):
+        import raster_consumer_process as consumer
+
+        command = [sys.executable, "-c", "import sys; sys.stdin.buffer.read(1)"]
+        tracked = {}
+        with (
+            subprocess.Popen(command, stdin=subprocess.PIPE) as exiting,
+            subprocess.Popen(command, stdin=subprocess.PIPE) as live,
+        ):
+            stat_path = Path(f"/proc/{exiting.pid}/stat")
+            actual_read = Path.read_text
+            reaped = False
+            try:
+                with stat_path.open() as stale_stat:
+
+                    def read_during_reap(path, *args, **kwargs):
+                        nonlocal reaped
+                        if path == stat_path:
+                            return stale_stat.read()
+                        value = actual_read(path, *args, **kwargs)
+                        if (
+                            not reaped
+                            and path.name == "children"
+                            and str(exiting.pid) in value.split()
+                        ):
+                            exiting.stdin.close()
+                            self.assertEqual(exiting.wait(timeout=5), 0)
+                            reaped = True
+                        return value
+
+                    with patch.object(Path, "read_text", read_during_reap):
+                        consumer._track_consumer_descendants(os.getpid(), tracked)
+                self.assertTrue(reaped)
+                self.assertNotIn(exiting.pid, tracked)
+                self.assertIn(live.pid, tracked)
+                self.assertTrue(consumer._pidfd_live(tracked[live.pid]))
+            finally:
+                for descriptor in tracked.values():
+                    os.close(descriptor)
+                for child in (exiting, live):
+                    if not child.stdin.closed:
+                        child.stdin.close()
+                    self.assertEqual(child.wait(timeout=5), 0)
+
     def test_descendant_reaped_before_signal_delivery_does_not_block_success(self):
         import raster_consumer_process as consumer
         from linux_pidfd import open_pidfd
