@@ -136,6 +136,7 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_assets_v1.write_native_pyramid_member(uuid,text,text)": "0462_fixture_native_pyramid_receipts.sql",
     "aap_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
     "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0460_workspace_owner_transfer_namespace.sql",
     "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
@@ -800,7 +801,6 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
             "aap_assets_v1.submit_native_pyramid_member(uuid)",
             "aap_assets_v1._native_pyramid_fixture_scope(uuid)",
-            "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
             "aap_assets_v1.verify_native_pyramid_member(uuid)",
             "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
             "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
@@ -1845,6 +1845,7 @@ SQL_ARTIFACTS = (
     "0459_source_ingest_identity_and_retry.sql",
     "0460_workspace_owner_transfer_namespace.sql",
     "0461_fixture_native_pyramid_target.sql",
+    "0462_fixture_native_pyramid_receipts.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
