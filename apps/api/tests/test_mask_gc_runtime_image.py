@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import os
 import secrets
+import subprocess
 import time
-from urllib.parse import urlsplit
 from uuid import uuid4
 
 import httpx
@@ -20,6 +21,7 @@ from app.config import settings
 from app.services import mask_gc_collection as collection
 from tests.test_assets_media_containers import _memory_peak
 from tests.test_asset_storage_cleanup_runtime import (
+    _container_database_url,
     _docker,
     _inspect_docker,
     _required_env,
@@ -43,20 +45,78 @@ pytestmark = [
 ]
 
 
-async def _start_gc(image, identity, resources, byte_origin, byte_token, directory):
+def _container_state_evidence(container: str) -> str:
+    state = _inspect_docker(container).get("State") or {}
+    fields = {
+        name: state.get(name)
+        for name in ("Status", "Running", "ExitCode", "Error", "OOMKilled")
+    }
+    logs = subprocess.run(
+        ["docker", "logs", "--tail", "40", container],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    tail = (logs.stdout + logs.stderr).strip()[-2000:]
+    return f"state={json.dumps(fields)} logs={tail!r}"
+
+
+def _byte_container_origin(container: str, image: str, identity: str) -> str:
+    """Return the owned byte owner's verified default-bridge endpoint."""
+    details = _inspect_docker(container)
+    labels = (details.get("Config") or {}).get("Labels") or {}
+    networks = (details.get("NetworkSettings") or {}).get("Networks") or {}
+    ports = (details.get("NetworkSettings") or {}).get("Ports") or {}
+    if (
+        details.get("Image") != image
+        or labels.get("org.aap.acceptance") != "module-data-boundary"
+        or labels.get("org.aap.acceptance-id") != identity
+        or (details.get("State") or {}).get("Running") is not True
+        or set(networks) != {"bridge"}
+    ):
+        pytest.fail("owned byte owner identity did not match this acceptance")
+    bridge = networks["bridge"]
+    bindings = ports.get("8770/tcp") or []
+    try:
+        address = ipaddress.ip_address(bridge.get("IPAddress", ""))
+    except ValueError:
+        pytest.fail("owned byte owner has no verified bridge address")
+    network = _inspect_docker(bridge.get("NetworkID", ""))
+    attached = (network.get("Containers") or {}).get(container) or {}
+    if (
+        address.version != 4
+        or not address.is_private
+        or network.get("Id") != bridge.get("NetworkID")
+        or network.get("Name") != "bridge"
+        or network.get("Driver") != "bridge"
+        or attached.get("IPv4Address", "").split("/", 1)[0] != str(address)
+        or len(bindings) != 1
+        or bindings[0].get("HostIp") != "127.0.0.1"
+    ):
+        pytest.fail("owned byte owner bridge ownership did not match")
+    return f"http://{address}:8770"
+
+
+async def _start_gc(
+    image, identity, resources, byte_image, byte_container, byte_token, directory
+):
     dsn = make_url(_required_env("AAP_MODULE_DATA_LABELING_MASK_GC_URL"))
     assert (
         dsn.username == "labeling_mask_gc_client"
         and dsn.database == resources["database"]
     )
     token = secrets.token_urlsafe(32)
-    content = urlsplit(byte_origin)
+    # The owned PostgreSQL login and the byte owner are separate containers on the
+    # default bridge. Give the installed owner their verified private addresses and
+    # internal listen ports; host-published loopback endpoints are not reachable
+    # from a bridge container.
+    database_url = _container_database_url(dsn)
+    content_url = _byte_container_origin(byte_container, byte_image, identity)
     environment = {
-        "MASK_GC_DATABASE_URL": dsn.set(
-            drivername="postgresql", host="host.docker.internal"
-        ).render_as_string(hide_password=False),
+        "MASK_GC_DATABASE_URL": database_url,
         "MASK_GC_TOKEN": token,
-        "MASK_GC_CONTENT_URL": f"http://host.docker.internal:{content.port}",
+        "MASK_GC_CONTENT_URL": content_url,
         "MASK_GC_CONTENT_TOKEN": byte_token,
         "MASK_GC_POLL_ENABLED": "false",
     }
@@ -78,8 +138,6 @@ async def _start_gc(image, identity, resources, byte_origin, byte_token, directo
             f"org.aap.acceptance-id={identity}",
             "--label",
             f"org.aap.worktree-owner={resources['owner']}",
-            "--add-host",
-            "host.docker.internal:host-gateway",
             "--read-only",
             "--cap-drop",
             "ALL",
@@ -101,6 +159,7 @@ async def _start_gc(image, identity, resources, byte_origin, byte_token, directo
         ).strip()
         details = _inspect_docker(container)
         assert details["Image"] == image
+        assert set(details["NetworkSettings"]["Networks"]) == {"bridge"}
         assert details["HostConfig"]["ReadonlyRootfs"] is True
         assert details["Config"]["User"] == "10003:10003"
         assert all(
@@ -116,7 +175,12 @@ async def _start_gc(image, identity, resources, byte_origin, byte_token, directo
         origin = f"http://127.0.0.1:{ports[0]['HostPort']}"
         async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
             for _ in range(100):
-                assert _inspect_docker(container)["State"]["Running"] is True
+                if _inspect_docker(container)["State"]["Running"] is not True:
+                    pytest.fail(
+                        "installed Labeling Mask GC container exited before "
+                        "readiness: " + _container_state_evidence(container),
+                        pytrace=False,
+                    )
                 try:
                     if (await client.get(origin + "/health/ready")).status_code == 200:
                         return container, origin, token
@@ -124,7 +188,9 @@ async def _start_gc(image, identity, resources, byte_origin, byte_token, directo
                     pass
                 await asyncio.sleep(0.1)
         pytest.fail(
-            "installed Labeling Mask GC image did not become ready", pytrace=False
+            "installed Labeling Mask GC image did not become ready: "
+            + _container_state_evidence(container),
+            pytrace=False,
         )
     except BaseException:
         if container:
@@ -149,7 +215,7 @@ async def test_installed_gc_progresses_past_retained_prefix_with_independent_bud
     containers = []
     async with _inventory(test_engine, retained=1001, orphans=7) as world:
         try:
-            cleanup, byte_origin, byte_token = await _start_role(
+            cleanup, _, byte_token = await _start_role(
                 "cleanup",
                 byte_image,
                 identity,
@@ -161,7 +227,8 @@ async def test_installed_gc_progresses_past_retained_prefix_with_independent_bud
                 image,
                 identity,
                 world["resources"],
-                byte_origin,
+                byte_image,
+                cleanup,
                 byte_token,
                 tmp_path,
             )

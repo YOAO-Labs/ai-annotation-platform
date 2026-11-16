@@ -130,8 +130,12 @@ def main(argv=None) -> None:
         raise SystemExit(2) from None
     except KeyboardInterrupt:
         return
-    except Exception:
-        logger.error("Mask GC runtime stopped after an unexpected failure")
+    except Exception as exc:
+        # The type only: connection and provider details can carry credentials.
+        logger.error(
+            "Mask GC runtime stopped after an unexpected failure (%s)",
+            type(exc).__name__,
+        )
         raise SystemExit(1) from None
 
 

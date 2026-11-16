@@ -170,6 +170,20 @@ class _FixtureAgeAuthority(IndependentMaskGcDatabase):
         return result
 
 
+async def _completed_intents_since(world, started_at) -> list[tuple[str, str]]:
+    """Completed native intents inside one owned collection cycle."""
+    async with world["maker"]() as db:
+        result = await db.execute(
+            text(
+                "SELECT object_key, outcome FROM mask_gc_intents "
+                "WHERE state='completed' AND completed_at >= :started_at "
+                "ORDER BY object_key"
+            ),
+            {"started_at": started_at},
+        )
+        return [(str(key), str(outcome)) for key, outcome in result]
+
+
 async def test_business_collector_previews_without_mutation_and_reconciles_bounded_deletes(
     test_engine,
     monkeypatch,
@@ -213,16 +227,61 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
             collection, "IndependentMaskGcDatabase", _FixtureAgeAuthority
         )
         started = time.monotonic()
+        fixture_keys = set(world["retained"]) | set(world["orphans"])
+        owned_keys = set(world["orphans"])
         totals = []
+        owned_cumulative = []
+        foreign_keys = set()
+        owned_completed = 0
         for _ in range(3):
+            async with world["maker"]() as db:
+                cycle_started = await db.scalar(text("SELECT clock_timestamp()"))
             async with world["maker"]() as db:
                 result = await RasterMaskRetentionWorkflow(
                     db, session_factory=world["maker"]
                 ).purge_unreferenced_raster_masks(delete_limit=3)
             assert result["errors"] == 0, result
             assert result["delete_claims"] <= 3
+            assert result["deleted"] <= result["delete_claims"]
+            # Reconcile the reported counters with durable native intents
+            # completed in this cycle.
+            completed = await _completed_intents_since(world, cycle_started)
+            assert result["completed"] == len(completed)
+            assert result["deleted"] == sum(
+                1 for _, outcome in completed if outcome == "deleted"
+            )
+            owned_completed += sum(
+                1
+                for key, outcome in completed
+                if key in owned_keys and outcome == "deleted"
+            )
+            foreign_keys.update(
+                key for key, _ in completed if key not in fixture_keys
+            )
             totals.append(result["deleted"])
-        assert sum(totals) == 7
+            owned_cumulative.append(owned_completed)
+        # The destructive fixture advances the sweep cutoff so freshly written S3
+        # bytes become eligible, which also makes any other unreferenced Mask object
+        # in the shared verifier store eligible. `claim_mask_gc_deletes` orders by
+        # (next_check_at, object_key), so a foreign eligible object can spend a
+        # bounded delete slot before this fixture's keys. Exact owned progress is
+        # therefore only attributable when no foreign intent completed during the
+        # sweep; otherwise the shared store was not isolated and is reported.
+        owned_totals = [
+            owned_cumulative[0],
+            *[
+                after - before
+                for before, after in zip(owned_cumulative, owned_cumulative[1:])
+            ],
+        ]
+        assert not foreign_keys, (
+            "shared Mask store completed foreign eligible objects during the "
+            f"bounded fixture sweep: {sorted(foreign_keys)}; owned progress "
+            f"{owned_totals} from cycle totals {totals} is not attributable"
+        )
+        assert owned_totals == [3, 3, 1]
+        assert owned_cumulative[-1] == 7
+        assert totals == owned_totals
         assert all(
             _object_exists(world["s3"], world["bucket"], key)
             for key in world["retained"]
@@ -242,5 +301,6 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
             ).scalar_one() == 0
         record_property("delete_budget", 3)
         record_property("cycle_deleted", str(totals))
+        record_property("fixture_cycle_deleted", str(owned_totals))
         record_property("collection_seconds", time.monotonic() - started)
         record_property("controlled_fixture_sweep_cutoff", True)

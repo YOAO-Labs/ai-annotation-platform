@@ -40,6 +40,11 @@ NODE_PEER = Path(__file__).parent / "fixtures" / "mask_gc_cutover_peer.mjs"
 _SCHEMA = "aap-labeling-mask-gc/v1"
 _PAGE_OBJECTS = byte.MAX_GC_PAGE + 1
 _MAX_LIST_PAGES = 100
+# The owned S3 client is single-attempt with an 8 second read timeout. A single
+# bulk DELETE for the whole 1001-object dry-run fixture can outlive that under
+# verifier load and leave the shared annotations store contaminated for later
+# fixtures, so cleanup keeps each request's work small and confirms every key.
+_CLEANUP_DELETE_BATCH = 100
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -259,16 +264,19 @@ def _put_objects(owner, bucket: str, keys: list[str], body: bytes) -> None:
 
 
 def _delete_objects(owner, bucket: str, keys: list[str]) -> None:
-    for start in range(0, len(keys), 1000):
+    for start in range(0, len(keys), _CLEANUP_DELETE_BATCH):
+        batch = keys[start : start + _CLEANUP_DELETE_BATCH]
         response = owner.delete_objects(
             Bucket=bucket,
             Delete={
-                "Objects": [{"Key": key} for key in keys[start : start + 1000]],
-                "Quiet": True,
+                "Objects": [{"Key": key} for key in batch],
+                "Quiet": False,
             },
         )
         if response.get("Errors"):
             pytest.fail("owned Mask GC fixture objects could not be removed")
+        if {item.get("Key") for item in response.get("Deleted", [])} != set(batch):
+            pytest.fail("owned Mask GC fixture cleanup did not confirm every key")
 
 
 def _object_facts(items: list[dict]) -> tuple[tuple[str, str, int, str], ...]:
