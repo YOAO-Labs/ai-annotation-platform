@@ -84,7 +84,7 @@ from .config import ImageWorkerConfig, load_config
 from .database import AsyncpgImageDatabase, ImageDatabase
 from .health import check_capabilities
 from .original_read import admitted_original
-from .storage import DownloadedSource, ImageStorage, S3ImageStorage
+from .storage import DownloadedSource, ImageStorage, S3ImageStorage, _if_match
 
 _BACKFILL_CALL_LIMIT = 1_000_000
 _FINISH_RETRY_LIMIT = 5
@@ -1196,11 +1196,12 @@ class ImageExecutor:
             raise
         heartbeat.check()
         try:
+            # Exact-version readers compare the HTTP ETag, not the source identity.
             await self.database.call(
                 "write_native_pyramid_member",
                 PyramidMemberReceipt(
                     operation_id=operation_id,
-                    etag=identity.etag,
+                    etag=_if_match(identity.etag),
                     version_id=identity.version_id,
                 ),
             )
