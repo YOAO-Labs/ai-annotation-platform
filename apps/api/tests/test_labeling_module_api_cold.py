@@ -28,6 +28,7 @@ from tests.test_asset_storage_cleanup_runtime import (
     _docker,
     _inspect_docker,
     _required_env,
+    _shared_bootstrap_minio,
     _verified_resource_manifest,
     _verify_postgres,
 )
@@ -186,16 +187,16 @@ def _minio_dependency(resources: dict) -> dict:
         pytest.fail("MinIO settings did not match the verified resource manifest")
     scheme = "https" if minio["ssl"] else "http"
     endpoint = urlsplit(f"{scheme}://{minio['endpoint']}")
-    if (
-        endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
-        or endpoint.port is None
-    ):
-        pytest.fail("verifier MinIO endpoint was not loopback scoped")
-
     container_id = _required("AAP_MODULE_DATA_MINIO_CONTAINER_ID")
     if re.fullmatch(r"[0-9a-f]{64}", container_id) is None:
         pytest.fail("the verifier MinIO container ID was not immutable")
-    details = _inspect_docker(container_id)
+    shared = _shared_bootstrap_minio(settings, container_id=container_id)
+    if endpoint.port is None or (
+        shared is None and endpoint.hostname not in {"127.0.0.1", "localhost", "::1"}
+    ):
+        pytest.fail("verifier MinIO endpoint was not an owned bootstrap or loopback")
+
+    details = shared if shared is not None else _inspect_docker(container_id)
     image_id = details.get("Image")
     if (
         not isinstance(image_id, str)
@@ -207,10 +208,15 @@ def _minio_dependency(resources: dict) -> dict:
     bindings = (details.get("NetworkSettings", {}).get("Ports") or {}).get(
         "9000/tcp"
     ) or []
+    binding_hosts = (
+        {endpoint.hostname}
+        if shared is not None
+        else {"127.0.0.1", "0.0.0.0", "::1", "::"}
+    )
     matching_bindings = [
         binding
         for binding in bindings
-        if binding.get("HostIp") in {"127.0.0.1", "0.0.0.0", "::1", "::"}
+        if binding.get("HostIp") in binding_hosts
         and binding.get("HostPort") == str(endpoint.port)
     ]
     if not (
@@ -238,6 +244,7 @@ def _minio_dependency(resources: dict) -> dict:
         "name": details["Name"],
         "image_id": details["Image"],
         "host_port": endpoint.port,
+        "host_binding": matching_bindings[0],
         "service_port": service_port,
         "endpoint": f"{_MINIO_ALIAS}:{service_port}",
         "ssl": minio["ssl"],
@@ -252,11 +259,7 @@ def _verify_minio_identity(details: dict, minio: dict) -> None:
         and details.get("Name") == minio["name"]
         and details.get("Image") == minio["image_id"]
         and details.get("State", {}).get("Running") is True
-        and any(
-            item.get("HostIp") in {"127.0.0.1", "0.0.0.0", "::1", "::"}
-            and int(item.get("HostPort", 0)) == minio["host_port"]
-            for item in binding
-        )
+        and binding == [minio["host_binding"]]
     ):
         raise RuntimeError("shared MinIO container identity changed")
 

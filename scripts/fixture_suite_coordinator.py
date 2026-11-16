@@ -156,11 +156,12 @@ def acquire_store_destruction_lock(resources):
 
 async def _settled(task):
     """Do not release the owner lock while admitted physical work is still running."""
-    from app.services.storage_access import finish
-
     try:
         return await asyncio.shield(task)
     except asyncio.CancelledError as interrupted:
+        # Bootstrap verification runs before API settings bind to the owner DSN.
+        from app.services.storage_access import finish
+
         try:
             await finish(task)
         except BaseException as failure:
@@ -241,7 +242,9 @@ async def _verified_database(environment=None):
         "fixture_database_roles_mismatch",
     )
     raster_selector = environment.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
-    require_private_postgres = environment.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+    require_private_postgres = (
+        environment.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+    )
     _refuse_unless(
         not require_private_postgres or raster_selector,
         "fixture_database_birth_unproven",

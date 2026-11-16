@@ -10,7 +10,6 @@ import secrets
 import shutil
 import subprocess
 import time
-from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -23,6 +22,7 @@ from app.db.models.task import Task
 from tests.factory import create_project
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
+    _container_s3_endpoint,
     _docker,
     _inspect_docker,
     _local_s3_client,
@@ -56,19 +56,7 @@ _IDENTITY = "org.aap.acceptance-id"
 def _container_s3_origins(settings) -> tuple[str, str]:
     scheme = "https" if settings.minio_use_ssl else "http"
     public = f"{scheme}://{settings.minio_endpoint}"
-    parsed = urlsplit(public)
-    if parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
-        pytest.fail("acceptance MinIO endpoint must be loopback-only")
-    internal = urlunsplit(
-        (
-            parsed.scheme,
-            f"host.docker.internal:{parsed.port or 9000}",
-            parsed.path,
-            parsed.query,
-            parsed.fragment,
-        )
-    )
-    return internal, public
+    return _container_s3_endpoint(settings), public
 
 
 def _container_environment(

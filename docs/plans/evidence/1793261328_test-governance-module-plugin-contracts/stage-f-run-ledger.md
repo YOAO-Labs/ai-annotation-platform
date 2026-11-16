@@ -477,3 +477,12 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - `n5/qualification.json` 组合第二轮 66 项未变更通过证据与第三轮四项复验，最终 70 个去重案例通过：N5-S 20、N5-W 50；34 项单元检查另记。两轮 6072 个宿主输入仅兼容测试文件变化；镜像／安装包输入未变，保留原构建身份，不声称一次 70 项全绿运行或完整 T1 通过。
 - 第三轮 verifier 清理无错误，受限存储身份、PostgreSQL 与本地运行资源移除，空 bootstrap 自动清理。N5 所需有数据前向切换、拒绝原子性、当前恢复、进程及 Python／Node 受限镜像重启重放均闭合；不要求 schema downgrade，不扩展到全部 namespace，也不开放 N6-S／N6-E／J1／J2。
 - 下一条独立资格为规范 Raster 21 项及 Source Worker 1 项。冻结 `0a62314f1`，复用输入摘要一致的 `129107983` 前端构建，保留原构建来源；规范入口单 worker、零 retry、不筛选案例。其结果与 N5 分开记录，不继承旧完整门或仅构建成功的状态。
+
+## 2026-11-16 规范入口初始化修正与独立失败分流
+
+- `candidate-canonical-raster-current-1 @ 0a62314f1` 在约 69 秒后失败，尚未进入浏览器。失败为种子入口查询 `yoao_fixture_v1.fixture_runs` 时权限不足；只读导入跟踪证明 `_verified_database → _settled_thread → _settled` 提前导入 `storage_access`／API 模型，将全局 engine 固定成普通运行角色，后续设置 owner DSN 不会重建它。
+- 修正仅将取消后物理完成等待器的导入移至取消分支，保留 shield、重复取消等待及组合失败语义；正常资源核验不提前初始化 API settings／engine。没有恢复普通角色的夹具私表权限，也没有更改授权边界。修复后的规范 21＋1 浏览器资格待执行。
+- 本次失败的 supervisor 非零退出令正常清理拒绝。用户对这一批单独明确批准行政退役；已保存当前库／角色转储及 TOC、两个 MinIO 的版本／分片清单与物理数据、初始／最终运行证据。4 个容器、3 个卷、2 个网络、3 个精确进程身份及 e2e 状态根已退役；`candidate-canonical-raster-current-1-retirement/retirement-receipt.json` 为 `administratively_retired_not_qualified`，不计清理资格，不扩展授权到后续失败批次。
+- 旧完整门另外三条 MinIO loopback 拒绝路径改为复用已有 shared-bootstrap 所有权核验；冷 API 仍校验不可变容器／镜像，并在接入、使用和退出时核对最初验证的精确端口绑定。未放开任意私网地址，真实定向复验待执行。
+- DeepSeek 的 Registry UOW 修正已集成为 `097d7b3d8`：四项旧期望允许调用方覆盖 Native 独占的 `seed` 标记，与冻结 SQL／同门已通过的绑定合同矛盾；保留冲突写入、并发未触及键、调用方增删改、时间戳及外层回滚检查，只改标记期望。
+- Broker 失败的归档 AOF 证明三条目标 delivery 已被 HDEL；全库 `unacked` 中另一条 `gpu` delivery 令原全局零值断言永远不成立。候选改为按实际 route／task ID 观察所属 delivery，并记录 foreign 数量，仍要求真实 worker 回复、active／reserved 中没有目标、所属队列为空及目标无未确认 delivery。主进程删去候选中直接删除未确认记录的附带清理改动；不通过删除证据制造 ACK。真实定向复验待执行。

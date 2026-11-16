@@ -20,6 +20,7 @@ import uuid
 from sqlalchemy.engine import URL, make_url
 
 from tests.test_asset_storage_cleanup_runtime import (
+    _shared_bootstrap_minio,
     _verified_resource_manifest,
     _verify_postgres,
 )
@@ -177,8 +178,20 @@ class WorkspaceImportCli:
             or parsed_minio.fragment
         ):
             raise ValueError("Verifier supplied an invalid MinIO authority")
-        if parsed_minio.hostname not in {"localhost", "127.0.0.1", "::1"}:
-            raise ValueError("Owned MinIO must have a loopback host endpoint")
+        shared_minio = _shared_bootstrap_minio(
+            SimpleNamespace(
+                minio_endpoint=minio_authority, minio_use_ssl=minio_use_ssl
+            ),
+            container_id=os.environ.get("AAP_MODULE_DATA_MINIO_CONTAINER_ID"),
+        )
+        if shared_minio is None and parsed_minio.hostname not in {
+            "localhost",
+            "127.0.0.1",
+            "::1",
+        }:
+            raise ValueError(
+                "Owned MinIO must have a verified bootstrap or loopback endpoint"
+            )
         self.minio_authority = (
             parsed_minio.netloc if self.host_network else "workspace-import-minio:9000"
         )
