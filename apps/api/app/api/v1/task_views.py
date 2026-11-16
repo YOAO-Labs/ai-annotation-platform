@@ -430,7 +430,9 @@ async def query_project_tasks(
     tasks = [row[0] for row in rows]
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
-    pyramids = await _attach_image_pyramids_batch(db, tasks, dims)
+    pyramids = await _attach_image_pyramids_batch(
+        db, tasks, dims, actor_id=user.id
+    )
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
     }

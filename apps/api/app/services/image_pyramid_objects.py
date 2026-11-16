@@ -11,6 +11,12 @@ import sys
 
 from sqlalchemy import String, cast, exists, func, select
 from sqlalchemy.ext.asyncio import async_sessionmaker
+from yoao_assets_images.contract import (
+    ImageFailure,
+    ReadImageGenerationRequest,
+    ReadImageSourceRequest,
+    http_error_status,
+)
 
 from app.config import settings
 from app.db.models.image_pyramid import (
@@ -19,6 +25,7 @@ from app.db.models.image_pyramid import (
     ImagePyramidOutput as Output,
 )
 from app.db.models.storage_maintenance import StorageOperation
+from app.services.assets_images import image_gateway
 from app.services import image_pyramid_originals as originals
 from app.services import image_pyramid_storage as physical
 from app.services import key_removal_accounting as removal
@@ -35,6 +42,17 @@ def purpose(identifier):
 
 def reject(code="image_pyramid_output_changed"):
     raise ContentError(code)
+
+
+def url_expiry_seconds(generation):
+    from app.services.image_pyramid import native_generation
+
+    if native_generation(generation):
+        return min(
+            settings.image_pyramid_url_expiry_seconds,
+            generation.policy["url_expiry_seconds"],
+        )
+    return settings.image_pyramid_url_expiry_seconds
 
 
 @dataclass(frozen=True)
@@ -263,11 +281,22 @@ async def check(
     lease_token=None,
     gate_revision=None,
     read_plan=None,
+    native_request=None,
     lock=True,
 ):
     """Never commit caller state or perform provider I/O under these locks."""
     if authority is not None:
         await originals.check(db, authority, lock=lock)
+    current = await originals.pin(db, owner.kind, owner.id, lock=lock)
+    read = None
+    if native_request is not None:
+        # Acquire the owner's publication locks before local shared locks, avoiding
+        # competing lock upgrades while retaining the same metadata transaction.
+        try:
+            async with image_gateway(db, caller_transaction=True) as images:
+                read = await images.call("read_image_generation", native_request)
+        except ImageFailure as exc:
+            raise ContentError(exc.code, http_error_status(exc.code)) from exc
     asset = await _row(db, Asset, Asset.id == asset_id, lock=lock)
     generation = await _row(
         db,
@@ -285,12 +314,31 @@ async def check(
         or generation.output_id != output_id
         or output.asset_id != asset_id
         or output.generation != generation_number
-        or generation.original_ref != originals.receipt(owner.source)
     ):
         reject()
-    current = await originals.pin(db, owner.kind, owner.id, lock=lock)
-    if originals.receipt(current) != generation.original_ref:
-        reject("source_changed")
+    from app.services.image_pyramid import native_generation
+
+    if native_generation(generation) and lease_token is None:
+        if read is None:
+            reject("pyramid_authority_unrecorded")
+        if read.pyramid.status != "ready":
+            reject(
+                "source_changed" if read.pyramid.status == "stale" else "asset_not_ready"
+            )
+        if (
+            read.source.owner.kind != owner.kind
+            or read.source.owner.id != owner.id
+            or read.pyramid.asset_id != asset_id
+            or read.pyramid.generation != generation_number
+        ):
+            reject()
+    else:
+        if read is not None:
+            reject()
+        if generation.original_ref != originals.receipt(owner.source):
+            reject()
+        if originals.receipt(current) != generation.original_ref:
+            reject("source_changed")
     if lease_token is None:
         if (
             generation.status != "ready"
@@ -449,9 +497,26 @@ async def manifest(storage, output, generation):
 
 
 @asynccontextmanager
-async def reading(db, owner, generation, *, authority=None, keys=None):
+async def reading(
+    db, owner, generation, *, authority=None, keys=None, source_request=None
+):
     if generation.output_id is None:
         reject("image_pyramid_storage_unpinned")
+    from app.services.image_pyramid import native_generation
+
+    native_request = None
+    if native_generation(generation):
+        if source_request is None and authority is not None and authority.mode == "http":
+            source_request = ReadImageSourceRequest(
+                actor_id=authority.actor_id, task_id=authority.owner_id
+            )
+        if source_request is None:
+            reject("pyramid_authority_unrecorded")
+        native_request = ReadImageGenerationRequest(
+            **source_request.model_dump(),
+            generation=generation.generation,
+            profile_version=settings.image_pyramid_profile_version,
+        )
     if keys is not None:
         factory = async_sessionmaker(storage_access.engine(db), expire_on_commit=False)
         async with factory() as selected:
@@ -470,7 +535,9 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
                     generation.output_id,
                     authority=authority,
                     read_plan=plan,
+                    native_request=native_request,
                 )
+                await fresh.commit()
 
         async with read_access(db, plan.receipt, plan, guard) as storage:
             yield replace(plan.receipt, _read_storage=storage)
@@ -484,6 +551,7 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
             generation.generation,
             generation.output_id,
             authority=authority,
+            native_request=native_request,
         )
         await session.commit()
         async with await storage_access.acquire(
@@ -500,6 +568,7 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
                 output.id,
                 authority=authority,
                 gate_revision=revision,
+                native_request=native_request,
             )
             await session.commit()
             yield output
@@ -511,6 +580,7 @@ async def reading(db, owner, generation, *, authority=None, keys=None):
                 output.id,
                 authority=authority,
                 gate_revision=revision,
+                native_request=native_request,
             )
             await session.commit()
 
@@ -539,7 +609,7 @@ async def transport(db, output):
             await originals.physical(context.__exit__, *sys.exc_info())
 
 
-async def thumbnail_url(db, owner_kind, owner_id, path):
+async def thumbnail_url(db, owner_kind, owner_id, path, *, actor_id):
     """A cache key alone never grants physical ownership to a common serializer."""
     if not path:
         return None
@@ -560,13 +630,24 @@ async def thumbnail_url(db, owner_kind, owner_id, path):
             if generation is None or generation.overview_key != path:
                 return None
             await session.commit()
-            async with reading(session, owner, generation, keys=(path,)) as output:
+            source_request = (
+                ReadImageSourceRequest(
+                    actor_id=actor_id,
+                    task_id=owner_id if owner_kind == "task" else None,
+                    dataset_item_id=owner_id if owner_kind == "dataset_item" else None,
+                )
+                if actor_id is not None
+                else None
+            )
+            async with reading(
+                session, owner, generation, keys=(path,), source_request=source_request
+            ) as output:
                 async with transport(session, output) as storage:
                     await originals.physical(
                         physical.verify_object, storage, output, path
                     )
                     url = physical.signed_url(
-                        storage, output, path, settings.image_pyramid_url_expiry_seconds
+                        storage, output, path, url_expiry_seconds(generation)
                     )
             return url
     except (ContentError, physical.ImagePyramidStorageError, HTTPException):

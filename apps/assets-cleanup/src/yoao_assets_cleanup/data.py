@@ -8,13 +8,25 @@ from uuid import UUID
 import asyncpg
 from pydantic import ValidationError
 
+from yoao_assets_images.contract import (
+    REPLY_BYTES,
+    ClaimNativePyramidRetirementRequest,
+    ClaimedNativePyramidRetirement,
+    CompleteNativePyramidRetirementPageRequest,
+    NativePyramidRetirementAck,
+    NativePyramidRetirementPage,
+    PrepareNativePyramidRetirementPageRequest,
+    json_bytes,
+    require_scope,
+)
+
 from .contract import (
     AssetStorageDeletion,
     DeletionCursor,
     ImageGarbageClaim,
     ImageGarbageClaimData,
     ImageGarbageCompleteData,
-    ImageGarbageEnvelope,
+    ImageReplyEnvelope,
     PendingAssetStorageDeletion,
 )
 
@@ -32,6 +44,21 @@ SELECT aap_assets_v1.claim_image_garbage($1::uuid, $2::integer, $3::integer)
 """
 COMPLETE_IMAGE_GARBAGE_SQL = """
 SELECT aap_assets_v1.complete_image_garbage($1::uuid, $2::uuid)
+"""
+CLAIM_NATIVE_RETIREMENT_SQL = """
+SELECT aap_assets_v1.claim_native_pyramid_retirement(
+    $1::uuid, $2::jsonb, $3::integer
+)
+"""
+PREPARE_NATIVE_RETIREMENT_PAGE_SQL = """
+SELECT aap_assets_v1.prepare_native_pyramid_retirement_page(
+    $1::uuid, $2::uuid, $3::integer
+)
+"""
+COMPLETE_NATIVE_RETIREMENT_PAGE_SQL = """
+SELECT aap_assets_v1.complete_native_pyramid_retirement_page(
+    $1::uuid, $2::uuid, $3::uuid, $4::text, $5::jsonb
+)
 """
 
 _PREFLIGHT_SQL = """
@@ -65,7 +92,16 @@ allowed_functions AS (
         )::oid AS claim_video_inputs_oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'
-        )::oid AS complete_video_inputs_oid
+        )::oid AS complete_video_inputs_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)'
+        )::oid AS claim_native_retirement_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'
+        )::oid AS prepare_native_retirement_oid,
+        pg_catalog.to_regprocedure(
+            'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'
+        )::oid AS complete_native_retirement_oid
 )
 SELECT
     current_user = session_user
@@ -125,6 +161,9 @@ SELECT
           AND proc.oid <> COALESCE(allowed.complete_inputs_oid, 0::oid)
           AND proc.oid <> COALESCE(allowed.claim_video_inputs_oid, 0::oid)
           AND proc.oid <> COALESCE(allowed.complete_video_inputs_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.claim_native_retirement_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.prepare_native_retirement_oid, 0::oid)
+          AND proc.oid <> COALESCE(allowed.complete_native_retirement_oid, 0::oid)
           AND pg_catalog.has_function_privilege(
               current_user, proc.oid, 'EXECUTE'
           )
@@ -235,6 +274,30 @@ SELECT
     AND COALESCE(
         pg_catalog.has_function_privilege(current_user,allowed.complete_video_inputs_oid,'EXECUTE'),
         false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(
+            current_user,
+            allowed.claim_native_retirement_oid,
+            'EXECUTE'
+        ),
+        false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(
+            current_user,
+            allowed.prepare_native_retirement_oid,
+            'EXECUTE'
+        ),
+        false
+    )
+    AND COALESCE(
+        pg_catalog.has_function_privilege(
+            current_user,
+            allowed.complete_native_retirement_oid,
+            'EXECUTE'
+        ),
+        false
     ) AS is_scoped
 FROM target_login AS login_role
 CROSS JOIN allowed_functions AS allowed
@@ -243,6 +306,10 @@ CROSS JOIN allowed_functions AS allowed
 
 class DataContractError(RuntimeError):
     """The database role or a native function response violated the contract."""
+
+    def __init__(self, message: str, *, code: str = "data_contract") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class StorageDeletionData:
@@ -337,27 +404,122 @@ class StorageDeletionData:
                 "Assets did not acknowledge the matching image cleanup lease"
             )
 
+    async def claim_native_pyramid_retirement(
+        self, request: ClaimNativePyramidRetirementRequest
+    ) -> ClaimedNativePyramidRetirement:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payload = await connection.fetchval(
+                    CLAIM_NATIVE_RETIREMENT_SQL,
+                    request.worker_id,
+                    _jsonb(request.store.model_dump(mode="json", by_alias=True)),
+                    request.lease_seconds,
+                )
+        return _decode_reply(
+            payload,
+            ClaimedNativePyramidRetirement,
+            label="native pyramid retirement",
+            scope=lambda result: require_scope(request, result),
+        )
+
+    async def prepare_native_pyramid_retirement_page(
+        self, request: PrepareNativePyramidRetirementPageRequest
+    ) -> NativePyramidRetirementPage:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payload = await connection.fetchval(
+                    PREPARE_NATIVE_RETIREMENT_PAGE_SQL,
+                    request.output_id,
+                    request.lease_token,
+                    request.page_size,
+                )
+        return _decode_reply(
+            payload,
+            NativePyramidRetirementPage,
+            label="native pyramid retirement",
+            scope=lambda result: require_scope(request, result),
+        )
+
+    async def complete_native_pyramid_retirement_page(
+        self, request: CompleteNativePyramidRetirementPageRequest
+    ) -> NativePyramidRetirementAck:
+        async with self._pool.acquire() as connection:
+            async with connection.transaction():
+                payload = await connection.fetchval(
+                    COMPLETE_NATIVE_RETIREMENT_PAGE_SQL,
+                    request.output_id,
+                    request.lease_token,
+                    request.page_id,
+                    request.outcome,
+                    _jsonb(request.operation_ids),
+                )
+        return _decode_reply(
+            payload,
+            NativePyramidRetirementAck,
+            label="native pyramid retirement",
+            scope=lambda result: require_scope(request, result),
+        )
+
+
+def _jsonb(value) -> str:
+    return json_bytes(value).decode("utf-8")
+
+
+def _reply_size(payload) -> int | None:
+    if isinstance(payload, str):
+        return len(payload.encode("utf-8"))
+    if isinstance(payload, (bytes, bytearray)):
+        return len(payload)
+    try:
+        return len(json_bytes(payload))
+    except (TypeError, ValueError):
+        return None
+
 
 def _decode_image_reply(payload, result_type):
+    return _decode_reply(payload, result_type, label="image cleanup")
+
+
+def _decode_reply(payload, result_type, *, label: str, scope=None):
+    size = _reply_size(payload)
+    if size is None:
+        raise DataContractError(
+            f"Assets returned invalid {label} JSON", code="invalid_response"
+        )
+    if size > REPLY_BYTES:
+        raise DataContractError(
+            f"Assets returned oversized {label} reply",
+            code="resource_budget_exceeded",
+        )
     if isinstance(payload, str):
         try:
             payload = json.loads(payload)
         except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             raise DataContractError(
-                "Assets returned invalid image cleanup JSON"
+                f"Assets returned invalid {label} JSON", code="invalid_response"
             ) from exc
     try:
-        reply = ImageGarbageEnvelope.model_validate(payload)
+        reply = ImageReplyEnvelope.model_validate(payload)
     except (ValidationError, TypeError, ValueError) as exc:
         raise DataContractError(
-            "Assets returned an invalid image cleanup reply"
+            f"Assets returned an invalid {label} reply", code="invalid_response"
         ) from exc
     if not reply.ok:
         if reply.error is None:
-            raise DataContractError("Assets returned an invalid image cleanup error")
+            raise DataContractError(
+                f"Assets returned an invalid {label} error",
+                code="invalid_response",
+            )
         code = reply.error.code
-        raise DataContractError(f"Assets rejected image cleanup: {code[:64]}")
+        raise DataContractError(
+            f"Assets rejected {label}: {code[:64]}", code=code[:64]
+        )
     try:
-        return result_type.model_validate(reply.data)
-    except (ValidationError, TypeError, ValueError) as exc:
-        raise DataContractError("Assets returned invalid image cleanup data") from exc
+        result = result_type.model_validate(reply.data)
+        if scope is not None:
+            scope(result)
+    except (ValidationError, TypeError, ValueError, RecursionError) as exc:
+        raise DataContractError(
+            f"Assets returned invalid {label} data", code="invalid_response"
+        ) from exc
+    return result

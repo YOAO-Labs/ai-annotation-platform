@@ -13,16 +13,19 @@ _SQL = Path(__file__).resolve().parents[1] / "sql"
 
 
 def upgrade() -> None:
-    source = (_SQL / "0463_native_pyramid_reads_retirement.sql").read_text(
-        encoding="utf-8"
-    )
-    for statement in source.split("-- aap-statement-break"):
-        if statement.strip():
-            op.execute(
-                sa.text(statement.strip().replace(":", r"\:")).execution_options(
-                    no_parameters=True
+    for name in (
+        "0463_native_pyramid_reads_retirement.sql",
+        "0463_native_pyramid_projection.sql",
+        "0463_native_pyramid_retirement.sql",
+    ):
+        source = (_SQL / name).read_text(encoding="utf-8")
+        for statement in source.split("-- aap-statement-break"):
+            if statement.strip():
+                op.execute(
+                    sa.text(statement.strip().replace(":", r"\:")).execution_options(
+                        no_parameters=True
+                    )
                 )
-            )
 
 
 def downgrade() -> None:

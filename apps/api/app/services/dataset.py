@@ -585,7 +585,8 @@ class DatasetService:
                 from app.services import image_pyramid_objects, thumbnail_outputs
 
                 d["thumbnail_url"] = await image_pyramid_objects.thumbnail_url(
-                    self.db, "dataset_item", item.id, item.thumbnail_path
+                    self.db, "dataset_item", item.id, item.thumbnail_path,
+                    actor_id=actor_id,
                 )
                 if d["thumbnail_url"] is None:
                     d["thumbnail_url"] = await thumbnail_outputs.thumbnail_url(

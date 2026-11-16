@@ -911,3 +911,28 @@ BEGIN
     );
 END;
 $owner$;
+-- aap-statement-break
+CREATE OR REPLACE FUNCTION aap_assets_v1._image_pyramid_summary(p_projection jsonb)
+RETURNS jsonb
+LANGUAGE sql
+IMMUTABLE
+PARALLEL SAFE
+SET search_path = pg_catalog, pg_temp
+AS $function$
+    SELECT pg_catalog.jsonb_build_object(
+        'status', p_projection -> 'status',
+        'required', p_projection -> 'required',
+        'profile_version', p_projection -> 'profile_version',
+        'generation', p_projection -> 'generation',
+        'source_snapshot', p_projection -> 'source_snapshot',
+        'building_generation', p_projection -> 'building_generation',
+        'building_status', p_projection -> 'building_status',
+        'width', p_projection -> 'width',
+        'height', p_projection -> 'height',
+        'tile_size', 512,
+        'format', p_projection -> 'format',
+        'retryable', p_projection -> 'retryable',
+        'retry_after_ms', p_projection -> 'retry_after_ms',
+        'error_code', p_projection -> 'error_code'
+    )
+$function$;

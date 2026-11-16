@@ -21,6 +21,10 @@ async def test_round_continues_through_all_lanes_and_counts_failures(monkeypatch
         events.append("image")
         return {"completed": 2, "failed": 1, "batches": 1}
 
+    async def native(*_args, **_kwargs):
+        events.append("native")
+        return {"completed": 1, "failed": 2, "pages": 3}
+
     async def fail_images(*_args, **_kwargs):
         events.append("accepted_image")
         raise OSError("image input storage unavailable")
@@ -31,6 +35,7 @@ async def test_round_continues_through_all_lanes_and_counts_failures(monkeypatch
 
     monkeypatch.setattr(worker, "drain_pending", fail_outbox)
     monkeypatch.setattr(worker, "drain_image_garbage", image)
+    monkeypatch.setattr(worker, "drain_native_pyramid_retirement", native)
     monkeypatch.setattr(worker, "collect_inputs_before_stop", fail_images)
     monkeypatch.setattr(worker, "collect_video_inputs_before_stop", video)
 
@@ -42,12 +47,14 @@ async def test_round_continues_through_all_lanes_and_counts_failures(monkeypatch
         worker_id=uuid4(),
         input_collector=object(),
         video_collector=object(),
+        native_storage=object(),
+        native_store=object(),
         stop=asyncio.Event(),
         storage_stop=threading.Event(),
     )
 
-    assert events == ["outbox", "image", "accepted_image", "accepted_video"]
-    assert result == {"completed": 5, "failed": 3, "lane_failures": 2}
+    assert events == ["outbox", "image", "native", "accepted_image", "accepted_video"]
+    assert result == {"completed": 6, "failed": 5, "lane_failures": 2}
 
 
 @pytest.mark.asyncio
@@ -66,6 +73,7 @@ async def test_round_stops_starting_new_lanes_after_shutdown(monkeypatch):
 
     monkeypatch.setattr(worker, "drain_pending", stop_outbox)
     monkeypatch.setattr(worker, "drain_image_garbage", unexpected)
+    monkeypatch.setattr(worker, "drain_native_pyramid_retirement", unexpected)
     monkeypatch.setattr(worker, "collect_inputs_before_stop", unexpected)
     monkeypatch.setattr(worker, "collect_video_inputs_before_stop", unexpected)
 
@@ -77,6 +85,8 @@ async def test_round_stops_starting_new_lanes_after_shutdown(monkeypatch):
         worker_id=uuid4(),
         input_collector=object(),
         video_collector=object(),
+        native_storage=object(),
+        native_store=object(),
         stop=stop,
         storage_stop=threading.Event(),
     )
@@ -102,3 +112,15 @@ async def test_video_s3_adapter_is_closed_even_if_image_adapter_close_fails(capl
 
     assert events == ["image", "video"]
     assert "Accepted-image input storage close failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_native_storage_close_failure_is_isolated(caplog):
+    class Storage:
+        def close(self):
+            raise RuntimeError("close failed")
+
+    await worker.close_native_storage(Storage())
+    await worker.close_native_storage(None)
+
+    assert "Native retirement storage close failed" in caplog.text

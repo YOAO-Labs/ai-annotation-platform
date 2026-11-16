@@ -192,6 +192,7 @@ async def test_reference_client_rejects_explicit_profile_substitution():
             status="missing",
             required=False,
             generation=None,
+            source_snapshot=None,
             building_generation=None,
             building_status=None,
             width=None,

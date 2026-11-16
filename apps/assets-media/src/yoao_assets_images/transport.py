@@ -92,6 +92,8 @@ class ImageGenerationReference(Value):
 
     @model_validator(mode="after")
     def ready_state_has_manifest_and_overview(self):
+        if self.pyramid.source_snapshot != self.pyramid_source_snapshot:
+            raise ValueError("pyramid summary changed its generation source snapshot")
         current_source = (
             self.pyramid_source_generation == self.source.source_generation
             and self.pyramid_source_snapshot == self.source.source_snapshot

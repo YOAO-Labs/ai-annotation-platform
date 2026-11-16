@@ -196,6 +196,7 @@ async def test_api_rejects_generation_reply_from_another_profile():
                     status="missing",
                     required=False,
                     generation=None,
+                    source_snapshot=None,
                     building_generation=None,
                     building_status=None,
                     width=None,

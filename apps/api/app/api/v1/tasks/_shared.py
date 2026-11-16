@@ -6,8 +6,16 @@ from typing import Any
 from fastapi import Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_assets_media.contract import MediaFailure, ReadSourceRequest
-from yoao_assets_images.contract import ReadImageSourceRequest
+from yoao_assets_images.contract import (
+    BATCH_SIZE,
+    ImageFailure,
+    ImageSourceSelector,
+    ReadImageSourceRequest,
+    ReadImageSummariesRequest,
+    http_error_status,
+)
 
+from app.config import settings
 from app.db.enums import UserRole
 from app.db.models.user import User
 from app.db.models.task import Task
@@ -402,13 +410,50 @@ async def _attach_image_pyramids_batch(
         uuid.UUID,
         tuple[int | None, int | None, str | None, str | None, dict | None],
     ],
+    *,
+    actor_id: uuid.UUID,
 ) -> dict[uuid.UUID, ImagePyramidSummary]:
-    from app.services.image_pyramid import pyramid_summary, task_pyramid_assets
+    from app.services.assets_images import image_gateway
+    from app.services.image_pyramid import (
+        native_generation,
+        pyramid_summary,
+        task_pyramid_assets,
+    )
     from app.services.image_pyramid_objects import thumbnail_url
     from app.services import thumbnail_outputs
 
     assets = await task_pyramid_assets(db, tasks)
     result: dict[uuid.UUID, ImagePyramidSummary] = {}
+    native_tasks = [
+        task
+        for task in tasks
+        if task.file_type == "image"
+        and task.id in assets
+        and native_generation(assets[task.id][1])
+    ]
+    if native_tasks:
+        async with image_gateway(db) as images:
+            for offset in range(0, len(native_tasks), BATCH_SIZE):
+                batch = native_tasks[offset : offset + BATCH_SIZE]
+                try:
+                    summaries = await images.call(
+                        "read_image_summaries",
+                        ReadImageSummariesRequest(
+                            actor_id=actor_id,
+                            selectors=[
+                                ImageSourceSelector(task_id=task.id) for task in batch
+                            ],
+                            profile_version=settings.image_pyramid_profile_version,
+                        ),
+                    )
+                except ImageFailure as exc:
+                    raise HTTPException(
+                        http_error_status(exc.code), {"reason": exc.code}
+                    ) from exc
+                for task, item in zip(batch, summaries.items, strict=True):
+                    result[task.id] = ImagePyramidSummary.model_validate(
+                        item.pyramid.model_dump()
+                    )
     for task in tasks:
         width, height, path, *_ = dimensions.get(
             task.id, (None, None, None, None, None)
@@ -429,7 +474,9 @@ async def _attach_image_pyramids_batch(
             ) or path.startswith("image-pyramids/"):
                 task._image_pyramid_thumbnail = (
                     path,
-                    await thumbnail_url(db, "task", task.id, path),
+                    await thumbnail_url(
+                        db, "task", task.id, path, actor_id=actor_id
+                    ),
                 )
             else:
                 task._media_cache_thumbnail = (
@@ -440,6 +487,8 @@ async def _attach_image_pyramids_batch(
         if pair is None:
             continue
         asset, generation = pair
+        if native_generation(generation):
+            continue
         summary = pyramid_summary(
             generation,
             width=width,

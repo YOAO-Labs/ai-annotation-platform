@@ -195,7 +195,9 @@ async def list_tasks(
     total = ((await db.execute(count_q)).scalar() or 0) if is_first_page else None
     dims = await _attach_dimensions_batch(db, tasks)
     source_references = await _linked_source_references(db, tasks, actor_id=user.id)
-    pyramids = await _attach_image_pyramids_batch(db, tasks, dims)
+    pyramids = await _attach_image_pyramids_batch(
+        db, tasks, dims, actor_id=user.id
+    )
     # v0.7.2 · 一次 IN 查询解析所有 assignee_id / reviewer_id → UserBrief
     user_ids = {t.assignee_id for t in tasks if t.assignee_id} | {
         t.reviewer_id for t in tasks if t.reviewer_id
@@ -256,7 +258,9 @@ async def next_task(
     source_references = await _linked_source_references(
         db, [task], actor_id=current_user.id
     )
-    pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
+    pyramids = await _attach_image_pyramids_batch(
+        db, [task], dimensions, actor_id=current_user.id
+    )
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
         task,
@@ -286,7 +290,9 @@ async def get_task(
     source_references = await _linked_source_references(
         db, [task], actor_id=current_user.id
     )
-    pyramids = await _attach_image_pyramids_batch(db, [task], dimensions)
+    pyramids = await _attach_image_pyramids_batch(
+        db, [task], dimensions, actor_id=current_user.id
+    )
     briefs = await resolve_briefs(db, [task.assignee_id, task.reviewer_id])
     return _task_with_url(
         task,

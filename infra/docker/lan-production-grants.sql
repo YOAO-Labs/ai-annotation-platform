@@ -1019,7 +1019,10 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer),
     aap_assets_v1.complete_accepted_input_garbage(uuid,uuid),
     aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
-    aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)
+    aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid),
+    aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer),
+    aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer),
+    aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
     TO :"asset_cleanup_role";
 -- Refresh explicit runtime grants after migrations; blanket defaults expose owner storage.
 
@@ -1201,7 +1204,10 @@ DECLARE
         'aap_assets_v1.claim_accepted_input_garbage(uuid,integer,integer)'::regprocedure::oid,
         'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure::oid,
         'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure::oid,
-        'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure::oid
+        'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure::oid,
+        'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)'::regprocedure::oid,
+        'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::regprocedure::oid,
+        'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::regprocedure::oid
     ];
 BEGIN
     FOR relation IN
@@ -1262,7 +1268,7 @@ BEGIN
     END IF;
 
     IF (SELECT count(*) FROM unnest(cleanup_functions) AS function(oid)
-        WHERE has_function_privilege(current_setting('aap.asset_cleanup_role'),function.oid,'EXECUTE')) <> 8 THEN
+        WHERE has_function_privilege(current_setting('aap.asset_cleanup_role'),function.oid,'EXECUTE')) <> 11 THEN
         RAISE EXCEPTION 'The Assets cleanup role is missing an approved cleanup function';
     END IF;
 
@@ -1279,7 +1285,7 @@ BEGIN
               current_setting('aap.asset_cleanup_role'), proc.oid, 'EXECUTE'
           )
     ) THEN
-        RAISE EXCEPTION 'The Assets cleanup role can execute outside its eight cleanup functions';
+        RAISE EXCEPTION 'The Assets cleanup role can execute outside its eleven cleanup functions';
     END IF;
 END $$;
 -- Preserve embedded command capabilities while denying direct Identity storage.

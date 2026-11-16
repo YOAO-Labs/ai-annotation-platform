@@ -98,6 +98,7 @@ Revision = Annotated[StrictInt, Field(ge=1, le=9_223_372_036_854_775_807)]
 PyramidGeneration = Annotated[StrictInt, Field(ge=1, le=2_147_483_647)]
 Index = Annotated[StrictInt, Field(ge=0, le=2_147_483_647)]
 Positive = Annotated[StrictInt, Field(gt=0, le=2_147_483_647)]
+BigPositive = Annotated[StrictInt, Field(gt=0, le=9_223_372_036_854_775_807)]
 PageSize = Annotated[StrictInt, Field(ge=1, le=BATCH_SIZE)]
 JsonObject = dict[str, JsonValue]
 
@@ -472,6 +473,8 @@ class ImagePyramidSummary(Value):
     status: PyramidStatus
     required: StrictBool
     generation: PyramidGeneration | None
+    # The selected generation's own captured source, not the current source.
+    source_snapshot: Digest | None
     building_generation: PyramidGeneration | None
     building_status: Literal["pending", "building"] | None
     width: Positive | None
@@ -547,6 +550,7 @@ class ImagePyramidGeneration(Value):
             status=self.status,
             required=self.required,
             generation=self.generation,
+            source_snapshot=self.source_snapshot,
             building_generation=self.building_generation,
             building_status=self.building_status,
             width=self.width,
@@ -571,6 +575,11 @@ class ImageSummaryItem(Value):
             raise ValueError("summary source escaped its selector")
         if self.thumbnail_current != self.source.thumbnail_current:
             raise ValueError("summary thumbnail freshness disagrees with source")
+        if (
+            self.pyramid.status == "ready"
+            and self.pyramid.source_snapshot != self.source.source_snapshot
+        ):
+            raise ValueError("ready pyramid summary has a different source snapshot")
         return self
 
 
@@ -1283,6 +1292,160 @@ class ImageGarbageAck(Value):
     completed: StrictBool
 
 
+class NativePyramidRetirementStore(Value):
+    """The explicitly configured cleanup store; it carries no credentials."""
+
+    endpoint_url: Annotated[
+        StrictStr,
+        Field(
+            min_length=8,
+            max_length=2048,
+            pattern=r"^https?://[^\s/?#@\\]+$",
+        ),
+    ]
+    bucket: Annotated[
+        StrictStr,
+        Field(
+            min_length=1,
+            max_length=255,
+            pattern=r"^[^\s\x00-\x1f\x7f/?#@%:\\]+$",
+        ),
+    ]
+
+
+class NativePyramidRetirementTarget(Value):
+    """The immutable saved-output allocation, independent of current bindings."""
+
+    schema_: Literal[2] = Field(alias="schema")
+    purpose: Literal["media-cache"]
+    location_id: UUID
+    config_revision: Positive
+    binding_generation: BigPositive
+    endpoint_url: Annotated[
+        StrictStr,
+        Field(
+            min_length=8,
+            max_length=2048,
+            pattern=r"^https?://[^\s/?#@\\]+$",
+        ),
+    ]
+    bucket: Annotated[
+        StrictStr,
+        Field(
+            min_length=1,
+            max_length=255,
+            pattern=r"^[^\s\x00-\x1f\x7f/?#@%:\\]+$",
+        ),
+    ]
+    key_prefix: Annotated[StrictStr, Field(max_length=436, pattern=r"^[^\\]*$")]
+    prefix: Annotated[StrictStr, Field(min_length=1, max_length=2048)]
+    storage_identity: Digest
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        allow_inf_nan=False,
+        hide_input_in_errors=True,
+        populate_by_name=True,
+    )
+
+
+class ClaimNativePyramidRetirementRequest(Value):
+    worker_id: UUID
+    store: NativePyramidRetirementStore
+    lease_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 120
+
+
+class NativePyramidRetirementClaim(Value):
+    output_id: UUID
+    lease_token: UUID
+    lease_expires_at: AwareDatetime
+    storage_ref: NativePyramidRetirementTarget
+    after_operation_id: UUID | None
+
+
+class ClaimedNativePyramidRetirement(Value):
+    claim: NativePyramidRetirementClaim | None
+
+
+class PrepareNativePyramidRetirementPageRequest(Value):
+    output_id: UUID
+    lease_token: UUID
+    page_size: Annotated[StrictInt, Field(ge=1, le=100)] = 100
+
+
+class NativePyramidRetirementMember(Value):
+    operation_id: UUID
+    relative_key: Annotated[
+        StrictStr,
+        Field(
+            min_length=1,
+            max_length=2048,
+            pattern=(
+                r"^(manifest[.]json|overview[.]webp|"
+                r"tiles/(0|[1-9][0-9]*)/(0|[1-9][0-9]*)/(0|[1-9][0-9]*)[.]webp)$"
+            ),
+        ),
+    ]
+    sha256: Digest
+    size_bytes: Count
+    etag: Annotated[
+        StrictStr, Field(min_length=3, max_length=1024, pattern=r'^"[^"]+"$')
+    ]
+    version_id: Annotated[StrictStr, Field(max_length=1024)] | None = None
+
+
+class NativePyramidRetirementPage(Value):
+    output_id: UUID
+    lease_token: UUID
+    page_id: UUID
+    lease_expires_at: AwareDatetime
+    after_operation_id: UUID | None
+    items: Annotated[list[NativePyramidRetirementMember], Field(max_length=100)]
+    exhausted: StrictBool
+
+    @model_validator(mode="after")
+    def exact_cursor_and_terminal_page(self):
+        keys = [item.operation_id for item in self.items]
+        if len(keys) != len(set(keys)) or keys != sorted(keys):
+            raise ValueError("retirement page members are not an ordered set")
+        if self.items and self.exhausted:
+            raise ValueError("a member page cannot claim prefix exhaustion")
+        if not self.items and not self.exhausted:
+            raise ValueError("an empty page must be the terminal page")
+        if keys:
+            if self.after_operation_id is None:
+                raise ValueError("a member page has no advanced cursor")
+            if self.after_operation_id.int < keys[-1].int:
+                raise ValueError("retirement page cursor did not cover its members")
+        return self
+
+
+class CompleteNativePyramidRetirementPageRequest(Value):
+    output_id: UUID
+    lease_token: UUID
+    page_id: UUID
+    outcome: Literal["members_absent", "prefix_absent", "closed_without_ack"]
+    operation_ids: Annotated[list[UUID], Field(max_length=100)]
+
+    @model_validator(mode="after")
+    def exact_member_set_for_outcome(self):
+        if len(self.operation_ids) != len(set(self.operation_ids)):
+            raise ValueError("retirement page IDs are not unique")
+        if self.outcome == "members_absent":
+            if not self.operation_ids:
+                raise ValueError("a member page has no absent members")
+        elif self.operation_ids:
+            raise ValueError("this outcome settles no member object")
+        return self
+
+
+class NativePyramidRetirementAck(Value):
+    output_id: UUID
+    after_operation_id: UUID | None
+    completed: StrictBool
+
+
 @dataclass(frozen=True)
 class NativeOperation:
     request: type[BaseModel]
@@ -1608,6 +1771,27 @@ OPERATIONS = {
         ImageGarbageAck,
         ("garbage_id", "lease_token"),
         ("uuid", "uuid"),
+        "cleanup",
+    ),
+    "claim_native_pyramid_retirement": NativeOperation(
+        ClaimNativePyramidRetirementRequest,
+        ClaimedNativePyramidRetirement,
+        ("worker_id", "store", "lease_seconds"),
+        ("uuid", "jsonb", "integer"),
+        "cleanup",
+    ),
+    "prepare_native_pyramid_retirement_page": NativeOperation(
+        PrepareNativePyramidRetirementPageRequest,
+        NativePyramidRetirementPage,
+        ("output_id", "lease_token", "page_size"),
+        ("uuid", "uuid", "integer"),
+        "cleanup",
+    ),
+    "complete_native_pyramid_retirement_page": NativeOperation(
+        CompleteNativePyramidRetirementPageRequest,
+        NativePyramidRetirementAck,
+        ("output_id", "lease_token", "page_id", "outcome", "operation_ids"),
+        ("uuid", "uuid", "uuid", "text", "jsonb"),
         "cleanup",
     ),
 }
@@ -1947,6 +2131,48 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
     ):
         if result.garbage_id != request.garbage_id:
             raise ValueError("image garbage ack substituted another row")
+    if isinstance(request, ClaimNativePyramidRetirementRequest) and isinstance(
+        result, ClaimedNativePyramidRetirement
+    ):
+        if result.claim is not None:
+            claim = result.claim
+            target = claim.storage_ref
+            if (
+                target.schema_ != 2
+                or target.purpose != "media-cache"
+                or target.endpoint_url != request.store.endpoint_url
+                or target.bucket != request.store.bucket
+            ):
+                raise ValueError("retirement claim escaped its configured store")
+            if target.prefix != (
+                target.key_prefix
+                + "image-pyramids/objects/"
+                + str(claim.output_id)
+                + "/"
+            ):
+                raise ValueError("retirement claim escaped its saved output prefix")
+    if isinstance(request, PrepareNativePyramidRetirementPageRequest) and isinstance(
+        result, NativePyramidRetirementPage
+    ):
+        if (
+            result.output_id != request.output_id
+            or result.lease_token != request.lease_token
+            or len(result.items) > request.page_size
+        ):
+            raise ValueError("retirement page escaped its prepared scope")
+    if isinstance(
+        request, CompleteNativePyramidRetirementPageRequest
+    ) and isinstance(result, NativePyramidRetirementAck):
+        if result.output_id != request.output_id:
+            raise ValueError("retirement ack substituted another output")
+        if request.outcome == "members_absent":
+            if result.completed or result.after_operation_id is None:
+                raise ValueError("retirement member page did not advance its cursor")
+        elif request.outcome == "prefix_absent":
+            if not result.completed:
+                raise ValueError("retirement terminal page did not close the output")
+        elif result.completed:
+            raise ValueError("retirement closure was claimed without absence proof")
 
 
 def require_result_scope(

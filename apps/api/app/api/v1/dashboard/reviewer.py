@@ -188,7 +188,7 @@ async def _reviewing_batches(
             from app.services import image_pyramid_objects, thumbnail_outputs
 
             thumbnail_url = await image_pyramid_objects.thumbnail_url(
-                db, "task", cover_task_id, cover_path
+                db, "task", cover_task_id, cover_path, actor_id=current_user.id
             )
             if thumbnail_url is None:
                 thumbnail_url = await thumbnail_outputs.thumbnail_url(

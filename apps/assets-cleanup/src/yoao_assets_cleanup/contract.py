@@ -121,22 +121,22 @@ class ImageGarbageCompleteData(BaseModel):
     completed: StrictBool
 
 
-class ImageGarbageError(BaseModel):
+class ImageReplyError(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     code: Annotated[StrictStr, Field(min_length=1, max_length=64)]
 
 
-class ImageGarbageEnvelope(BaseModel):
+class ImageReplyEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     schema_name: Literal["aap-assets-images/v1"] = Field(alias="schema")
     ok: StrictBool
     data: dict | None = None
-    error: ImageGarbageError | None = None
+    error: ImageReplyError | None = None
 
     @model_validator(mode="after")
-    def check_reply_shape(self) -> ImageGarbageEnvelope:
+    def check_reply_shape(self) -> ImageReplyEnvelope:
         if self.ok:
             if self.data is None or self.error is not None:
                 raise ValueError("Successful image reply must contain only data")

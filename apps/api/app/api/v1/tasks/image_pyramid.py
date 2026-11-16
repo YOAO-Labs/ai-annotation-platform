@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from yoao_assets_images.contract import (
     ImageFailure,
     PrepareOwnedPyramidRequest,
+    ReadImageGenerationRequest,
     RetryOwnedPyramidRequest,
     http_error_status,
 )
@@ -200,13 +201,14 @@ async def _owner_projection(db: AsyncSession, task, generation, actor_id):
     generation is unavailable.  Any other refusal stays an HTTP error.
     """
     try:
-        return await owner_generation_read(
+        result = await owner_generation_read(
             db,
             actor_id=actor_id,
             task_id=task.id,
             dataset_item_id=None,
             generation=generation.generation,
         )
+        return result.pyramid
     except ImageFailure as exc:
         unavailable = _OWNER_UNAVAILABLE.get(exc.code)
         if unavailable is not None:
@@ -306,8 +308,12 @@ async def get_image_pyramid(
             retryable=outcome == "missing",
         )
 
-    if generation is None or generation.status != "ready":
-        latest = await _latest_generation(db, asset)
+    if generation is None:
+        generation = await _latest_generation(db, asset)
+    if not native_generation(generation) and (
+        generation is None or generation.status != "ready"
+    ):
+        latest = generation
         if latest is None:
             status_value = "missing"
             retryable = True
@@ -350,12 +356,10 @@ async def get_image_pyramid(
         # dimensions with the recorded generation and its publication lease.
         projection = await _owner_projection(db, task, generation, current_user.id)
         if isinstance(projection, str):
-            if projection == "stale":
+            if projection == "stale" and settings.image_pyramid_auto_generate:
                 await originals.check(db, authority, lock=True)
-                await _invalidate_ready(db, asset, generation, "source_changed")
-                if settings.image_pyramid_auto_generate:
-                    await db.commit()
-                    await _admit_native_pyramid(db, task, authority, retry=False)
+                await db.commit()
+                await _admit_native_pyramid(db, task, authority, retry=False)
             IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
                 operation="manifest", outcome=projection
             ).inc()
@@ -370,16 +374,14 @@ async def get_image_pyramid(
                 width=generation.width or owner.width,
                 height=generation.height or owner.height,
             )
-        width = projection.width or owner.width
-        height = projection.height or owner.height
-        required = pyramid_required(width, height)
+        width = projection.width
+        height = projection.height
+        required = projection.required
         if projection.status != "ready":
-            if projection.status == "stale":
+            if projection.status == "stale" and settings.image_pyramid_auto_generate:
                 await originals.check(db, authority, lock=True)
-                await _invalidate_ready(db, asset, generation, "source_changed")
-                if settings.image_pyramid_auto_generate:
-                    await db.commit()
-                    await _admit_native_pyramid(db, task, authority, retry=False)
+                await db.commit()
+                await _admit_native_pyramid(db, task, authority, retry=False)
             IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
                 operation="manifest", outcome=projection.status
             ).inc()
@@ -439,6 +441,8 @@ async def get_image_pyramid(
             width=generation.width or owner.width,
             height=generation.height or owner.height,
         )
+    url_expiry_seconds = objects.url_expiry_seconds(generation)
+    expiry = utcnow() + timedelta(seconds=url_expiry_seconds)
 
     await db.commit()
     try:
@@ -461,7 +465,7 @@ async def get_image_pyramid(
                     storage,
                     output_owner,
                     generation.overview_key,
-                    settings.image_pyramid_url_expiry_seconds,
+                    url_expiry_seconds,
                 )
     except (ContentError, physical.ImagePyramidStorageError) as exc:
         if exc.code not in {
@@ -497,11 +501,13 @@ async def get_image_pyramid(
             headers={"ETag": etag, "Cache-Control": "private, max-age=60"},
         )
 
-    expiry = utcnow() + timedelta(seconds=settings.image_pyramid_url_expiry_seconds)
     building = await _building_generation(db, asset)
     if (
-        generation.last_accessed_at is None
-        or generation.last_accessed_at < utcnow() - timedelta(minutes=10)
+        not native_generation(generation)
+        and (
+            generation.last_accessed_at is None
+            or generation.last_accessed_at < utcnow() - timedelta(minutes=10)
+        )
     ):
         generation.last_accessed_at = utcnow()
         await db.commit()
@@ -512,6 +518,16 @@ async def get_image_pyramid(
         generation.generation,
         generation.output_id,
         authority=authority,
+        native_request=(
+            ReadImageGenerationRequest(
+                actor_id=current_user.id,
+                task_id=task.id,
+                generation=generation.generation,
+                profile_version=asset.profile_version,
+            )
+            if native_generation(generation)
+            else None
+        ),
     )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="manifest", outcome="ready").inc()
     ready_width = (
@@ -525,7 +541,11 @@ async def get_image_pyramid(
     return ImagePyramidResponse(
         task_id=task.id,
         status="ready",
-        required=pyramid_required(ready_width, ready_height),
+        required=(
+            projection.required
+            if projection is not None
+            else pyramid_required(ready_width, ready_height)
+        ),
         source_snapshot=(
             projection.source_snapshot
             if projection is not None
@@ -592,8 +612,6 @@ async def create_image_pyramid_asset_urls(
         projection = await _owner_projection(db, task, generation, current_user.id)
         if isinstance(projection, str):
             if projection == "stale":
-                await originals.check(db, authority, lock=True)
-                await _invalidate_ready(db, asset, generation, "source_changed")
                 raise HTTPException(
                     status_code=409,
                     detail={"reason": "stale_generation", "active_generation": None},
@@ -604,8 +622,6 @@ async def create_image_pyramid_asset_urls(
             raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
         if projection.status != "ready":
             if projection.status == "stale":
-                await originals.check(db, authority, lock=True)
-                await _invalidate_ready(db, asset, generation, "source_changed")
                 raise HTTPException(
                     status_code=409,
                     detail={"reason": "stale_generation", "active_generation": None},
@@ -721,7 +737,8 @@ async def _asset_urls(
             seen.add(identity)
             unique.append(item)
 
-    expiry = utcnow() + timedelta(seconds=settings.image_pyramid_url_expiry_seconds)
+    url_expiry_seconds = objects.url_expiry_seconds(generation)
+    expiry = utcnow() + timedelta(seconds=url_expiry_seconds)
     output: list[ImagePyramidAssetUrl] = []
     for item in unique:
         if item.generation != generation.generation:
@@ -764,7 +781,7 @@ async def _asset_urls(
             }
         await originals.physical(physical.verify_object, storage, output_owner, key)
         url = physical.signed_url(
-            storage, output_owner, key, settings.image_pyramid_url_expiry_seconds
+            storage, output_owner, key, url_expiry_seconds
         )
         output.append(ImagePyramidAssetUrl(**output_item, url=url))
         IMAGE_PYRAMID_ASSET_URL_ITEMS_TOTAL.labels(kind=item.kind).inc()
@@ -812,23 +829,19 @@ async def retry_image_pyramid(
     ):
         raise HTTPException(status_code=409, detail={"reason": "not_eligible"})
 
+    if generation is None and asset is not None:
+        generation = await _latest_generation(db, asset)
     invalidated_stale = False
-    if generation is not None and generation.status == "ready":
-        if native_generation(generation):
-            projection = await _owner_projection(db, task, generation, current_user.id)
-            if isinstance(projection, str):
-                if projection == "stale" and asset is not None:
-                    await _invalidate_ready(db, asset, generation, "source_changed")
-                    invalidated_stale = True
-            else:
-                if projection.status == "ready" and generation.output_id is not None:
-                    raise HTTPException(
-                        status_code=409, detail={"reason": "already_ready"}
-                    )
-                if projection.status == "stale" and asset is not None:
-                    await _invalidate_ready(db, asset, generation, "source_changed")
-                    invalidated_stale = True
-        elif (
+    if native_generation(generation):
+        projection = await _owner_projection(db, task, generation, current_user.id)
+        if (
+            not isinstance(projection, str)
+            and projection.status == "ready"
+            and generation.output_id is not None
+        ):
+            raise HTTPException(status_code=409, detail={"reason": "already_ready"})
+    elif generation is not None and generation.status == "ready":
+        if (
             source_matches_generation(owner, generation)
             and generation.output_id is not None
         ):
@@ -840,7 +853,7 @@ async def retry_image_pyramid(
             await _invalidate_ready(db, asset, generation, "source_changed")
             invalidated_stale = True
 
-    if asset is not None:
+    if asset is not None and not native_generation(generation):
         latest = await _latest_generation(db, asset)
         if latest is not None and latest.status in {"pending", "building"}:
             return ImagePyramidRetryResponse(
