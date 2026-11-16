@@ -10,13 +10,17 @@ from pathlib import Path
 import re
 import subprocess
 import time
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 import uuid
 
 import httpx
 from sqlalchemy.engine import URL, make_url
 
-from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_asset_storage_cleanup_runtime import (
+    _container_s3_endpoint,
+    _verify_postgres,
+)
 from tests.test_identity_sessions_live import _verify_redis
 from tests.test_module_data_roles import _role_url
 
@@ -1135,11 +1139,19 @@ secrets:
             else "http"
         )
         parsed = urlsplit(value if "://" in value else f"{default_scheme}://{value}")
-        if not parsed.hostname or parsed.username or parsed.password:
+        if (
+            parsed.scheme not in {"http", "https"}
+            or not parsed.hostname
+            or parsed.username
+            or parsed.password
+        ):
             raise ValueError("Verifier supplied an invalid object storage endpoint")
-        scheme = parsed.scheme or "http"
-        port = f":{parsed.port}" if parsed.port is not None else ""
-        return f"{scheme}://host.docker.internal{port}"
+        return _container_s3_endpoint(
+            SimpleNamespace(
+                minio_endpoint=parsed.netloc,
+                minio_use_ssl=parsed.scheme == "https",
+            )
+        )
 
     @classmethod
     def _docker_public_url(cls, value: str) -> str:

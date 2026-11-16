@@ -12,7 +12,6 @@ import secrets
 import shutil
 import subprocess
 import time
-from urllib.parse import urlsplit, urlunsplit
 from uuid import uuid4
 
 import httpx
@@ -20,6 +19,17 @@ import pytest
 
 from yoao_labeling.video_writer_contract import VideoWriterRejected
 from sqlalchemy.engine import make_url
+from tests.test_asset_storage_cleanup_runtime import (
+    _container_database_url,
+    _required_env,
+    _stop_remove_container,
+    _verified_resource_manifest,
+)
+from tests.test_mask_content_containers import (
+    _byte_container_origin,
+    _owned_image as _byte_image,
+    _start_role,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -132,43 +142,6 @@ def _inspect_image(image_ref: str) -> tuple[str, dict]:
     return image_id, image
 
 
-def _container_origin(url: str) -> str:
-    parsed = urlsplit(url)
-    if (
-        parsed.scheme not in {"http", "https"}
-        or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
-        or parsed.port is None
-    ):
-        pytest.fail("the local Mask content origin was not loopback-only")
-    userinfo, at, _hostport = parsed.netloc.rpartition("@")
-    authority = f"{userinfo}{at if at else ''}host.docker.internal:{parsed.port}"
-    return urlunsplit(
-        (parsed.scheme, authority, parsed.path, parsed.query, parsed.fragment)
-    )
-
-
-def _mapped_database_url(dsn: str) -> str:
-    try:
-        original = make_url(dsn)
-        mapped = original.set(host="host.docker.internal").render_as_string(
-            hide_password=False
-        )
-        roundtrip = make_url(mapped)
-    except Exception:
-        pytest.fail("the restricted writer DSN could not be mapped to the host gateway")
-    if not (
-        roundtrip.host == "host.docker.internal"
-        and roundtrip.drivername == original.drivername
-        and roundtrip.username == original.username
-        and roundtrip.password == original.password
-        and roundtrip.port == original.port
-        and roundtrip.database == original.database
-        and roundtrip.query == original.query
-    ):
-        pytest.fail("mapping the restricted writer DSN changed its credentials")
-    return mapped
-
-
 def _write_secret(directory: Path, name: str, value: str) -> Path:
     path = directory / name
     descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o644)
@@ -249,10 +222,8 @@ class _RestrictedWriterContainer:
         self.identity = uuid4().hex
         self.container_id: str | None = None
         self.status_sample: dict | None = None
-        self._database_url = _mapped_database_url(dsn)
-        self._mask_url = (
-            _container_origin(mask_url) if output_geometry == "mask" else ""
-        )
+        self._database_url = _container_database_url(make_url(dsn))
+        self._mask_url = mask_url if output_geometry == "mask" else ""
         self._mask_token = mask_token if output_geometry == "mask" else ""
         self._secret_dir = tmp_path / f"video-writer-secrets-{self.identity}"
         self._secret_dir.mkdir(mode=0o700)
@@ -616,6 +587,33 @@ async def test_video_writer_owner_container_restarts_and_serves_bounded_status_s
     image_ref = os.environ["AAP_LABELING_VIDEO_WRITER_IMAGE"]
     image_id, _ = _inspect_image(image_ref)
     containers: list[_RestrictedWriterContainer] = []
+    if output_geometry == "mask":
+        resources = _verified_resource_manifest(
+            test_engine, make_url(_required_env("AAP_MODULE_DATA_LEGACY_RUNTIME_URL"))
+        )
+        byte_image, byte_identity = _byte_image()
+
+        def start_mask_content(role, *, bucket, credentials, tmp_path):
+            assert role == "content"
+            assert bucket == resources["buckets"]["MINIO_BUCKET"]
+            assert credentials == (
+                _required_env("AAP_MODULE_DATA_MASK_CONTENT_S3_ACCESS_KEY"),
+                _required_env("AAP_MODULE_DATA_MASK_CONTENT_S3_SECRET_KEY"),
+            )
+            container, _, token = asyncio.run(
+                _start_role(role, byte_image, byte_identity, resources, tmp_path)
+            )
+            try:
+                origin = _byte_container_origin(
+                    container, byte_image, byte_identity, resources["owner"]
+                )
+            except BaseException:
+                _stop_remove_container(container, byte_identity)
+                raise
+            return container, byte_identity, origin, token
+
+        monkeypatch.setattr(live_module, "_start_mask_content", start_mask_content)
+        monkeypatch.setattr(live_module, "_stop_mask_content", _stop_remove_container)
 
     def create_writer(**values):
         writer = _RestrictedWriterContainer(**values, image_id=image_id)

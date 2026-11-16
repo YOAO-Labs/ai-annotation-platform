@@ -56,6 +56,41 @@ pytestmark = [
 ROOT = Path(__file__).resolve().parents[3]
 
 
+@pytest.fixture
+async def preserve_legacy_function_grants(test_engine, grant_profile):
+    """Restore the borrowed worktree capabilities after LAN-only assertions."""
+    if grant_profile != "lan":
+        yield
+        return
+    _verify_postgres(test_engine.url)
+    grants_query = text(
+        "SELECT format('GRANT EXECUTE ON FUNCTION %s TO legacy_runtime%s',"
+        "p.oid::regprocedure, CASE WHEN acl.is_grantable "
+        "THEN ' WITH GRANT OPTION' ELSE '' END) AS statement "
+        "FROM pg_catalog.pg_proc AS p "
+        "JOIN pg_catalog.pg_namespace AS n ON n.oid=p.pronamespace "
+        "CROSS JOIN LATERAL pg_catalog.aclexplode(p.proacl) AS acl "
+        "WHERE n.nspname IN ('aap_assets_v1','aap_labeling_v1') "
+        "AND acl.grantee='legacy_runtime'::regrole "
+        "ORDER BY statement"
+    )
+    async with test_engine.connect() as db:
+        original = tuple((await db.scalars(grants_query)).all())
+    try:
+        yield
+    finally:
+        async with test_engine.begin() as db:
+            await db.execute(
+                text(
+                    "REVOKE ALL ON ALL FUNCTIONS IN SCHEMA "
+                    "aap_assets_v1,aap_labeling_v1 FROM legacy_runtime"
+                )
+            )
+            for statement in original:
+                await db.execute(text(statement))
+            assert tuple((await db.scalars(grants_query)).all()) == original
+
+
 async def _apply_lan_grants(test_engine, monkeypatch):
     """Apply the actual deployment script after removing inherited test grants."""
     _verify_postgres(test_engine.url)
@@ -86,7 +121,7 @@ async def _apply_lan_grants(test_engine, monkeypatch):
 
 @pytest.mark.parametrize("grant_profile", ["worktree", "lan"])
 async def test_legacy_login_materializes_images_manifests_and_annotation_pins(
-    test_engine, tmp_path, monkeypatch, grant_profile
+    test_engine, tmp_path, monkeypatch, grant_profile, preserve_legacy_function_grants
 ):
     runtime_url = make_url(_required_env("AAP_MODULE_DATA_LEGACY_RUNTIME_URL"))
     assert runtime_url.username == "legacy_runtime"

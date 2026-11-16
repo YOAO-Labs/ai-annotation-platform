@@ -127,6 +127,8 @@ SDK 每步单次尝试，真实成功响应先独立持久化，再按真实非 
 
 `thumbnail_outputs` 及金字塔／视频适配器在原有业务授权和完整输出核验后签发 `media_cache_urls` 短期同源能力 URL。`media_cache_response` 只交付准确输出／relative，支持 GET、HEAD、单 Range 及 `If-Range`；HMAC audience 与登录分离，token 包含保存引用摘要、SHA、大小和到期，不含 endpoint 或凭据。同源交付每进程最多 4 路物理传输，另允许最多 64 个请求异步等候（最长 30 秒）。
 
+独立图像 Worker 写入金字塔成员时，直接移交同一份输出 allocation 与已提交的成员 reservation；物理键由保存前缀和已预约相对键构成，不从逻辑家族重新推导桶根路径。相对键、摘要、大小及当前 attempt／租约由 Native 成员准入约束，上传仍执行条件创建和实际文件／对象核验。
+
 ### 训练用途五家族固定归属（迁移 0220–0222、0254）
 
 `training_dataset_storage` 及四个薄 adapter 复用五组前缀 owner（`TrainingDatasetVersion`、实验 `runs`、原生预览 `previews`、逐样本评估 `sample-evaluations`、主动学习 `active-learning`）；`TrainingStorageDeletion` 承担 Version／Run 的删除责任。每个版本的独立 `storage_ref` 保存已登记 Location/配置修订、绑定代次、端点、实际桶、版本前缀（外部目标附加 `_aap_managed/training/`）及物理身份。历史归属为空时，显式核验操作只取已登记的 legacy A 位置，完整只读核验保存“当前保留副本”证据（详见 [训练版本 API](/api/guides/training-datasets#固定存储归属与历史版本核验)）。

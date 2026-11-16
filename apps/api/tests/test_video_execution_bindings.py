@@ -31,6 +31,9 @@ from yoao_preannotation_results_runtime.video_journal_database import (
 from tests.labeling_class_query_helpers import assert_owned_test_database
 from tests.test_video_tracker_input_native import _capture, _seed_tracker_job
 from tests.test_legacy_image_runtime_live import _apply_lan_grants
+from tests.test_legacy_image_runtime_live import (
+    preserve_legacy_function_grants as preserve_legacy_function_grants,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -138,7 +141,7 @@ async def test_video_owner_login_has_no_raw_writes_and_fence_cannot_escape_trans
 
 @pytest.mark.parametrize("grant_profile", ("worktree", "lan"))
 async def test_compatibility_worker_can_claim_and_fence_without_private_jobs_access(
-    test_engine, monkeypatch, grant_profile
+    test_engine, monkeypatch, grant_profile, preserve_legacy_function_grants
 ):
     await assert_owned_test_database(test_engine)
     from app.services.video_tracking.execution import (

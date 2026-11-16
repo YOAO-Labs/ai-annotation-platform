@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import ipaddress
 import json
 import os
 import secrets
@@ -27,7 +26,11 @@ from tests.test_asset_storage_cleanup_runtime import (
     _required_env,
     _stop_remove_container,
 )
-from tests.test_mask_content_containers import _owned_image as _byte_image, _start_role
+from tests.test_mask_content_containers import (
+    _byte_container_origin,
+    _owned_image as _byte_image,
+    _start_role,
+)
 from tests.test_mask_gc_collection_live import _inventory
 from tests.test_mask_gc_native import _native_call
 from tests.test_mask_gc_preview_authority import _snapshot
@@ -62,42 +65,6 @@ def _container_state_evidence(container: str) -> str:
     return f"state={json.dumps(fields)} logs={tail!r}"
 
 
-def _byte_container_origin(container: str, image: str, identity: str) -> str:
-    """Return the owned byte owner's verified default-bridge endpoint."""
-    details = _inspect_docker(container)
-    labels = (details.get("Config") or {}).get("Labels") or {}
-    networks = (details.get("NetworkSettings") or {}).get("Networks") or {}
-    ports = (details.get("NetworkSettings") or {}).get("Ports") or {}
-    if (
-        details.get("Image") != image
-        or labels.get("org.aap.acceptance") != "module-data-boundary"
-        or labels.get("org.aap.acceptance-id") != identity
-        or (details.get("State") or {}).get("Running") is not True
-        or set(networks) != {"bridge"}
-    ):
-        pytest.fail("owned byte owner identity did not match this acceptance")
-    bridge = networks["bridge"]
-    bindings = ports.get("8770/tcp") or []
-    try:
-        address = ipaddress.ip_address(bridge.get("IPAddress", ""))
-    except ValueError:
-        pytest.fail("owned byte owner has no verified bridge address")
-    network = _inspect_docker(bridge.get("NetworkID", ""))
-    attached = (network.get("Containers") or {}).get(container) or {}
-    if (
-        address.version != 4
-        or not address.is_private
-        or network.get("Id") != bridge.get("NetworkID")
-        or network.get("Name") != "bridge"
-        or network.get("Driver") != "bridge"
-        or attached.get("IPv4Address", "").split("/", 1)[0] != str(address)
-        or len(bindings) != 1
-        or bindings[0].get("HostIp") != "127.0.0.1"
-    ):
-        pytest.fail("owned byte owner bridge ownership did not match")
-    return f"http://{address}:8770"
-
-
 async def _start_gc(
     image, identity, resources, byte_image, byte_container, byte_token, directory
 ):
@@ -112,7 +79,9 @@ async def _start_gc(
     # internal listen ports; host-published loopback endpoints are not reachable
     # from a bridge container.
     database_url = _container_database_url(dsn)
-    content_url = _byte_container_origin(byte_container, byte_image, identity)
+    content_url = _byte_container_origin(
+        byte_container, byte_image, identity, resources["owner"]
+    )
     environment = {
         "MASK_GC_DATABASE_URL": database_url,
         "MASK_GC_TOKEN": token,

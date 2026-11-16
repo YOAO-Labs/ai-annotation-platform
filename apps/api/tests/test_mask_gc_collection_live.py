@@ -255,9 +255,7 @@ async def test_business_collector_previews_without_mutation_and_reconciles_bound
                 for key, outcome in completed
                 if key in owned_keys and outcome == "deleted"
             )
-            foreign_keys.update(
-                key for key, _ in completed if key not in fixture_keys
-            )
+            foreign_keys.update(key for key, _ in completed if key not in fixture_keys)
             totals.append(result["deleted"])
             owned_cumulative.append(owned_completed)
         # The destructive fixture advances the sweep cutoff so freshly written S3

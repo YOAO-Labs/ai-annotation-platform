@@ -2599,6 +2599,9 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_seed_parent_operator_live.py": "parent-seed",
     "tests/test_workspace_seed_operator_live.py": "workspace-seed",
     "tests/test_workspace_import_cli_live.py": "workspace-import",
+    # These destructive fixtures advance the whole store's retention cutoff.
+    "tests/test_mask_gc_collection_live.py": "mask-gc-collection",
+    "tests/test_mask_gc_runtime_image.py": "mask-gc-runtime",
 }
 
 

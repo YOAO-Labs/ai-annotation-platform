@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+from yoao_audit.maintenance_postgres import AuditMaintenancePostgresData
 
 from app.db.models.audit_log import AuditLog
 from app.schemas.audit import AuditLogOut
@@ -174,8 +175,13 @@ class TestAuditLogFilters:
     ):
         target_type = "audit_time_filter"
         target_id = str(uuid4())
-        lower = datetime(2026, 10, 20, 12, tzinfo=timezone.utc)
-        upper = datetime(2026, 10, 20, 13, tzinfo=timezone.utc)
+        lower = datetime.now(timezone.utc).replace(
+            day=20, hour=12, minute=0, second=0, microsecond=0
+        )
+        upper = lower + timedelta(hours=1)
+        await AuditMaintenancePostgresData(db_session).ensure_partition(
+            lower.date().replace(day=1)
+        )
         times = [
             ("audit.time.before", lower - timedelta(microseconds=1)),
             ("audit.time.at_lower", lower),

@@ -22,6 +22,8 @@ from yoao_assets_images.contract import (
     ImageOrphanCandidate,
     ImageSource,
     ObjectIdentity,
+    PyramidMemberReservation,
+    PyramidOutputAllocation,
 )
 
 from .config import ImageStorageConfig
@@ -38,11 +40,6 @@ _IMAGE_PYRAMID_KEY = re.compile(
 )
 _IMAGE_PYRAMID_ATTEMPT_KEY = re.compile(
     rf"^image-pyramids/{_UUID}/g[1-9][0-9]*/{_ATTEMPT}/(?:"
-    r"manifest\.json|overview\.webp|tiles/(?:0|[1-9][0-9]*)/"
-    r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
-)
-_PYRAMID_OUTPUT_KEY = re.compile(
-    rf"^image-pyramids/objects/{_UUID}/(?:"
     r"manifest\.json|overview\.webp|tiles/(?:0|[1-9][0-9]*)/"
     r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
 )
@@ -154,6 +151,13 @@ class ImageStorage(Protocol):
     async def read_cache(self, key: str, limit: int) -> bytes: ...
 
     async def upload_cache(self, path: Path, key: str) -> Artifact: ...
+
+    async def upload_pyramid_member(
+        self,
+        path: Path,
+        allocation: PyramidOutputAllocation,
+        member: PyramidMemberReservation,
+    ) -> ObjectIdentity: ...
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str: ...
 
@@ -437,24 +441,19 @@ class S3ImageStorage:
                 raise
 
     async def upload_pyramid_member(
-        self, path: Path, key: str, digest: str, size: int
+        self,
+        path: Path,
+        allocation: PyramidOutputAllocation,
+        member: PyramidMemberReservation,
     ) -> ObjectIdentity:
         """Write one reserved saved-output member and return its actual receipt.
 
-        The caller already froze the key, digest and size in its member
-        reservation.  This method performs exactly one conditional PUT and
-        proves the returned identity by HEAD before any receipt is recorded.
+        The caller has submitted this member's frozen reservation under the
+        allocation's saved prefix.  Do not reconstruct its physical namespace
+        from the logical image-pyramid family.
         """
-        if (
-            not isinstance(key, str)
-            or _PYRAMID_OUTPUT_KEY.fullmatch(key) is None
-            or not isinstance(digest, str)
-            or len(digest) != 64
-            or any(char not in "0123456789abcdef" for char in digest)
-            or type(size) is not int
-            or size <= 0
-        ):
-            raise ImageFailure("invalid_request")
+        key = allocation.prefix + member.relative_key
+        digest, size = member.sha256, member.size_bytes
         path = Path(path)
         try:
             info = path.stat(follow_symlinks=False)

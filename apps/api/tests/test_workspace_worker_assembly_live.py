@@ -27,6 +27,8 @@ from app.db.models.async_job import AsyncJob
 from app.db.models.ml_backend_registry import MLBackendRegistry
 from app.db.models.prediction import FailedPrediction, Prediction, PredictionMeta
 from app.db.models.task import Task
+from app.services.prediction_retry_data import SqlAlchemyPredictionRetryData
+from yoao_preannotation_results.retry_contract import AdmitPredictionRetryRequest
 from tests.project_guide_asset_owner_helpers import (
     assert_workspace_identity,
     create_guide_storage_scope,
@@ -171,10 +173,17 @@ async def _assert_api_consumer_workspace_closure(test_engine, project_id) -> Non
         await engine.dispose()
 
 
-async def _seed_retry_world(test_engine, *, backend_url, backend_token, index):
+async def _seed_retry_world(
+    test_engine, *, backend_url, backend_token, index, execution_queue
+):
     maker = async_sessionmaker(test_engine, expire_on_commit=False)
     suffix = uuid.uuid4().hex[:10]
-    backend_id, task_id, failed_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    backend_id, task_id, failed_id, job_id = (
+        uuid.uuid4(),
+        uuid.uuid4(),
+        uuid.uuid4(),
+        uuid.uuid4(),
+    )
     async with maker.begin() as db:
         actor = await create_user(
             db,
@@ -222,20 +231,27 @@ async def _seed_retry_world(test_engine, *, backend_url, backend_token, index):
                 error_type="TIMEOUT",
                 message="seeded terminal retry for cold worker acceptance",
                 extra={
-                    "retry_pending": True,
                     "request_context": {"type": "text", "text": "fixture"},
                 },
             )
         )
+        await db.flush()
+        await SqlAlchemyPredictionRetryData(db, writer=True).call(
+            "admit_prediction_retry",
+            AdmitPredictionRetryRequest(
+                job_id=job_id,
+                failed_prediction_id=failed_id,
+                actor_id=actor.id,
+                execution_queue=execution_queue,
+            ),
+        )
     return {
         "actor_id": actor.id,
         "project_id": project.id,
-        "project_display_id": project.display_id,
-        "project_name": project.name,
         "backend_id": backend_id,
         "task_id": task_id,
         "failed_id": failed_id,
-        "job_id": uuid.uuid4(),
+        "job_id": job_id,
     }
 
 
@@ -261,22 +277,16 @@ async def _wait_broker_ack(sender: Celery, worker: WorkspaceCeleryWorker, task_i
         if last_state in {"FAILURE", "REVOKED"}:
             await asyncio.to_thread(result.get, propagate=True)
         if last_state == "SUCCESS":
-            snapshot = await asyncio.to_thread(
-                _unacked_snapshot, sender, worker.queue
-            )
+            snapshot = await asyncio.to_thread(_unacked_snapshot, sender, worker.queue)
             owned_unacked = _owned_unacked(snapshot, worker.queue, task_id)
             inspect = sender.control.inspect(timeout=1, destination=[worker.node_name])
             active = await asyncio.to_thread(inspect.active)
             reserved = await asyncio.to_thread(inspect.reserved)
             active_tasks = [
-                task
-                for tasks in (active or {}).values()
-                for task in tasks or []
+                task for tasks in (active or {}).values() for task in tasks or []
             ]
             reserved_tasks = [
-                task
-                for tasks in (reserved or {}).values()
-                for task in tasks or []
+                task for tasks in (reserved or {}).values() for task in tasks or []
             ]
             outstanding = [
                 task
@@ -415,8 +425,8 @@ async def _assert_terminal_retry(test_engine, world, task_result_value) -> None:
         job = await db.get(AsyncJob, world["job_id"])
         assert job is not None and job.status == "completed"
         assert job.payload["failed_prediction_id"] == str(world["failed_id"])
-        assert job.payload["project_display_id"] == world["project_display_id"]
-        assert job.payload["project_name"] == world["project_name"]
+        assert job.project_id == world["project_id"]
+        assert job.user_id == world["actor_id"]
         assert job.result["success_count"] == 1
         assert job.result["failed_count"] == 0
         prediction = await db.scalar(
@@ -483,6 +493,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                     ),
                     backend_token=backend_token,
                     index=1,
+                    execution_queue=worker.queue,
                 )
             )
             worlds.append(
@@ -493,6 +504,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                     ),
                     backend_token=backend_token,
                     index=2,
+                    execution_queue=worker.queue,
                 )
             )
             await _assert_api_consumer_workspace_closure(
@@ -523,6 +535,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                 sender.send_task,
                 "app.workers.predictions_retry.retry_failed_prediction",
                 args=[str(worlds[0]["failed_id"]), str(worlds[0]["actor_id"])],
+                kwargs={"job_id": str(worlds[0]["job_id"])},
                 queue=worker.queue,
                 task_id=str(worlds[0]["job_id"]),
             )
@@ -559,6 +572,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
                 sender.send_task,
                 "app.workers.predictions_retry.retry_failed_prediction",
                 args=[str(worlds[1]["failed_id"]), str(worlds[1]["actor_id"])],
+                kwargs={"job_id": str(worlds[1]["job_id"])},
                 queue=worker.queue,
                 task_id=str(worlds[1]["job_id"]),
             )

@@ -1183,9 +1183,8 @@ class ImageExecutor:
                 heartbeat,
                 self.storage.upload_pyramid_member,
                 path,
-                key,
-                sha256,
-                size_bytes,
+                allocation,
+                reservation,
             )
         except BaseException as exc:
             state = (
