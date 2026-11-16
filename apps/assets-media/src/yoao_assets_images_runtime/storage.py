@@ -530,6 +530,8 @@ class S3ImageStorage:
         from yoao_assets_media_runtime.fixture_native_outputs import verify_object
         from yoao_assets_media_runtime.storage import _run_blocking
 
+        await writer.prepare()
+
         try:
             identity = await _run_blocking(
                 self._fixture_member_put, writer, path, key, digest, size, content_type
