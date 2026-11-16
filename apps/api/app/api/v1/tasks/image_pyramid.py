@@ -43,6 +43,8 @@ from app.services.image_pyramid import (
     ImagePyramidError,
     get_active_generation_for_task,
     manifest_etag,
+    native_generation,
+    owner_generation_read,
     pyramid_levels,
     pyramid_eligible,
     pyramid_required,
@@ -153,6 +155,11 @@ def _status_response(
     retryable: bool = False,
     retry_after_ms: int | None = None,
     error_code: str | None = None,
+    profile_version: str | None = None,
+    width: int | None = None,
+    height: int | None = None,
+    building_generation: int | None = None,
+    building_status: str | None = None,
 ) -> ImagePyramidResponse:
     return ImagePyramidResponse(
         task_id=task_id,
@@ -160,9 +167,51 @@ def _status_response(
         required=required,
         retryable=retryable,
         retry_after_ms=retry_after_ms,
+        source_snapshot=generation.source_snapshot if generation else None,
+        profile_version=profile_version,
+        width=width,
+        height=height,
         generation=generation.generation if generation else None,
+        building_generation=building_generation,
+        building_status=building_status,  # type: ignore[arg-type]
         error_code=error_code,
     )
+
+
+def _owner_refusal(exc: ImageFailure) -> HTTPException:
+    """An owner refusal is never evidence that the source changed."""
+    return HTTPException(http_error_status(exc.code), {"reason": exc.code})
+
+
+_OWNER_UNAVAILABLE = {
+    # The owner cannot prove this exact generation: unproven, never drift.
+    "asset_missing": "missing",
+    "source_missing": "missing",
+    "not_image": "not_available",
+    # The owner's own source fence rejected the pinned source.
+    "source_changed": "stale",
+}
+
+
+async def _owner_projection(db: AsyncSession, task, generation, actor_id):
+    """Exact-generation projection from the Images owner.
+
+    Returns the owner projection, or a status value when the owner proves the
+    generation is unavailable.  Any other refusal stays an HTTP error.
+    """
+    try:
+        return await owner_generation_read(
+            db,
+            actor_id=actor_id,
+            task_id=task.id,
+            dataset_item_id=None,
+            generation=generation.generation,
+        )
+    except ImageFailure as exc:
+        unavailable = _OWNER_UNAVAILABLE.get(exc.code)
+        if unavailable is not None:
+            return unavailable
+        raise _owner_refusal(exc) from None
 
 
 async def _admit_native_pyramid(
@@ -289,9 +338,67 @@ async def get_image_pyramid(
             retryable=retryable,
             retry_after_ms=retry_after_ms,
             error_code=error_code,
+            profile_version=asset.profile_version,
+            width=(latest.width if latest is not None else None) or owner.width,
+            height=(latest.height if latest is not None else None) or owner.height,
         )
 
-    if not source_matches_generation(owner, generation):
+    projection = None
+    if native_generation(generation):
+        # The Images owner is the only authority for a native row: it compares
+        # the current source snapshot, source generation, object identity and
+        # dimensions with the recorded generation and its publication lease.
+        projection = await _owner_projection(db, task, generation, current_user.id)
+        if isinstance(projection, str):
+            if projection == "stale":
+                await originals.check(db, authority, lock=True)
+                await _invalidate_ready(db, asset, generation, "source_changed")
+                if settings.image_pyramid_auto_generate:
+                    await db.commit()
+                    await _admit_native_pyramid(db, task, authority, retry=False)
+            IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+                operation="manifest", outcome=projection
+            ).inc()
+            return _status_response(
+                task_id=task.id,
+                status_value=projection,
+                required=required,
+                generation=generation,
+                retryable=projection != "not_available",
+                error_code="source_changed" if projection == "stale" else None,
+                profile_version=asset.profile_version,
+                width=generation.width or owner.width,
+                height=generation.height or owner.height,
+            )
+        width = projection.width or owner.width
+        height = projection.height or owner.height
+        required = pyramid_required(width, height)
+        if projection.status != "ready":
+            if projection.status == "stale":
+                await originals.check(db, authority, lock=True)
+                await _invalidate_ready(db, asset, generation, "source_changed")
+                if settings.image_pyramid_auto_generate:
+                    await db.commit()
+                    await _admit_native_pyramid(db, task, authority, retry=False)
+            IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+                operation="manifest", outcome=projection.status
+            ).inc()
+            return ImagePyramidResponse(
+                task_id=task.id,
+                status=projection.status,
+                required=required,
+                source_snapshot=projection.source_snapshot,
+                profile_version=projection.profile_version,
+                width=width,
+                height=height,
+                retryable=projection.retryable,
+                retry_after_ms=projection.retry_after_ms,
+                generation=projection.generation,
+                building_generation=projection.building_generation,
+                building_status=projection.building_status,
+                error_code=projection.error_code,
+            )
+    elif not source_matches_generation(owner, generation):
         await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         if settings.image_pyramid_auto_generate:
@@ -307,6 +414,9 @@ async def get_image_pyramid(
             generation=generation,
             retryable=True,
             error_code="source_changed",
+            profile_version=asset.profile_version,
+            width=generation.width or owner.width,
+            height=generation.height or owner.height,
         )
 
     if generation.output_id is None:
@@ -325,6 +435,9 @@ async def get_image_pyramid(
             required=required,
             generation=generation,
             retryable=True,
+            profile_version=asset.profile_version,
+            width=generation.width or owner.width,
+            height=generation.height or owner.height,
         )
 
     await db.commit()
@@ -401,11 +514,33 @@ async def get_image_pyramid(
         authority=authority,
     )
     IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(operation="manifest", outcome="ready").inc()
+    ready_width = (
+        (projection.width if projection is not None else generation.width)
+        or owner.width
+    )
+    ready_height = (
+        (projection.height if projection is not None else generation.height)
+        or owner.height
+    )
     return ImagePyramidResponse(
         task_id=task.id,
         status="ready",
-        required=pyramid_required(generation.width, generation.height),
-        generation=generation.generation,
+        required=pyramid_required(ready_width, ready_height),
+        source_snapshot=(
+            projection.source_snapshot
+            if projection is not None
+            else generation.source_snapshot
+        ),
+        profile_version=(
+            projection.profile_version
+            if projection is not None
+            else asset.profile_version
+        ),
+        width=ready_width,
+        height=ready_height,
+        generation=(
+            projection.generation if projection is not None else generation.generation
+        ),
         building_generation=building.generation if building else None,
         building_status=(
             building.status
@@ -453,7 +588,33 @@ async def create_image_pyramid_asset_urls(
             operation="asset_urls", outcome="not_ready"
         ).inc()
         raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
-    if not source_matches_generation(owner, generation):
+    if native_generation(generation):
+        projection = await _owner_projection(db, task, generation, current_user.id)
+        if isinstance(projection, str):
+            if projection == "stale":
+                await originals.check(db, authority, lock=True)
+                await _invalidate_ready(db, asset, generation, "source_changed")
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "stale_generation", "active_generation": None},
+                )
+            IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+                operation="asset_urls", outcome=projection
+            ).inc()
+            raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
+        if projection.status != "ready":
+            if projection.status == "stale":
+                await originals.check(db, authority, lock=True)
+                await _invalidate_ready(db, asset, generation, "source_changed")
+                raise HTTPException(
+                    status_code=409,
+                    detail={"reason": "stale_generation", "active_generation": None},
+                )
+            IMAGE_PYRAMID_API_REQUESTS_TOTAL.labels(
+                operation="asset_urls", outcome=projection.status
+            ).inc()
+            raise HTTPException(status_code=409, detail={"reason": "asset_not_ready"})
+    elif not source_matches_generation(owner, generation):
         await originals.check(db, authority, lock=True)
         await _invalidate_ready(db, asset, generation, "source_changed")
         raise HTTPException(
@@ -653,12 +814,26 @@ async def retry_image_pyramid(
 
     invalidated_stale = False
     if generation is not None and generation.status == "ready":
-        if (
+        if native_generation(generation):
+            projection = await _owner_projection(db, task, generation, current_user.id)
+            if isinstance(projection, str):
+                if projection == "stale" and asset is not None:
+                    await _invalidate_ready(db, asset, generation, "source_changed")
+                    invalidated_stale = True
+            else:
+                if projection.status == "ready" and generation.output_id is not None:
+                    raise HTTPException(
+                        status_code=409, detail={"reason": "already_ready"}
+                    )
+                if projection.status == "stale" and asset is not None:
+                    await _invalidate_ready(db, asset, generation, "source_changed")
+                    invalidated_stale = True
+        elif (
             source_matches_generation(owner, generation)
             and generation.output_id is not None
         ):
             raise HTTPException(status_code=409, detail={"reason": "already_ready"})
-        if generation.output_id is None:
+        elif generation.output_id is None:
             # Missing ownership evidence is not evidence that the source changed.
             invalidated_stale = True
         elif asset is not None:

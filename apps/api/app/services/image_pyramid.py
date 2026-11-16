@@ -737,11 +737,52 @@ def source_matches_generation(
     )
 
 
+def native_generation(generation: ImagePyramidGeneration | None) -> bool:
+    """A generation admitted and published by the Images owner.
+
+    The owner records the work generation that admitted a pyramid attempt.  The
+    local legacy publisher creates generations without one, and its receipt is
+    the only admission authority it records.  Only the Images owner knows the
+    source snapshot, generation and object identity behind a native row.
+    """
+    return generation is not None and generation.job_id is not None
+
+
+async def owner_generation_read(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    task_id: uuid.UUID | None,
+    dataset_item_id: uuid.UUID | None,
+    generation: int,
+):
+    """Read one exact generation from the Images owner's public projection.
+
+    The owner revalidates the actor, source snapshot/source generation, object
+    identity, width/height and the publication lease record.  It raises
+    `yoao_assets_images.contract.ImageFailure` instead of guessing, so callers
+    must never translate a refusal into source drift.
+    """
+    from app.services.assets_images import image_gateway
+    from yoao_assets_images.contract import ReadImageGenerationRequest
+
+    request = ReadImageGenerationRequest(
+        actor_id=actor_id,
+        task_id=task_id,
+        dataset_item_id=dataset_item_id,
+        generation=generation,
+        profile_version=settings.image_pyramid_profile_version,
+    )
+    async with image_gateway(db) as images:
+        return await images.call("read_image_generation", request)
+
+
 def pyramid_summary(
     generation: ImagePyramidGeneration | None,
     *,
     width: int | None,
     height: int | None,
+    profile_version: str | None = None,
 ) -> ImagePyramidSummary | None:
     if generation is None:
         return None
@@ -750,10 +791,11 @@ def pyramid_summary(
     return ImagePyramidSummary(
         status=(
             "failed"
-            if generation.status == "ready"
-            and (generation.original_ref is None or generation.output_id is None)
+            if generation.status == "ready" and generation.output_id is None
             else generation.status
         ),  # type: ignore[arg-type]
+        source_snapshot=generation.source_snapshot,
+        profile_version=profile_version,
         generation=generation.generation,
         width=logical_width,
         height=logical_height,

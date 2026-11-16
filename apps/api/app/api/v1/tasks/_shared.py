@@ -439,8 +439,13 @@ async def _attach_image_pyramids_batch(
         pair = assets.get(task.id)
         if pair is None:
             continue
-        _, generation = pair
-        summary = pyramid_summary(generation, width=width, height=height)
+        asset, generation = pair
+        summary = pyramid_summary(
+            generation,
+            width=width,
+            height=height,
+            profile_version=asset.profile_version,
+        )
         if summary is not None:
             result[task.id] = summary
     return result

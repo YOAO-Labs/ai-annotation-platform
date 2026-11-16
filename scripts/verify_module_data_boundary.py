@@ -136,6 +136,16 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
 FUNCTION_BODY_ARTIFACTS = {
+    **{
+        signature: "0463_native_pyramid_reads_retirement.sql"
+        for signature in (
+            "aap_assets_v1._image_saved_output_prefix(uuid,integer,uuid,boolean)",
+            "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
+            "aap_assets_v1._cancel_image_source_work(text,uuid,text)",
+            "aap_assets_v1.cancel_image_media(uuid,uuid,uuid)",
+            "aap_assets_v1._image_enqueue(uuid,uuid,jsonb,jsonb,boolean)",
+        )
+    },
     "aap_assets_v1.write_native_pyramid_member(uuid,text,text)": "0462_fixture_native_pyramid_receipts.sql",
     "aap_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
     "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0460_workspace_owner_transfer_namespace.sql",
@@ -795,7 +805,6 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.guard_image_pyramid_native_member()",
             "guard_image_pyramid_inputs()",
             "aap_assets_v1._image_garbage_prefix_valid(text)",
-            "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
             "aap_assets_v1._native_pyramid_attempt(uuid,boolean)",
             "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
             "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
@@ -1846,6 +1855,7 @@ SQL_ARTIFACTS = (
     "0460_workspace_owner_transfer_namespace.sql",
     "0461_fixture_native_pyramid_target.sql",
     "0462_fixture_native_pyramid_receipts.sql",
+    "0463_native_pyramid_reads_retirement.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
