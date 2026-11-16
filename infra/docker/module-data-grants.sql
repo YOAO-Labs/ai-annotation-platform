@@ -2747,6 +2747,8 @@ ALTER FUNCTION aap_assets_v1.allocate_native_pyramid_output(
 ) OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._native_pyramid_output_fixture_owned(uuid)
     OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.legacy_pyramid_gc_eligible(text, uuid, integer)
+    OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._image_saved_output_target(uuid, integer, uuid, boolean)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.guard_native_pyramid_read_permit()

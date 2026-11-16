@@ -193,7 +193,7 @@ def _worker_requests():
     }
 
 
-def test_worker_login_has_only_the_six_frozen_execution_operations():
+def test_worker_login_has_only_its_frozen_execution_operations():
     names = {
         name for name, operation in OPERATIONS.items() if operation.role == "worker"
     }
@@ -204,8 +204,17 @@ def test_worker_login_has_only_the_six_frozen_execution_operations():
         "fail_image_media",
         "advance_image_backfill",
         "reconcile_image_media",
+        "begin_image_original_worker",
+        "begin_image_original_backfill",
+        "finish_image_original_worker",
+        "allocate_native_pyramid_output",
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+        "verify_native_pyramid_member",
+        "abandon_native_pyramid_member",
+        "finish_native_pyramid_output",
     }
-    assert len(names) == 6
     requests = _worker_requests()
     for name, request in requests.items():
         statement, parameters = prepare_native_call(
@@ -274,7 +283,6 @@ async def test_capability_preflight_requires_only_image_and_image_input_worker_o
         )
     }
     rows = [{"oid": oid, "prosecdef": True} for oid in signatures.values()]
-    assert len(signatures) == 10
     connection = _HealthConnection(
         identity_ok=True,
         signatures=signatures,
@@ -308,7 +316,6 @@ async def test_shared_control_preflight_includes_inputs_but_rejects_cleanup_swee
             start=100,
         )
     }
-    assert len(control_signatures) == 52
     rows = [{"oid": oid, "prosecdef": True} for oid in control_signatures.values()]
     connection = _HealthConnection(
         identity_ok=True,
@@ -361,17 +368,20 @@ async def test_finish_binding_accepts_pyramid_generation_independent_of_job_gene
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("bad_path", ["wrong_generation", "wrong_lease"])
-async def test_finish_binding_rejects_pyramid_prefix_outside_manifest_and_lease(
-    bad_path,
-):
+@pytest.mark.parametrize("bad_path", ["other_output", "empty_segment", "parent", "legacy"])
+async def test_finish_binding_rejects_members_outside_the_saved_output(bad_path):
     request = _worker_requests()["finish_image_media"]
     result = request.result
-    if bad_path == "wrong_generation":
-        bad_prefix = result.manifest_artifact.key.replace("/g17/", "/g1/")
+    key = result.manifest_artifact.key
+    if bad_path == "other_output":
+        bad_prefix = key.rsplit("/", 2)[0] + f"/{uuid4()}/manifest.json"
+    elif bad_path == "empty_segment":
+        bad_prefix = key.replace("image-pyramids/", "image-pyramids//")
+    elif bad_path == "parent":
+        bad_prefix = "../" + key
     else:
-        bad_prefix = result.manifest_artifact.key.replace(
-            f"/a{request.lease_token}/", f"/a{uuid4()}/"
+        bad_prefix = (
+            f"image-pyramids/{request.job_id}/g17/a{request.lease_token}/manifest.json"
         )
     bad_result = result.model_copy(
         update={

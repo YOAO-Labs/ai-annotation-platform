@@ -434,9 +434,9 @@ async def test_prefix_route_refuses_a_nonterminal_or_changed_scope():
     changed = _context(
         "put",
         output_id=output_id,
-        scope_id=uuid4(),
+        scope_id=page_id,
         scope_token=lease_token,
-        members=[_member(uuid4(), etag=None, version_id=None)],
+        members=[_member(page_id, etag=None, version_id=None)],
     )
     with pytest.raises(ImageFailure) as caught:
         await _signer(changed).write_reference(
@@ -808,6 +808,9 @@ class _ApiRuntime:
         if self.failure is not None:
             raise self.failure
         return self._result(request)
+
+    async def native_read_references(self, request):
+        raise AssertionError("wrong-role token reached the Native reader")
 
 
 def _api_client(config, runtime):

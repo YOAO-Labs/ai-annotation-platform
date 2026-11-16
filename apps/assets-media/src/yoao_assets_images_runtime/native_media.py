@@ -429,13 +429,13 @@ async def put_member(
         raise
     except httpx.HTTPError:
         raise _unavailable() from None
-    if response.status_code == 412:
-        raise NativeWriteRefused()
-    if not 200 <= response.status_code < 300:
-        raise _unavailable()
     if not response.is_closed:
         # A confirmed write whose response was never drained and closed has no
         # proven settlement; the caller must keep the member unknown.
+        raise _unavailable()
+    if response.status_code == 412:
+        raise NativeWriteRefused()
+    if not 200 <= response.status_code < 300:
         raise _unavailable()
     return MemberReceipt(
         etag=_raw_etag(response.headers),
@@ -515,14 +515,14 @@ async def head_member(
         failure = _unavailable() if isinstance(exc, httpx.HTTPError) else exc
         failure.storage_operation_unsettled = True
         raise failure from None
-    if response.status_code == 404:
-        raise NativeMemberMissing(member.relative_key)
-    if response.status_code != 200:
-        raise _unavailable()
     if not response.is_closed:
         failure = _unavailable()
         failure.storage_operation_unsettled = True
         raise failure
+    if response.status_code == 404:
+        raise NativeMemberMissing(member.relative_key)
+    if response.status_code != 200:
+        raise _unavailable()
     observed = _observed_identity(response.headers)
     if (
         observed.etag != member.etag

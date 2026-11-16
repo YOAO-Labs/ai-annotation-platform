@@ -30,7 +30,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -53,7 +57,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -110,7 +118,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -142,7 +152,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -165,7 +179,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -222,7 +240,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -254,7 +274,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -277,7 +301,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -334,7 +362,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -366,7 +396,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -389,7 +423,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -446,7 +484,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -478,7 +518,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -501,7 +545,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -558,7 +606,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -590,7 +640,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -613,7 +667,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -670,7 +728,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -702,7 +762,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -725,7 +789,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -782,7 +850,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -814,7 +884,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -837,7 +911,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -894,7 +972,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -926,7 +1006,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -949,7 +1033,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1006,7 +1094,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1038,7 +1128,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1061,7 +1155,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1118,7 +1216,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1150,7 +1250,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1173,7 +1277,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1230,7 +1338,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1262,7 +1372,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1285,7 +1399,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1342,7 +1460,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1374,7 +1494,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1397,7 +1521,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1454,7 +1582,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1486,7 +1616,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1509,7 +1643,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1566,7 +1704,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1598,7 +1738,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1621,7 +1765,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1678,7 +1826,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1710,7 +1860,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1733,7 +1887,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1790,7 +1948,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1822,7 +1982,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1845,7 +2009,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1902,7 +2070,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -1934,7 +2104,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -1957,7 +2131,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2014,7 +2192,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2046,7 +2226,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2069,7 +2253,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2126,7 +2314,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2158,7 +2348,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2181,7 +2375,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2238,7 +2436,253 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/images/commands/begin_native_pyramid_read": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginNativePyramidReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted image owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NativePyramidReadPermit"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Image contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "already_ready",
+                            "not_eligible",
+                            "retry_cooldown",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
+                      "title": "_Error",
+                      "type": "object"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/images/commands/complete_native_pyramid_read": {
+      "post": {
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompleteNativePyramidReadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Accepted image owner result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    },
+                    "ok": {
+                      "const": true
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/NativePyramidReadClosure"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Image contract failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
+                  "properties": {
+                    "schema": {
+                      "const": "aap-assets-images/v1"
+                    },
+                    "ok": {
+                      "const": false
+                    },
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "invalid_response",
+                            "storage_unavailable",
+                            "account_not_active",
+                            "account_busy",
+                            "invalid_account_role",
+                            "source_missing",
+                            "source_changed",
+                            "source_busy",
+                            "source_not_ready",
+                            "task_not_visible",
+                            "task_busy",
+                            "permission_denied",
+                            "not_image",
+                            "asset_missing",
+                            "already_ready",
+                            "not_eligible",
+                            "retry_cooldown",
+                            "operation_conflict",
+                            "operation_busy",
+                            "lease_lost",
+                            "dependency_changed",
+                            "resource_budget_exceeded",
+                            "object_missing",
+                            "owner_changed",
+                            "unsupported_dimensions",
+                            "resource_limit",
+                            "invalid_coordinate",
+                            "timeout",
+                            "source_unavailable",
+                            "color_profile_unavailable",
+                            "multi_page_unsupported",
+                            "dimension_mismatch",
+                            "generator_unavailable",
+                            "decode_failed",
+                            "encode_failed",
+                            "tile_grid_mismatch",
+                            "upload_verification_failed",
+                            "inconsistent_ready"
+                          ],
+                          "title": "Code",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2270,7 +2714,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2293,7 +2741,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2350,7 +2802,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2382,7 +2836,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2405,7 +2863,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2462,7 +2924,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2494,7 +2958,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2517,7 +2985,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2574,7 +3046,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2606,7 +3080,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2629,7 +3107,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2686,7 +3168,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2718,7 +3202,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2741,7 +3229,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2798,7 +3290,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2830,7 +3324,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2853,7 +3351,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2910,7 +3412,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -2942,7 +3446,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "data"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "data"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -2965,7 +3473,11 @@
                 "schema": {
                   "type": "object",
                   "additionalProperties": false,
-                  "required": ["schema", "ok", "error"],
+                  "required": [
+                    "schema",
+                    "ok",
+                    "error"
+                  ],
                   "properties": {
                     "schema": {
                       "const": "aap-assets-images/v1"
@@ -3022,7 +3534,9 @@
                           "type": "string"
                         }
                       },
-                      "required": ["code"],
+                      "required": [
+                        "code"
+                      ],
                       "title": "_Error",
                       "type": "object"
                     }
@@ -3089,7 +3603,11 @@
             "type": "string"
           }
         },
-        "required": ["actor_id", "source_snapshot", "object_key"],
+        "required": [
+          "actor_id",
+          "source_snapshot",
+          "object_key"
+        ],
         "title": "ActorOriginalReadRequest",
         "type": "object"
       },
@@ -3097,7 +3615,10 @@
         "additionalProperties": false,
         "properties": {
           "ownership": {
-            "enum": ["ordinary", "fixture"],
+            "enum": [
+              "ordinary",
+              "fixture"
+            ],
             "title": "Ownership",
             "type": "string"
           },
@@ -3265,7 +3786,10 @@
             "title": "Sha256"
           }
         },
-        "required": ["ownership", "object_key"],
+        "required": [
+          "ownership",
+          "object_key"
+        ],
         "title": "OriginalRead",
         "type": "object"
       },
@@ -3273,7 +3797,10 @@
         "additionalProperties": false,
         "properties": {
           "owner_kind": {
-            "enum": ["dataset_item", "task"],
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -3294,7 +3821,12 @@
             "type": "string"
           }
         },
-        "required": ["owner_kind", "owner_id", "source_snapshot", "object_key"],
+        "required": [
+          "owner_kind",
+          "owner_id",
+          "source_snapshot",
+          "object_key"
+        ],
         "title": "SystemOriginalReadRequest",
         "type": "object"
       },
@@ -3312,7 +3844,10 @@
             "type": "string"
           }
         },
-        "required": ["creation_id", "operation_id"],
+        "required": [
+          "creation_id",
+          "operation_id"
+        ],
         "title": "FinishOriginalReadRequest",
         "type": "object"
       },
@@ -3330,7 +3865,10 @@
             "type": "string"
           }
         },
-        "required": ["creation_id", "operation_id"],
+        "required": [
+          "creation_id",
+          "operation_id"
+        ],
         "title": "FinishedOriginalRead",
         "type": "object"
       },
@@ -3369,7 +3907,9 @@
             "type": "string"
           }
         },
-        "required": ["actor_id"],
+        "required": [
+          "actor_id"
+        ],
         "title": "ReadImageSourceRequest",
         "type": "object"
       },
@@ -3377,7 +3917,10 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "enum": ["dataset_item", "task"],
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -3387,7 +3930,10 @@
             "type": "string"
           }
         },
-        "required": ["kind", "id"],
+        "required": [
+          "kind",
+          "id"
+        ],
         "title": "ImageOwner",
         "type": "object"
       },
@@ -3420,7 +3966,10 @@
             "title": "Version Id"
           }
         },
-        "required": ["etag", "byte_size"],
+        "required": [
+          "etag",
+          "byte_size"
+        ],
         "title": "ObjectIdentity",
         "type": "object"
       },
@@ -3526,7 +4075,10 @@
             "type": "string"
           },
           "bucket_kind": {
-            "enum": ["datasets", "legacy"],
+            "enum": [
+              "datasets",
+              "legacy"
+            ],
             "title": "Bucket Kind",
             "type": "string"
           },
@@ -3702,7 +4254,11 @@
             "$ref": "#/components/schemas/ObjectIdentity"
           }
         },
-        "required": ["actor_id", "source_snapshot", "object_identity"],
+        "required": [
+          "actor_id",
+          "source_snapshot",
+          "object_identity"
+        ],
         "title": "ObserveImageSourceRequest",
         "type": "object"
       },
@@ -3770,7 +4326,10 @@
             "title": "Profile Version"
           }
         },
-        "required": ["actor_id", "selectors"],
+        "required": [
+          "actor_id",
+          "selectors"
+        ],
         "title": "ReadImageSummariesRequest",
         "type": "object"
       },
@@ -3815,6 +4374,18 @@
             ],
             "title": "Generation"
           },
+          "source_snapshot": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Snapshot"
+          },
           "building_generation": {
             "anyOf": [
               {
@@ -3831,7 +4402,10 @@
           "building_status": {
             "anyOf": [
               {
-                "enum": ["pending", "building"],
+                "enum": [
+                  "pending",
+                  "building"
+                ],
                 "type": "string"
               },
               {
@@ -3921,6 +4495,7 @@
           "status",
           "required",
           "generation",
+          "source_snapshot",
           "building_generation",
           "building_status",
           "width",
@@ -3947,7 +4522,12 @@
             "$ref": "#/components/schemas/ImagePyramidSummary"
           }
         },
-        "required": ["selector", "source", "thumbnail_current", "pyramid"],
+        "required": [
+          "selector",
+          "source",
+          "thumbnail_current",
+          "pyramid"
+        ],
         "title": "ImageSummaryItem",
         "type": "object"
       },
@@ -3963,7 +4543,9 @@
             "type": "array"
           }
         },
-        "required": ["items"],
+        "required": [
+          "items"
+        ],
         "title": "ImageSummaries",
         "type": "object"
       },
@@ -4144,7 +4726,11 @@
             "type": "string"
           },
           "purpose": {
-            "enum": ["dimensions", "thumbnail", "pyramid"],
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid"
+            ],
             "title": "Purpose",
             "type": "string"
           },
@@ -4170,7 +4756,11 @@
             "type": "boolean"
           }
         },
-        "required": ["actor_id", "operation_id", "purpose"],
+        "required": [
+          "actor_id",
+          "operation_id",
+          "purpose"
+        ],
         "title": "PrepareImageMediaRequest",
         "type": "object"
       },
@@ -4197,7 +4787,9 @@
             "type": "boolean"
           }
         },
-        "required": ["expected_source_snapshot"],
+        "required": [
+          "expected_source_snapshot"
+        ],
         "title": "DimensionsWorkSpec",
         "type": "object"
       },
@@ -4205,7 +4797,10 @@
         "additionalProperties": false,
         "properties": {
           "owner_kind": {
-            "enum": ["dataset_item", "task"],
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -4250,7 +4845,11 @@
             "type": "boolean"
           },
           "purpose": {
-            "enum": ["dimensions", "thumbnail", "pyramid"],
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid"
+            ],
             "title": "Purpose",
             "type": "string"
           },
@@ -4273,7 +4872,10 @@
             "title": "Accepted Before"
           }
         },
-        "required": ["owner_kind", "purpose"],
+        "required": [
+          "owner_kind",
+          "purpose"
+        ],
         "title": "ImageBackfillSelection",
         "type": "object"
       },
@@ -4293,7 +4895,9 @@
             "$ref": "#/components/schemas/ImagePolicy"
           }
         },
-        "required": ["selection"],
+        "required": [
+          "selection"
+        ],
         "title": "ImageBackfillSpec",
         "type": "object"
       },
@@ -4328,17 +4932,35 @@
             "type": "integer"
           },
           "kind": {
-            "enum": ["dimensions", "thumbnail", "pyramid", "image_backfill"],
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid",
+              "image_backfill"
+            ],
             "title": "Kind",
             "type": "string"
           },
           "status": {
-            "enum": ["pending", "running", "ready", "failed", "canceled"],
+            "enum": [
+              "pending",
+              "running",
+              "ready",
+              "failed",
+              "canceled"
+            ],
             "title": "Status",
             "type": "string"
           }
         },
-        "required": ["job_id", "generation", "owner", "source_generation", "kind", "status"],
+        "required": [
+          "job_id",
+          "generation",
+          "owner",
+          "source_generation",
+          "kind",
+          "status"
+        ],
         "title": "ImageWorkReference",
         "type": "object"
       },
@@ -4360,7 +4982,9 @@
             "$ref": "#/components/schemas/ImagePolicy"
           }
         },
-        "required": ["expected_source_snapshot"],
+        "required": [
+          "expected_source_snapshot"
+        ],
         "title": "PyramidWorkSpec",
         "type": "object"
       },
@@ -4382,7 +5006,9 @@
             "$ref": "#/components/schemas/ImagePolicy"
           }
         },
-        "required": ["expected_source_snapshot"],
+        "required": [
+          "expected_source_snapshot"
+        ],
         "title": "ThumbnailWorkSpec",
         "type": "object"
       },
@@ -4441,7 +5067,12 @@
             "title": "Spec"
           }
         },
-        "required": ["operation_id", "source", "work", "spec"],
+        "required": [
+          "operation_id",
+          "source",
+          "work",
+          "spec"
+        ],
         "title": "AcceptedImageWork",
         "type": "object"
       },
@@ -4520,7 +5151,11 @@
             "type": "object"
           }
         },
-        "required": ["actor_id", "operation_id", "delegation"],
+        "required": [
+          "actor_id",
+          "operation_id",
+          "delegation"
+        ],
         "title": "PrepareOwnedPyramidRequest",
         "type": "object"
       },
@@ -4598,7 +5233,11 @@
             "type": "object"
           }
         },
-        "required": ["actor_id", "operation_id", "delegation"],
+        "required": [
+          "actor_id",
+          "operation_id",
+          "delegation"
+        ],
         "title": "RetryOwnedPyramidRequest",
         "type": "object"
       },
@@ -4665,7 +5304,9 @@
             "title": "Profile Version"
           }
         },
-        "required": ["actor_id"],
+        "required": [
+          "actor_id"
+        ],
         "title": "ReadImageGenerationRequest",
         "type": "object"
       },
@@ -4739,7 +5380,10 @@
           "building_status": {
             "anyOf": [
               {
-                "enum": ["pending", "building"],
+                "enum": [
+                  "pending",
+                  "building"
+                ],
                 "type": "string"
               },
               {
@@ -4922,6 +5566,20 @@
             "minimum": 0,
             "title": "Retained Bytes",
             "type": "integer"
+          },
+          "native": {
+            "title": "Native",
+            "type": "boolean"
+          },
+          "native_output": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NativePyramidOutputReference"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4940,7 +5598,9 @@
           "overview_key",
           "overview_digest",
           "tile_count",
-          "retained_bytes"
+          "retained_bytes",
+          "native",
+          "native_output"
         ],
         "title": "ImagePyramidGeneration",
         "type": "object"
@@ -4985,7 +5645,14 @@
             "type": "integer"
           }
         },
-        "required": ["level", "scaleFactor", "width", "height", "columns", "rows"],
+        "required": [
+          "level",
+          "scaleFactor",
+          "width",
+          "height",
+          "columns",
+          "rows"
+        ],
         "title": "ImagePyramidLevel",
         "type": "object"
       },
@@ -5090,8 +5757,121 @@
             "type": "string"
           }
         },
-        "required": ["width", "height", "contentDigest"],
+        "required": [
+          "width",
+          "height",
+          "contentDigest"
+        ],
         "title": "ImagePyramidOverview",
+        "type": "object"
+      },
+      "NativePyramidOutputReference": {
+        "additionalProperties": false,
+        "properties": {
+          "output_id": {
+            "format": "uuid",
+            "title": "Output Id",
+            "type": "string"
+          },
+          "storage_ref": {
+            "$ref": "#/components/schemas/NativePyramidSavedTarget"
+          },
+          "url_expiry_seconds": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Url Expiry Seconds",
+            "type": "integer"
+          },
+          "fixture_owned": {
+            "title": "Fixture Owned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "output_id",
+          "storage_ref",
+          "url_expiry_seconds",
+          "fixture_owned"
+        ],
+        "title": "NativePyramidOutputReference",
+        "type": "object"
+      },
+      "NativePyramidSavedTarget": {
+        "additionalProperties": false,
+        "description": "The immutable saved-output allocation, independent of current bindings.",
+        "properties": {
+          "schema": {
+            "const": 2,
+            "title": "Schema",
+            "type": "integer"
+          },
+          "purpose": {
+            "const": "media-cache",
+            "title": "Purpose",
+            "type": "string"
+          },
+          "location_id": {
+            "format": "uuid",
+            "title": "Location Id",
+            "type": "string"
+          },
+          "config_revision": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Config Revision",
+            "type": "integer"
+          },
+          "binding_generation": {
+            "exclusiveMinimum": 0,
+            "maximum": 9223372036854775807,
+            "title": "Binding Generation",
+            "type": "integer"
+          },
+          "endpoint_url": {
+            "maxLength": 2048,
+            "minLength": 8,
+            "pattern": "^https?://[^\\s/?#@\\\\]+$",
+            "title": "Endpoint Url",
+            "type": "string"
+          },
+          "bucket": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[^\\s\\x00-\\x1f\\x7f/?#@%:\\\\]+$",
+            "title": "Bucket",
+            "type": "string"
+          },
+          "key_prefix": {
+            "maxLength": 436,
+            "pattern": "^[^\\\\]*$",
+            "title": "Key Prefix",
+            "type": "string"
+          },
+          "prefix": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Prefix",
+            "type": "string"
+          },
+          "storage_identity": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Storage Identity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema",
+          "purpose",
+          "location_id",
+          "config_revision",
+          "binding_generation",
+          "endpoint_url",
+          "bucket",
+          "key_prefix",
+          "prefix",
+          "storage_identity"
+        ],
+        "title": "NativePyramidSavedTarget",
         "type": "object"
       },
       "ImageGenerationRead": {
@@ -5104,7 +5884,10 @@
             "$ref": "#/components/schemas/ImagePyramidGeneration"
           }
         },
-        "required": ["source", "pyramid"],
+        "required": [
+          "source",
+          "pyramid"
+        ],
         "title": "ImageGenerationRead",
         "type": "object"
       },
@@ -5122,7 +5905,10 @@
             "type": "string"
           }
         },
-        "required": ["actor_id", "job_id"],
+        "required": [
+          "actor_id",
+          "job_id"
+        ],
         "title": "ReadImageWorkRequest",
         "type": "object"
       },
@@ -5202,7 +5988,14 @@
             "title": "Lease Expires At"
           }
         },
-        "required": ["work", "spec", "progress", "error_code", "error_detail", "lease_expires_at"],
+        "required": [
+          "work",
+          "spec",
+          "progress",
+          "error_code",
+          "error_detail",
+          "lease_expires_at"
+        ],
         "title": "ImageWorkStatus",
         "type": "object"
       },
@@ -5246,7 +6039,11 @@
             "type": "string"
           },
           "purpose": {
-            "enum": ["dimensions", "thumbnail", "pyramid"],
+            "enum": [
+              "dimensions",
+              "thumbnail",
+              "pyramid"
+            ],
             "title": "Purpose",
             "type": "string"
           },
@@ -5272,7 +6069,11 @@
             "type": "boolean"
           }
         },
-        "required": ["actor_id", "operation_id", "purpose"],
+        "required": [
+          "actor_id",
+          "operation_id",
+          "purpose"
+        ],
         "title": "RetryImageMediaRequest",
         "type": "object"
       },
@@ -5285,7 +6086,12 @@
             "type": "string"
           },
           "kind": {
-            "enum": ["thumbnail", "overview", "manifest", "tile"],
+            "enum": [
+              "thumbnail",
+              "overview",
+              "manifest",
+              "tile"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -5360,7 +6166,10 @@
             "title": "Y"
           }
         },
-        "required": ["source_snapshot", "kind"],
+        "required": [
+          "source_snapshot",
+          "kind"
+        ],
         "title": "ImageInvalidation",
         "type": "object"
       },
@@ -5402,7 +6211,10 @@
             "$ref": "#/components/schemas/ImageInvalidation"
           }
         },
-        "required": ["actor_id", "invalidation"],
+        "required": [
+          "actor_id",
+          "invalidation"
+        ],
         "title": "InvalidateImageMediaRequest",
         "type": "object"
       },
@@ -5417,7 +6229,10 @@
             "type": "boolean"
           }
         },
-        "required": ["source", "changed"],
+        "required": [
+          "source",
+          "changed"
+        ],
         "title": "InvalidationResult",
         "type": "object"
       },
@@ -5440,7 +6255,11 @@
             "type": "string"
           }
         },
-        "required": ["operation_id", "actor_id", "job_id"],
+        "required": [
+          "operation_id",
+          "actor_id",
+          "job_id"
+        ],
         "title": "CancelImageMediaRequest",
         "type": "object"
       },
@@ -5462,7 +6281,11 @@
             "type": "boolean"
           }
         },
-        "required": ["operation_id", "job_id", "canceled"],
+        "required": [
+          "operation_id",
+          "job_id",
+          "canceled"
+        ],
         "title": "CancelImageMediaResult",
         "type": "object"
       },
@@ -5470,7 +6293,10 @@
         "additionalProperties": false,
         "properties": {
           "owner_kind": {
-            "enum": ["dataset_item", "task"],
+            "enum": [
+              "dataset_item",
+              "task"
+            ],
             "title": "Owner Kind",
             "type": "string"
           },
@@ -5504,7 +6330,10 @@
             "default": null
           }
         },
-        "required": ["owner_kind", "owner_id"],
+        "required": [
+          "owner_kind",
+          "owner_id"
+        ],
         "title": "ResolveInternalImageSourceRequest",
         "type": "object"
       },
@@ -5526,7 +6355,10 @@
           "owner_kind": {
             "anyOf": [
               {
-                "enum": ["dataset_item", "task"],
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
                 "type": "string"
               },
               {
@@ -5579,7 +6411,12 @@
             "type": "boolean"
           }
         },
-        "required": ["operation_id", "owner_kind", "owner_id", "spec"],
+        "required": [
+          "operation_id",
+          "owner_kind",
+          "owner_id",
+          "spec"
+        ],
         "title": "ScheduleImageMediaRequest",
         "type": "object"
       },
@@ -5592,7 +6429,9 @@
             "type": "string"
           }
         },
-        "required": ["job_id"],
+        "required": [
+          "job_id"
+        ],
         "title": "ReadInternalImageWorkRequest",
         "type": "object"
       },
@@ -5605,7 +6444,10 @@
           "after_owner_kind": {
             "anyOf": [
               {
-                "enum": ["dataset_item", "task"],
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
                 "type": "string"
               },
               {
@@ -5636,7 +6478,9 @@
             "type": "integer"
           }
         },
-        "required": ["selection"],
+        "required": [
+          "selection"
+        ],
         "title": "ScanImageBackfillRequest",
         "type": "object"
       },
@@ -5670,7 +6514,10 @@
           "after_owner_kind": {
             "anyOf": [
               {
-                "enum": ["dataset_item", "task"],
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
                 "type": "string"
               },
               {
@@ -5694,7 +6541,10 @@
           "next_owner_kind": {
             "anyOf": [
               {
-                "enum": ["dataset_item", "task"],
+                "enum": [
+                  "dataset_item",
+                  "task"
+                ],
                 "type": "string"
               },
               {
@@ -5798,6 +6648,182 @@
         "title": "ImageUsage",
         "type": "object"
       },
+      "BeginNativePyramidReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "task_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Task Id"
+          },
+          "dataset_item_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Dataset Item Id"
+          },
+          "actor_id": {
+            "format": "uuid",
+            "title": "Actor Id",
+            "type": "string"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "maximum": 2147483647,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Generation"
+          },
+          "profile_version": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Profile Version"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "token": {
+            "format": "uuid",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actor_id",
+          "operation_id",
+          "token"
+        ],
+        "title": "BeginNativePyramidReadRequest",
+        "type": "object"
+      },
+      "NativePyramidReadPermit": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "token": {
+            "format": "uuid",
+            "title": "Token",
+            "type": "string"
+          },
+          "output_id": {
+            "format": "uuid",
+            "title": "Output Id",
+            "type": "string"
+          },
+          "storage_ref": {
+            "$ref": "#/components/schemas/NativePyramidSavedTarget"
+          },
+          "pyramid": {
+            "$ref": "#/components/schemas/ImagePyramidGeneration"
+          },
+          "url_expiry_seconds": {
+            "exclusiveMinimum": 0,
+            "maximum": 2147483647,
+            "title": "Url Expiry Seconds",
+            "type": "integer"
+          },
+          "fixture_owned": {
+            "title": "Fixture Owned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "token",
+          "output_id",
+          "storage_ref",
+          "pyramid",
+          "url_expiry_seconds",
+          "fixture_owned"
+        ],
+        "title": "NativePyramidReadPermit",
+        "type": "object"
+      },
+      "CompleteNativePyramidReadRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "token": {
+            "format": "uuid",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation_id",
+          "token"
+        ],
+        "title": "CompleteNativePyramidReadRequest",
+        "type": "object"
+      },
+      "NativePyramidReadClosure": {
+        "additionalProperties": false,
+        "properties": {
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "token": {
+            "format": "uuid",
+            "title": "Token",
+            "type": "string"
+          },
+          "closed": {
+            "const": true,
+            "title": "Closed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "token",
+          "closed"
+        ],
+        "title": "NativePyramidReadClosure",
+        "type": "object"
+      },
       "ImageSourceReference": {
         "additionalProperties": false,
         "properties": {
@@ -5846,7 +6872,12 @@
             "type": "integer"
           }
         },
-        "required": ["source", "original_url", "thumbnail_url", "expires_in"],
+        "required": [
+          "source",
+          "original_url",
+          "thumbnail_url",
+          "expires_in"
+        ],
         "title": "ImageSourceReference",
         "type": "object"
       },
@@ -5885,7 +6916,9 @@
             "type": "string"
           }
         },
-        "required": ["actor_id"],
+        "required": [
+          "actor_id"
+        ],
         "title": "ActorImageSourceRequest",
         "type": "object"
       },
@@ -5906,7 +6939,9 @@
             "type": "boolean"
           }
         },
-        "required": ["requests"],
+        "required": [
+          "requests"
+        ],
         "title": "ImageSourceReferencesRequest",
         "type": "object"
       },
@@ -5922,7 +6957,9 @@
             "type": "array"
           }
         },
-        "required": ["references"],
+        "required": [
+          "references"
+        ],
         "title": "ImageSourceReferences",
         "type": "object"
       },
@@ -5957,7 +6994,9 @@
             "default": null
           }
         },
-        "required": ["owner"],
+        "required": [
+          "owner"
+        ],
         "title": "InternalImageSourceRequest",
         "type": "object"
       },
@@ -5968,14 +7007,23 @@
             "$ref": "#/components/schemas/InternalImageSourceRequest"
           },
           "expires_in": {
-            "default": 3600,
-            "maximum": 604800,
-            "minimum": 1,
-            "title": "Expires In",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 604800,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expires In"
           }
         },
-        "required": ["source"],
+        "required": [
+          "source"
+        ],
         "title": "InternalImageSourceReferenceRequest",
         "type": "object"
       },
@@ -6055,14 +7103,23 @@
             "title": "Expected Source Snapshot"
           },
           "expires_in": {
-            "default": 3600,
-            "maximum": 604800,
-            "minimum": 1,
-            "title": "Expires In",
-            "type": "integer"
+            "anyOf": [
+              {
+                "maximum": 604800,
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Expires In"
           }
         },
-        "required": ["actor_id"],
+        "required": [
+          "actor_id"
+        ],
         "title": "ImageGenerationReferenceRequest",
         "type": "object"
       },
@@ -6156,7 +7213,9 @@
             "type": "integer"
           }
         },
-        "required": ["generation"],
+        "required": [
+          "generation"
+        ],
         "title": "ImageOverviewRequest",
         "type": "object"
       },
@@ -6194,7 +7253,12 @@
             "type": "integer"
           }
         },
-        "required": ["generation", "level", "x", "y"],
+        "required": [
+          "generation",
+          "level",
+          "x",
+          "y"
+        ],
         "title": "ImageTileRequest",
         "type": "object"
       },
@@ -6283,7 +7347,10 @@
             "type": "array"
           }
         },
-        "required": ["actor_id", "items"],
+        "required": [
+          "actor_id",
+          "items"
+        ],
         "title": "ImageAssetReferencesRequest",
         "type": "object"
       },
@@ -6291,7 +7358,10 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
-            "enum": ["overview", "tile"],
+            "enum": [
+              "overview",
+              "tile"
+            ],
             "title": "Kind",
             "type": "string"
           },
@@ -6339,7 +7409,14 @@
             "type": "string"
           }
         },
-        "required": ["kind", "generation", "level", "x", "y", "url"],
+        "required": [
+          "kind",
+          "generation",
+          "level",
+          "x",
+          "y",
+          "url"
+        ],
         "title": "ImageAssetReference",
         "type": "object"
       },
@@ -6377,7 +7454,12 @@
             "type": "array"
           }
         },
-        "required": ["source", "generation", "expires_in", "items"],
+        "required": [
+          "source",
+          "generation",
+          "expires_in",
+          "items"
+        ],
         "title": "ImageAssetReferences",
         "type": "object"
       }

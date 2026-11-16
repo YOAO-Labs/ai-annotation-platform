@@ -461,7 +461,11 @@ def _write_worker_environment(
     bucket: str,
     access_key: str,
     secret_key: str,
+    native_storage_url: str,
+    native_storage_token: str,
 ) -> None:
+    # The Native lane is a required cleanup lane: point it at the real Source
+    # signer and its cleanup role token, never a no-op or a configured bucket.
     values = {
         "ASSET_CLEANUP_DATABASE_URL": database_url,
         "ASSET_CLEANUP_S3_ENDPOINT": endpoint,
@@ -470,6 +474,8 @@ def _write_worker_environment(
         "ASSET_CLEANUP_INPUTS_BUCKET": _required_env("MINIO_INPUTS_BUCKET"),
         "ASSET_CLEANUP_S3_ACCESS_KEY": access_key,
         "ASSET_CLEANUP_S3_SECRET_KEY": secret_key,
+        "ASSET_CLEANUP_NATIVE_STORAGE_URL": native_storage_url,
+        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": native_storage_token,
         "ASSET_CLEANUP_POLL_SECONDS": "0.1",
         "ASSET_CLEANUP_PAGE_SIZE": "1",
     }
@@ -1217,9 +1223,11 @@ async def _cleanup_database_rows(
 
 
 async def test_standalone_cleanup_container_respects_source_lease_and_recovers_lost_ack(
-    test_engine,
+    test_engine, native_signer
 ):
     from app.config import settings
+
+    native_signer.assert_running()
 
     raw_cleanup_url = _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_URL")
     cleanup_url = make_url(raw_cleanup_url)
@@ -1354,6 +1362,8 @@ async def test_standalone_cleanup_container_respects_source_lease_and_recovers_l
                 bucket=media_bucket,
                 access_key=cleanup_s3_key,
                 secret_key=cleanup_s3_secret,
+                native_storage_url=native_signer.url,
+                native_storage_token=native_signer.cleanup_token,
             )
             container_id = _start_worker(
                 container_name, image_tag, image_identity, environment_file

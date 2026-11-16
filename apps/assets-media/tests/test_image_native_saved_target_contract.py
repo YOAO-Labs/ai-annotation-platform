@@ -235,7 +235,7 @@ def test_read_permit_operations_are_control_only_and_exact():
         )
 
     closure = c.NativePyramidReadClosure(
-        operation_id=permit.operation_id, token=permit.token
+        operation_id=permit.operation_id, token=permit.token, closed=True
     )
     c.require_scope(
         c.CompleteNativePyramidReadRequest(

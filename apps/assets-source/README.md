@@ -174,8 +174,9 @@ credentials and readable only by the Source runtime user (UID 10003 for the
 optional container). Attach `infra/docker/native-source-minio-policy.json` to
 the separate builtin Native S3 identity; replace `prod-media-cache` in the
 template with the deployment's media-cache bucket. It grants only the
-saved-output scope `image-pyramids/objects/*`, bounded object/version listing
-and bucket-scoped multipart listing. It does not grant bucket administration or
+saved-output scopes `image-pyramids/objects/*` and
+`_aap_managed/media-cache/image-pyramids/objects/*`, bounded object/version
+listing and bucket-scoped multipart listing. It does not grant bucket administration or
 access to unrelated objects, and it must not be attached to the ordinary Source,
 Images, or cleanup identities. Connection-backed targets continue to use their
 own registered credentials and permissions inside this process.

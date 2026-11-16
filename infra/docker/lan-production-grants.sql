@@ -154,6 +154,8 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_owner_exists(text,uuid)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.fixture_media_ordinary_gc(text,uuid,integer)
     TO :"application_role";
+GRANT EXECUTE ON FUNCTION aap_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer)
+    TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_assets_v1.begin_operator_auxiliary(jsonb),
     aap_assets_v1.open_operator_storage_operation(uuid),
     aap_assets_v1.record_operator_original_prepared(uuid,jsonb),

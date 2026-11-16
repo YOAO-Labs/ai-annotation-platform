@@ -290,7 +290,7 @@ def _video_bytes(tmp_path):
 
 
 async def test_real_video_input_control_worker_versions_and_independent_node_peer(
-    test_engine, tmp_path
+    test_engine, tmp_path, native_signer
 ):
     async with _video_runtime(test_engine, tmp_path) as runtime:
         body = await asyncio.to_thread(_video_bytes, tmp_path)
@@ -470,12 +470,12 @@ async def test_real_video_input_control_worker_versions_and_independent_node_pee
                 )
             )
         await _prove_video_cleanup_process(
-            runtime, test_engine, tmp_path, request, record.plan, frame
+            runtime, test_engine, tmp_path, request, record.plan, frame, native_signer
         )
 
 
 async def _prove_video_cleanup_process(
-    runtime, test_engine, tmp_path, request, plan, frame
+    runtime, test_engine, tmp_path, request, plan, frame, native_signer
 ):
     cleanup_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client", test_engine
@@ -550,6 +550,8 @@ async def _prove_video_cleanup_process(
         "ASSET_CLEANUP_S3_SECRET_KEY": _required_env(
             "AAP_MODULE_DATA_ASSET_CLEANUP_S3_SECRET_KEY"
         ),
+        "ASSET_CLEANUP_NATIVE_STORAGE_URL": native_signer.url,
+        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": native_signer.cleanup_token,
         "ASSET_CLEANUP_POLL_SECONDS": "0.1",
         "ASSET_CLEANUP_HEALTH_HOST": "127.0.0.1",
         "ASSET_CLEANUP_HEALTH_PORT": str(_free_loopback_port()),

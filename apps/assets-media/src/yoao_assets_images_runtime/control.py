@@ -1831,6 +1831,8 @@ class ImageControl:
 
 def _missing_native_scope(error: c.ImageFailure) -> tuple[str, ...] | None:
     """Return the missing member keys, or None when the failure is not absence."""
+    if getattr(error, "storage_operation_unsettled", False):
+        return None
     if isinstance(error, _NativeMembersMissing):
         return error.relative_keys
     if isinstance(error, c.ImageFailure) and error.code == "object_missing":
@@ -1919,7 +1921,9 @@ class _NativeReadSession:
                         await native_media.head_member(
                             self.control._native_http(), signed.head, member=member
                         )
-                except native_media.NativeMemberMissing:
+                except native_media.NativeMemberMissing as exc:
+                    if getattr(exc, "storage_operation_unsettled", False):
+                        raise
                     missing.append(member.relative_key)
                     continue
                 self.receipts[member.relative_key] = member

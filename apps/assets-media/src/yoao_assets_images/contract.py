@@ -1986,7 +1986,9 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
             or result.operation_id != request.operation_id
         ):
             raise ValueError("original read finish escaped its operation")
-    if isinstance(request, ImageSourceSelector):
+    if isinstance(request, ImageSourceSelector) and not isinstance(
+        request, BeginNativePyramidReadRequest
+    ):
         source = _source_for(result)
         if source is None or not image_source_matches_selector(source, request):
             raise ValueError("image source escaped its selector")

@@ -34,7 +34,7 @@ pytestmark = [
 
 
 async def test_cleanup_container_reaps_video_attempts_and_late_versions(
-    test_engine, tmp_path, monkeypatch, record_property
+    test_engine, tmp_path, monkeypatch, record_property, native_signer
 ):
     image_ref = _required_env("AAP_VIDEO_CONSUMER_CLEANUP_IMAGE")
     image_id, _ = _owned_image_ref(image_ref)
@@ -95,7 +95,7 @@ async def test_cleanup_container_reaps_video_attempts_and_late_versions(
     monkeypatch.setattr(video, "_stop_process", stop)
     try:
         await video.test_real_video_input_control_worker_versions_and_independent_node_peer(
-            test_engine, tmp_path
+            test_engine, tmp_path, native_signer
         )
         assert len(owned) == 1
         record_property("video_cleanup_image_id", image_id)

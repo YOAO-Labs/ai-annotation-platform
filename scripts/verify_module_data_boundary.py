@@ -178,6 +178,7 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
             "aap_assets_v1.verify_native_pyramid_member(uuid)",
             "aap_assets_v1.resolve_fixture_native_cache(text)",
+            "aap_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer)",
         )
     },
     **{
@@ -2437,6 +2438,7 @@ TEST_FILES = (
     "tests/test_assets_images_execution.py",
     "tests/test_assets_images_retention.py",
     "tests/test_image_cleanup_native.py",
+    "tests/test_native_pyramid_saved_targets.py",
     "tests/test_image_admission_share.py",
     "tests/test_image_thumbnail_publication.py",
     "tests/test_image_pyramid.py",
@@ -4430,6 +4432,382 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
         _cleanup_mc(scope, ["admin", "policy", "remove", "scoped", scope["policy"]])
         scope["policy_created"] = False
     docker("exec", scope["container"], "rm", "-rf", "--", scope["config"])
+
+
+# The Native signer owns a S3 identity that is bounded to saved Native output
+# object prefixes.  It is distinct from the normal Source identity, from the
+# four ordinary cleanup lanes, and from every worker/control identity.  Root
+# admin credentials provision it; no runtime receives the raw pair except the
+# Source signer process.
+NATIVE_CONNECTION_BASE_PREFIX = "aap-native-b"
+NATIVE_SOURCE_WRITER_TOKEN_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_WRITER_TOKEN"
+)
+NATIVE_SOURCE_READER_TOKEN_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_READER_TOKEN"
+)
+NATIVE_SOURCE_CLEANUP_TOKEN_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_CLEANUP_TOKEN"
+)
+NATIVE_SOURCE_S3_ACCESS_KEY_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_S3_ACCESS_KEY"
+)
+NATIVE_SOURCE_S3_SECRET_KEY_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_S3_SECRET_KEY"
+)
+NATIVE_CONNECTION_S3_ACCESS_KEY_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_CONNECTION_S3_ACCESS_KEY"
+)
+NATIVE_CONNECTION_S3_SECRET_KEY_SETTING = (
+    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_CONNECTION_S3_SECRET_KEY"
+)
+
+
+def _native_storage_scope(backend) -> dict:
+    """Seed one scoped Native S3 identity against the established MinIO admin."""
+    scope = _cleanup_storage_scope(backend)
+    scope["policy"] = "aap-native-" + secrets.token_hex(8)
+    scope["access_key"] = "aapnat" + secrets.token_hex(7)
+    return scope
+
+
+def _native_source_storage_policy(scope: dict) -> dict:
+    bucket_arn = f"arn:aws:s3:::{scope['bucket']}"
+    native_objects = [
+        f"{bucket_arn}/image-pyramids/objects/*",
+        f"{bucket_arn}/_aap_managed/media-cache/image-pyramids/objects/*",
+    ]
+    native_prefixes = [
+        "image-pyramids/objects/*",
+        "_aap_managed/media-cache/image-pyramids/objects/*",
+    ]
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                ],
+                "Resource": native_objects,
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
+                "Resource": [bucket_arn],
+                "Condition": {"StringLike": {"s3:prefix": native_prefixes}},
+            },
+            {
+                # Cleanup must inspect every bounded metadata page because the
+                # supported peer may ignore Prefix for multipart listings.
+                # No abort capability is issued.
+                "Effect": "Allow",
+                "Action": ["s3:ListBucketMultipartUploads"],
+                "Resource": [bucket_arn],
+            },
+        ],
+    }
+
+
+def _native_connection_storage_policy(scope: dict) -> dict:
+    bucket_arn = f"arn:aws:s3:::{scope['bucket']}"
+    prefix = NATIVE_CONNECTION_BASE_PREFIX
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                ],
+                "Resource": [f"{bucket_arn}/{prefix}/*"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
+                "Resource": [bucket_arn],
+                "Condition": {"StringLike": {"s3:prefix": [f"{prefix}/*"]}},
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucketMultipartUploads"],
+                "Resource": [bucket_arn],
+            },
+        ],
+    }
+
+
+def _create_native_storage_scope(scope: dict, policy: dict) -> None:
+    _cleanup_mc(
+        scope,
+        ["admin", "user", "add", "scoped", scope["access_key"], scope["secret_key"]],
+    )
+    scope["user_created"] = True
+    _cleanup_mc(
+        scope,
+        ["admin", "policy", "create", "scoped", scope["policy"], "/dev/stdin"],
+        payload=json.dumps(policy),
+    )
+    scope["policy_created"] = True
+    _cleanup_mc(
+        scope,
+        [
+            "admin",
+            "policy",
+            "attach",
+            "scoped",
+            scope["policy"],
+            "--user",
+            scope["access_key"],
+        ],
+    )
+
+
+def _native_delete_versions(backend, bucket: str, key: str) -> None:
+    from botocore.exceptions import ClientError
+
+    try:
+        versions = backend.s3.list_object_versions(Bucket=bucket, Prefix=key)
+    except ClientError:
+        return
+    for entry in versions.get("Versions", []) + versions.get("DeleteMarkers", []):
+        if entry.get("Key") != key:
+            continue
+        backend.s3.delete_object(
+            Bucket=bucket, Key=key, VersionId=entry["VersionId"]
+        )
+
+
+def _verify_native_storage_scopes(
+    backend, native: dict, connection: dict, cleanup: dict
+) -> dict:
+    """Prove the Source Native identity is finite and the lanes stay separated.
+
+    Root admin only provisions; every assertion below issues actual S3
+    requests with the scoped identities the runtimes will receive.
+    """
+    from botocore.exceptions import ClientError
+
+    cache_bucket = native["bucket"]
+    connection_bucket = connection["bucket"]
+    datasets_bucket = backend.resources["buckets"]["MINIO_DATASETS_BUCKET"]
+    identity = uuid4()
+    native_prefix = f"image-pyramids/objects/{identity}/"
+    native_key = native_prefix + "lifecycle-probe"
+    client = _restricted_s3_client(backend, native)
+    connection_client = _restricted_s3_client(backend, connection)
+    cleanup_client = _restricted_s3_client(backend, cleanup)
+    created: list[tuple[str, str]] = []
+    uploads: list[tuple[str, str, str]] = []
+    try:
+        put = client.put_object(
+            Bucket=cache_bucket,
+            Key=native_key,
+            Body=b"native-probe",
+            IfNoneMatch="*",
+        )
+        created.append((cache_bucket, native_key))
+        recorded_version = put.get("VersionId")
+        if recorded_version is not None and not isinstance(recorded_version, str):
+            raise RuntimeError("Native probe returned an invalid version receipt")
+        params = {
+            "Bucket": cache_bucket,
+            "Key": native_key,
+            **({"VersionId": recorded_version} if recorded_version is not None else {}),
+        }
+        head = client.head_object(**params)
+        if head.get("ETag") != put.get("ETag"):
+            raise RuntimeError("Native probe HEAD did not prove its own receipt")
+        stream = client.get_object(**params)["Body"]
+        try:
+            body = stream.read()
+        finally:
+            stream.close()
+        if body != b"native-probe":
+            raise RuntimeError("Native probe read did not prove its own bytes")
+        listed = {
+            item["Key"]
+            for page in client.get_paginator("list_object_versions").paginate(
+                Bucket=cache_bucket, Prefix=native_prefix
+            )
+            for item in page.get("Versions", []) + page.get("DeleteMarkers", [])
+        }
+        if native_key not in listed:
+            raise RuntimeError("Native probe is absent from its exact saved scope")
+        _expect_s3_denied(
+            "Native identity legacy pyramid write",
+            lambda: client.put_object(
+                Bucket=cache_bucket,
+                Key=f"image-pyramids/{uuid4()}/legacy-probe",
+                Body=b"forbidden",
+            ),
+        )
+        _expect_s3_denied(
+            "Native identity legacy thumbnail write",
+            lambda: client.put_object(
+                Bucket=cache_bucket,
+                Key=f"image-assets/{uuid4()}/thumbnail-probe",
+                Body=b"forbidden",
+            ),
+        )
+        _expect_s3_denied(
+            "Native identity foreign managed namespace write",
+            lambda: client.put_object(
+                Bucket=cache_bucket,
+                Key=f"_aap_managed/media-cache/image-assets/{uuid4()}/probe",
+                Body=b"forbidden",
+            ),
+        )
+        _expect_s3_denied(
+            "Native identity foreign bucket read",
+            lambda: client.get_object(Bucket=datasets_bucket, Key="probe"),
+        )
+        source_key = f"image-source/{uuid4()}/probe"
+        backend.s3.put_object(Bucket=datasets_bucket, Key=source_key, Body=b"source")
+        created.append((datasets_bucket, source_key))
+        _expect_s3_denied(
+            "Native identity foreign bucket delete",
+            lambda: client.delete_object(Bucket=datasets_bucket, Key=source_key),
+        )
+        upload = backend.s3.create_multipart_upload(
+            Bucket=cache_bucket, Key=f"native-probe-upload/{uuid4()}"
+        )
+        uploads.append((upload["Bucket"], upload["Key"], upload["UploadId"]))
+        pages = client.list_multipart_uploads(Bucket=cache_bucket, MaxUploads=100)
+        observed = {
+            item.get("UploadId") for item in pages.get("Uploads", []) or []
+        }
+        if upload["UploadId"] not in observed:
+            raise RuntimeError("Native identity cannot prove bounded upload absence")
+        _expect_s3_denied(
+            "Native identity multipart abort",
+            lambda: client.abort_multipart_upload(
+                Bucket=upload["Bucket"],
+                Key=upload["Key"],
+                UploadId=upload["UploadId"],
+            ),
+        )
+        # The ordinary four-lane cleanup identity keeps its legitimate rights
+        # but never gains either Native root.
+        managed_key = (
+            f"_aap_managed/media-cache/image-pyramids/objects/{uuid4()}/owned"
+        )
+        legacy_native_key = f"image-pyramids/objects/{uuid4()}/owned"
+        for key in (managed_key, legacy_native_key):
+            managed_receipt = client.put_object(
+                Bucket=cache_bucket, Key=key, Body=b"owned", IfNoneMatch="*"
+            )
+            created.append((cache_bucket, key))
+            managed_head = client.head_object(Bucket=cache_bucket, Key=key)
+            if (
+                managed_head.get("ETag") != managed_receipt.get("ETag")
+                or managed_head.get("VersionId") != managed_receipt.get("VersionId")
+            ):
+                raise RuntimeError("Native root receipt differs from the saved object")
+            _expect_s3_denied(
+                "Ordinary cleanup Native-root delete",
+                lambda key=key: cleanup_client.delete_object(
+                    Bucket=cache_bucket, Key=key
+                ),
+            )
+            if managed_receipt.get("VersionId") is not None:
+                _expect_s3_denied(
+                    "Ordinary cleanup Native-root version delete",
+                    lambda key=key, version=managed_receipt["VersionId"]:
+                    cleanup_client.delete_object(
+                        Bucket=cache_bucket, Key=key, VersionId=version
+                    ),
+                )
+        # A registered connection identity is bounded to its own managed
+        # namespace in its own bucket and never reaches the builtin target.
+        connection_key = (
+            f"{NATIVE_CONNECTION_BASE_PREFIX}/_aap_managed/media-cache/"
+            f"image-pyramids/objects/{uuid4()}/probe"
+        )
+        receipt = connection_client.put_object(
+            Bucket=connection_bucket,
+            Key=connection_key,
+            Body=b"connection-probe",
+            IfNoneMatch="*",
+        )
+        created.append((connection_bucket, connection_key))
+        stream = connection_client.get_object(
+            Bucket=connection_bucket, Key=connection_key
+        )["Body"]
+        try:
+            if stream.read() != b"connection-probe":
+                raise RuntimeError("Registered connection identity cannot read its scope")
+        finally:
+            stream.close()
+        exclude = {
+            "Bucket": connection_bucket,
+            "Key": connection_key,
+            **(
+                {"VersionId": receipt["VersionId"]}
+                if receipt.get("VersionId") is not None
+                else {}
+            ),
+        }
+        connection_client.delete_object(**exclude)
+        _expect_s3_denied(
+            "Registered connection identity builtin Native read",
+            lambda: connection_client.get_object(
+                Bucket=cache_bucket, Key=native_key
+            ),
+        )
+        _expect_s3_denied(
+            "Registered connection identity foreign key write",
+            lambda: connection_client.put_object(
+                Bucket=connection_bucket,
+                Key=f"unmanaged/{uuid4()}/probe",
+                Body=b"forbidden",
+            ),
+        )
+        client.delete_object(**params)
+        try:
+            client.head_object(**params)
+        except ClientError as exc:
+            if (
+                exc.response["ResponseMetadata"]["HTTPStatusCode"] != 404
+                or exc.response["Error"]["Code"] not in {
+                    "404", "NoSuchKey", "NoSuchVersion"
+                }
+            ):
+                raise
+        else:
+            raise RuntimeError("Native identity did not delete its exact saved object")
+        return {
+            "bucket": cache_bucket,
+            "connection_bucket": connection_bucket,
+            "native_prefix_listed": True,
+            "native_put_get_head_delete": True,
+            "native_managed_root_put_head": True,
+            "legacy_and_foreign_denied": True,
+            "multipart_listed_and_abort_denied": True,
+            "cleanup_native_roots_denied": True,
+            "connection_scope_bounded": True,
+        }
+    finally:
+        client.close()
+        connection_client.close()
+        cleanup_client.close()
+        for bucket, key, upload_id in uploads:
+            try:
+                backend.s3.abort_multipart_upload(
+                    Bucket=bucket, Key=key, UploadId=upload_id
+                )
+            except ClientError:
+                pass
+        for bucket, key in created:
+            _native_delete_versions(backend, bucket, key)
 
 
 def _create_api_bootstrap_storage_scope(
@@ -6883,6 +7261,8 @@ def main(
             "media_control_storage_identity_removed": False,
             "media_worker_storage_identity_removed": False,
             "image_worker_storage_identity_removed": False,
+            "native_source_storage_identity_removed": False,
+            "native_connection_storage_identity_removed": False,
             "api_bootstrap_storage_identity_removed": None,
             "audit_archive_writer_storage_identity_removed": None,
             "audit_archive_reader_storage_identity_removed": None,
@@ -6910,6 +7290,8 @@ def main(
     media_control_storage = None
     media_worker_storage = None
     image_worker_storage = None
+    native_source_storage = None
+    native_connection_storage = None
     image_import_storage = None
     api_bootstrap_storage = None
     audit_archive_writer_storage = None
@@ -11908,6 +12290,48 @@ SELECT pg_catalog.jsonb_build_object(
         ]
         image_worker_storage["policy"] = "aap-images-worker-" + secrets.token_hex(8)
         _create_image_storage_scope(image_worker_storage)
+        # Source owns finite Native signing under its own bounded S3 identity;
+        # the executors receive role tokens only.  One extra scoped identity
+        # represents a registered connection target for the A->B switch.
+        native_source_storage = _native_storage_scope(backend)
+        _create_native_storage_scope(
+            native_source_storage, _native_source_storage_policy(native_source_storage)
+        )
+        native_connection_storage = _native_storage_scope(backend)
+        native_connection_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]
+        native_connection_storage["policy"] = (
+            "aap-native-connection-" + secrets.token_hex(8)
+        )
+        _create_native_storage_scope(
+            native_connection_storage,
+            _native_connection_storage_policy(native_connection_storage),
+        )
+        native_signer_tokens = {
+            "writer": secrets.token_urlsafe(48),
+            "reader": secrets.token_urlsafe(48),
+            "cleanup": secrets.token_urlsafe(48),
+        }
+        if len(set(native_signer_tokens.values())) != 3 or any(
+            token == source_storage["access_key"]
+            for token in native_signer_tokens.values()
+        ):
+            raise RuntimeError("Native signer role tokens are not distinct")
+        if (
+            native_source_storage["access_key"]
+            == native_connection_storage["access_key"]
+            or native_source_storage["access_key"] == source_storage["access_key"]
+            or native_connection_storage["access_key"]
+            == source_storage["access_key"]
+        ):
+            raise RuntimeError("Native S3 identities are not distinct")
+        phase = "verify-native-storage-scopes"
+        evidence["native_storage_s3"] = _verify_native_storage_scopes(
+            backend,
+            native_source_storage,
+            native_connection_storage,
+            cleanup_storage,
+        )
+
         if (
             "tests/test_audit_maintenance_module_live.py" in selected_test_paths
             and os.environ.get("AAP_AUDIT_MAINTENANCE_MODULE_ACCEPTANCE") == "1"
@@ -12189,8 +12613,32 @@ SELECT pg_catalog.jsonb_build_object(
                 "AAP_MODULE_DATA_REDIS_OWNER": resources["owner"],
                 "AAP_MODULE_DATA_PG_CONTAINER_NAME": container_name,
                 "AAP_MODULE_DATA_PG_CONTAINER_IDENTITY": container_identity,
+                NATIVE_SOURCE_S3_ACCESS_KEY_SETTING: native_source_storage[
+                    "access_key"
+                ],
+                NATIVE_SOURCE_S3_SECRET_KEY_SETTING: native_source_storage[
+                    "secret_key"
+                ],
+                NATIVE_CONNECTION_S3_ACCESS_KEY_SETTING: native_connection_storage[
+                    "access_key"
+                ],
+                NATIVE_CONNECTION_S3_SECRET_KEY_SETTING: native_connection_storage[
+                    "secret_key"
+                ],
+                NATIVE_SOURCE_WRITER_TOKEN_SETTING: native_signer_tokens["writer"],
+                NATIVE_SOURCE_READER_TOKEN_SETTING: native_signer_tokens["reader"],
+                NATIVE_SOURCE_CLEANUP_TOKEN_SETTING: native_signer_tokens["cleanup"],
+                "AAP_MODULE_DATA_NATIVE_B_BUCKET": native_connection_storage["bucket"],
+                "AAP_MODULE_DATA_NATIVE_B_PREFIX": NATIVE_CONNECTION_BASE_PREFIX,
+                "AAP_MODULE_DATA_NATIVE_SOURCE_BUCKET": native_source_storage["bucket"],
             }
         )
+        evidence["native_signer"] = {
+            "roles": ["writer", "reader", "cleanup"],
+            "tokens_distinct": True,
+            "separate_native_s3_identity": True,
+            "separate_connection_s3_identity": True,
+        }
         if image_import_storage is not None:
             resource_environment.update(
                 {
@@ -12706,6 +13154,19 @@ SELECT pg_catalog.jsonb_build_object(
                     {"storage_identity": type(error).__name__}
                 )
                 exit_code = 1
+        for label, scope in (
+            ("native_source", native_source_storage),
+            ("native_connection", native_connection_storage),
+        ):
+            if scope is not None and local_resources_destroyed:
+                try:
+                    _destroy_cleanup_storage_scope(scope)
+                    evidence["cleanup"][f"{label}_storage_identity_removed"] = True
+                except Exception as error:
+                    evidence["cleanup"]["errors"].append(
+                        {f"{label}_storage_identity": type(error).__name__}
+                    )
+                    exit_code = 1
         # Keep the verified database reachable when cleanup needs another pass.
         if container_id and local_resources_destroyed:
             try:

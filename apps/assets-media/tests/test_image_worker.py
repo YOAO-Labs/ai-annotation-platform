@@ -1800,9 +1800,14 @@ async def test_native_member_drained_verify_then_heartbeat_loss_settles_written(
 ):
     allocation, path, reservation = _member_write_args(tmp_path)
     database = _FakeDatabase(None)
-    storage = _MemberWriteStorage(receipt=_registered_receipt(reservation))
-    # The seventh check is the one after the exact-version GET drained.
-    heartbeat = _StubHeartbeat([None, None, None, None, None, None, "timeout"])
+    heartbeat = _StubHeartbeat()
+
+    class Storage(_MemberWriteStorage):
+        async def verify_pyramid_member(self, allocation, member, receipt):
+            await super().verify_pyramid_member(allocation, member, receipt)
+            heartbeat.checks = ["timeout"]
+
+    storage = Storage(receipt=_registered_receipt(reservation))
 
     with pytest.raises(ImageFailure, match="timeout"):
         await _member_write(

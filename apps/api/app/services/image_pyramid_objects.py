@@ -614,6 +614,19 @@ async def retire_fixture(db, control, identifier):
     await _retire_output(db, control, "pyramid_output", identifier, Output, retire)
 
 
+async def _legacy_gc_eligible(db, kind, owner_id, generation):
+    """Ask the owner boundary, never a prefix or current binding, for eligibility."""
+    return bool(
+        await db.scalar(
+            select(
+                func.aap_assets_v1.legacy_pyramid_gc_eligible(
+                    kind, owner_id, generation
+                )
+            )
+        )
+    )
+
+
 async def reconcile(db, storage):
     """Retire known, unused outputs before exact saved-prefix physical deletion."""
     from app.services.image_pyramid import fail_generation, utcnow
@@ -625,7 +638,7 @@ async def reconcile(db, storage):
                 select(Generation.asset_id, Generation.generation)
                 .where(
                     Generation.status == "building",
-                    func.aap_assets_v1.fixture_media_ordinary_gc(
+                    func.aap_assets_v1.legacy_pyramid_gc_eligible(
                         "pyramid_generation", Generation.asset_id, Generation.generation
                     ),
                     Generation.lease_expires_at <= utcnow(),
@@ -635,13 +648,34 @@ async def reconcile(db, storage):
         ).all()
     )
     for asset_id, number in candidates:
-        await fail_generation(
-            db,
-            asset_id=asset_id,
-            generation_number=number,
-            lease_token=None,
-            error_code="lease_expired",
+        # Relock in the same asset-then-generation order as the stale pass and
+        # fail_generation, then recheck ownership before the state mutation.
+        asset = await db.scalar(
+            select(Asset).where(Asset.id == asset_id).with_for_update()
         )
+        generation = await db.scalar(
+            select(Generation)
+            .where(Generation.asset_id == asset_id, Generation.generation == number)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        if (
+            asset is not None
+            and generation is not None
+            and generation.status == "building"
+            and generation.lease_expires_at is not None
+            and generation.lease_expires_at <= utcnow()
+            and await _legacy_gc_eligible(
+                db, "pyramid_generation", asset_id, number
+            )
+        ):
+            await fail_generation(
+                db,
+                asset_id=asset_id,
+                generation_number=number,
+                lease_token=None,
+                error_code="lease_expired",
+            )
         await db.commit()
     stale = list(
         (
@@ -651,7 +685,7 @@ async def reconcile(db, storage):
                 .where(
                     Generation.output_id.is_not(None),
                     Generation.updated_at < cutoff,
-                    func.aap_assets_v1.fixture_media_ordinary_gc(
+                    func.aap_assets_v1.legacy_pyramid_gc_eligible(
                         "pyramid_generation", Generation.asset_id, Generation.generation
                     ),
                     Generation.status.in_(("ready", "failed")),
@@ -681,6 +715,9 @@ async def reconcile(db, storage):
             and number not in {asset.active_generation, asset.building_generation}
             and generation.status in {"ready", "failed"}
             and generation.updated_at < cutoff
+            and await _legacy_gc_eligible(
+                db, "pyramid_generation", asset_id, number
+            )
         ):
             await db.delete(generation)
         await db.commit()
@@ -689,7 +726,9 @@ async def reconcile(db, storage):
             select(Output.id)
             .where(
                 Output.state != "deleted",
-                func.aap_assets_v1.fixture_media_ordinary_gc("pyramid_output", Output.id, 0),
+                func.aap_assets_v1.legacy_pyramid_gc_eligible(
+                    "pyramid_output", Output.id, 0
+                ),
                 Output.updated_at < cutoff,
                 ~exists().where(Generation.output_id == Output.id),
                 ~exists().where(
@@ -711,6 +750,9 @@ async def reconcile(db, storage):
             .execution_options(populate_existing=True)
         )
         if output is None or output.state == "deleted":
+            await db.rollback()
+            continue
+        if not await _legacy_gc_eligible(db, "pyramid_output", identifier, 0):
             await db.rollback()
             continue
         if await db.scalar(
@@ -751,6 +793,9 @@ async def reconcile(db, storage):
                     or current.storage_ref != receipt.storage_ref
                     or await db.scalar(
                         select(exists().where(Generation.output_id == identifier))
+                    )
+                    or not await _legacy_gc_eligible(
+                        db, "pyramid_output", identifier, 0
                     )
                 ):
                     reject()

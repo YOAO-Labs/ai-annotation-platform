@@ -194,7 +194,9 @@ async def _prove_later_candidate_adoption(
         )
 
 
-async def _prove_cleanup_rescans_late_versions(runtime, input_id, tmp_path):
+async def _prove_cleanup_rescans_late_versions(
+    runtime, input_id, tmp_path, native_signer
+):
     cleanup_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_CLEANUP_URL", "asset_cleanup_client", runtime.test_engine
     )
@@ -240,6 +242,8 @@ async def _prove_cleanup_rescans_late_versions(runtime, input_id, tmp_path):
         "ASSET_CLEANUP_S3_SECRET_KEY": _required_env(
             "AAP_MODULE_DATA_ASSET_CLEANUP_S3_SECRET_KEY"
         ),
+        "ASSET_CLEANUP_NATIVE_STORAGE_URL": native_signer.url,
+        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": native_signer.cleanup_token,
         "ASSET_CLEANUP_POLL_SECONDS": "0.1",
         "ASSET_CLEANUP_HEALTH_PORT": str(port),
     }
@@ -313,7 +317,7 @@ async def _prove_cleanup_rescans_late_versions(runtime, input_id, tmp_path):
 
 @pytest.mark.parametrize("replace_source", [False, True])
 async def test_replayed_input_materializes_in_restricted_process_and_binds_one_version(
-    test_engine, tmp_path, caplog, replace_source, monkeypatch
+    test_engine, tmp_path, caplog, replace_source, monkeypatch, native_signer
 ):
     caplog.set_level(logging.WARNING, logger="httpx")
     async with _image_live_runtime(test_engine, tmp_path) as runtime:
@@ -408,7 +412,7 @@ async def test_replayed_input_materializes_in_restricted_process_and_binds_one_v
                     with pytest.raises(c.InputFailure, match="source_changed"):
                         await client.reference(identity)
                     await _prove_cleanup_rescans_late_versions(
-                        runtime, accepted.input_id, tmp_path
+                        runtime, accepted.input_id, tmp_path, native_signer
                     )
                     return
 

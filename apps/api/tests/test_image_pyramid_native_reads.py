@@ -253,9 +253,9 @@ async def test_native_asset_urls_use_owner_references_with_actual_lifetime(
     calls = _wire_owner(monkeypatch, fixture, owner_assets=references)
     payload = api.ImagePyramidAssetUrlsRequest(
         items=[
-            api.ImagePyramidOverviewAssetRequest(generation=1),
-            api.ImagePyramidTileAssetRequest(generation=1, level=0, x=0, y=0),
-            api.ImagePyramidTileAssetRequest(generation=1, level=0, x=0, y=0),
+            {"kind": "overview", "generation": 1},
+            {"kind": "tile", "generation": 1, "level": 0, "x": 0, "y": 0},
+            {"kind": "tile", "generation": 1, "level": 0, "x": 0, "y": 0},
         ]
     )
 
@@ -337,7 +337,7 @@ async def test_common_thumbnail_pointer_never_signs_saved_native_output(monkeypa
     async def forbidden(*args, **kwargs):
         raise AssertionError("saved Native pointer must not use legacy credentials")
 
-    monkeypatch.setattr(objects, "async_sessionmaker", lambda *args, **kwargs: Session())
+    monkeypatch.setattr(objects, "async_sessionmaker", lambda *args, **kwargs: Session)
     monkeypatch.setattr(objects.storage_access, "engine", lambda db: object())
     monkeypatch.setattr(pyramids, "load_owner", load_owner)
     monkeypatch.setattr(pyramids, "get_asset_for_owner", asset_for_owner)

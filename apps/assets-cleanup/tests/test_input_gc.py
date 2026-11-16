@@ -20,6 +20,8 @@ def _environment():
         "ASSET_CLEANUP_S3_ACCESS_KEY": "media-cleanup-user",
         "ASSET_CLEANUP_S3_SECRET_KEY": "media-cleanup-secret",
         "ASSET_CLEANUP_INPUTS_BUCKET": "accepted-inputs",
+        "ASSET_CLEANUP_NATIVE_STORAGE_URL": "http://source:8767",
+        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": "c" * 40,
     }
 
 

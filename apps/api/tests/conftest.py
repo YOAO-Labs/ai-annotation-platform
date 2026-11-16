@@ -322,6 +322,20 @@ def app_module():
     return app
 
 
+@pytest.fixture(scope="session")
+def native_signer(tmp_path_factory):
+    """The real Source Native signer for independent-process Native proofs."""
+    if os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") != "1":
+        pytest.skip("requires the disposable module-data verifier resources")
+    from tests.native_signer_support import start_native_signer
+
+    signer = start_native_signer(tmp_path_factory.mktemp("native-signer"))
+    try:
+        yield signer
+    finally:
+        signer.close()
+
+
 class _MediaJobDispatcherStub:
     def __init__(self) -> None:
         self.thumbnails: list[UUID] = []

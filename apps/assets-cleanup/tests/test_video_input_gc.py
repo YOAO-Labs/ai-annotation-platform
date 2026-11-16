@@ -32,6 +32,8 @@ def _config():
             "ASSET_CLEANUP_S3_ENDPOINT": "http://minio:9000",
             "ASSET_CLEANUP_S3_ACCESS_KEY": "cleanup-user",
             "ASSET_CLEANUP_S3_SECRET_KEY": "cleanup-secret",
+            "ASSET_CLEANUP_NATIVE_STORAGE_URL": "http://source:8767",
+            "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": "c" * 40,
         }
     )
 

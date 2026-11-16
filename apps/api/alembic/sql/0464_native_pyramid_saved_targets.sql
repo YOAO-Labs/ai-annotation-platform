@@ -1907,6 +1907,75 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1.resolve_fixture_native_cache(text) FROM PUBLIC;
 -- aap-statement-break
+-- The ordinary grace-based collector owns only rows the Images owner never
+-- admitted.  A Native generation is admitted before output allocation by its
+-- produced work generation; a saved Native output keeps its immutable attempt
+-- and retirement target even after the generation and job rows disappear.
+-- Fixture-owned media keeps its own exclusion, and a prefix shape is never an
+-- admission proof.
+CREATE FUNCTION aap_assets_v1.legacy_pyramid_gc_eligible(
+    p_kind text,p_owner_id uuid,p_generation integer
+) RETURNS boolean LANGUAGE plpgsql STABLE PARALLEL UNSAFE SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp AS $function$
+BEGIN
+    IF p_kind IS NULL OR p_owner_id IS NULL OR p_generation IS NULL
+       OR p_kind NOT IN ('pyramid_generation','pyramid_output')
+       OR p_generation < 0
+       OR (p_kind='pyramid_generation') <> (p_generation > 0) THEN
+        RAISE EXCEPTION USING ERRCODE='22023',
+            MESSAGE='legacy_pyramid_gc_kind_invalid';
+    END IF;
+    IF aap_assets_v1.fixture_media_ordinary_gc(
+        p_kind,p_owner_id,p_generation
+    ) IS NOT TRUE THEN
+        RETURN false;
+    END IF;
+    IF p_kind='pyramid_generation' THEN
+        RETURN NOT EXISTS (
+            SELECT 1
+            FROM public.image_pyramid_generations AS generation
+            WHERE generation.asset_id=p_owner_id
+              AND generation.generation=p_generation
+              AND generation.job_id IS NOT NULL
+        ) AND NOT EXISTS (
+            SELECT 1
+            FROM public.asset_image_jobs AS job
+            WHERE job.kind='pyramid'
+              AND job.pyramid_asset_id=p_owner_id
+              AND job.pyramid_generation=p_generation
+        ) AND NOT EXISTS (
+            SELECT 1
+            FROM aap_assets_v1.fixture_native_pyramid_generations AS binding
+            WHERE binding.asset_id=p_owner_id
+              AND binding.generation=p_generation
+        );
+    END IF;
+    RETURN NOT EXISTS (
+        SELECT 1
+        FROM aap_assets_v1.image_pyramid_native_attempts AS attempt
+        WHERE attempt.output_id=p_owner_id
+    ) AND NOT EXISTS (
+        SELECT 1
+        FROM aap_assets_v1.native_pyramid_retirement_targets AS target
+        WHERE target.output_id=p_owner_id
+    ) AND NOT EXISTS (
+        SELECT 1
+        FROM public.image_pyramid_generations AS generation
+        WHERE generation.output_id=p_owner_id
+          AND generation.job_id IS NOT NULL
+    ) AND NOT EXISTS (
+        SELECT 1
+        FROM public.image_pyramid_outputs AS output
+        JOIN aap_assets_v1.fixture_native_pyramid_generations AS binding
+          ON binding.asset_id=output.asset_id
+         AND binding.generation=output.generation
+        WHERE output.id=p_owner_id
+    );
+END;
+$function$;
+-- aap-statement-break
+REVOKE ALL ON FUNCTION aap_assets_v1.legacy_pyramid_gc_eligible(text,uuid,integer) FROM PUBLIC;
+-- aap-statement-break
 
 DO $owner$
 DECLARE
@@ -1931,7 +2000,8 @@ BEGIN
         'begin_native_pyramid_read(uuid,uuid,uuid,integer,text,uuid,uuid)',
         'complete_native_pyramid_read(uuid,uuid)',
         '_native_pyramid_retirement_claimable(uuid)',
-        'claim_native_pyramid_retirement(uuid,integer)'
+        'claim_native_pyramid_retirement(uuid,integer)',
+        'legacy_pyramid_gc_eligible(text,uuid,integer)'
     ] LOOP
         EXECUTE pg_catalog.format(
             'ALTER FUNCTION aap_assets_v1.%s OWNER TO %I', v_signature, v_owner

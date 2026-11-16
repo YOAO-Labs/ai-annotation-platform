@@ -92,7 +92,7 @@ def _validate_finish_request(request: FinishImageMediaRequest) -> None:
         not 1 <= len(prefix) <= 496
         or prefix.startswith("/")
         or "\\" in prefix
-        or any(part in {"", ".", ".."} for part in prefix.split("/"))
+        or any(part in {"", ".", ".."} for part in prefix[:-1].split("/"))
         or re.fullmatch(rf"[^\\]*image-pyramids/objects/{_UUID_PATTERN}/", prefix)
         is None
     ):

@@ -4,7 +4,7 @@ audience: [dev, ops]
 type: reference
 since: v0.9.0
 status: stable
-last_reviewed: 2026-11-12
+last_reviewed: 2026-11-16
 ---
 
 # 环境变量参考
@@ -299,6 +299,9 @@ last_reviewed: 2026-11-12
 | `ASSET_CLEANUP_S3_REGION` | `us-east-1` | — |
 | `ASSET_CLEANUP_POLL_SECONDS` | `5` | — |
 | `ASSET_CLEANUP_PAGE_SIZE` | `100` | — |
+| `ASSET_CLEANUP_NATIVE_STORAGE_URL` | `—` | Native 保存目标回收由 Source 签发的有限 HTTP 请求执行；当前清理进程要求下面两项。 URL 指向 Source 的进程可达 origin；token 内容与 Source 的 ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN 相同，但使用仅本进程可读的文件。 Cleanup 不持有 Native 对象读取/删除凭据，也不跟随当前用途绑定。 |
+| `ASSET_CLEANUP_NATIVE_STORAGE_TOKEN` | `—` | — |
+| `ASSET_CLEANUP_NATIVE_STORAGE_TOKEN_FILE` | `—` | — |
 | `ASSET_CLEANUP_HEALTH_HOST` | `127.0.0.1` | 健康接口仅绑定进程内 IPv4 回环；独立镜像使用此默认值。 |
 | `ASSET_CLEANUP_HEALTH_PORT` | `8765` | — |
 | `VIDEO_CHUNK_SIZE_FRAMES` | `60` | 每个 chunk 包含的帧数。30fps 下默认 60 帧约等于 2 秒。 |
@@ -681,6 +684,16 @@ last_reviewed: 2026-11-12
 | `ASSETS_SOURCE_S3_CONNECT_TIMEOUT_SECONDS` | `2` | — |
 | `ASSETS_SOURCE_S3_READ_TIMEOUT_SECONDS` | `10` | — |
 | `ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS` | `120` | Source 独立对象完整校验的总时限（秒），不同于单次 S3 socket 超时。 |
+| `ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN` | `—` | 可选 Native 金字塔保存目标签名。Source 是唯一凭据 owner 与有限签名方： 五项必须同时配置，任一项缺失即启动失败；三项 token 互不相同，并与 ASSETS_SOURCE_TOKEN / ASSETS_SOURCE_IMPORT_VERIFY_TOKEN 不同；Native S3 access key 必须区别于 ASSETS_SOURCE_S3_ACCESS_KEY。全部留空时功能关闭，五个 Native 路由返回 source_unavailable；调用方不会回退到其他签名方或当前缓存桶。 内建目标使用独立 Native S3 身份，仅访问 media-cache 的 image-pyramids/objects/* 保存输出；策略模板见 infra/docker/native-source-minio-policy.json。 已注册连接目标仍只在本进程内使用其既有加密凭据、连接密钥与主机策略。 |
+| `ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN_FILE` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY_FILE` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_S3_SECRET_KEY` | `—` | — |
+| `ASSETS_SOURCE_NATIVE_S3_SECRET_KEY_FILE` | `—` | — |
 
 ## Assets Source serves dataset/source operations; guide bytes use managed uploads.
 
@@ -816,6 +829,12 @@ last_reviewed: 2026-11-12
 | `ASSETS_IMAGES_POLL_SECONDS` | `5` | — |
 | `ASSETS_IMAGES_LEGACY_BUCKET` | `—` | 留空依次使用 MINIO_BUCKET / MINIO_BUCKET_ANNOTATIONS；独立进程必须显式选定历史 Task 桶。 |
 | `ASSETS_IMAGES_SRGB_PROFILE` | `—` | 留空使用 IMAGE_PYRAMID_SRGB_PROFILE，再使用镜像内的 ICC 文件。 |
+| `ASSETS_IMAGES_NATIVE_STORAGE_URL` | `—` | 可选 Native 保存目标签名绑定；只有启用 Native 金字塔的部署才设置。 URL 与对应 token(_FILE) 必须成对，部分配置拒绝启动；未配置时该调用方保持关闭， 不读取当前缓存桶凭据，也不回退到其他签名方。token 内容分别与 Source 的 ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN / READER_TOKEN 相同，但使用各自可读文件。 URL 必须是实际进程可达 origin：Compose 内默认使用 http://assets-source:8767， 宿主直跑的 API/Celery 必须改用映射地址，不能使用容器 DNS 名。 图片执行器与 API 本地执行器（writer）： |
+| `ASSETS_IMAGES_NATIVE_STORAGE_TOKEN` | `—` | — |
+| `ASSETS_IMAGES_NATIVE_STORAGE_TOKEN_FILE` | `—` | — |
+| `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` | `—` | 共享控制端与 API 本地控制（reader）： |
+| `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` | `—` | — |
+| `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN_FILE` | `—` | — |
 
 ## Workspace 成员与项目负责人转移命令（可选独立运行）。API 可选择私有 runtime URL、
 

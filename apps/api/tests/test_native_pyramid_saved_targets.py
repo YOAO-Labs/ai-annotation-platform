@@ -16,6 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.services import image_pyramid_objects as objects
 from app.services.dataset_assets import ensure_legacy_bindings
 from tests.test_assets_catalog_native import _seed_dataset
 from tests.test_assets_images_execution import (
@@ -979,3 +980,271 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
                 )
         finally:
             await session.rollback()
+
+
+async def _native_generation(db_session, *, allocate):
+    actor_id = await _seed_actor(db_session)
+    dataset_id = await _seed_dataset(db_session, actor_id=actor_id)
+    item_id = await _seed_image(
+        db_session, actor_id=actor_id, dataset_id=dataset_id, width=1, height=1
+    )
+    await ensure_legacy_bindings(db_session)
+    source = await _source(db_session, item_id)
+    policy = ImagePolicy(
+        optional_pixels=1,
+        required_pixels=1,
+        auto_generate_pyramids=True,
+        gc_grace_hours=0,
+        url_expiry_seconds=1,
+    ).model_dump(mode="json")
+    job_id, _ = await _enqueue(
+        db_session, source, _spec("pyramid", source, policy=policy)
+    )
+    claim = await _claim_image(db_session, job_id=job_id, kind="pyramid")
+    asset_id = uuid.UUID(claim["pyramid_asset_id"])
+    generation = claim["pyramid_generation"]
+    allocation = None
+    if allocate:
+        allocation = _data(
+            _reply(
+                await db_session.scalar(
+                    _ALLOCATE,
+                    {
+                        "job_id": job_id,
+                        "job_generation": claim["generation"],
+                        "lease_token": claim["lease_token"],
+                        "asset_id": asset_id,
+                        "generation": generation,
+                    },
+                )
+            )
+        )
+    return job_id, asset_id, generation, claim, allocation
+
+
+async def _forbid_legacy_physical_work(monkeypatch):
+    calls = []
+
+    def forbidden(*args, **kwargs):
+        calls.append((args, kwargs))
+        raise AssertionError("legacy pyramid GC performed physical work")
+
+    monkeypatch.setattr(objects.physical, "delete", forbidden)
+    monkeypatch.setattr(objects.storage_access, "run", forbidden)
+    return calls
+
+
+async def test_legacy_reconcile_never_fails_admitted_native_generation(
+    db_session, monkeypatch
+):
+    job_id, asset_id, generation, claim, _ = await _native_generation(
+        db_session, allocate=False
+    )
+    # No saved output exists yet: admission is the generation's own work link.
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM aap_assets_v1.image_pyramid_native_attempts "
+                "WHERE asset_id = CAST(:asset_id AS uuid)"
+            ),
+            {"asset_id": asset_id},
+        )
+        == 0
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.image_pyramid_generations "
+            "SET lease_expires_at = clock_timestamp() - interval '1 minute', "
+            "    updated_at = clock_timestamp() - interval '10 days' "
+            "WHERE asset_id = CAST(:asset_id AS uuid) AND generation = :generation"
+        ),
+        {"asset_id": asset_id, "generation": generation},
+    )
+    calls = await _forbid_legacy_physical_work(monkeypatch)
+
+    assert await objects.reconcile(db_session, None) == 0
+    assert calls == []
+    state = (
+        await db_session.execute(
+            text(
+                "SELECT status, lease_token FROM public.image_pyramid_generations "
+                "WHERE asset_id = CAST(:asset_id AS uuid) AND generation = :generation"
+            ),
+            {"asset_id": asset_id, "generation": generation},
+        )
+    ).one()
+    assert state.status == "building"
+    assert state.lease_token == uuid.UUID(claim["lease_token"])
+
+    # Admission survives the business job anchor; a vanished job is still not
+    # permission for the legacy collector to mutate the generation.
+    await db_session.execute(
+        text("DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"),
+        {"job_id": job_id},
+    )
+    assert await db_session.scalar(
+        text(
+            "SELECT count(*) FROM public.asset_image_jobs "
+            "WHERE job_id = CAST(:job_id AS uuid)"
+        ),
+        {"job_id": job_id},
+    ) == 0
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT aap_assets_v1.legacy_pyramid_gc_eligible("
+                "'pyramid_generation', CAST(:asset_id AS uuid), :generation)"
+            ),
+            {"asset_id": asset_id, "generation": generation},
+        )
+        is False
+    )
+    assert await objects.reconcile(db_session, None) == 0
+    assert calls == []
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT status FROM public.image_pyramid_generations "
+                "WHERE asset_id = CAST(:asset_id AS uuid) AND generation = :generation"
+            ),
+            {"asset_id": asset_id, "generation": generation},
+        )
+        == "building"
+    )
+
+
+async def test_legacy_reconcile_never_retires_owned_native_saved_output(
+    db_session, monkeypatch
+):
+    job_id, asset_id, generation, _, allocation = await _native_generation(
+        db_session, allocate=True
+    )
+    output_id = uuid.UUID(allocation["output_id"])
+    await db_session.execute(
+        text(
+            "UPDATE public.image_pyramid_outputs "
+            "SET updated_at = clock_timestamp() - interval '10 days' "
+            "WHERE id = CAST(:output_id AS uuid)"
+        ),
+        {"output_id": output_id},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.image_pyramid_assets "
+            "SET active_generation = NULL, building_generation = NULL "
+            "WHERE id = CAST(:asset_id AS uuid)"
+        ),
+        {"asset_id": asset_id},
+    )
+    await db_session.execute(
+        text(
+            "UPDATE public.image_pyramid_generations "
+            "SET status = 'failed', "
+            "    updated_at = clock_timestamp() - interval '10 days' "
+            "WHERE asset_id = CAST(:asset_id AS uuid) AND generation = :generation"
+        ),
+        {"asset_id": asset_id, "generation": generation},
+    )
+    calls = await _forbid_legacy_physical_work(monkeypatch)
+
+    # The stale-generation pass must not delete the admitted Native row.
+    assert await objects.reconcile(db_session, None) == 0
+    assert calls == []
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT status FROM public.image_pyramid_generations "
+                "WHERE asset_id = CAST(:asset_id AS uuid) AND generation = :generation"
+            ),
+            {"asset_id": asset_id, "generation": generation},
+        )
+        == "failed"
+    )
+    # The legacy collector deletes a stale generation first; the saved output's
+    # immutable attempt must still be excluded after generation and job vanish.
+    await db_session.execute(
+        text(
+            "DELETE FROM public.image_pyramid_generations "
+            "WHERE asset_id = CAST(:asset_id AS uuid) AND generation = :generation"
+        ),
+        {"asset_id": asset_id, "generation": generation},
+    )
+    await db_session.execute(
+        text("DELETE FROM public.asset_image_jobs WHERE job_id = CAST(:job_id AS uuid)"),
+        {"job_id": job_id},
+    )
+
+    assert await objects.reconcile(db_session, None) == 0
+    assert calls == []
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT state FROM public.image_pyramid_outputs "
+                "WHERE id = CAST(:output_id AS uuid)"
+            ),
+            {"output_id": output_id},
+        )
+        == "building"
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM aap_assets_v1.image_pyramid_native_attempts "
+                "WHERE output_id = CAST(:output_id AS uuid)"
+            ),
+            {"output_id": output_id},
+        )
+        == 1
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT count(*) FROM aap_assets_v1.native_pyramid_retirement_targets "
+                "WHERE output_id = CAST(:output_id AS uuid)"
+            ),
+            {"output_id": output_id},
+        )
+        == 1
+    )
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT aap_assets_v1.legacy_pyramid_gc_eligible("
+                "'pyramid_output', CAST(:output_id AS uuid), 0)"
+            ),
+            {"output_id": output_id},
+        )
+        is False
+    )
+
+    # Retained independent Native retirement is still possible after the
+    # legacy pass refused the same physical owner.
+    await _make_retirement_due(db_session, output_id)
+    claimed = await _claim(db_session, uuid.uuid4())
+    retirement = claimed["data"]["claim"]
+    assert retirement is not None
+    assert retirement["output_id"] == str(output_id)
+    lease_token = uuid.UUID(retirement["lease_token"])
+    page = (await _prepare(db_session, output_id, lease_token))["data"]
+    assert page["items"] == []
+    assert page["exhausted"] is True
+    closed = await _complete(
+        db_session,
+        output_id,
+        lease_token,
+        uuid.UUID(page["page_id"]),
+        "prefix_absent",
+        [],
+    )
+    assert closed["ok"] is True
+    assert closed["data"]["completed"] is True
+    assert (
+        await db_session.scalar(
+            text(
+                "SELECT state FROM public.image_pyramid_outputs "
+                "WHERE id = CAST(:output_id AS uuid)"
+            ),
+            {"output_id": output_id},
+        )
+        == "deleted"
+    )

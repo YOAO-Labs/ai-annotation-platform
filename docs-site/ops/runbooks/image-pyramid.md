@@ -32,7 +32,7 @@ S3 权限应限定为：
 - 控制端对已登记源图和缓存对象 HEAD/GET，并签发短期读取 URL；不写缓存或删除对象。
 - 图片 Worker 对源桶只读；对 `image-assets/*`、`image-pyramids/*` 派生前缀读写和校验，并在 `image-pyramids/*` 受限列举以做协调；不写/删源对象。
 - 清理身份只对缓存桶中由数据库签发的图片派生 prefix 做 List/Delete；不授予 Get/Put、源桶访问或桶管理。Native lane 不获得 Native 对象读取/删除权限，只执行 Source 签发的精确保存成员与空前缀请求。
-- Native 内建身份（在 Source 内）只对缓存桶 `image-pyramids/objects/*` 保存输出执行精确 GetObject/GetObjectVersion、PutObject、DeleteObject/DeleteObjectVersion、受限 ListBucket/ListBucketVersions 和桶级 ListBucketMultipartUploads；不授予桶管理、其他对象或其他身份的 Native 读/删权限。模板见 `infra/docker/native-source-minio-policy.json`，其中的桶名须替换为实际 media-cache 桶。
+- Native 内建身份（在 Source 内）只对缓存桶 `image-pyramids/objects/*` 与 `_aap_managed/media-cache/image-pyramids/objects/*` 保存输出执行精确 GetObject/GetObjectVersion、PutObject、DeleteObject/DeleteObjectVersion、受限 ListBucket/ListBucketVersions 和桶级 ListBucketMultipartUploads；不授予桶管理或其他对象权限。模板见 `infra/docker/native-source-minio-policy.json`，其中的桶名须替换为实际 media-cache 桶。普通清理身份还须明确拒绝这两类 Native 输出的删除，避免既有 `image-pyramids/*` 授权覆盖它们。
 - 已受理输入另用 `ASSETS_MEDIA_INPUTS_BUCKET` 指向独立 versioning 桶（默认 `accepted-inputs`）；控制端与 Worker 仅读 versioning 状态，Worker 只在该桶写入不可变输入版本，输入清理身份只列举输入版本/未完成 multipart 并删除指定版本。清理权限包括 `ListBucketVersions`、`ListBucketMultipartUploads`、`AbortMultipartUpload`、`DeleteObjectVersion`，以及仅在请求包含非空且非 `null` 的 `s3:versionid` 时允许的 `DeleteObject`；清理端逐个删除 `(key, versionId)`，不发无版本 ID 的删除或 S3 批量删除。不得授予任何身份配置 versioning、创建桶或管理整个桶的权限。
 
 输入桶需通过 `MINIO_INPUTS_BUCKET` 与 `ASSETS_MEDIA_INPUTS_BUCKET` 配置，并且必须启用 versioning；不要给它或 `media-cache` 添加桶级生命周期。Compose overlay 默认让独立控制与图片 Worker 继承 API bucket 名称。清理 worker 依照输入保留账本逐版本回收，不能按 age 或生命周期直接删除对象版本。
@@ -41,7 +41,7 @@ S3 权限应限定为：
 
 ### Native 签名与保存输出配置
 
-Native 金字塔以 Source 为唯一存储凭据 owner 和有限签名方。内建目标使用独立 Native S3 身份；已注册连接目标只由 Source 使用其既有加密凭据、连接密钥与主机策略。Images 控制/执行器、API 本地实现和 Cleanup 只持有按角色限定的 URL 与 token，不接收 endpoint、bucket、key 或原始凭据。
+Native 金字塔以 Source 为唯一存储凭据 owner 和有限签名方。内建目标使用独立 Native S3 身份；已注册连接目标只由 Source 使用其既有加密凭据、连接密钥与主机策略。Images 控制/执行器、API 本地实现和 Cleanup 只配置按角色限定的 URL 与 token，不持有原始存储凭据；实际目标坐标来自 owner 保存合同，不能由调用方任意选择。
 
 Source 的五项设置必须同时配置，否则拒绝启动；三项 token 互不相同，并区别于 `ASSETS_SOURCE_TOKEN`、`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`；Native access key 必须区别于普通 Source 身份。全部留空时功能关闭，Native 路由返回 `source_unavailable`，调用方不会回退其他签名方或当前缓存桶。
 

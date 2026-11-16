@@ -192,7 +192,7 @@ def signed_request(method, url, *, headers=None):
     return NativePyramidSignedRequest(
         method=method,
         url=url,
-        headers=headers or {},
+        headers={key.lower(): value for key, value in (headers or {}).items()},
         expires_at=datetime.now(timezone.utc) + timedelta(seconds=60),
     )
 
@@ -245,7 +245,7 @@ def saved_http_client(bodies):
     def handler(request):
         key = request.url.path.split("/saved-bucket/", 1)[1]
         if key not in bodies:
-            return httpx.Response(404)
+            return streamed(404)
         body = bodies[key]
         return streamed(
             200,
@@ -1122,6 +1122,48 @@ async def test_unproven_native_response_closure_keeps_the_read_permit(monkeypatc
     # The durable read permit is not completed when the actual response/body
     # closure was not proved, and no public URL can escape the failed read.
     assert database.closed == []
+
+
+@pytest.mark.asyncio
+async def test_missing_native_response_with_failed_close_is_not_repaired():
+    current = source()
+    state, raw, _manifest, _output = native_projection(current)
+    database = NativeReadDatabase(current, state)
+    reader, _bodies = native_read_reader(state, raw)
+
+    class UnclosedBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b""
+
+        async def aclose(self):
+            raise RuntimeError("response closure failed")
+
+    http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(404, stream=UnclosedBody())
+        )
+    )
+    control = ImageControl(
+        database,
+        FakeStorage(),
+        _POLICY,
+        native_storage=reader,
+        native_http=http,
+    )
+    try:
+        with pytest.raises(native_media.NativeMemberMissing) as failure:
+            await control.generation_reference(
+                ImageGenerationReferenceRequest(
+                    actor_id=uuid4(), dataset_item_id=current.owner.id
+                )
+            )
+    finally:
+        await http.aclose()
+        await control.close()
+    assert failure.value.storage_operation_unsettled is True
+    assert database.closed == []
+    assert all(request.purpose == "inspect" for request in reader.calls)
+    assert "invalidate_image_media" not in database.operations
 
 
 @pytest.mark.asyncio
