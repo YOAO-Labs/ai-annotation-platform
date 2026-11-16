@@ -2711,6 +2711,8 @@ ALTER FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     text, timestamptz, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
 -- Ordinary native pyramid retirement is owned and executed by Images/Assets.
+ALTER TABLE aap_assets_v1.image_pyramid_native_attempts OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.image_pyramid_native_members OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.native_pyramid_retirement_targets OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.native_pyramid_retirements OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.native_pyramid_retirement_pages OWNER TO :"assets_owner";
@@ -4193,6 +4195,8 @@ GRANT SELECT (bucket, object_key, state)
     ON public.managed_original_reclaim_claims TO :"assets_owner";
 GRANT DELETE ON public.storage_locations TO :"assets_owner";
 GRANT SELECT ON public.storage_bindings TO :"assets_owner";
+-- FOR SHARE needs UPDATE on one column; target and generation remain read-only.
+GRANT UPDATE (purpose) ON public.storage_bindings TO :"assets_owner";
 GRANT SELECT (revision), INSERT (revision), UPDATE (revision)
     ON public.storage_connections TO :"assets_owner";
 GRANT SELECT, INSERT ON public.storage_maintenance_gates TO :"assets_owner";

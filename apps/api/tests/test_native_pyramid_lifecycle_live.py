@@ -486,10 +486,10 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             )
 
         worker_db = await AsyncpgImageDatabase.connect(
-            worker_url.render_as_string(hide_password=False)
+            _runtime_database_url(worker_url)
         )
         control_db = await AsyncpgImageDatabase.connect(
-            control_url.render_as_string(hide_password=False),
+            _runtime_database_url(control_url),
             allowed_roles=("control",),
         )
         storage_config = ImageStorageConfig(
