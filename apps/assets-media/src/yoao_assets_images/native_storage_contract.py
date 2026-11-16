@@ -273,6 +273,23 @@ class NativePyramidRetirementIoRequest(Value):
 
 class NativePyramidRetirementPrefixIoRequest(NativePyramidRetirementIoRequest):
     kind: Literal["objects", "versions", "uploads"]
+    key_marker: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
+    upload_id_marker: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
+
+    @model_validator(mode="after")
+    def multipart_cursor_only(self):
+        markers = (self.key_marker, self.upload_id_marker)
+        if (self.key_marker is None) != (self.upload_id_marker is None):
+            raise ValueError("multipart cursor requires both markers")
+        if self.kind != "uploads" and any(value is not None for value in markers):
+            raise ValueError("only multipart probes accept a cursor")
+        if any(
+            ord(character) < 32 or ord(character) == 127
+            for value in markers if value is not None
+            for character in value
+        ):
+            raise ValueError("multipart cursor contains a control character")
+        return self
 
 
 class NativePyramidSignedRequest(Value):
@@ -745,14 +762,28 @@ def require_retirement_reference_scope(
         )
 
 
-def prefix_listing_query(prefix: str, kind: str) -> list[tuple[str, str]]:
-    """Return the one bounded absence probe for the exact saved prefix."""
+def prefix_listing_query(
+    prefix: str,
+    kind: str,
+    *,
+    key_marker: str | None = None,
+    upload_id_marker: str | None = None,
+) -> list[tuple[str, str]]:
+    """Bound exact-prefix probes and the provider-compatible multipart scan."""
     if kind == "objects":
         return [("list-type", "2"), ("max-keys", "1"), ("prefix", prefix)]
     if kind == "versions":
         return [("versions", ""), ("max-keys", "1"), ("prefix", prefix)]
     if kind == "uploads":
-        return [("uploads", ""), ("max-uploads", "1"), ("prefix", prefix)]
+        # Some S3 peers interpret Prefix as an entire object name.  Scan the
+        # captured bucket and let Cleanup reject uploads under the saved prefix.
+        query = [("uploads", ""), ("max-uploads", "100")]
+        if key_marker is not None:
+            query.extend((
+                ("key-marker", key_marker),
+                ("upload-id-marker", upload_id_marker),
+            ))
+        return query
     raise ValueError("unsupported native listing kind")
 
 
@@ -770,7 +801,10 @@ def require_retirement_prefix_reference_scope(
         raise ValueError("prefix reference escaped its prepared page")
     if result.kind != request.kind:
         raise ValueError("prefix reference changed its listing")
-    expected = prefix_listing_query(result.storage_ref.prefix, result.kind)
+    expected = prefix_listing_query(
+        result.storage_ref.prefix, result.kind,
+        key_marker=request.key_marker, upload_id_marker=request.upload_id_marker,
+    )
     signed = result.request
     parsed = urlsplit(signed.url)
     _bounded_http_url(signed.url)

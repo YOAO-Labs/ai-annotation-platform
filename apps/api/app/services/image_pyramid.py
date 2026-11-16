@@ -777,6 +777,64 @@ async def owner_generation_read(
         return await images.call("read_image_generation", request)
 
 
+async def owner_generation_reference(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    task_id: uuid.UUID | None,
+    dataset_item_id: uuid.UUID | None,
+    generation: int,
+    expected_source_snapshot: str | None,
+    profile_version: str | None = None,
+):
+    """Read one exact saved Native generation through the Images owner.
+
+    The owner validates the pinned source, admits its durable saved-output read
+    permit, verifies the manifest/overview receipts and publishes finite URLs.
+    The API never resolves target credentials or signs saved members itself.
+    """
+    from app.services.assets_images import image_gateway
+    from yoao_assets_images.transport import ImageGenerationReferenceRequest
+
+    request = ImageGenerationReferenceRequest(
+        actor_id=actor_id,
+        task_id=task_id,
+        dataset_item_id=dataset_item_id,
+        generation=generation,
+        profile_version=profile_version or settings.image_pyramid_profile_version,
+        expected_source_snapshot=expected_source_snapshot,
+    )
+    async with image_gateway(db) as images:
+        return await images.generation_reference(request)
+
+
+async def owner_asset_references(
+    db: AsyncSession,
+    *,
+    actor_id: uuid.UUID,
+    task_id: uuid.UUID | None,
+    dataset_item_id: uuid.UUID | None,
+    generation: int,
+    expected_source_snapshot: str | None,
+    items: list[Any],
+    profile_version: str | None = None,
+):
+    """Read exact saved Native tiles through one owner-scoped read permit."""
+    from app.services.assets_images import image_gateway
+    from yoao_assets_images.transport import ImageAssetReferencesRequest
+
+    request = ImageAssetReferencesRequest(
+        actor_id=actor_id,
+        task_id=task_id,
+        dataset_item_id=dataset_item_id,
+        expected_source_snapshot=expected_source_snapshot,
+        profile_version=profile_version or settings.image_pyramid_profile_version,
+        items=items,
+    )
+    async with image_gateway(db) as images:
+        return await images.asset_references(request)
+
+
 def pyramid_summary(
     generation: ImagePyramidGeneration | None,
     *,

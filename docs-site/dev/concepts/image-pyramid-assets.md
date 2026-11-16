@@ -3,7 +3,7 @@ title: 超大图金字塔派生资产
 audience: [dev]
 type: explanation
 status: stable
-last_reviewed: 2026-10-24
+last_reviewed: 2026-11-16
 ---
 
 # 超大图金字塔派生资产
@@ -58,6 +58,8 @@ pending → building → ready
 原生发布同时检查来源快照、对象身份、作业代次及未过期的 attempt lease，再修改 active 与缩略图投影。DatasetItem 投影由 Assets 持有；direct Task 通过 Labeling 的窄接口发布。账号停用或角色变化不撤销已接受工作，显式取消、来源改变、重新关联或删除会阻止旧结果发布。
 
 `image_pyramid_outputs` 独立保存每次租约的物理责任，不随 Task、Item 或 Asset 级联删除。分配时保存已登记位置、端点身份、桶和独立 UUID 前缀；用途绑定只选择新输出。公开 manifest 不暴露这些字段。输出从 building 进入 ready 或 retiring，删除成功后进入 deleted；已发布内容清单不可改写。
+
+媒体缓存用途绑定从 A 切到 B 时，新输出使用 B 的保存坐标，A 上的旧输出继续从 A 读取、校验和回收；不需要为 Images 控制/执行器或 Cleanup 改 endpoint、bucket 或 secret。修改 A 的注册位置不是重定向：保存的 endpoint、bucket、prefix 和存储身份必须与注册位置或连接一致，否则明确拒绝，不回退当前桶。Source 是唯一凭据 owner 和有限签名方；控制/执行器与 Cleanup 只持有所属角色的 URL 与 token，不解析原始连接凭据。
 
 每次租约使用不同的输出目录，旧任务失败不会删除新租约的结果。对象布局是服务端实现细节：
 
@@ -169,7 +171,9 @@ Minimap、评论画布和相邻任务预取只消费 thumbnail/overview；审核
 
 像素、单边尺寸、source/derived/temp bytes、tile 数和作业时间均受捕获策略约束；源读取另有两槽 admission。条件传输可在截止时间取消，libvips 子进程在取消确认前结束。取消、超时和软时限等到真实 I/O、原生生成与注册句柄关闭，未知收尾保留 durable StorageOperation。统一 Asset→Generation→Output 锁序，metadata 锁不跨物理读取。
 
-每日 reconciliation 复验过期租约、移除非 active 旧代的引用，再将无引用且无在用操作的已知输出退役。已发布输出从退役时重新计算宽限期，保护已经签发的 URL；宽限期结束后按保存前缀删除，删除失败保留责任重试。source 或 owner 删除时在事务内记录清理责任，独立 Cleanup 等待租约并保留迟到写入重扫；原始来源与不确定的旧缩略图 key 保留。业务删除不执行当前缓存桶前缀清理，独立 output 留待 GC。不裸扫默认桶，不按时间删除其他任务临时目录，`image-pyramids/` 不使用普通媒体缓存的固定期限 lifecycle。旧无归属代不自动签名、采纳或删除；原件已登记后可以显式重试新代，旧未知文件留待单独核验。该消费者迁移不开放整个 media-cache 用途切换。
+每日 reconciliation 复验过期租约、移除非 active 旧代的引用，再将无引用且无在用操作的已知输出退役。已发布输出从退役时重新计算宽限期，保护已经签发的 URL；宽限期结束后按保存前缀删除，删除失败保留责任重试。source 或 owner 删除时在事务内记录清理责任，独立 Cleanup 等待租约并保留迟到写入重扫；原始来源与不确定的旧缩略图 key 保留。业务删除不执行当前缓存桶前缀清理，独立 output 留待 GC。不裸扫默认桶，不按时间删除其他任务临时目录，`image-pyramids/` 不使用普通媒体缓存的固定期限 lifecycle。旧无归属代不自动签名、采纳或删除；原件已登记后可以显式重试新代，旧未知文件留待单独核验。
+
+Cleanup 运行五条独立 lane 和 11 项精确 owner 函数，Native 保存输出回收是其中第五条；API 与 Celery 不提供该 lane 的回退。它只处理已到期的保存输出，由 Source 签发精确保存成员和空前缀请求：完整条件 GET 校验 size、SHA-256、ETag 与记录版本后精确删除，再次条件 HEAD 证明不存在，最后以有界对象/版本/multipart 列举证明成员页已空。只有完整保存回执的 `written` 或 `verified` 成员可退休；已写入但未验证的成员须先关闭自身生产 I/O 并移除操作许可，`submitted`/`unknown` 成员和未知 I/O 均保留 barrier。版本字面量 `null` 与缺失版本不同，外来 key、版本和 multipart upload 不删除。MinIO 的 multipart 列举存在前缀过滤限制，因此实现采用有界精确归属探测，而不是假定一次前缀过滤请求即可证明所有 provider 的空前缀。页面准备未知、确认丢失或超时都不等于物理关闭；公开 URL 按冻结保留期等待后再退休。
 
 相关运维步骤见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
 客户端背景选择见 [ADR 0063](../adr/archive/0063-konva-viewport-image-tiles)，联合资源决策见 [ADR 0064](../adr/archive/0064-task-scoped-raster-resource-coordination)。

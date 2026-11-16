@@ -1525,7 +1525,10 @@ class _MemberWriteStorage:
     async def upload_pyramid_member(self, path, allocation, member):
         if self.failure is not None:
             raise self.failure
-        return self.receipt
+        self.returned_receipt = self.receipt.model_copy(
+            update={"operation_id": member.operation_id}
+        )
+        return self.returned_receipt
 
     async def verify_pyramid_member(self, allocation, member, receipt):
         if self.verify_failure is not None:
@@ -1591,7 +1594,8 @@ async def test_native_member_receipt_is_registered_before_a_later_heartbeat_loss
         "abandon_native_pyramid_member",
     ]
     recorded = database.calls[2][1]
-    assert recorded == receipt
+    assert recorded == storage.returned_receipt
+    assert recorded.operation_id == database.calls[0][1].operation_id
     assert recorded.etag == '"raw-etag"'
     # A literal returned ``null`` version stays a recorded receipt, not ``None``.
     assert recorded.version_id == "null"
@@ -1669,28 +1673,54 @@ async def test_native_member_refused_put_records_not_written(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_native_member_write_deadline_race_stays_unknown(tmp_path):
+@pytest.mark.parametrize("interruption", ["deadline", "cancellation"])
+async def test_native_member_stop_drains_and_registers_the_known_write(
+    tmp_path, interruption
+):
     allocation, path, reservation = _member_write_args(tmp_path)
+    started, release, expired = asyncio.Event(), asyncio.Event(), asyncio.Event()
 
-    class _SlowStorage(_MemberWriteStorage):
+    class _BlockedStorage(_MemberWriteStorage):
         async def upload_pyramid_member(self, path, allocation, member):
-            await asyncio.sleep(5)
+            started.set()
+            await release.wait()
+            return await super().upload_pyramid_member(path, allocation, member)
 
-    heartbeat = _StubHeartbeat([None, None, None])
-    heartbeat.deadline = time.monotonic() + 0.01
+    heartbeat = _StubHeartbeat()
+    loop = asyncio.get_running_loop()
+    timer = None
+    if interruption == "deadline":
+        heartbeat.deadline = loop.time() + 0.02
+        timer = loop.call_at(heartbeat.deadline, expired.set)
     database = _FakeDatabase(None)
+    storage = _BlockedStorage(receipt=_registered_receipt(reservation))
+    task = asyncio.create_task(_member_write(
+        ImageExecutor(database, storage), allocation, path, reservation, heartbeat
+    ))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        if interruption == "deadline":
+            await asyncio.wait_for(expired.wait(), timeout=5)
+        else:
+            task.cancel()
+            await asyncio.sleep(0)
+        assert not task.done()
+        assert all(name != "write_native_pyramid_member" for name, _ in database.calls)
+    finally:
+        release.set()
+        if timer is not None:
+            timer.cancel()
+        error = ImageFailure if interruption == "deadline" else asyncio.CancelledError
+        with pytest.raises(error):
+            await task
 
-    with pytest.raises(ImageFailure, match="timeout") as error:
-        await _member_write(
-            ImageExecutor(database, _SlowStorage()),
-            allocation,
-            path,
-            reservation,
-            heartbeat,
-        )
-
-    assert error.value.storage_operation_unsettled
-    assert database.calls[-1][1].state == "unknown"
+    assert [name for name, _ in database.calls] == [
+        "begin_native_pyramid_member", "submit_native_pyramid_member",
+        "write_native_pyramid_member", "abandon_native_pyramid_member",
+    ]
+    assert database.calls[2][1] == storage.returned_receipt
+    assert database.calls[-1][1].state == "written"
+    assert storage.verified == []
 
 
 class _VerifyFailingDatabase(_FakeDatabase):
@@ -1845,3 +1875,23 @@ async def test_native_member_successful_verify_uses_the_verify_call(tmp_path):
     ]
     assert artifact.key == allocation.storage_ref.prefix + "manifest.json"
     assert len(storage.verified) == 1
+
+
+@pytest.mark.asyncio
+async def test_native_member_drained_failed_verification_remains_truthfully_retirable(
+    tmp_path,
+):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _FakeDatabase(None)
+    storage = _MemberWriteStorage(
+        receipt=_registered_receipt(reservation),
+        verify_failure=native_media.NativeMemberMissing(reservation.relative_key),
+    )
+    with pytest.raises(native_media.NativeMemberMissing):
+        await _member_write(
+            ImageExecutor(database, storage), allocation, path, reservation,
+            _StubHeartbeat(),
+        )
+    assert database.calls[-1][0] == "abandon_native_pyramid_member"
+    assert database.calls[-1][1].state == "written"
+    assert all(name != "verify_native_pyramid_member" for name, _ in database.calls)

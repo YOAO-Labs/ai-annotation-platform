@@ -598,8 +598,8 @@ UUID、素材 UUID 数组与唯一操作 UUID，返回 `aap-task-append/v1` JSON
 独立数据接口使用 Identity、Workspace、Assets、Jobs、Labeling、Learning、Inference、
 Insights、Diagnostics、Export、Audit、Settings、Notifications 十三个无登录函数 owner；基础授权脚本另使用
 `append_client`、`asset_cleanup_client` 和 `labeling_mask_gc_client` 三个独立登录角色。
-其中 `asset_cleanup_client` 只可使用 `aap_assets_v1` 的八项清理函数：
-storage outbox、图片垃圾、保留图片输入和保留视频输入各自的领取/确认；`append_client` 不可调用这些清理函数。
+其中 `asset_cleanup_client` 只可使用 `aap_assets_v1` 的十一项清理函数：
+storage outbox、图片垃圾、Native 保存输出回收（领取、准备页、确认页）、保留图片输入和保留视频输入各自的领取/确认；`append_client` 不可调用这些清理函数。
 `infra/docker/module-data-grants.sql` 只向显式数据库中的既有角色授权，不创建角色或
 修改密码。部署操作者先提供角色及迁移者向其转交函数的权限，再运行：
 
@@ -630,22 +630,39 @@ Labeling 的普通运行账号只读取公开关系、执行固定能力；LAN �
 不再向运行账号设置 public 表和序列的宽默认权限，历史宽默认授权也会清除。
 部署时先更新并排空旧直接读写消费者，再应用匹配代码的授权，回退须同步恢复匹配授权。
 
-显式本地部署清理进程前，准备三个仅供此服务读取的 secret 文件：普通 PostgreSQL URL
-（`postgresql://`，受限 cleanup LOGIN）、专用 S3 access key 和 secret key。S3 身份只允许
-对选定 media-cache 桶的 `image-assets/*` 和 `image-pyramids/*` 执行带 prefix 条件的
-`ListBucket` 与 `DeleteObject`；输入桶另仅允许 `accepted-inputs/*` 的版本列举、指定 VersionId 删除及 multipart 列举/终止，不能读写对象内容。容器用户为 10001，secret 文件必须允许该
-用户读取；不要把 API 的宽权限账号写入这些文件。设置 `.env.example` 的三个
-`ASSET_CLEANUP_*_FILE` 宿主路径、`ASSET_CLEANUP_BUCKET` 和容器可达的
-`ASSET_CLEANUP_S3_ENDPOINT` 后运行：
+显式本地部署清理进程前，准备仅供此服务读取的 secret 文件：普通 PostgreSQL URL
+（`postgresql://`，受限 cleanup LOGIN）、专用 S3 access key、secret key，以及 Native
+清理 token。S3 身份只允许对选定 media-cache 桶的 `image-assets/*` 和 `image-pyramids/*`
+执行带 prefix 条件的 `ListBucket` 与 `DeleteObject`；输入桶另仅允许 `accepted-inputs/*`
+的版本列举、指定 VersionId 删除及 multipart 列举/终止，不能读写对象内容。Native 保存
+输出 lane 不增加该身份的对象权限：它只执行 Source 签发的精确保存成员/空前缀请求。
+容器用户为 10001，secret 文件必须允许该用户读取；不要把 API 的宽权限账号写入这些文件。
+设置 `.env.example` 的三个 `ASSET_CLEANUP_*_FILE` 宿主路径、`ASSET_CLEANUP_BUCKET`、
+容器可达的 `ASSET_CLEANUP_S3_ENDPOINT`、`ASSET_CLEANUP_NATIVE_STORAGE_URL` 和 Native
+token 后运行：
 
-清理输入副本的桶须与媒体进程完全一致。Compose overlay 从 `MINIO_INPUTS_BUCKET` 绑定；直接启动进程时显式设置 `ASSET_CLEANUP_INPUTS_BUCKET`，其值必须与 `MINIO_INPUTS_BUCKET` / `ASSETS_MEDIA_INPUTS_BUCKET` 相同，并与 `ASSET_CLEANUP_BUCKET` 不同。复用同一受限 cleanup S3 身份，按桶和前缀划定删除权限。
+清理输入副本的桶须与媒体进程完全一致。Compose overlay 从 `MINIO_INPUTS_BUCKET` 绑定；直接启动进程时显式设置 `ASSET_CLEANUP_INPUTS_BUCKET`，其值必须与 `MINIO_INPUTS_BUCKET` / `ASSETS_MEDIA_INPUTS_BUCKET` 相同，并与 `ASSET_CLEANUP_BUCKET` 不同。复用同一受限 cleanup S3 身份，按桶和前缀划定删除权限。Native token 内容与 Source 的 `ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN` 相同，但使用仅用户 10001 可读的独立文件；Source 必须同时配置 Native signer，否则 Native lane 明确失败。当前清理配置要求 Native URL/token，即使自动金字塔受理保持关闭。
 
 ```bash
-docker compose -p aap-assets-cleanup-dev -f docker-compose.assets-cleanup.yml up -d --build
-docker compose -p aap-assets-cleanup-dev -f docker-compose.assets-cleanup.yml exec assets-cleanup python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready', timeout=2)"
+docker compose -p aap-assets-cleanup-dev \
+  -f docker-compose.yml \
+  -f docker-compose.assets-source.yml \
+  -f docker-compose.assets-media.yml \
+  -f docker-compose.assets-cleanup.yml \
+  -f docker-compose.assets-native.yml \
+  up -d --build assets-source assets-cleanup
+docker compose -p aap-assets-cleanup-dev \
+  -f docker-compose.yml \
+  -f docker-compose.assets-source.yml \
+  -f docker-compose.assets-media.yml \
+  -f docker-compose.assets-cleanup.yml \
+  -f docker-compose.assets-native.yml \
+  exec assets-cleanup python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8765/health/ready', timeout=2)"
 ```
 
-进程启动时检查数据库最小权限和 S3 prefix 可用性；数据库身份过宽会拒绝启动。分页游标
+进程启动时检查数据库最小权限（十一项函数）和 S3 prefix 可用性；数据库身份过宽会拒绝启动。
+Native lane 通过 Source 签发的有限请求回收保存目标；五条 lane 各自保留失败责任，
+页面准备未知、确认丢失、未知 I/O 和只到期的租约都不视为物理关闭。分页游标
 越过失败记录，下一轮从头重试。构建中的金字塔延迟到已记录 lease 之后才可领取和确认，
 writer 配置要求 lease 严格长于其 hard time limit。旧 cleanup Celery task 已移除，更新后
 须刷新旧 worker/beat，避免同时保留旧消费者。仅停止这个本地项目可使用上述同一
@@ -2480,9 +2497,13 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-source-grants.sql
 ```
 
-数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行 42 项 `aap_assets_v1` 能力：15 项来源/入库、11 项连接相关、3 项图片来源/作业受理、8 项托管原件和 5 项导入核验能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器使用独立的 18 项 LOGIN 能力，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
+数据库名和连接参数应指向明确选择的环境。Source LOGIN 精确执行当前 `aap_assets_v1` 能力集：来源/入库、连接管理、图片来源/作业受理、托管原件、导入核验，以及三项 Native 金字塔签名捕获能力。它不读业务关系或序列，不使用其他 owner schema，也不授予任何方向的角色成员资格。两项批量媒体派发 claim/ack 能力只给 API maintenance relay。导入执行器使用独立的 LOGIN 能力，Catalog LOGIN 仍是 29 项；不要把日常宽权限 API 账号用于这些工件。
 
 服务显式配置专用 DSN、token、S3 access/secret；可用 `.env.example` 的 `_FILE` 变量。secret 必须能被用户 10003 读取。S3 授予 import 桶 `dataset-uploads/*` Get/Put、datasets 桶历史来源的条件读取和该配置桶自身的 ListBucket，以及 `dataset-sources/*` Put/multipart Abort 与 Source 完整核验所需的 `GetObjectVersion`。不要授予来源 Delete、其他桶 List 或桶管理；cache 桶只用于 SQL outbox。内部 I/O endpoint 与浏览器签名 endpoint 分开，均从服务配置取得。ZIP 的 200 MiB 压缩/展开预算与 JSON 请求体预算独立。
+
+Native 金字塔签名是可选能力：`ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN`、`READER_TOKEN`、`CLEANUP_TOKEN` 及 `ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY`、`ASSETS_SOURCE_NATIVE_S3_SECRET_KEY` 必须同时配置，三项 token 互不相同并区别于 `ASSETS_SOURCE_TOKEN` / `ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`，Native access key 必须区别于普通 Source 身份。全部留空时功能关闭，五个签名路由返回 `source_unavailable`，调用方不会回退其他签名方或当前缓存桶；部分配置拒绝启动。内建目标使用独立 Native S3 身份，策略模板见 `infra/docker/native-source-minio-policy.json`，只允许缓存桶 `image-pyramids/objects/*` 保存输出的精确对象/版本操作、受限列举和桶级 multipart 列举，不授予桶管理或其他对象。已注册连接目标仍只由 Source 使用其既有加密凭据、连接密钥和主机策略，不向调用方分发凭据。
+
+调用方各有一项 URL 与角色 token：图片 Worker/API 本地执行器用 `ASSETS_IMAGES_NATIVE_STORAGE_URL` 与 writer token，共享控制/API 本地控制用 `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` 与 reader token，Cleanup 用 `ASSET_CLEANUP_NATIVE_STORAGE_URL` 与 cleanup token。Token 值与 Source 对应角色 token 相同，但用各自运行用户可读的独立文件；`docker-compose.assets-native.yml` 与 Source/media/cleanup 三个 overlay 组合使用。Cleanup 当前强制要求其 Native URL/token，因此运行清理进程也要求 Source signer 已启用。Native 输出在受理时保存 endpoint、bucket、prefix 和存储身份；管理界面把用途绑定从 A 切到 B 只影响新输出，旧输出继续从 A 读取和回收，不需要改 Images/Cleanup 的桶、endpoint 或 secret。修改 A 的注册位置不是重定向：保存坐标与注册目标不一致时明确拒绝。公开 URL 按冻结策略和 SigV4 604800 秒上限签发，显式超限请求失败而不是静默缩短。
 
 连接管理凭据使用可选 `ASSETS_SOURCE_CONNECTOR_ENCRYPTION_KEY` 或 `_FILE`，值与本地 API/导入执行器的 `CONNECTOR_ENCRYPTION_KEY` 相同。该 key 留空时 Source 仍可启动；创建凭据或需要解密既有密文的操作会返回配置错误，单纯改名或空 patch 不需要 key。`ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST` 是 JSON 字符串数组回退值，数据库 `system_settings.connector_host_allowlist` 覆盖它；`ASSETS_SOURCE_SFTP_KNOWN_HOSTS_FILE` 可指定只读的可信 SFTP 主机文件。空白回退列表拒绝连接器网络目标。DNS 和探测在锁外完成，最终提交只短暂共享锁定 Settings 表并复核策略。API 的 `ASSETS_SOURCE_URL` 留空时用本地 Source 工作流；一旦配置远程 URL，远程错误不会回退到本地。
 
@@ -2578,7 +2599,7 @@ psql -v expected_database=annotation_test -v migration_role=owner \
   -f infra/docker/assets-operator-grants.sql
 ```
 
-`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的 42 项、Catalog 的 29 项或导入执行器的 18 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
+`asset_operator_client` 必须与 migration role 和 `assets_code` owner 分离，作为 LOGIN 使用且不继承其他角色。它只能执行 `aap_assets_v1` 中六项 operator 函数，不直接读写表、不访问其他 owner schema；`dataset_operator_operations` 保存不可变操作回执且没有 live Dataset/Item 外键。不要把 Source 的完整能力集、Catalog 的 29 项或导入执行器的 18 项能力授给该角色。现有脚本继续使用原装配连接；六函数账号供来源能力的独立消费者使用，不能直接运行还包含 Identity、Workspace 或 Labeling 步骤的完整脚本。operator grants 会拒绝数据库 CREATE/TEMP 权限，包含从 PUBLIC 获得的权限；初始化应撤销 PUBLIC 的 TEMP，只对既有确需临时表的角色显式授予。
 
 登记操作继续使用调用方同一 SQL 事务；nuScenes 导入可将 Dataset/Item、Scene、标定、工作区关联和 Labeling 任务共同提交或回滚。条目按输入顺序以至多 500 项分批追加或更新。重导读取通过排序游标返回稳定快照；单页最多 500 项，记录 JSON 上限 15 MiB，完整响应上限 16 MiB，单次请求上限 8 MiB。调用方校验页序、总数和快照摘要后再使用数据；source snapshot 是不透明 CAS 值，更新时由 Assets 重新校验并只合并请求字段。
 
@@ -3104,13 +3125,13 @@ uv run --project apps/assets-media --extra runtime python -m yoao_assets_media_r
 
 ## 图片金字塔的独立控制与执行
 
-图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 共 49 项 SQL 能力（视频 18、图片 14、图片输入 4、图片批量清单 4、视频输入 9）；视频 Worker 使用 20 项，图片 Worker 使用独立的 `asset_image_worker_client` 和 10 项（图片 6、输入 4）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 仅获 8 项清理能力。
+图片金字塔现由 `apps/assets-media` 中的共享媒体控制进程和专用图片 Worker 承担。共享控制端同时承载视频、图片与已受理输入契约，`asset_media_control_client` 使用当前完整控制能力集（视频、图片、图片输入、批量清单、视频输入与跟踪）；视频 Worker 使用自己的受限函数集，图片 Worker 使用独立的 `asset_image_worker_client`（图片 16 项、输入 6 项）。图片处理使用 Pillow 与受资源上限约束的 libvips 子进程，不依赖 Celery 执行队列。图片和输入垃圾由既有 `assets-cleanup` 进程处理，`asset_cleanup_client` 获 11 项清理能力（五条 lane，含 Native 保存输出回收）。
 
 API 设置 `ASSETS_MEDIA_URL` 和相同的 `ASSETS_MEDIA_TOKEN` 后，将图片控制请求发到共享控制进程；一旦配置远程地址，连接或请求失败不会退回本地。地址留空时，当前开发兼容路径仍在 API 进程内装配本地控制，并保留轻量 Celery 唤醒适配；这条路径不代表独立控制/执行部署。默认 Compose 不启动媒体 overlay，也不表示图片 Worker 已部署到主环境或生产环境。
 
-图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 10 项函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
+图片 schema 属于迁移 `0220`，已受理输入属于 `0221`。按既有 module-data 与媒体授权顺序安装 owner/辅助能力、`infra/docker/assets-media-grants.sql` 和 `infra/docker/assets-image-grants.sql`。图片 Worker 只能执行自己的 16 项图片与 6 项输入函数，不能直接访问表或其他 owner schema；清理 LOGIN 只能领取/确认 owner 发出的删除责任（含 Native 保存输出回收）。所有 SQL LOGIN 必须与迁移角色和 NOLOGIN owner 分离。
 
-批量图片输入清单的基础迁移为 `0222`，Scene 模式普通单图 Task 需要 `0227`，均不增加服务、桶或 secret。各自升级前先排空或明确处理对应图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，无法分类的文字／跟踪／场景配方也保守纳入排空；有明确保存的执行单位或配方标记时按原独立路径处理。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；当前共享控制就绪探针核验 52 项能力，包含三项跟踪输入能力。清单封存前不交付 Input 引用。清单和成员是 native 管理的两张证据表，保留记录时拒绝删除表；仍有 Scene 模式清单时也拒绝恢复旧的普通图片范围，不自动清空历史。
+批量图片输入清单的基础迁移为 `0222`，Scene 模式普通单图 Task 需要 `0227`，均不增加服务、桶或 secret。各自升级前先排空或明确处理对应图片项目中仍为 pending/running、scope 为 bulk 或缺省、且没有清单协议的旧预标作业；迁移会拒绝这些在途记录。旧 pending payload 没有完整配方，无法分类的文字／跟踪／场景配方也保守纳入排空；有明确保存的执行单位或配方标记时按原独立路径处理。刷新 API、普通预标 Celery consumer 和共享 Media 控制，核验三项 `accepted_input_manifest_*` 派发参数及四个 `/v1/input-manifests/` 路由；当前共享控制就绪探针核验当前代码声明的完整控制能力集，包含跟踪输入能力。清单封存前不交付 Input 引用。清单和成员是 native 管理的两张证据表，保留记录时拒绝删除表；仍有 Scene 模式清单时也拒绝恢复旧的普通图片范围，不自动清空历史。
 
 可选 `docker-compose.assets-media.yml` 增加共享控制、视频 Worker 和图片 Worker；需要把它与默认服务文件组合，并只启动所需服务：
 
@@ -3121,13 +3142,27 @@ docker compose -f docker-compose.yml -f docker-compose.assets-media.yml logs --t
 docker compose -f docker-compose.yml -f docker-compose.assets-media.yml exec assets-images-worker python -m yoao_assets_images_runtime.worker --healthcheck
 ```
 
-将 API 与控制进程接入同一受限网络，并配置 API 的控制 URL/token。overlay 不发布宿主端口；控制端仅在内部网络监听 8768。容器以 UID 10005 运行。镜像的 `image-worker` target 安装 libvips 和 ICC 文件；独立 Worker 的默认本地预算为 4 CPU、16 GiB 内存和 12 GiB 临时盘，这些是 Compose 资源限制，不是生产容量证明。回收派生对象时，另按现有部署方式运行 `docker-compose.assets-cleanup.yml` 中的 `assets-cleanup`，不要把删除权限交给控制端或图片 Worker。
+将 API 与控制进程接入同一受限网络，并配置 API 的控制 URL/token。overlay 不发布宿主端口；控制端仅在内部网络监听 8768。容器以 UID 10005 运行。镜像的 `image-worker` target 安装 libvips 和 ICC 文件；独立 Worker 的默认本地预算为 4 CPU、16 GiB 内存和 12 GiB 临时盘，这些是 Compose 资源限制，不是生产容量证明。回收派生对象时，按本节 Native 组合运行 `docker-compose.assets-cleanup.yml` 中的 `assets-cleanup`（同时提供 Source 与 Native overlay），不要把删除权限交给控制端或图片 Worker。
 
-源桶和历史 Task 桶只需读取原图。共享控制凭据可 HEAD/GET 来源与缓存并签发受限读取 URL，不写源、不删除对象；图片 Worker 只读源对象，并在缓存桶的 `image-assets/*`、`image-pyramids/*` 前缀写入不可变派生输出，孤儿扫描的列举范围限制在金字塔前缀，不写/删原图。清理身份仅能列举并删除这两个派生前缀下由数据库签发的精确 key/prefix；不得配置整桶生命周期删除这些前缀，不能把原图桶作为清理桶。
+源桶和历史 Task 桶只需读取原图。共享控制凭据可 HEAD/GET 来源与缓存并签发受限读取 URL，不写源、不删除对象；图片 Worker 只读源对象，并在缓存桶的 `image-assets/*`、`image-pyramids/*` 前缀写入不可变派生输出，孤儿扫描的列举范围限制在金字塔前缀，不写/删原图。清理身份仅能列举并删除这两个派生前缀下由数据库签发的精确 key/prefix；不得配置整桶生命周期删除这些前缀，不能把原图桶作为清理桶。Native 保存输出另由 Source 内独立 Native 身份处理：只对缓存桶 `image-pyramids/objects/*` 的精确保存输出执行 GetObject/GetObjectVersion、PutObject、DeleteObject/DeleteObjectVersion、带前缀条件的 ListBucket/ListBucketVersions 及桶级 ListBucketMultipartUploads，模板见 `infra/docker/native-source-minio-policy.json`。不要把该权限加到普通 Source、控制、Worker 或清理身份；Cleanup 的 Native lane 只执行 Source 签发的请求，不持有对象凭据。
 
 已受理推理输入使用独立 `ASSETS_MEDIA_INPUTS_BUCKET`（默认继承 `MINIO_INPUTS_BUCKET=accepted-inputs`），必须启用 versioning，不能与源桶、历史 Task 桶或 `media-cache` 共用。控制端与图片 Worker 只需读取该桶的版本状态；Worker 按受理记录写入具备非空、非 `null` VersionId 的输入对象，输入清理身份按保留账本列举版本、删除标记与未完成 multipart 并按精确版本删除。在 MinIO 上，清理按每个 `(key, VersionId)` 发送 DELETE，并需 `DeleteObjectVersion` 加上仅接受非空、非 `null` `s3:versionid` 的 `DeleteObject`；无版本 ID 与批量删除不授权。不要授予桶创建/版本配置权限，也不要对输入桶或媒体缓存桶配置生命周期自动过期。
 
 Secrets 使用各 overlay 对应的独立数据库/S3 文件，不能共享高权限应用或迁移身份。
+
+启用 Native 保存输出时，把 `docker-compose.assets-native.yml` 与 Source、media、cleanup 三个既有 overlay 组合使用；Source 在共享网络内监听 8767，Native overlay 为 Source 提供五类签名 secret、为控制与图片 Worker 提供各自角色的 URL/token，cleanup overlay 自带其必需的 cleanup token：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.assets-source.yml \
+  -f docker-compose.assets-media.yml \
+  -f docker-compose.assets-cleanup.yml \
+  -f docker-compose.assets-native.yml \
+  up -d --build assets-source assets-media-control assets-images-worker assets-cleanup
+```
+
+Source 的五项 Native 设置必须同时配置：三项互不相同的 token 及独立 Native S3 access/secret；全部留空时功能关闭，部分配置拒绝启动。调用方 token 值分别与 Source 的 writer/reader/cleanup token 相同，但各自使用对应运行用户可读的文件：Source 为 10003，控制与图片 Worker 为 10005，Cleanup 为 10001。Cleanup 当前强制要求其 Native URL/token，即使 `IMAGE_PYRAMID_AUTO_GENERATE=false`。API 宿主进程若承担本地控制或本地执行，需要设置相同的 `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_*` / `ASSETS_IMAGES_NATIVE_STORAGE_*`，URL 必须是该进程可达的 origin；远程 `ASSETS_MEDIA_URL` 模式由独立控制与 Worker 承担。Native 输出在受理时保存 endpoint、bucket、prefix 和存储身份，管理界面把用途绑定从 A 切到 B 只影响新输出；旧输出继续从 A 读取和回收，无需修改 Images/Cleanup 的桶、endpoint 或 secret。修改 A 的注册位置不是重定向，保存坐标不一致时明确拒绝。
 
 自动受理默认关闭；`IMAGE_PYRAMID_PROFILE_VERSION` 默认为 `pyramid-v1`，API 与共享控制端必须使用相同 profile。作业受理时固定 normalization/profile policy，修改 profile 应作为新输出线规划，而不是只切换一台服务。Worker 的 `ASSETS_IMAGES_SRGB_PROFILE`（默认镜像内 `/usr/share/color/icc/sRGB.icc`）必须是可读绝对路径。`VITE_EXPERIMENTAL_LARGE_IMAGE_TILES` 是 Web 构建开关，与自动受理无关，改动后需重建 Web。
 

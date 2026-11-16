@@ -70,7 +70,10 @@ def _scope(name="a", *, version="saved-version"):
     return SimpleNamespace(claim=claim, page=page, member=member, target=target)
 
 
-def _signed(method, target, *, member=None, kind=None):
+def _signed(
+    method, target, *, member=None, kind=None,
+    key_marker=None, upload_id_marker=None,
+):
     path = "/" + quote(target.bucket, safe="-_.~")
     headers = {}
     if member is not None:
@@ -78,7 +81,10 @@ def _signed(method, target, *, member=None, kind=None):
         query = {} if member.version_id is None else {"versionId": member.version_id}
         headers["if-match"] = member.etag
     else:
-        query = dict(prefix_listing_query(target.prefix, kind))
+        query = dict(prefix_listing_query(
+            target.prefix, kind,
+            key_marker=key_marker, upload_id_marker=upload_id_marker,
+        ))
     request = AWSRequest(
         method=method, url=target.endpoint_url + path,
         params=query, headers=headers,
@@ -124,7 +130,11 @@ class _Signer:
             scope_id=request.page_id, scope_token=request.lease_token,
             output_id=request.output_id, storage_ref=scope.target,
             kind=request.kind,
-            request=_signed("GET", scope.target, kind=request.kind),
+            request=_signed(
+                "GET", scope.target, kind=request.kind,
+                key_marker=request.key_marker,
+                upload_id_marker=request.upload_id_marker,
+            ),
         )
 
 
@@ -171,10 +181,16 @@ class _S3:
             assert request.method == "GET"
             kind = ("versions" if "versions" in request.url.params else
                     "uploads" if "uploads" in request.url.params else "objects")
-            assert request.url.params["prefix"] == scope.target.prefix
-            limit = "max-uploads" if kind == "uploads" else "max-keys"
-            assert request.url.params[limit] == "1"
-            return self._response(200, self.listing.get(kind, _xml(scope, kind)))
+            if kind == "uploads":
+                assert "prefix" not in request.url.params
+                assert request.url.params["max-uploads"] == "100"
+            else:
+                assert request.url.params["prefix"] == scope.target.prefix
+                assert request.url.params["max-keys"] == "1"
+            payload = self.listing.get(kind, _xml(scope, kind))
+            if isinstance(payload, list):
+                payload = payload.pop(0)
+            return self._response(200, payload)
         assert request.url.path == (
             "/" + scope.target.bucket + "/" + scope.target.prefix + scope.member.relative_key
         )
@@ -213,7 +229,7 @@ def _xml(scope, kind, *, entries="", truncated="false", bucket=None, prefix=None
     return (
         f'<{root} xmlns="http://s3.amazonaws.com/doc/2006-03-01/">'
         f"<{bucket_tag}>{bucket or scope.target.bucket}</{bucket_tag}>"
-        f"<Prefix>{prefix or scope.target.prefix}</Prefix>"
+        f"<Prefix>{'' if kind == 'uploads' else prefix or scope.target.prefix}</Prefix>"
         f"<IsTruncated>{truncated}</IsTruncated>{entries}</{root}>"
     ).encode()
 
@@ -378,7 +394,6 @@ async def test_successful_delete_response_still_requires_observed_absence():
 @pytest.mark.parametrize(("kind", "entries"), [
     ("versions", "<Version><Key>foreign</Key></Version>"),
     ("versions", "<DeleteMarker><Key>foreign</Key></DeleteMarker>"),
-    ("uploads", "<Upload><Key>foreign</Key></Upload>"),
     ("objects", "<Contents><Key>foreign</Key></Contents>"),
     ("objects", "<CommonPrefixes><Prefix>foreign/</Prefix></CommonPrefixes>"),
 ])
@@ -417,3 +432,68 @@ async def test_terminal_absence_requires_all_three_bounded_scans():
         assert "uploads" in s3.calls[1].url.params
         assert s3.calls[2].url.params["list-type"] == "2"
         assert all(body.closed for body in s3.bodies)
+
+
+def _multipart_page(scope, uploads, *, marker=None, next_marker=None):
+    from xml.sax.saxutils import escape
+
+    entries = "".join(
+        f"<Upload><Key>{escape(key)}</Key><UploadId>{escape(upload_id)}</UploadId></Upload>"
+        for key, upload_id in uploads
+    )
+    if marker is not None:
+        entries += (
+            f"<KeyMarker>{escape(marker[0])}</KeyMarker>"
+            f"<UploadIdMarker>{escape(marker[1])}</UploadIdMarker>"
+        )
+    if next_marker is not None:
+        entries += (
+            f"<NextKeyMarker>{escape(next_marker[0])}</NextKeyMarker>"
+            f"<NextUploadIdMarker>{escape(next_marker[1])}</NextUploadIdMarker>"
+        )
+    return _xml(
+        scope, "uploads", entries=entries,
+        truncated="true" if next_marker is not None else "false",
+    )
+
+
+@pytest.mark.asyncio
+async def test_multipart_scan_does_not_miss_owned_uploads_after_foreign_pages():
+    scope = _scope()
+    foreign = ("a-foreign/object", "foreign-upload")
+    owned = (scope.target.prefix + "overview.webp", "unrecorded-upload")
+    async with _store(scope) as (store, _, s3):
+        s3.listing["uploads"] = [
+            _multipart_page(scope, [foreign], next_marker=foreign),
+            _multipart_page(scope, [owned], marker=foreign),
+        ]
+        with pytest.raises(NativeStorageError, match="native_prefix_not_empty"):
+            await store.verify_prefix_absent(scope.claim, scope.page, threading.Event())
+        probes = [request for request in s3.calls if "uploads" in request.url.params]
+        assert probes[1].url.params["key-marker"] == foreign[0]
+        assert probes[1].url.params["upload-id-marker"] == foreign[1]
+        assert all(request.method == "GET" for request in s3.calls)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("corruption", ["repeated", "skipped", "wrong_echo"])
+async def test_multipart_cursor_cannot_skip_unproven_namespace_material(corruption):
+    scope = _scope()
+    first = ("a-foreign/object", "first-upload")
+    second = ("b-foreign/object", "second-upload")
+    async with _store(scope) as (store, _, s3):
+        if corruption == "repeated":
+            last = _multipart_page(scope, [first], marker=first, next_marker=first)
+        elif corruption == "skipped":
+            last = _multipart_page(
+                scope, [second], marker=first,
+                next_marker=("z-unseen/object", "unseen-upload"),
+            )
+        else:
+            last = _multipart_page(scope, [], marker=second)
+        s3.listing["uploads"] = [
+            _multipart_page(scope, [first], next_marker=first), last,
+        ]
+        with pytest.raises(NativeStorageError):
+            await store.verify_prefix_absent(scope.claim, scope.page, threading.Event())
+        assert all(request.method == "GET" for request in s3.calls)

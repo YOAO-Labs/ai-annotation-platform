@@ -41,7 +41,7 @@ from .object_store import CleanupStopped
 log = logging.getLogger("aap.assets_cleanup")
 
 _CHUNK = 1024 * 1024
-_MAX_XML_BYTES = 64 * 1024
+_MAX_XML_BYTES = 1024 * 1024
 _S3_NAMESPACE = "http://s3.amazonaws.com/doc/2006-03-01/"
 _MAX_PAGE_SIZE = 100
 NATIVE_RETIREMENT_LEASE_SECONDS = 300
@@ -341,6 +341,92 @@ class SignedNativeRetirementStore:
         if await self._head(reference.head, member, stop):
             raise NativeStorageError("native_member_present_after_delete")
 
+    async def _verify_multipart_absent(self, claim, page, stop) -> None:
+        # Prefix-filtered multipart listing is not reliable on every supported
+        # S3 peer. Scan bounded metadata pages; never abort a foreign upload.
+        marker = None
+        seen = set()
+        while True:
+            _check_stop(stop)
+            request = NativePyramidRetirementPrefixIoRequest(
+                output_id=claim.output_id,
+                lease_token=page.lease_token,
+                page_id=page.page_id,
+                kind="uploads",
+                key_marker=None if marker is None else marker[0],
+                upload_id_marker=None if marker is None else marker[1],
+            )
+            reference = await self.signer.retirement_prefix_reference(request)
+            if (
+                not self._scope_matches(reference, claim, page)
+                or reference.kind != "uploads"
+            ):
+                raise NativeStorageError("native_retirement_reference_mismatch")
+            async with self._response(reference.request, stop) as response:
+                if response.status_code != 200:
+                    self._status_error(response)
+                root = self._xml(await self._bounded_body(response, stop))
+            namespace = (
+                f"{{{_S3_NAMESPACE}}}"
+                if root.tag == f"{{{_S3_NAMESPACE}}}ListMultipartUploadsResult"
+                else ""
+            )
+            allowed = {
+                namespace + name for name in (
+                    "Bucket", "KeyMarker", "UploadIdMarker", "NextKeyMarker",
+                    "NextUploadIdMarker", "Prefix", "Delimiter", "MaxUploads",
+                    "IsTruncated", "Upload", "CommonPrefixes", "EncodingType",
+                )
+            }
+            if (
+                root.tag != namespace + "ListMultipartUploadsResult"
+                or any(child.tag not in allowed for child in root)
+                or root.findtext(namespace + "Bucket") != claim.storage_ref.bucket
+                or root.findtext(namespace + "Prefix") not in {None, ""}
+                or root.findtext(namespace + "Delimiter") not in {None, ""}
+                or root.findtext(namespace + "EncodingType") not in {None, ""}
+                or (root.findtext(namespace + "KeyMarker") or "") != (request.key_marker or "")
+                or (root.findtext(namespace + "UploadIdMarker") or "") != (request.upload_id_marker or "")
+                or root.findall(namespace + "CommonPrefixes")
+            ):
+                raise NativeStorageError("native_prefix_scan_scope_mismatch")
+            uploads = root.findall(namespace + "Upload")
+            if len(uploads) > 100:
+                raise NativeStorageError("native_prefix_scan_incomplete")
+            for upload in uploads:
+                key = upload.findtext(namespace + "Key")
+                upload_id = upload.findtext(namespace + "UploadId")
+                if not key or not upload_id:
+                    raise NativeStorageError("native_prefix_scan_incomplete")
+                if key.startswith(claim.storage_ref.prefix):
+                    raise NativeStorageError("native_prefix_not_empty")
+            truncated = root.findtext(namespace + "IsTruncated")
+            if truncated == "false":
+                return
+            next_marker = (
+                root.findtext(namespace + "NextKeyMarker"),
+                root.findtext(namespace + "NextUploadIdMarker"),
+            )
+            if (
+                truncated != "true"
+                or not uploads
+                or not all(isinstance(value, str) and value for value in next_marker)
+                or next_marker != (key, upload_id)
+                or next_marker in seen
+                or (marker is not None and next_marker[0] < marker[0])
+            ):
+                raise NativeStorageError("native_prefix_scan_incomplete")
+            try:
+                NativePyramidRetirementPrefixIoRequest(
+                    output_id=claim.output_id, lease_token=page.lease_token,
+                    page_id=page.page_id, kind="uploads",
+                    key_marker=next_marker[0], upload_id_marker=next_marker[1],
+                )
+            except ValueError:
+                raise NativeStorageError("native_prefix_scan_incomplete") from None
+            seen.add(next_marker)
+            marker = next_marker
+
     async def verify_prefix_absent(self, claim, page, stop) -> None:
         shapes = (
             ("versions", "ListVersionsResult", "Name", ("Version", "DeleteMarker")),
@@ -348,6 +434,9 @@ class SignedNativeRetirementStore:
             ("objects", "ListBucketResult", "Name", ("Contents",)),
         )
         for kind, root_name, bucket_name, entries in shapes:
+            if kind == "uploads":
+                await self._verify_multipart_absent(claim, page, stop)
+                continue
             _check_stop(stop)
             reference = await self.signer.retirement_prefix_reference(
                 NativePyramidRetirementPrefixIoRequest(

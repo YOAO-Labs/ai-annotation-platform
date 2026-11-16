@@ -2,7 +2,7 @@
 audience: [dev]
 type: reference
 status: stable
-last_reviewed: 2026-10-21
+last_reviewed: 2026-11-16
 ---
 
 # 独立素材来源控制
@@ -71,9 +71,9 @@ ZIP 将新字节写入不可变 key：`dataset-sources/{dataset_id}/{item_id}/{p
 
 ## 事务与存储权限
 
-Source LOGIN 当前执行 42 项能力，覆盖来源/入库、连接器、图片来源/作业受理、托管原件和导入核验。连接导入器使用独立的 18 项 LOGIN 能力；两者均不能直接读写业务表、序列、其他 owner schema 或继承角色。两个媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
+Source LOGIN 当前执行完整能力集，覆盖来源/入库、连接器、图片来源/作业受理、托管原件、导入核验和 Native 捕获。连接导入器使用独立的 18 项 LOGIN 能力；两者均不能直接读写业务表、序列、其他 owner schema 或继承角色。两个媒体派发 claim/ack 能力只由 API maintenance relay 使用。原生 SQL 安装与 owner 授权见[同库数据接口](/api/guides/module-data)。来源删除的 Audit、回执和派生清理 outbox 与业务删除在同一事务；原始字节始终保留。
 
-S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源读取与该桶自身的 ListBucket，以及 `dataset-sources/*` 的 Put、multipart Abort 和准确版本核验所需的 `GetObjectVersion`。扫描只对原生能力返回的 Dataset 前缀执行条件 HEAD/GET。它不能删除对象、列其它桶或管理桶，也不写 media-cache。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
+S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历史来源读取与该桶自身的 ListBucket，以及 `dataset-sources/*` 的 Put、multipart Abort 和准确版本核验所需的 `GetObjectVersion`。扫描只对原生能力返回的 Dataset 前缀执行条件 HEAD/GET。它不能删除对象、列其它桶或管理桶，普通身份也不写 media-cache。可选 Native 金字塔签名使用单独 Native S3 身份，只为已保存输出签发有限请求，不执行对象 I/O；配置、调用方 token 与策略模板见服务 README 和[图片金字塔运行手册](/ops/runbooks/image-pyramid)。内部 I/O endpoint 与浏览器签名 endpoint 分别显式配置，签名后不改 Host。服务不读取请求提供的任意 URL、bucket 或对象 key。
 
 单次调用在验证完整结果及响应字节预算后才提交。复制与 PostgreSQL 不能共同回滚：复制后进程退出或 SQL 失败可能保留未登记的原始拷贝，重试使用新的 publication 代次，旧拷贝不自动删除。原始拷贝和未完成 intent 暂无自动回收，需要计入存储容量。
 
@@ -81,7 +81,7 @@ S3 身份只拥有 import 桶 `dataset-uploads/*` 的 Get/Put、datasets 桶历�
 
 ## 运行与回退
 
-先应用当前迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件仍按 core 后 delivery 的顺序安装；降级会移除来源和连接器回执并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
+先应用当前迁移、module-data owner 授权与 `infra/docker/assets-source-grants.sql`，再为非 root 用户 10003 准备专用 secret、固定桶和 S3 origin。独立启动配置见仓库 `DEV.md`、`docker-compose.assets-source.yml` 及服务 README；启用 Native 金字塔时再叠加 `docker-compose.assets-native.yml` 与媒体/清理 overlay。先确认服务 `/health` 与 `/ready`，再设置网关 `ASSETS_SOURCE_URL`、`ASSETS_SOURCE_TOKEN` 并刷新 API。网关 I/O 超时默认 300 秒，上限 3600 秒；独立服务的池、SQL、S3 连接/读取和消息预算均可独立限制。0215 的 SQL 工件仍按 core 后 delivery 的顺序安装；降级会移除来源和连接器回执并丢失同键重放结果，故应先停止来源写入并排空活动操作和待派发媒体记录。
 
 回退到本地模式可清空网关 URL 并刷新 API，保留兼容的 SQL 与完成回执，再停止指定独立 Compose 项目。回退迁移前须停止来源写入并处理仍需确认的操作；空库迁移往返不证明删除在途回执安全。Go 仍是隔离实验，不进入本服务或真实环境。
 

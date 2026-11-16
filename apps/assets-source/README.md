@@ -169,6 +169,29 @@ feature disabled and all five routes return `source_unavailable`. A partial
 Native configuration fails startup. There is no fallback signer or configured
 cache-bucket substitution for Native callers.
 
+For deployment, keep the five signer files separate from the ordinary Source
+credentials and readable only by the Source runtime user (UID 10003 for the
+optional container). Attach `infra/docker/native-source-minio-policy.json` to
+the separate builtin Native S3 identity; replace `prod-media-cache` in the
+template with the deployment's media-cache bucket. It grants only the
+saved-output scope `image-pyramids/objects/*`, bounded object/version listing
+and bucket-scoped multipart listing. It does not grant bucket administration or
+access to unrelated objects, and it must not be attached to the ordinary Source,
+Images, or cleanup identities. Connection-backed targets continue to use their
+own registered credentials and permissions inside this process.
+
+The finite signer routes are consumed by three independent runtimes with one
+distinct role token each: the image worker and API-local executor use
+`ASSETS_IMAGES_NATIVE_STORAGE_URL` with the writer token, shared control and
+API-local control use `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL` with the reader
+token, and Assets Cleanup uses `ASSET_CLEANUP_NATIVE_STORAGE_URL` with the
+cleanup token. Each caller reads its token from its own file; the values must
+equal the corresponding Source token, but the files are not shared across
+runtime users. Cleanup requires both Native settings, so a deployment that runs
+the cleanup worker also enables this signer. The repository's
+`docker-compose.assets-native.yml` supplies these bindings on top of the
+Source, media and cleanup overlays.
+
 ## Synchronous ZIP and bucket scan
 
 The public ZIP endpoint remains synchronous and keeps its existing response

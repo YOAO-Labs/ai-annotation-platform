@@ -6,10 +6,11 @@ The portable `aap-assets-media/v1`, `aap-assets-images/v1` and
 their native installations are owned by migrations 0219, 0220 and 0221.
 
 Video, image and input HTTP routes share one control process and one function-only
-control LOGIN. The process verifies all 68 control/system functions before
-becoming ready. The video worker LOGIN has 20 functions, including the retained
-video input execution and sweep capabilities. Image execution uses a dedicated polling worker with 16 image and
-six input functions, its own SQL LOGIN and its own S3 credentials. The image worker uses
+control LOGIN. The process verifies the full current control/system function set
+(including Native read admission) before becoming ready. The video worker LOGIN
+has its own restricted execution and sweep set. Image execution uses a dedicated
+polling worker with 16 image and six input functions, its own SQL LOGIN and its
+own S3 credentials. The image worker uses
 Pillow for small thumbnails and the bounded libvips child process for pyramid
 generation. Neither worker imports the API ORM, Celery or Redis.
 
@@ -33,10 +34,13 @@ The saved target, not the current media-cache binding, owns each output's
 endpoint, bucket, prefix and storage identity. Switching the management
 binding from one location to another sends new outputs to the new location
 while earlier outputs continue to read and retire at their saved location; no
-separate Images or Cleanup bucket reconfiguration is involved. A saved
-location that no longer matches the registered location/connection is refused
-rather than redirected, and no configured-cache bucket, ambient credential or
-reconstructed key is ever substituted for a Native read or write.
+separate Images or Cleanup bucket reconfiguration is involved. Editing the
+registered location of the old target is not a retargeting operation: existing
+outputs still require their saved endpoint, bucket, prefix and storage identity
+to match, and a saved location that no longer matches the registered
+location/connection is refused rather than redirected. No configured-cache
+bucket, ambient credential or reconstructed key is ever substituted for a
+Native read or write.
 
 The Source process is the only storage-credential owner and finite signer.
 Ordinary callers hold only operation-scoped tokens:
@@ -58,6 +62,18 @@ the three distinct tokens plus its separate Native S3 identity
 `ASSETS_SOURCE_NATIVE_S3_SECRET_KEY[_FILE]`). Registered connection targets
 keep their own secrets inside Source. Deployment must provision these settings
 and the matching IAM policy; the repository defaults do not.
+
+For Compose, combine `docker-compose.assets-native.yml` with the Source, media
+and cleanup overlays. The Native overlay mounts the writer binding into the
+image worker and the API-local image executor, the reader binding into shared
+control, and the signer configuration into Source; the cleanup overlay carries
+its own required cleanup binding. Each caller file is readable only by its own
+runtime user; token values match the Source role token without sharing the
+Source files. Cleanup requires its URL and token even when automatic pyramid
+generation stays disabled, so running that worker also requires the Source
+signer. Attach `infra/docker/native-source-minio-policy.json` to the separate
+builtin Native identity; do not extend the ordinary media or cleanup
+identities with Native object reads or deletes.
 
 Native generation and asset references use the selected saved output, a
 durable read permit, saved member receipts, Source-issued inspection requests,

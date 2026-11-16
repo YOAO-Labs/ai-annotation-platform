@@ -141,24 +141,17 @@ FUNCTION_BODY_ARTIFACTS = {
         for signature in (
             "aap_assets_v1._native_pyramid_retirement_policy_valid(jsonb)",
             "aap_assets_v1._native_pyramid_retirement_grace(jsonb)",
-            "aap_assets_v1._native_pyramid_retirement_store_valid(jsonb)",
             "aap_assets_v1._native_pyramid_retirement_target_valid(jsonb,uuid)",
             "aap_assets_v1.guard_native_pyramid_retirement_target()",
             "aap_assets_v1.guard_native_pyramid_retirement_page()",
-            "aap_assets_v1._native_pyramid_retirement_page_items(uuid,uuid[])",
-            "aap_assets_v1._native_pyramid_retirement_claimable(uuid)",
             "aap_assets_v1.record_native_pyramid_retirement()",
             "aap_assets_v1.preserve_native_pyramid_retirement_grace()",
-            "aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)",
-            "aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
             "aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
         )
     },
-    "aap_assets_v1._image_pyramid_projection(jsonb,integer,text)": "0463_native_pyramid_projection.sql",
     **{
         signature: "0463_native_pyramid_reads_retirement.sql"
         for signature in (
-            "aap_assets_v1._image_saved_output_prefix(uuid,integer,uuid,boolean)",
             "aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text)",
             "aap_assets_v1._cancel_image_source_work(text,uuid,text)",
             "aap_assets_v1.cancel_image_media(uuid,uuid,uuid)",
@@ -166,7 +159,36 @@ FUNCTION_BODY_ARTIFACTS = {
             "aap_assets_v1._image_pyramid_summary(jsonb)",
         )
     },
-    "aap_assets_v1.write_native_pyramid_member(uuid,text,text)": "0462_fixture_native_pyramid_receipts.sql",
+    **{
+        signature: "0464_native_pyramid_saved_targets.sql"
+        for signature in (
+            "aap_assets_v1._native_pyramid_output_fixture_owned(uuid)",
+            "aap_assets_v1._image_saved_output_target(uuid,integer,uuid,boolean)",
+            "aap_assets_v1._image_saved_output_prefix(uuid,integer,uuid,boolean)",
+            "aap_assets_v1._image_pyramid_projection(jsonb,integer,text)",
+            "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
+            "aap_assets_v1.guard_native_pyramid_read_permit()",
+            "aap_assets_v1.begin_native_pyramid_read(uuid,uuid,uuid,integer,text,uuid,uuid)",
+            "aap_assets_v1.complete_native_pyramid_read(uuid,uuid)",
+            "aap_assets_v1._native_pyramid_retirement_claimable(uuid)",
+            "aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
+            "aap_assets_v1._native_pyramid_retirement_page_items(uuid,uuid[])",
+            "aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
+            "aap_assets_v1.write_native_pyramid_member(uuid,text,text)",
+            "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
+            "aap_assets_v1.verify_native_pyramid_member(uuid)",
+            "aap_assets_v1.resolve_fixture_native_cache(text)",
+        )
+    },
+    **{
+        signature: "0464_native_storage_capture.sql"
+        for signature in (
+            "aap_assets_v1._native_pyramid_target_destination(uuid,text,text,text)",
+            "aap_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)",
+            "aap_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)",
+            "aap_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)",
+        )
+    },
     "aap_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
     "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0460_workspace_owner_transfer_namespace.sql",
     "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
@@ -826,12 +848,9 @@ FUNCTION_BODY_ARTIFACTS = {
             "guard_image_pyramid_inputs()",
             "aap_assets_v1._image_garbage_prefix_valid(text)",
             "aap_assets_v1._native_pyramid_attempt(uuid,boolean)",
-            "aap_assets_v1.allocate_native_pyramid_output(uuid,bigint,uuid,uuid,integer)",
             "aap_assets_v1.begin_native_pyramid_member(uuid,uuid,text,text,bigint)",
             "aap_assets_v1.submit_native_pyramid_member(uuid)",
             "aap_assets_v1._native_pyramid_fixture_scope(uuid)",
-            "aap_assets_v1.verify_native_pyramid_member(uuid)",
-            "aap_assets_v1.abandon_native_pyramid_member(uuid,text)",
             "aap_assets_v1.finish_native_pyramid_output(uuid,bigint,uuid,jsonb)",
             "aap_assets_v1.record_fixture_media_birth()",
         )
@@ -1878,6 +1897,8 @@ SQL_ARTIFACTS = (
     "0463_native_pyramid_reads_retirement.sql",
     "0463_native_pyramid_projection.sql",
     "0463_native_pyramid_retirement.sql",
+    "0464_native_pyramid_saved_targets.sql",
+    "0464_native_storage_capture.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -4290,10 +4311,6 @@ def _cleanup_mc(
 def _cleanup_storage_policy(scope: dict) -> dict:
     cache_arn = f"arn:aws:s3:::{scope['bucket']}"
     inputs_arn = f"arn:aws:s3:::{scope['inputs_bucket']}"
-    native_prefixes = (
-        "image-pyramids/objects/",
-        "_aap_managed/media-cache/image-pyramids/objects/",
-    )
     return {
         "Version": "2012-10-17",
         "Statement": [
@@ -4314,30 +4331,11 @@ def _cleanup_storage_policy(scope: dict) -> dict:
                 ],
             },
             {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
-                "Resource": [cache_arn],
-                "Condition": {
-                    "StringLike": {
-                        "s3:prefix": [f"{prefix}*" for prefix in native_prefixes]
-                    }
-                },
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucketMultipartUploads"],
-                "Resource": [cache_arn],
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:GetObject",
-                    "s3:GetObjectVersion",
-                    "s3:DeleteObject",
-                    "s3:DeleteObjectVersion",
-                ],
+                "Effect": "Deny",
+                "Action": ["s3:DeleteObject", "s3:DeleteObjectVersion"],
                 "Resource": [
-                    f"{cache_arn}/{prefix}*" for prefix in native_prefixes
+                    f"{cache_arn}/image-pyramids/objects/*",
+                    f"{cache_arn}/_aap_managed/media-cache/image-pyramids/objects/*",
                 ],
             },
             {

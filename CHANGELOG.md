@@ -40,6 +40,9 @@
 
 ### Changed
 
+- 超大图 Native 输出改用保存目标生命周期：管理界面把媒体缓存绑定从 A 切换为 B 后，新输出写入 B，A 上的旧输出继续从 A 读取和回收；Images、Cleanup 与 API 不需要改桶、endpoint 或 secret。Source 以有限签名请求和独立 Native 存储身份代行对象操作，Images/Cleanup 不接收原始凭据。修改 A 的注册位置不是重定向；保存坐标不匹配时读取、校验和删除明确拒绝，外来或不确定的对象不会被删除。
+- Assets Cleanup 增加第五条 Native 保存输出回收 lane，共 11 项 owner 函数。该 lane 只处理具备完整保存回执的 `written`/`verified` 成员，执行条件完整读取、精确删除、删除后不存在检查及有界对象/版本/multipart 证明；未知 I/O、确认丢失和单纯租约到期保留责任，公开 URL 按冻结保留期等待。
+- 新增可选 `docker-compose.assets-native.yml` 与 `infra/docker/native-source-minio-policy.json`：Source 的三项 Native token 与独立 Native S3 身份必须同时配置，调用方各自使用对应角色的 URL/token 文件；Cleanup 当前强制要求 Native URL/token，未配置的 Source 保持功能关闭且不回退其他签名方或当前缓存桶。自动金字塔受理仍默认关闭。
 - 项目负责人转移的内部数据库 namespace 与专用 LOGIN 改用 `yoao_` 命名；已有库须先关闭旧接入并排空写连接，再前向切换和更新凭据。公开 API、请求及成功回执身份不变，不保留旧 RPC 别名。
 - 本地图片和 nuScenes 导入前由管理员单独核对受管原件目录并准备、版本化目标 bucket；导入进程不需要私有存储目录或 bucket 管理权限，目标缺失或不匹配时明确失败。
 - 导出选项明确预测候选与正式标注、视频关键帧与展开帧、格式兼容范围；模型目录区分协议声明、缓存能力、服务连接和项目启用，注册表单说明并发限制与 GPU 资源声明。

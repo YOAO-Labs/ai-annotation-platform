@@ -1,3 +1,5 @@
+# The current cleanup worker requires Native saved-output settings. This overlay
+# mounts its cleanup token; the Source signer lives in docker-compose.assets-native.yml.
 services:
   assets-cleanup:
     build:
@@ -13,10 +15,13 @@ services:
       ASSET_CLEANUP_S3_REGION: ${ASSET_CLEANUP_S3_REGION:-us-east-1}
       ASSET_CLEANUP_POLL_SECONDS: ${ASSET_CLEANUP_POLL_SECONDS:-5}
       ASSET_CLEANUP_PAGE_SIZE: ${ASSET_CLEANUP_PAGE_SIZE:-100}
+      ASSET_CLEANUP_NATIVE_STORAGE_URL: ${ASSET_CLEANUP_NATIVE_STORAGE_URL:-http://assets-source:8767}
+      ASSET_CLEANUP_NATIVE_STORAGE_TOKEN_FILE: /run/secrets/cleanup_native_storage_token
     secrets:
       - cleanup_database_url
       - cleanup_s3_access_key
       - cleanup_s3_secret_key
+      - cleanup_native_storage_token
     extra_hosts:
       - host.docker.internal:host-gateway
     read_only: true
@@ -38,3 +43,5 @@ secrets:
     file: ${ASSET_CLEANUP_S3_ACCESS_KEY_FILE:-./.secrets/assets-cleanup-s3-access-key}
   cleanup_s3_secret_key:
     file: ${ASSET_CLEANUP_S3_SECRET_KEY_FILE:-./.secrets/assets-cleanup-s3-secret-key}
+  cleanup_native_storage_token:
+    file: ${ASSET_CLEANUP_NATIVE_STORAGE_TOKEN_FILE:-./.secrets/assets-cleanup-native-storage-token}

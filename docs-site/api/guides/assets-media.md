@@ -2,7 +2,7 @@
 audience: [dev, operator]
 type: reference
 status: stable
-last_reviewed: 2026-10-23
+last_reviewed: 2026-11-16
 ---
 
 # 独立图片与视频媒体接口
@@ -22,7 +22,7 @@ last_reviewed: 2026-10-23
 | 来源与派生对象的签名引用、批量来源引用                                       | 6 个专用 reference 路径，字段见 HTTP 工件          |
 | 领取、续租、时间表暂存、发布、失败、过期、垃圾领取/完成、回填推进与用量      | 10 个原生执行能力；不通过控制 HTTP 暴露            |
 
-共享控制 LOGIN 精确授予 40 个函数，其中视频 18 个、图片 14 个、受理输入 4 个、批量输入清单 4 个；视频执行 LOGIN 保留 10 个函数，图片执行使用独立 LOGIN 的 10 个函数（图片 6 个、输入 4 个）。它们均没有私有业务表、列、序列、其他 owner schema、成员继承或 DDL 权限。函数的外层事务仍由调用方持有；默认 HTTP 绑定在返回前验证并提交完整结果。
+共享控制 LOGIN 精确授予当前视频、图片、受理输入、批量输入清单与跟踪控制能力；视频执行 LOGIN 使用独立函数集，图片执行使用独立 LOGIN 的图片 16 项与输入 6 项函数。它们均没有私有业务表、列、序列、其他 owner schema、成员继承或 DDL 权限。函数的外层事务仍由调用方持有；默认 HTTP 绑定在返回前验证并提交完整结果。
 
 请求最多 8 MiB、响应最多 16 MiB。记录页最多 500 项、记录 JSON 最多 15 MiB；完整时间表和 packet 样本按页读取。调用方必须核对来源快照、依赖版本、顺序、总数、游标及完成标志，不能只取第一页。packet 数组保留解码顺序，展示帧排名可因 B 帧不单调。
 
@@ -46,9 +46,11 @@ Task 列表的原始文件引用不依赖 S3 HEAD，避免存储短时不可用�
 
 ## 图片合同与重试
 
-图片使用独立的 `aap-assets-images/v1` 信封，精确数据与 HTTP 工件在包的 `yoao_assets_images` 目录中。它与视频共用控制服务地址、token 和连接池；`POST /v1/images/commands/{operation}` 提供 9 个当前主体操作及 5 个受信任系统操作。来源、原图、批量来源、金字塔及切片签名使用该命名空间中的 reference 路径。6 个图片执行能力和 2 个图片垃圾能力只通过原生接口提供。
+图片使用独立的 `aap-assets-images/v1` 信封，精确数据与 HTTP 工件在包的 `yoao_assets_images` 目录中。它与视频共用控制服务地址、token 和连接池；`POST /v1/images/commands/{operation}` 提供 9 个当前主体操作及 5 个受信任系统操作。来源、原图、批量来源、金字塔及切片签名使用该命名空间中的 reference 路径。图片执行与图片垃圾能力只通过原生接口提供，不暴露为控制 HTTP 命令。
 
 图片作业先冻结来源代次、快照、对象身份和处理策略，再由独立执行进程领取。上传、ZIP 和连接导入在登记事务中绑定已观察的原始对象并受理工作；兼容 Celery 消息只唤醒已受理作业。小图保留原缩略图和 blurhash 算法，超大图使用独立 libvips 子进程。对象读取带 ETag/version 条件，传输受作业截止时间约束；原始对象没有写入或删除权限。
+
+Native 图片金字塔在受理时保存 endpoint、bucket、prefix 与存储身份；后续写入、读取和回收使用该保存目标，而不是当前媒体缓存绑定。管理界面把绑定从 A 切到 B 后，新输出写入 B，A 上的旧输出仍从 A 读取并在 A 回收，不需要为控制端、Worker 或 Cleanup 改桶、endpoint 或 secret。修改 A 的注册位置不是重定向：保存坐标与注册目标不一致时明确拒绝，不回退当前桶。读取使用有限期 permit、保存成员回执和 Source 签发的条件请求；控制端先完成 inspect 与清单校验，再发布公开 URL，公开引用只含 URL 和最短有效期，不含凭据。Source Native 设置、调用方 URL/token、Compose overlay 与 IAM 见[图片金字塔运行手册](/ops/runbooks/image-pyramid)。
 
 Task 摘要明确区分 `missing`、`stale`、`inconsistent` 与生成状态，缺失时 `generation` 可以为空。已登记或探测的尺寸独立于缩略图是否就绪。`GET /api/v1/tasks/{task_id}/image-pyramid` 保留状态、manifest、overview 和 ETag；刷新失败时旧的可用输出继续提供，新的错误和 building 状态会改变 ETag。
 

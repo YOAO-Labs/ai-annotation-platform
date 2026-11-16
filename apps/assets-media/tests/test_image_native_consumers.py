@@ -1085,6 +1085,46 @@ async def test_native_generation_read_failure_still_settles_the_permit():
 
 
 @pytest.mark.asyncio
+async def test_unproven_native_response_closure_keeps_the_read_permit(monkeypatch):
+    current = source()
+    state, raw, _manifest, _output = native_projection(current)
+    database = NativeReadDatabase(current, state)
+    reader, bodies = native_read_reader(state, raw)
+    http = saved_http_client(bodies)
+
+    class UnsettledRead(c.ImageFailure):
+        storage_operation_unsettled = True
+
+    async def unsettled(*args, **kwargs):
+        raise UnsettledRead("storage_unavailable")
+
+    monkeypatch.setattr(native_media, "get_member", unsettled)
+    control = ImageControl(
+        database,
+        FakeStorage(),
+        _POLICY,
+        native_storage=reader,
+        native_http=http,
+    )
+    try:
+        with pytest.raises(UnsettledRead) as failure:
+            await control.generation_reference(
+                ImageGenerationReferenceRequest(
+                    actor_id=uuid4(), dataset_item_id=current.owner.id
+                )
+            )
+    finally:
+        await http.aclose()
+        await control.close()
+
+    assert failure.value.storage_operation_unsettled is True
+    assert len(database.begun) == 1
+    # The durable read permit is not completed when the actual response/body
+    # closure was not proved, and no public URL can escape the failed read.
+    assert database.closed == []
+
+
+@pytest.mark.asyncio
 async def test_native_asset_references_publish_only_inspected_tile_receipts():
     current = source()
     state, raw, manifest, output = native_projection(current)

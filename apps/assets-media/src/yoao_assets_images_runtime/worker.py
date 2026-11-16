@@ -295,24 +295,29 @@ async def _job_storage_call(heartbeat, operation, /, *args, **kwargs):
     return result
 
 
-async def _job_native_member_write(heartbeat, operation, /, *args, **kwargs):
-    """Run one saved-member mutation and keep its proven receipt.
-
-    A drained PUT is a physical fact that only its receipt can prove.  The
-    trailing heartbeat check of ``_job_storage_call`` would discard that receipt
-    after a lease loss, and a deadline that races the completion would report an
-    already-sent PUT as ``not_written``.  Admission is still checked before the
-    request, and the caller registers the receipt before any later authority
-    check.
-    """
+async def _job_native_storage_call(heartbeat, operation, /, *args, **kwargs):
+    """Drain admitted I/O and preserve its result before propagating a stop."""
     heartbeat.check()
+    task = asyncio.create_task(operation(*args, **kwargs))
+    interruption = None
     try:
         async with asyncio.timeout_at(heartbeat.deadline):
-            return await operation(*args, **kwargs)
-    except TimeoutError:
-        failure = ImageFailure("timeout")
-        failure.storage_operation_unsettled = True
-        raise failure from None
+            result = await asyncio.shield(task)
+    except (asyncio.CancelledError, TimeoutError) as exc:
+        interruption = ImageFailure("timeout") if isinstance(exc, TimeoutError) else exc
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                continue
+            except BaseException:
+                break
+        if task.cancelled():
+            failure = asyncio.CancelledError()
+            failure.storage_operation_unsettled = True
+            raise failure from interruption
+        result = task.result()
+    return result, interruption
 
 
 class _ImageClaimBusy(ImageFailure):
@@ -1212,7 +1217,7 @@ class ImageExecutor:
             await self._abandon_pyramid_member(operation_id, "not_written")
             raise
         try:
-            receipt = await _job_native_member_write(
+            receipt, interruption = await _job_native_storage_call(
                 heartbeat,
                 self.storage.upload_pyramid_member,
                 path,
@@ -1241,27 +1246,26 @@ class ImageExecutor:
         # saved members even if the readback or verification fails.
         # Exact-version readers compare the recorded HTTP ETag, not the source.
         await self._register_native_member_receipt(receipt)
-        verify_in_flight = False
         try:
+            if interruption is not None:
+                raise interruption
             heartbeat.check()
-            verify_in_flight = True
-            await _job_storage_call(
+            _, interruption = await _job_native_storage_call(
                 heartbeat,
                 self.storage.verify_pyramid_member,
                 allocation,
                 reservation,
                 receipt,
             )
-            # The exact-version GET and its body/client closure completed; a
-            # later failure may now settle the still-open permit truthfully.
-            verify_in_flight = False
+            if interruption is not None:
+                raise interruption
             heartbeat.check()
             await self.database.call(
                 "verify_native_pyramid_member",
                 PyramidMemberOperation(operation_id=operation_id),
             )
         except BaseException as exc:
-            if verify_in_flight or getattr(exc, "storage_operation_unsettled", False):
+            if getattr(exc, "storage_operation_unsettled", False):
                 # PUT/verify/body/client I/O is not proven drained.  Keep the
                 # durable permit open so retirement stays blocked.
                 raise
@@ -1282,13 +1286,10 @@ class ImageExecutor:
         owner may close this exact permit while keeping the written member
         retirable.  A refusal leaves the permit open and blocks retirement.
         """
-        try:
-            await self.database.call(
-                "abandon_native_pyramid_member",
-                PyramidMemberAbandon(operation_id=operation_id, state="written"),
-            )
-        except BaseException:
-            return
+        await self.database.call(
+            "abandon_native_pyramid_member",
+            PyramidMemberAbandon(operation_id=operation_id, state="written"),
+        )
 
     async def _abandon_pyramid_member(self, operation_id, state: str) -> None:
         try:

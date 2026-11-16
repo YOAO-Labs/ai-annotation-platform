@@ -366,7 +366,7 @@ async def test_retirement_members_sign_conditional_exact_versions():
     [
         ("objects", {"list-type": "2", "max-keys": "1"}),
         ("versions", {"versions": "", "max-keys": "1"}),
-        ("uploads", {"uploads": "", "max-uploads": "1"}),
+        ("uploads", {"uploads": "", "max-uploads": "100"}),
     ],
 )
 async def test_retirement_prefix_signs_only_the_exact_absence_probe(kind, expected):
@@ -393,7 +393,10 @@ async def test_retirement_prefix_signs_only_the_exact_absence_probe(kind, expect
     query = _query(request)
     for name, value in expected.items():
         assert query[name] == value
-    assert query["prefix"] == context.storage_ref.prefix
+    if kind == "uploads":
+        assert "prefix" not in query
+    else:
+        assert query["prefix"] == context.storage_ref.prefix
     assert query["X-Amz-SignedHeaders"] == "host"
     assert set(query) - {
         "X-Amz-Algorithm",
@@ -890,3 +893,24 @@ def test_native_routes_fail_clearly_when_disabled_or_misused():
         output_id=uuid4(), lease_token=uuid4(), page_id=uuid4(), kind="objects"
     )
     assert cleanup_prefix.kind == "objects"
+
+
+async def test_multipart_cursor_is_signed_only_for_the_captured_bucket():
+    output_id, page_id, lease_token = uuid4(), uuid4(), uuid4()
+    context = _context(
+        "retirement_prefix", output_id=output_id, scope_id=page_id,
+        scope_token=lease_token, members=[],
+    )
+    result = await _signer(context).retirement_prefix_reference(
+        NativePyramidRetirementPrefixIoRequest(
+            output_id=output_id, lease_token=lease_token, page_id=page_id,
+            kind="uploads", key_marker="other prefix/key", upload_id_marker="part+/=",
+        )
+    )
+    query = _query(result.request)
+    assert urlsplit(result.request.url).path == "/media-cache"
+    assert query["key-marker"] == "other prefix/key"
+    assert query["upload-id-marker"] == "part+/="
+    assert query["max-uploads"] == "100"
+    assert "prefix" not in query
+    assert result.request.expires_at <= context.valid_until

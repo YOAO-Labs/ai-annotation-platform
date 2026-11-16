@@ -1,0 +1,40 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "NativeSavedOutputObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:PutObject",
+        "s3:DeleteObject",
+        "s3:DeleteObjectVersion"
+      ],
+      "Resource": [
+        "arn:aws:s3:::prod-media-cache/image-pyramids/objects/*",
+        "arn:aws:s3:::prod-media-cache/_aap_managed/media-cache/image-pyramids/objects/*"
+      ]
+    },
+    {
+      "Sid": "NativeSavedOutputListing",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
+      "Resource": ["arn:aws:s3:::prod-media-cache"],
+      "Condition": {
+        "StringLike": {
+          "s3:prefix": [
+            "image-pyramids/objects/*",
+            "_aap_managed/media-cache/image-pyramids/objects/*"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "NativeSavedOutputMultipartListing",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucketMultipartUploads"],
+      "Resource": ["arn:aws:s3:::prod-media-cache"]
+    }
+  ]
+}

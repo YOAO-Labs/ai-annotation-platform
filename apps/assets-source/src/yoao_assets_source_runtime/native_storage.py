@@ -391,7 +391,10 @@ class NativeStorageSigner:
             "retirement_prefix", capture, require_scope
         )
         ttl = _lease_expiry(context.valid_until, datetime.now(timezone.utc))
-        query = prefix_listing_query(context.storage_ref.prefix, request.kind)
+        query = prefix_listing_query(
+            context.storage_ref.prefix, request.kind,
+            key_marker=request.key_marker, upload_id_marker=request.upload_id_marker,
+        )
         url, expires_at = _presign(
             method="GET",
             credentials=credentials,

@@ -444,18 +444,15 @@ async def put_member(
     )
 
 
-async def _close_abandoned(response: httpx.Response) -> None:
-    """Close an abandoned body without claiming a closure that already failed.
-
-    ``aiter_raw`` sets ``is_closed`` before its own ``aclose`` finishes, so a
-    marker alone is not proof.  The read has already failed by the time this
-    runs, so a secondary close failure never replaces that failure.
-    """
+async def _close_abandoned(response: httpx.Response) -> bool:
+    """Return closure proof, not httpx's preemptive ``is_closed`` marker."""
+    if response.is_closed:
+        return False
     try:
-        if not response.is_closed:
-            await response.aclose()
+        await response.aclose()
     except BaseException:
-        return
+        return False
+    return True
 
 
 async def get_member(
@@ -470,7 +467,6 @@ async def get_member(
     require_exact_member_request(url, folded, member)
     data = bytearray()
     response = None
-    drained = False
     try:
         response = await http.send(
             http.build_request("GET", url, headers=raw), stream=True
@@ -492,17 +488,11 @@ async def get_member(
             if len(data) + len(chunk) > limit:
                 raise ImageFailure("resource_budget_exceeded")
             data.extend(chunk)
-        # Completing ``aiter_raw`` is what proves the response closed: it runs
-        # an automatic ``aclose`` that sets ``is_closed`` before the stream
-        # close succeeds, so a second ``aclose`` would return without proof.
-        drained = True
-    except (ImageFailure, asyncio.CancelledError):
-        raise
-    except httpx.HTTPError:
-        raise _unavailable() from None
-    finally:
-        if response is not None and not drained:
-            await _close_abandoned(response)
+    except BaseException as exc:
+        closed = response is not None and await _close_abandoned(response)
+        failure = _unavailable() if isinstance(exc, httpx.HTTPError) else exc
+        failure.storage_operation_unsettled = not closed
+        raise failure from None
     if len(data) != member.size_bytes:
         raise _invalid()
     if hashlib.sha256(data).hexdigest() != member.sha256:
@@ -521,18 +511,18 @@ async def head_member(
     require_exact_member_request(url, folded, member)
     try:
         response = await http.head(url, headers=raw)
-    except asyncio.CancelledError:
-        raise
-    except ImageFailure:
-        raise
-    except httpx.HTTPError:
-        raise _unavailable() from None
+    except BaseException as exc:
+        failure = _unavailable() if isinstance(exc, httpx.HTTPError) else exc
+        failure.storage_operation_unsettled = True
+        raise failure from None
     if response.status_code == 404:
         raise NativeMemberMissing(member.relative_key)
     if response.status_code != 200:
         raise _unavailable()
     if not response.is_closed:
-        raise _unavailable()
+        failure = _unavailable()
+        failure.storage_operation_unsettled = True
+        raise failure
     observed = _observed_identity(response.headers)
     if (
         observed.etag != member.etag

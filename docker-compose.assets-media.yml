@@ -1,3 +1,5 @@
+# Optional Native pyramid caller settings and secrets live in
+# docker-compose.assets-native.yml; leave them out for non-Native media deployment.
 services:
   assets-media-control:
     build:

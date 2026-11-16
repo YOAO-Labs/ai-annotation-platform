@@ -2741,8 +2741,7 @@ ALTER FUNCTION aap_assets_v1.guard_native_pyramid_retirement_page()
 ALTER FUNCTION aap_assets_v1.preserve_native_pyramid_retirement_grace()
     OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.native_pyramid_read_permits OWNER TO :"assets_owner";
--- The superseding allocator keeps its Images/Assets owner on fresh installs,
--- exactly as the upgrade path does; the %image% sweep does not match its name.
+-- The superseding allocator keeps its Images/Assets owner on fresh installs.
 ALTER FUNCTION aap_assets_v1.allocate_native_pyramid_output(
     uuid, bigint, uuid, uuid, integer
 ) OWNER TO :"assets_owner";
@@ -2779,7 +2778,10 @@ BEGIN
           ON namespace.oid = proc.pronamespace
         WHERE namespace.nspname = 'aap_assets_v1'
           AND proc.prokind IN ('f', 'p')
-          AND proc.proname LIKE '%image%'
+          AND (
+              proc.proname LIKE '%image%'
+              OR proc.proname LIKE '%native_pyramid%'
+          )
     LOOP
         EXECUTE pg_catalog.format(
             'ALTER FUNCTION %s OWNER TO %I', target.signature, owner_name

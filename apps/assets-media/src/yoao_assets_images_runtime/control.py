@@ -1550,7 +1550,12 @@ class ImageControl:
         pyramid: c.ImagePyramidGeneration,
         request: c.ImageSourceSelector,
     ):
-        """Admit one durable native read permit and always settle it."""
+        """Admit one durable native read permit and settle proved-closed reads.
+
+        A failed read whose actual HTTP response/body closure was not proved
+        keeps its durable permit: completion would assert a physical closure the
+        owner cannot support.  Known closed reads, including failures, settle.
+        """
         output = pyramid.native_output
         if self.native_storage is None:
             # No Native read signer in this process; never fall back to the
@@ -1577,11 +1582,27 @@ class ImageControl:
             failure = exc
             raise
         finally:
-            error = await self._settle_native_read(operation_id, token)
-            if error is not None:
-                if failure is None:
-                    raise error
-                log.warning("Native image read permit settlement failed")
+            if failure is not None and getattr(
+                failure, "storage_operation_unsettled", False
+            ):
+                # The HTTP response/body closure was not proved.  Completing the
+                # permit would claim physical closure the owner cannot support,
+                # so retain the durable barrier and never publish URLs.
+                log.warning(
+                    "Native image read permit retained after unproven closure "
+                    "operation_id=%s output_id=%s",
+                    operation_id,
+                    output.output_id if output is not None else None,
+                )
+            else:
+                error = await self._settle_native_read(operation_id, token)
+                if error is not None:
+                    if failure is None:
+                        raise error
+                    log.warning(
+                        "Native image read permit settlement failed operation_id=%s",
+                        operation_id,
+                    )
 
     async def _begin_native_read(
         self,
