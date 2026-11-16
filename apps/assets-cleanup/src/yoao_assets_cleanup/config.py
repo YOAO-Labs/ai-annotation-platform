@@ -103,6 +103,8 @@ class CleanupConfig:
     inputs_storage: InputGarbageStorageConfig
     poll_seconds: float
     page_size: int
+    native_storage_url: str
+    native_storage_token: str = field(repr=False)
     health_host: str
     health_port: int
 
@@ -177,6 +179,35 @@ def load_config(environment: Mapping[str, str] | None = None) -> CleanupConfig:
     if not address.is_loopback or address.version != 4:
         raise ConfigurationError("Cleanup health endpoint must use IPv4 loopback")
 
+    native_storage_url = source.get("ASSET_CLEANUP_NATIVE_STORAGE_URL", "").strip()
+    try:
+        native_origin = urlsplit(native_storage_url)
+        native_origin.port
+        native_origin_valid = (
+            native_origin.scheme in {"http", "https"}
+            and bool(native_origin.hostname)
+            and native_origin.username is None
+            and native_origin.password is None
+            and native_origin.path in {"", "/"}
+            and not native_origin.query
+            and not native_origin.fragment
+        )
+    except ValueError:
+        native_origin_valid = False
+    if not native_origin_valid:
+        raise ConfigurationError(
+            "ASSET_CLEANUP_NATIVE_STORAGE_URL must be an HTTP(S) origin"
+        )
+    native_storage_token = _secret(source, "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN")
+    if (
+        len(native_storage_token) < 32
+        or any(not 33 <= ord(character) <= 126 for character in native_storage_token)
+    ):
+        raise ConfigurationError(
+            "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN must contain at least 32 "
+            "ASCII non-whitespace characters"
+        )
+
     return CleanupConfig(
         database_url=database_url,
         bucket=bucket,
@@ -197,6 +228,8 @@ def load_config(environment: Mapping[str, str] | None = None) -> CleanupConfig:
         ),
         poll_seconds=_positive_float(source, "ASSET_CLEANUP_POLL_SECONDS", "5"),
         page_size=_page_size(source),
+        native_storage_url=native_storage_url.rstrip("/"),
+        native_storage_token=native_storage_token,
         health_host=health_host,
         health_port=health_port,
     )

@@ -41,7 +41,7 @@ def _claim(*, output_id=None, lease_token=None, after=None, **target_overrides):
 
 
 def _member(*, operation_id=None, relative_key="manifest.json"):
-    return c.NativePyramidRetirementMember(
+    return c.NativePyramidSavedMember(
         operation_id=operation_id or uuid4(),
         relative_key=relative_key,
         sha256="b" * 64,
@@ -63,28 +63,17 @@ def _page(*, output_id, lease_token, items, exhausted, after=None):
     )
 
 
-def test_claim_is_bound_to_the_configured_store_and_saved_prefix():
+def test_claim_uses_the_saved_target_without_a_configured_store():
     output_id = uuid4()
     claim = _claim(output_id=output_id)
-    store = c.NativePyramidRetirementStore(
-        endpoint_url="https://cache.example", bucket="media-cache"
-    )
-    request = c.ClaimNativePyramidRetirementRequest(worker_id=uuid4(), store=store)
+    request = c.ClaimNativePyramidRetirementRequest(worker_id=uuid4())
+    assert request.lease_seconds == 120
     result = c.ClaimedNativePyramidRetirement(claim=claim)
     c.require_scope(request, result)
 
-    other_store = c.NativePyramidRetirementStore(
-        endpoint_url="https://other.example", bucket="media-cache"
-    )
-    with pytest.raises(ValueError):
-        c.require_scope(
-            c.ClaimNativePyramidRetirementRequest(worker_id=uuid4(), store=other_store),
-            result,
-        )
-
     escaped = claim.model_copy(
         update={
-            "storage_ref": c.NativePyramidRetirementTarget.model_validate(
+            "storage_ref": c.NativePyramidSavedTarget.model_validate(
                 _target(output_id=uuid4())
             )
         }
@@ -100,7 +89,7 @@ def test_claim_is_bound_to_the_configured_store_and_saved_prefix():
             c.ClaimedNativePyramidRetirement(
                 claim=claim.model_copy(
                     update={
-                        "storage_ref": c.NativePyramidRetirementTarget.model_validate(
+                        "storage_ref": c.NativePyramidSavedTarget.model_validate(
                             wrong_prefix
                         )
                     }
@@ -110,12 +99,7 @@ def test_claim_is_bound_to_the_configured_store_and_saved_prefix():
 
 
 def test_empty_claim_is_the_only_bounded_no_work_result():
-    request = c.ClaimNativePyramidRetirementRequest(
-        worker_id=uuid4(),
-        store=c.NativePyramidRetirementStore(
-            endpoint_url="https://cache.example", bucket="media-cache"
-        ),
-    )
+    request = c.ClaimNativePyramidRetirementRequest(worker_id=uuid4())
     assert c.ClaimedNativePyramidRetirement(claim=None).claim is None
     c.require_scope(request, c.ClaimedNativePyramidRetirement(claim=None))
 
@@ -286,8 +270,8 @@ def test_retirement_operations_are_cleanup_only_and_typed():
     assert claim.role == "cleanup"
     assert claim.request is c.ClaimNativePyramidRetirementRequest
     assert claim.result is c.ClaimedNativePyramidRetirement
-    assert claim.arguments == ("worker_id", "store", "lease_seconds")
-    assert claim.sql_types == ("uuid", "jsonb", "integer")
+    assert claim.arguments == ("worker_id", "lease_seconds")
+    assert claim.sql_types == ("uuid", "integer")
 
     prepare = c.OPERATIONS["prepare_native_pyramid_retirement_page"]
     assert prepare.role == "cleanup"
@@ -317,6 +301,8 @@ def test_summary_carries_the_selected_generation_source_snapshot():
         status="failed",
         required=True,
         generation=2,
+        building_generation=None,
+        building_status=None,
         source_generation=7,
         source_snapshot=snapshot,
         width=None,
@@ -329,6 +315,8 @@ def test_summary_carries_the_selected_generation_source_snapshot():
         overview_digest=None,
         tile_count=0,
         retained_bytes=0,
+        native=False,
+        native_output=None,
     )
     summary = generation.summary()
     assert summary.source_snapshot == snapshot
@@ -338,6 +326,8 @@ def test_summary_carries_the_selected_generation_source_snapshot():
         status="not_available",
         required=False,
         generation=None,
+        building_generation=None,
+        building_status=None,
         width=None,
         height=None,
         format=None,
@@ -348,5 +338,7 @@ def test_summary_carries_the_selected_generation_source_snapshot():
         overview_digest=None,
         tile_count=0,
         retained_bytes=0,
+        native=False,
+        native_output=None,
     )
     assert unavailable.summary().source_snapshot is None

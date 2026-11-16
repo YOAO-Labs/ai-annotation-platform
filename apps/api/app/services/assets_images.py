@@ -169,6 +169,24 @@ class _IndependentImageDatabase:
             yield raw_connection.driver_connection
 
 
+def _native_storage_client(prefix: str):
+    from yoao_assets_images.native_storage_client import NativePyramidStorageClient
+    from yoao_assets_images_runtime.config import load_native_storage_config
+
+    environment = {}
+    for suffix in ("URL", "TOKEN", "TOKEN_FILE"):
+        name = f"{prefix}_{suffix}"
+        value = getattr(settings, name.lower())
+        if value:
+            environment[name] = value
+    config = load_native_storage_config(
+        environment, f"{prefix}_URL", f"{prefix}_TOKEN"
+    )
+    if config is None:
+        return None
+    return NativePyramidStorageClient(config.url, config.token)
+
+
 def image_storage(*, control: bool = False):
     from yoao_assets_images_runtime.config import ImageStorageConfig
     from yoao_assets_media_runtime.additional_original import (
@@ -195,7 +213,10 @@ def image_storage(*, control: bool = False):
             inputs_bucket=settings.minio_inputs_bucket,
             connect_timeout=2 if control else 10,
             read_timeout=10 if control else 120,
-        )
+        ),
+        native_writer=(
+            None if control else _native_storage_client("ASSETS_IMAGES_NATIVE_STORAGE")
+        ),
     )
 
 
@@ -268,6 +289,7 @@ def image_gateway(db: AsyncSession | None = None, *, caller_transaction: bool = 
             image_storage(control=True),
             policy=image_policy(),
             wakeup=_wake,
+            native_storage=_native_storage_client("ASSETS_MEDIA_NATIVE_IMAGE_STORAGE"),
         )
     return ImageGateway(provider)
 

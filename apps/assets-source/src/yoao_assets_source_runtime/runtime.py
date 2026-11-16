@@ -12,6 +12,15 @@ from uuid import uuid4
 
 import asyncpg
 from pydantic import BaseModel, ValidationError
+from yoao_assets_images.contract import ImageFailure
+from yoao_assets_images.native_storage_contract import (
+    NativePyramidIoReferences,
+    NativePyramidPrefixIoReference,
+    NativePyramidReadIoRequest,
+    NativePyramidRetirementIoRequest,
+    NativePyramidRetirementPrefixIoRequest,
+    NativePyramidWriteIoRequest,
+)
 
 from .config import SourceConfig
 from yoao_assets_source.connections_contract import (
@@ -55,6 +64,7 @@ from .workflow import UploadWorkflow
 from .ingest_storage import IngestStorage
 from .ingest_workflow import IngestWorkflow
 from .image_admission import ImageAdmission
+from .native_storage import NativeStorageSigner
 
 _Result = TypeVar("_Result", bound=BaseModel)
 _SOURCE_SCHEMA = "aap-assets-source/v1"
@@ -72,17 +82,24 @@ class SourceRuntime:
         config: SourceConfig,
         database: SourceDatabase | None,
         storage: SourceStorage | None,
+        native: NativeStorageSigner | None = None,
     ) -> None:
         self._config = config
         self._database = database
         self._storage = storage
+        self._native = native
         self._recovery_task: asyncio.Task[None] | None = None
 
     @classmethod
     async def start(cls, config: SourceConfig) -> SourceRuntime:
         database = await SourceDatabase.connect(config)
         try:
-            runtime = cls(config, database, SourceStorage(config))
+            native = (
+                NativeStorageSigner(config, config.native, database)
+                if config.native is not None
+                else None
+            )
+            runtime = cls(config, database, SourceStorage(config), native)
             runtime._recovery_task = asyncio.create_task(
                 runtime._recover_import_verifications(), name="source-import-verification-recovery"
             )
@@ -306,6 +323,38 @@ class SourceRuntime:
             return body
         except _ExpectedFailure as exc:
             return exc.body
+
+    async def native_write_reference(
+        self, request: NativePyramidWriteIoRequest
+    ) -> NativePyramidIoReferences:
+        return await self._require_native_signer().write_reference(request)
+
+    async def native_verify_reference(
+        self, request: NativePyramidWriteIoRequest
+    ) -> NativePyramidIoReferences:
+        return await self._require_native_signer().verify_reference(request)
+
+    async def native_read_references(
+        self, request: NativePyramidReadIoRequest
+    ) -> NativePyramidIoReferences:
+        return await self._require_native_signer().read_references(request)
+
+    async def native_retirement_references(
+        self, request: NativePyramidRetirementIoRequest
+    ) -> NativePyramidIoReferences:
+        return await self._require_native_signer().retirement_references(request)
+
+    async def native_retirement_prefix_reference(
+        self, request: NativePyramidRetirementPrefixIoRequest
+    ) -> NativePyramidPrefixIoReference:
+        return await self._require_native_signer().retirement_prefix_reference(
+            request
+        )
+
+    def _require_native_signer(self) -> NativeStorageSigner:
+        if self._native is None:
+            raise ImageFailure("source_unavailable")
+        return self._native
 
     async def ready(self) -> bool:
         return await self._database.ready()

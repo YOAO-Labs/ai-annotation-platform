@@ -795,7 +795,7 @@ async def test_pyramid_finish_validates_the_complete_grid_and_publishes_atomical
         )
     )
     output_id = uuid.UUID(allocation["output_id"])
-    prefix = allocation["prefix"]
+    prefix = allocation["storage_ref"]["prefix"]
     assert prefix == f"image-pyramids/objects/{output_id}/"
     assert _data(
         _reply(

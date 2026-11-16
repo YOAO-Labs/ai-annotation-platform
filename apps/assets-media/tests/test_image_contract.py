@@ -237,6 +237,8 @@ def test_profile_selection_is_scoped_in_generation_summary_and_invalidation():
         overview_digest=None,
         tile_count=0,
         retained_bytes=0,
+        native=False,
+        native_output=None,
     )
     generation_read = c.ImageGenerationRead(source=current, pyramid=pyramid)
     generation_request = c.ReadImageGenerationRequest(
@@ -513,6 +515,8 @@ def test_legacy_stale_pyramid_generation_roundtrips_without_fake_source_facts():
         overview_digest=None,
         tile_count=0,
         retained_bytes=0,
+        native=False,
+        native_output=None,
     )
     assert legacy.generation == 4
     assert legacy.source_generation is None and legacy.source_snapshot is None
@@ -541,6 +545,8 @@ def test_legacy_stale_pyramid_generation_roundtrips_without_fake_source_facts():
             overview_digest=None,
             tile_count=0,
             retained_bytes=0,
+            native=False,
+            native_output=None,
         )
 
 

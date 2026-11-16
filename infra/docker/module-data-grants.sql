@@ -1737,7 +1737,7 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     aap_assets_v1.complete_accepted_input_garbage(uuid, uuid),
     aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
     aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid),
-    aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer),
+    aap_assets_v1.claim_native_pyramid_retirement(uuid,integer),
     aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer),
     aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
     TO :"asset_cleanup_role";
@@ -2714,7 +2714,7 @@ ALTER FUNCTION aap_assets_v1.pending_storage_deletions_v2(
 ALTER TABLE aap_assets_v1.native_pyramid_retirement_targets OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.native_pyramid_retirements OWNER TO :"assets_owner";
 ALTER TABLE aap_assets_v1.native_pyramid_retirement_pages OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1.claim_native_pyramid_retirement(uuid, jsonb, integer)
+ALTER FUNCTION aap_assets_v1.claim_native_pyramid_retirement(uuid, integer)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.prepare_native_pyramid_retirement_page(
     uuid, uuid, integer
@@ -2725,8 +2725,6 @@ ALTER FUNCTION aap_assets_v1.complete_native_pyramid_retirement_page(
 ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_policy_valid(jsonb)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_grace(jsonb)
-    OWNER TO :"assets_owner";
-ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_store_valid(jsonb)
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1._native_pyramid_retirement_target_valid(jsonb, uuid)
     OWNER TO :"assets_owner";
@@ -2741,6 +2739,33 @@ ALTER FUNCTION aap_assets_v1.guard_native_pyramid_retirement_target()
 ALTER FUNCTION aap_assets_v1.guard_native_pyramid_retirement_page()
     OWNER TO :"assets_owner";
 ALTER FUNCTION aap_assets_v1.preserve_native_pyramid_retirement_grace()
+    OWNER TO :"assets_owner";
+ALTER TABLE aap_assets_v1.native_pyramid_read_permits OWNER TO :"assets_owner";
+-- The superseding allocator keeps its Images/Assets owner on fresh installs,
+-- exactly as the upgrade path does; the %image% sweep does not match its name.
+ALTER FUNCTION aap_assets_v1.allocate_native_pyramid_output(
+    uuid, bigint, uuid, uuid, integer
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._native_pyramid_output_fixture_owned(uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._image_saved_output_target(uuid, integer, uuid, boolean)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.guard_native_pyramid_read_permit()
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.begin_native_pyramid_read(
+    uuid, uuid, uuid, integer, text, uuid, uuid
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.complete_native_pyramid_read(uuid, uuid)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1._native_pyramid_target_destination(
+    uuid, text, text, text
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.capture_native_pyramid_write_io(
+    uuid, uuid, bigint, uuid, text
+) OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.capture_native_pyramid_read_io(uuid, uuid, jsonb)
+    OWNER TO :"assets_owner";
+ALTER FUNCTION aap_assets_v1.capture_native_pyramid_retirement_io(uuid, uuid, uuid)
     OWNER TO :"assets_owner";
 DO $$
 DECLARE
@@ -3704,7 +3729,7 @@ BEGIN
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
-        'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)', 'EXECUTE')
+        'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
         'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)', 'EXECUTE')
        OR NOT has_function_privilege(current_setting('aap.asset_cleanup_role'),
@@ -3727,7 +3752,7 @@ BEGIN
                  'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
                  'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::pg_catalog.regprocedure,
                  'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::pg_catalog.regprocedure,
-                 'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)'::pg_catalog.regprocedure,
+                 'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::pg_catalog.regprocedure,
                  'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::pg_catalog.regprocedure,
                  'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::pg_catalog.regprocedure
              )

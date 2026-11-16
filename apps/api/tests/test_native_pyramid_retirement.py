@@ -63,6 +63,16 @@ def _storage_ref(output_id):
 async def _seed_obligation(session):
     output_id, asset_id, lease_token = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
     ref = _storage_ref(output_id)
+    # The output birth trigger requires its owning pyramid asset; a random
+    # dataset item keeps this synthetic obligation outside fixture ownership.
+    await session.execute(
+        text(
+            "INSERT INTO public.image_pyramid_assets "
+            "(id, dataset_item_id, profile_version) "
+            "VALUES (CAST(:asset_id AS uuid), CAST(:item_id AS uuid), 'pyramid-v1')"
+        ),
+        {"asset_id": asset_id, "item_id": uuid.uuid4()},
+    )
     await session.execute(
         text(
             "INSERT INTO public.image_pyramid_outputs "
@@ -120,17 +130,14 @@ async def _seed_obligation(session):
     return output_id, lease_token
 
 
-async def _claim(session, worker_id, *, endpoint=ENDPOINT, bucket=BUCKET):
+async def _claim(session, worker_id):
     return _reply(
         await session.scalar(
             text(
                 "SELECT aap_assets_v1.claim_native_pyramid_retirement("
-                "CAST(:worker_id AS uuid), CAST(:store AS jsonb), 120)"
+                "CAST(:worker_id AS uuid), 120)"
             ),
-            {
-                "worker_id": worker_id,
-                "store": json.dumps({"endpoint_url": endpoint, "bucket": bucket}),
-            },
+            {"worker_id": worker_id},
         )
     )
 
@@ -174,26 +181,12 @@ async def _complete(
     )
 
 
-async def test_foreign_store_page_and_token_never_advance_retirement(test_engine):
+async def test_saved_target_claim_and_page_fences_are_exact(test_engine):
     maker = async_sessionmaker(test_engine, class_=AsyncSession, expire_on_commit=False)
     async with maker() as session:
         await session.begin()
         try:
             output_id, _ = await _seed_obligation(session)
-
-            foreign = await _claim(session, uuid.uuid4(), bucket="other-bucket")
-            assert foreign["ok"] is True
-            assert foreign["data"]["claim"] is None
-            assert (
-                await session.scalar(
-                    text(
-                        "SELECT state FROM public.image_pyramid_outputs "
-                        "WHERE id = CAST(:output_id AS uuid)"
-                    ),
-                    {"output_id": output_id},
-                )
-                == "building"
-            )
 
             claimed = await _claim(session, uuid.uuid4())
             assert claimed["ok"] is True
@@ -464,7 +457,7 @@ async def test_ordinary_allocation_registers_and_closes_its_saved_output(db_sess
         .mappings()
         .one()
     )
-    assert registered["prefix"] == allocation["prefix"]
+    assert registered["prefix"] == allocation["storage_ref"]["prefix"]
     assert registered["prefix"] == (
         registered["key_prefix"] + f"image-pyramids/objects/{output_id}/"
     )
@@ -509,25 +502,11 @@ async def test_ordinary_allocation_registers_and_closes_its_saved_output(db_sess
         {"output_id": output_id},
     )
 
-    withheld = await _claim(
-        db_session,
-        uuid.uuid4(),
-        endpoint=registered["endpoint_url"],
-        bucket="a-different-bucket",
-    )
-    assert withheld["ok"] is True
-    assert withheld["data"]["claim"] is None
-
-    claimed = await _claim(
-        db_session,
-        uuid.uuid4(),
-        endpoint=registered["endpoint_url"],
-        bucket=registered["bucket"],
-    )
+    claimed = await _claim(db_session, uuid.uuid4())
     retirement = claimed["data"]["claim"]
     assert retirement is not None
     assert retirement["output_id"] == str(output_id)
-    assert retirement["storage_ref"]["prefix"] == allocation["prefix"]
+    assert retirement["storage_ref"]["prefix"] == allocation["storage_ref"]["prefix"]
     lease_token = uuid.UUID(retirement["lease_token"])
 
     page = (await _prepare(db_session, output_id, lease_token))["data"]

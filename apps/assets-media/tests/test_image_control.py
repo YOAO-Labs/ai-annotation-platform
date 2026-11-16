@@ -289,6 +289,8 @@ def pyramid_projection(current, *, status="ready", generation=2, attempt=None):
     manifest = c.ImagePyramidManifest.model_validate(manifest_data)
     row = c.ImagePyramidGeneration(
         asset_id=asset_id,
+        native=False,
+        native_output=None,
         status=status,
         required=False,
         generation=generation,
@@ -537,6 +539,8 @@ async def test_unknown_dimensions_warmup_denial_keeps_generation_read_available(
         source=current,
         pyramid=c.ImagePyramidGeneration(
             asset_id=None,
+            native=False,
+            native_output=None,
             status="not_available",
             required=False,
             generation=None,
@@ -635,6 +639,8 @@ async def test_optional_pyramid_dispatch_uses_control_policy_and_captured_spec()
     )
     missing = c.ImagePyramidGeneration(
         asset_id=None,
+        native=False,
+        native_output=None,
         status="missing",
         required=False,
         generation=None,
@@ -655,6 +661,8 @@ async def test_optional_pyramid_dispatch_uses_control_policy_and_captured_spec()
     )
     pending = c.ImagePyramidGeneration(
         asset_id=None,
+        native=False,
+        native_output=None,
         status="pending",
         required=False,
         generation=None,
@@ -1865,3 +1873,42 @@ async def test_ready_image_reference_never_admits_missing_output_repair(
         result = await control.ready_source_reference(request)
         assert result.thumbnail_url == f"https://image.local/cache/{key}?expires=3600"
         assert result.source.thumbnail_current
+
+
+@pytest.mark.asyncio
+async def test_legacy_generation_reference_keeps_its_original_lifetime_default():
+    owner = c.ImageOwner(kind="dataset_item", id=uuid4())
+    current = source(owner=owner)
+    state, raw, prefix = pyramid_projection(current)
+    overview_key = f"{prefix}/overview.webp"
+    storage = FakeStorage(
+        cache_keys=[overview_key],
+        cache_bytes={state.pyramid.manifest_key: raw},
+    )
+
+    class Database:
+        async def call(self, operation, request):
+            if operation in {"read_image_source", "observe_image_source"}:
+                return current
+            assert operation == "read_image_generation"
+            return state
+
+    # Frozen/current policy selection applies only to Native references.
+    control = ImageControl(Database(), storage, ImagePolicy(url_expiry_seconds=900))
+    default = await control.generation_reference(
+        ImageGenerationReferenceRequest(actor_id=uuid4(), dataset_item_id=owner.id)
+    )
+    explicit = await control.generation_reference(
+        ImageGenerationReferenceRequest(
+            actor_id=uuid4(),
+            dataset_item_id=owner.id,
+            expires_in=604800,
+        )
+    )
+
+    assert default.expires_in == 3600
+    assert explicit.expires_in == 604800
+    assert storage.signed_cache == [
+        (overview_key, 3600),
+        (overview_key, 604800),
+    ]

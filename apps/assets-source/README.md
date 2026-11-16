@@ -58,10 +58,10 @@ after the transaction, so a lost response can replay the first receipt without
 duplicating Items, source writes, or image jobs. Image admission is part of the
 registration transaction.
 
-The Source PostgreSQL login executes exactly thirty-seven functions in
+The Source PostgreSQL login executes exactly forty functions in
 `aap_assets_v1`: fifteen source/ingest capabilities, eleven connection
-capabilities, three image-source/admission capabilities, and eight managed-original
-capabilities. It has no direct
+capabilities, three image-source/admission capabilities, eight managed-original
+capabilities, and three Native pyramid signer capture capabilities. It has no direct
 relation or sequence privileges, no access to other owner schemas, no
 owner-role membership, and no database/schema creation rights. A broadened
 login prevents startup. The two media-delivery claim/ack
@@ -103,13 +103,71 @@ environment fallback; a short `SHARE` lock rechecks the policy at final commit
 without spanning DNS or connector I/O. Name-only and null-patch updates do not
 consult the host policy or require the encryption key.
 
-The S3 identity can presign PUTs and read configured staging and historical
-source objects. Scan additionally needs `ListBucket` on its own configured
-datasets bucket and conditional HEAD/GET access to the accepted Dataset
-prefix. ZIP writes only under `dataset-sources/`, with multipart abort
+The ordinary S3 identity can presign PUTs and read configured staging and
+historical source objects. Scan additionally needs `ListBucket` on its own
+configured datasets bucket and conditional HEAD/GET access to the accepted
+Dataset prefix. ZIP writes only under `dataset-sources/`, with multipart abort
 permission for its own publication objects. The identity has no source delete,
-foreign-bucket listing, bucket-management, or media-cache write permission.
-The media-cache bucket is passed only to the transactional cleanup outbox.
+foreign-bucket listing, bucket-management, or media-cache write or delete
+permission. The media-cache bucket reaches the transactional cleanup outbox
+and the explicitly configured Native signer only.
+
+## Native pyramid storage signing
+
+The runtime also owns five finite Native pyramid signing routes. They reuse the
+Images success/failure envelope and never return connection configuration,
+ciphertext or plaintext credentials:
+
+- `POST /v1/native-pyramids/write-reference` and
+  `POST /v1/native-pyramids/verify-reference` use the writer token and bind one
+  exact reserved member operation, its current job/generation/lease and its
+  submitted or recorded receipt.
+- `POST /v1/native-pyramids/read-references` uses the reader token and returns
+  either internal conditional HEAD/GET requests for one active read permit or
+  public GET URLs for its already verified members.
+- `POST /v1/native-pyramids/retirement-references` and
+  `POST /v1/native-pyramids/retirement-prefix-reference` use the cleanup token
+  and bind one exact prepared retirement page, its live lease and its immutable
+  member IDs. The prefix route signs only the empty terminal page.
+
+Each route captures its private context through one of the three Source-only
+SQL capabilities (`capture_native_pyramid_write_io`,
+`capture_native_pyramid_read_io`, `capture_native_pyramid_retirement_io`),
+releases that transaction, resolves and checks the saved target, then captures
+and compares the exact scope again before signing. Saved endpoint, bucket,
+prefix and Native member receipts come from the output allocation; current
+purpose bindings are irrelevant for old outputs. A mutated or missing saved
+location is refused instead of redirected.
+
+The builtin target signs with a separate Native S3 identity from
+`ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY` and
+`ASSETS_SOURCE_NATIVE_S3_SECRET_KEY`, limited to Native Media-cache output
+prefixes. The ordinary Source identity keeps its existing permissions and
+never gains Native deletion rights. Connection-backed targets use their
+registered encrypted secret only inside Source, under the current connector
+key and host policy. A database host policy overrides the Source environment:
+an explicit empty policy refuses every host, while an absent policy falls back
+to `ASSETS_SOURCE_CONNECTOR_HOST_ALLOWLIST`. The signer does not perform
+PUT/GET/HEAD/DELETE or listing I/O, does not accept arbitrary buckets, keys,
+methods or queries, and cannot be used as a generic S3 signing service.
+
+The captured context retains the complete frozen `IMAGE_PYRAMID_URL_EXPIRY_SECONDS`
+policy value. Every issued SigV4 capability and public URL is capped at the
+SigV4 maximum of 604800 seconds, and an explicitly requested lifetime above
+that cap is refused rather than shortened silently.
+
+The feature is all-or-nothing. Configure
+`ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN[_FILE]`,
+`ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN[_FILE]`,
+`ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN[_FILE]`,
+`ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY[_FILE]` and
+`ASSETS_SOURCE_NATIVE_S3_SECRET_KEY[_FILE]` together. The three tokens must be
+distinct and distinct from `ASSETS_SOURCE_TOKEN` and
+`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`; the Native access key must differ from
+`ASSETS_SOURCE_S3_ACCESS_KEY`. Leaving every Native setting empty keeps the
+feature disabled and all five routes return `source_unavailable`. A partial
+Native configuration fails startup. There is no fallback signer or configured
+cache-bucket substitution for Native callers.
 
 ## Synchronous ZIP and bucket scan
 

@@ -126,6 +126,64 @@ class Value(BaseModel):
         return value
 
 
+class NativePyramidSavedTarget(Value):
+    """The immutable saved-output allocation, independent of current bindings."""
+
+    schema_: Literal[2] = Field(alias="schema")
+    purpose: Literal["media-cache"]
+    location_id: UUID
+    config_revision: Positive
+    binding_generation: BigPositive
+    endpoint_url: Annotated[
+        StrictStr,
+        Field(
+            min_length=8,
+            max_length=2048,
+            pattern=r"^https?://[^\s/?#@\\]+$",
+        ),
+    ]
+    bucket: Annotated[
+        StrictStr,
+        Field(
+            min_length=1,
+            max_length=255,
+            pattern=r"^[^\s\x00-\x1f\x7f/?#@%:\\]+$",
+        ),
+    ]
+    key_prefix: Annotated[StrictStr, Field(max_length=436, pattern=r"^[^\\]*$")]
+    prefix: Annotated[StrictStr, Field(min_length=1, max_length=2048)]
+    storage_identity: Digest
+
+    model_config = ConfigDict(
+        extra="forbid",
+        frozen=True,
+        allow_inf_nan=False,
+        hide_input_in_errors=True,
+        populate_by_name=True,
+    )
+
+
+def _require_saved_output_prefix(
+    output_id: UUID, target: NativePyramidSavedTarget
+) -> None:
+    if target.prefix != (
+        target.key_prefix + "image-pyramids/objects/" + str(output_id) + "/"
+    ):
+        raise ValueError("saved target escaped its output prefix")
+
+
+class NativePyramidOutputReference(Value):
+    output_id: UUID
+    storage_ref: NativePyramidSavedTarget
+    url_expiry_seconds: Positive
+    fixture_owned: StrictBool
+
+    @model_validator(mode="after")
+    def exact_saved_output_prefix(self):
+        _require_saved_output_prefix(self.output_id, self.storage_ref)
+        return self
+
+
 class ObjectIdentity(Value):
     etag: Annotated[StrictStr, Field(min_length=1, max_length=255)]
     byte_size: Count
@@ -512,6 +570,8 @@ class ImagePyramidGeneration(Value):
     overview_digest: PyramidDigest | None
     tile_count: Count
     retained_bytes: Count
+    native: StrictBool
+    native_output: NativePyramidOutputReference | None
 
     @model_validator(mode="after")
     def ready_generation_is_complete(self):
@@ -542,6 +602,12 @@ class ImagePyramidGeneration(Value):
             self.source_generation is not None or self.source_snapshot is not None
         ):
             raise ValueError("pyramid source facts require a generation")
+        if self.native_output is not None and not self.native:
+            raise ValueError("a native output reference requires native ownership")
+        if self.generation is None and (self.native or self.native_output is not None):
+            raise ValueError("an empty pyramid projection cannot be native")
+        if self.status == "ready" and self.native and self.native_output is None:
+            raise ValueError("a ready native pyramid requires its saved output")
         return self
 
     def summary(self) -> ImagePyramidSummary:
@@ -685,6 +751,47 @@ class ImageGenerationRead(Value):
         if (stale or self.source.source_drifted) and self.pyramid.status == "ready":
             raise ValueError("stale pyramid generation was reported as current")
         return self
+
+
+class BeginNativePyramidReadRequest(ReadImageGenerationRequest):
+    operation_id: UUID
+    token: UUID
+
+
+class NativePyramidReadPermit(Value):
+    operation_id: UUID
+    token: UUID
+    output_id: UUID
+    storage_ref: NativePyramidSavedTarget
+    pyramid: ImagePyramidGeneration
+    url_expiry_seconds: Positive
+    fixture_owned: StrictBool
+
+    @model_validator(mode="after")
+    def exact_saved_read_scope(self):
+        _require_saved_output_prefix(self.output_id, self.storage_ref)
+        if not self.pyramid.native or self.pyramid.native_output is None:
+            raise ValueError("read permit has no native saved output")
+        if (
+            self.pyramid.native_output.output_id != self.output_id
+            or self.pyramid.native_output.storage_ref != self.storage_ref
+            or self.pyramid.native_output.url_expiry_seconds
+            != self.url_expiry_seconds
+            or self.pyramid.native_output.fixture_owned != self.fixture_owned
+        ):
+            raise ValueError("read permit escaped its native output reference")
+        return self
+
+
+class CompleteNativePyramidReadRequest(Value):
+    operation_id: UUID
+    token: UUID
+
+
+class NativePyramidReadClosure(Value):
+    operation_id: UUID
+    token: UUID
+    closed: Literal[True]
 
 
 class ReadImageWorkRequest(Value):
@@ -1087,12 +1194,17 @@ class NativePyramidAllocationRequest(Value):
 
 class PyramidOutputAllocation(Value):
     output_id: UUID
-    prefix: Annotated[StrictStr, Field(min_length=1, max_length=1000)]
+    storage_ref: NativePyramidSavedTarget
     job_id: UUID
     job_generation: Revision
     lease_token: UUID
     asset_id: UUID
     generation: PyramidGeneration
+
+    @model_validator(mode="after")
+    def exact_saved_output_prefix(self):
+        _require_saved_output_prefix(self.output_id, self.storage_ref)
+        return self
 
 
 class FinishNativePyramidRequest(ImageLeaseRequest):
@@ -1121,12 +1233,20 @@ class PyramidMemberOperation(Value):
 
 
 class PyramidMemberReceipt(PyramidMemberOperation):
-    etag: Annotated[StrictStr, Field(min_length=1, max_length=1024)]
-    version_id: Annotated[StrictStr, Field(max_length=1024)] | None = None
+    # The Native-only receipt keeps the raw quoted HTTP ETag and the exact
+    # recorded version; its bounds agree with the portable NativePyramidIoMember
+    # (quoted etag >= 3, version >= 1, both <= 1024).  A literal "null" version
+    # is a real recorded value, distinct from an omitted version.
+    etag: Annotated[StrictStr, Field(min_length=3, max_length=1024)]
+    version_id: Annotated[StrictStr, Field(min_length=1, max_length=1024)] | None = None
 
 
 class PyramidMemberAbandon(PyramidMemberOperation):
-    state: Literal["not_written", "unknown"]
+    # "written" is the bounded physical-closure outcome: it is accepted only
+    # for an already written member with a complete exact receipt, keeps that
+    # receipt and state, and closes only the member's own open storage
+    # operation.  It never closes an unknown member.
+    state: Literal["written", "not_written", "unknown"]
 
 
 class FailImageMediaRequest(ImageLeaseRequest):
@@ -1292,67 +1412,8 @@ class ImageGarbageAck(Value):
     completed: StrictBool
 
 
-class NativePyramidRetirementStore(Value):
-    """The explicitly configured cleanup store; it carries no credentials."""
-
-    endpoint_url: Annotated[
-        StrictStr,
-        Field(
-            min_length=8,
-            max_length=2048,
-            pattern=r"^https?://[^\s/?#@\\]+$",
-        ),
-    ]
-    bucket: Annotated[
-        StrictStr,
-        Field(
-            min_length=1,
-            max_length=255,
-            pattern=r"^[^\s\x00-\x1f\x7f/?#@%:\\]+$",
-        ),
-    ]
-
-
-class NativePyramidRetirementTarget(Value):
-    """The immutable saved-output allocation, independent of current bindings."""
-
-    schema_: Literal[2] = Field(alias="schema")
-    purpose: Literal["media-cache"]
-    location_id: UUID
-    config_revision: Positive
-    binding_generation: BigPositive
-    endpoint_url: Annotated[
-        StrictStr,
-        Field(
-            min_length=8,
-            max_length=2048,
-            pattern=r"^https?://[^\s/?#@\\]+$",
-        ),
-    ]
-    bucket: Annotated[
-        StrictStr,
-        Field(
-            min_length=1,
-            max_length=255,
-            pattern=r"^[^\s\x00-\x1f\x7f/?#@%:\\]+$",
-        ),
-    ]
-    key_prefix: Annotated[StrictStr, Field(max_length=436, pattern=r"^[^\\]*$")]
-    prefix: Annotated[StrictStr, Field(min_length=1, max_length=2048)]
-    storage_identity: Digest
-
-    model_config = ConfigDict(
-        extra="forbid",
-        frozen=True,
-        allow_inf_nan=False,
-        hide_input_in_errors=True,
-        populate_by_name=True,
-    )
-
-
 class ClaimNativePyramidRetirementRequest(Value):
     worker_id: UUID
-    store: NativePyramidRetirementStore
     lease_seconds: Annotated[StrictInt, Field(ge=30, le=3600)] = 120
 
 
@@ -1360,8 +1421,13 @@ class NativePyramidRetirementClaim(Value):
     output_id: UUID
     lease_token: UUID
     lease_expires_at: AwareDatetime
-    storage_ref: NativePyramidRetirementTarget
+    storage_ref: NativePyramidSavedTarget
     after_operation_id: UUID | None
+
+    @model_validator(mode="after")
+    def exact_saved_output_prefix(self):
+        _require_saved_output_prefix(self.output_id, self.storage_ref)
+        return self
 
 
 class ClaimedNativePyramidRetirement(Value):
@@ -1374,7 +1440,7 @@ class PrepareNativePyramidRetirementPageRequest(Value):
     page_size: Annotated[StrictInt, Field(ge=1, le=100)] = 100
 
 
-class NativePyramidRetirementMember(Value):
+class NativePyramidSavedMember(Value):
     operation_id: UUID
     relative_key: Annotated[
         StrictStr,
@@ -1401,7 +1467,7 @@ class NativePyramidRetirementPage(Value):
     page_id: UUID
     lease_expires_at: AwareDatetime
     after_operation_id: UUID | None
-    items: Annotated[list[NativePyramidRetirementMember], Field(max_length=100)]
+    items: Annotated[list[NativePyramidSavedMember], Field(max_length=100)]
     exhausted: StrictBool
 
     @model_validator(mode="after")
@@ -1776,8 +1842,8 @@ OPERATIONS = {
     "claim_native_pyramid_retirement": NativeOperation(
         ClaimNativePyramidRetirementRequest,
         ClaimedNativePyramidRetirement,
-        ("worker_id", "store", "lease_seconds"),
-        ("uuid", "jsonb", "integer"),
+        ("worker_id", "lease_seconds"),
+        ("uuid", "integer"),
         "cleanup",
     ),
     "prepare_native_pyramid_retirement_page": NativeOperation(
@@ -1793,6 +1859,28 @@ OPERATIONS = {
         ("output_id", "lease_token", "page_id", "outcome", "operation_ids"),
         ("uuid", "uuid", "uuid", "text", "jsonb"),
         "cleanup",
+    ),
+    "begin_native_pyramid_read": NativeOperation(
+        BeginNativePyramidReadRequest,
+        NativePyramidReadPermit,
+        (
+            "actor_id",
+            "task_id",
+            "dataset_item_id",
+            "generation",
+            "profile_version",
+            "operation_id",
+            "token",
+        ),
+        ("uuid", "uuid", "uuid", "integer", "text", "uuid", "uuid"),
+        "control",
+    ),
+    "complete_native_pyramid_read": NativeOperation(
+        CompleteNativePyramidReadRequest,
+        NativePyramidReadClosure,
+        ("operation_id", "token"),
+        ("uuid", "uuid"),
+        "control",
     ),
 }
 
@@ -2131,26 +2219,40 @@ def require_scope(request: BaseModel, result: BaseModel) -> None:
     ):
         if result.garbage_id != request.garbage_id:
             raise ValueError("image garbage ack substituted another row")
+    if isinstance(request, BeginNativePyramidReadRequest) and isinstance(
+        result, NativePyramidReadPermit
+    ):
+        if (
+            result.operation_id != request.operation_id
+            or result.token != request.token
+            or not result.pyramid.native
+            or result.pyramid.native_output is None
+            or result.output_id != result.pyramid.native_output.output_id
+            or result.storage_ref != result.pyramid.native_output.storage_ref
+        ):
+            raise ValueError("native read permit escaped its requested operation")
+        if (
+            request.generation is not None
+            and result.pyramid.generation != request.generation
+        ):
+            raise ValueError("native read permit substituted another generation")
+        if (
+            request.profile_version is not None
+            and result.pyramid.profile_version != request.profile_version
+        ):
+            raise ValueError("native read permit escaped its requested profile")
+    if isinstance(request, CompleteNativePyramidReadRequest) and isinstance(
+        result, NativePyramidReadClosure
+    ):
+        if result.operation_id != request.operation_id or result.token != request.token:
+            raise ValueError("native read closure substituted another permit")
     if isinstance(request, ClaimNativePyramidRetirementRequest) and isinstance(
         result, ClaimedNativePyramidRetirement
     ):
         if result.claim is not None:
             claim = result.claim
             target = claim.storage_ref
-            if (
-                target.schema_ != 2
-                or target.purpose != "media-cache"
-                or target.endpoint_url != request.store.endpoint_url
-                or target.bucket != request.store.bucket
-            ):
-                raise ValueError("retirement claim escaped its configured store")
-            if target.prefix != (
-                target.key_prefix
-                + "image-pyramids/objects/"
-                + str(claim.output_id)
-                + "/"
-            ):
-                raise ValueError("retirement claim escaped its saved output prefix")
+            _require_saved_output_prefix(claim.output_id, target)
     if isinstance(request, PrepareNativePyramidRetirementPageRequest) and isinstance(
         result, NativePyramidRetirementPage
     ):

@@ -22,10 +22,12 @@ from yoao_assets_images.contract import (
     ImageOrphanCandidate,
     ImageSource,
     ObjectIdentity,
+    PyramidMemberReceipt,
     PyramidMemberReservation,
     PyramidOutputAllocation,
 )
 
+from . import native_media
 from .config import ImageStorageConfig
 
 _UUID = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
@@ -46,6 +48,11 @@ _IMAGE_PYRAMID_ATTEMPT_KEY = re.compile(
 _IMAGE_GENERATION_KEY = re.compile(
     rf"^image-pyramids/(?P<asset>{_UUID})/g(?P<generation>[1-9][0-9]*)/"
     rf"(?:{_ATTEMPT}/)?(?:manifest\.json|overview\.webp|tiles/"
+    r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
+)
+_NATIVE_SAVED_KEY = re.compile(
+    rf"^[^\\]{{0,436}}image-pyramids/objects/{_UUID}/"
+    r"(?:manifest\.json|overview\.webp|tiles/"
     r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
 )
 _HASH_CHUNK_BYTES = 1024 * 1024
@@ -157,9 +164,22 @@ class ImageStorage(Protocol):
         path: Path,
         allocation: PyramidOutputAllocation,
         member: PyramidMemberReservation,
-    ) -> ObjectIdentity: ...
+    ) -> PyramidMemberReceipt: ...
+
+    async def verify_pyramid_member(
+        self,
+        allocation: PyramidOutputAllocation,
+        member: PyramidMemberReservation,
+        receipt: PyramidMemberReceipt,
+    ) -> None: ...
 
     async def sign_cache(self, key: str, expires_in: int = 3600) -> str: ...
+
+    async def head_fixture_cache(self, key: str) -> ObjectIdentity: ...
+
+    async def read_fixture_cache(self, key: str, limit: int) -> bytes: ...
+
+    async def sign_fixture_cache(self, key: str, expires_in: int = 3600) -> str: ...
 
     def iter_orphan_generations(self) -> AsyncIterator[ImageOrphanCandidate]: ...
 
@@ -176,9 +196,11 @@ class S3ImageStorage:
         http_client=None,
         additional_original_client=None,
         fixture_cache_resolver=None,
+        native_writer=None,
     ) -> None:
         self.config = config
         self._fixture_cache_resolver = fixture_cache_resolver
+        self._native_writer = native_writer
         self._http_client = http_client
         self._owns_http_client = http_client is None
         if client is None or signer is None:
@@ -260,6 +282,16 @@ class S3ImageStorage:
                 await client.aclose()
         except BaseException as exc:
             failure = exc
+        try:
+            writer, self._native_writer = self._native_writer, None
+            if writer is not None:
+                await writer.aclose()
+        except BaseException as exc:
+            if failure is not None:
+                raise BaseExceptionGroup(
+                    "Image storage close failed", [failure, exc]
+                ) from None
+            raise
         try:
             if self._additional_original is not None:
                 self._additional_original.close()
@@ -445,14 +477,18 @@ class S3ImageStorage:
         path: Path,
         allocation: PyramidOutputAllocation,
         member: PyramidMemberReservation,
-    ) -> ObjectIdentity:
+    ) -> PyramidMemberReceipt:
         """Write one reserved saved-output member and return its actual receipt.
 
         The caller has submitted this member's frozen reservation under the
-        allocation's saved prefix.  Do not reconstruct its physical namespace
-        from the logical image-pyramid family.
+        allocation's saved prefix.  An ordinary write executes only the
+        Source-issued reserved-key PUT; its physical namespace is never
+        reconstructed from the logical image-pyramid family or a configured
+        cache bucket.  The returned ``PyramidMemberReceipt`` carries the raw
+        quoted HTTP ETag and the raw nullable version, so a literal ``"null"``
+        version stays a real recorded receipt.
         """
-        key = allocation.prefix + member.relative_key
+        key = allocation.storage_ref.prefix + member.relative_key
         digest, size = member.sha256, member.size_bytes
         path = Path(path)
         try:
@@ -463,85 +499,156 @@ class S3ImageStorage:
             raise ImageFailure("invalid_response")
         if _sha256_file(path) != digest:
             raise ImageFailure("invalid_response")
-        is_manifest = key.endswith("/manifest.json")
-        content_type = "application/json" if is_manifest else "image/webp"
+        content_type = native_media.content_type_for(member.relative_key)
         from yoao_assets_media_runtime.fixture_native_outputs import current
 
         writer = current()
         if writer is not None:
             return await self._upload_fixture_pyramid_member(
-                writer, path, key, digest, size, content_type
+                writer,
+                path,
+                key,
+                digest,
+                size,
+                content_type,
+                member.operation_id,
             )
-        params = {
-            "Bucket": self.config.cache_bucket,
-            "Key": key,
-            "ContentType": content_type,
-            "ContentLength": size,
-            "Metadata": {"sha256": digest},
-        }
-        headers = {
-            "Content-Type": content_type,
-            "Content-Length": str(size),
-            "x-amz-meta-sha256": digest,
-            "If-None-Match": "*",
-        }
-        url = self._presigned_http_url("put_object", params)
+        if self._native_writer is None:
+            raise ImageFailure("storage_unavailable")
+        request = self._native_write_request(allocation, member)
+        signed = native_media.write_member(
+            await self._native_context(self._native_writer.write_reference, request),
+            request=request,
+            output_id=allocation.output_id,
+            storage_ref=allocation.storage_ref,
+            reservation=member,
+        )
         body = _FileBody(path, size, digest)
+        failure: BaseException | None = None
+        receipt: PyramidMemberReceipt | None = None
         try:
-            response = await self._get_http_client().put(
-                url, headers=headers, content=body
+            observed = await native_media.put_member(
+                self._get_http_client(),
+                signed.put,
+                content=body,
+                relative_key=member.relative_key,
+                size_bytes=size,
+                sha256=digest,
             )
-            if not 200 <= response.status_code < 300:
-                if response.status_code == 412:
-                    raise ImageFailure("upload_verification_failed")
-                _raise_http_failure(response, missing_is_object=False)
-            returned_etag = response.headers.get("etag")
-            returned_version = response.headers.get("x-amz-version-id")
-            identity, observed = await self._head_object(
-                self._get_http_client(), self.config.cache_bucket, key
+            receipt = PyramidMemberReceipt(
+                operation_id=member.operation_id,
+                etag=observed.etag,
+                version_id=observed.version_id,
             )
-            if (
-                identity.byte_size != size
-                or observed.get("x-amz-meta-sha256") != digest
-                or not isinstance(returned_etag, str)
-                or returned_etag.strip().strip('"') != identity.etag
-                or (
-                    returned_version not in (None, "", "null")
-                    and returned_version != identity.version_id
-                )
-            ):
-                raise ImageFailure("upload_verification_failed")
-            return identity
-        except (ImageFailure, asyncio.CancelledError):
+        except (ImageFailure, asyncio.CancelledError) as exc:
+            failure = exc
+            if not isinstance(exc, native_media.NativeWriteRefused):
+                # The request may have reached the saved location; only the
+                # recorded receipt can prove otherwise.
+                exc.storage_operation_unsettled = True
+            raise
+        except Exception:
+            failure = ImageFailure("storage_unavailable")
+            failure.storage_operation_unsettled = True
+            raise failure from None
+        finally:
+            try:
+                await body.aclose()
+            except BaseException as close_error:
+                if not isinstance(failure, native_media.NativeWriteRefused):
+                    # Observed response headers are not closure proof: the
+                    # client/body operation may still be open.  Never register
+                    # this receipt and never report it as not_written.
+                    failure = failure or ImageFailure("storage_unavailable")
+                    failure.storage_operation_unsettled = True
+                    raise failure from close_error
+        assert receipt is not None
+        return receipt
+
+    async def verify_pyramid_member(
+        self,
+        allocation: PyramidOutputAllocation,
+        member: PyramidMemberReservation,
+        receipt: PyramidMemberReceipt,
+    ) -> None:
+        """Fully read back the recorded saved member before verification.
+
+        A fixture-native write already proved its exact bytes through its own
+        writer receipt, so it is not read a second time.  The ordinary lane
+        proves the durable recorded receipt with one conditional full GET.
+        """
+        from yoao_assets_media_runtime.fixture_native_outputs import current
+
+        if current() is not None:
+            return
+        if self._native_writer is None:
+            raise ImageFailure("storage_unavailable")
+        request = self._native_write_request(allocation, member)
+        signed = native_media.verify_member(
+            await self._native_context(self._native_writer.verify_reference, request),
+            request=request,
+            output_id=allocation.output_id,
+            storage_ref=allocation.storage_ref,
+            reservation=member,
+            etag=receipt.etag,
+            version_id=receipt.version_id,
+        )
+        await native_media.get_member(
+            self._get_http_client(),
+            signed.get,
+            member=signed.member,
+            limit=member.size_bytes,
+        )
+
+    @staticmethod
+    def _native_write_request(allocation, member):
+        from yoao_assets_images.native_storage_contract import (
+            NativePyramidWriteIoRequest,
+        )
+
+        return NativePyramidWriteIoRequest(
+            operation_id=member.operation_id,
+            job_id=allocation.job_id,
+            job_generation=allocation.job_generation,
+            lease_token=allocation.lease_token,
+        )
+
+    async def _native_context(self, call, request):
+        try:
+            return await call(request)
+        except asyncio.CancelledError:
+            raise
+        except ImageFailure:
             raise
         except Exception:
             raise ImageFailure("storage_unavailable") from None
-        finally:
-            failure = sys.exception()
-            try:
-                await body.aclose()
-            except BaseException:
-                if failure is None:
-                    raise
 
     async def _upload_fixture_pyramid_member(
-        self, writer, path, key, digest, size, content_type
-    ):
+        self, writer, path, key, digest, size, content_type, operation_id
+    ) -> PyramidMemberReceipt:
         from yoao_assets_media_runtime.storage import _run_blocking
 
         await writer.prepare()
 
         try:
-            identity = await _run_blocking(
-                self._fixture_member_put, writer, path, key, digest, size, content_type
+            return await _run_blocking(
+                self._fixture_member_put,
+                writer,
+                path,
+                key,
+                digest,
+                size,
+                content_type,
+                operation_id,
             )
-            return identity
         except BaseException as exc:
             exc.storage_operation_unsettled = True
             raise
 
     @staticmethod
-    def _fixture_member_put(writer, path, key, digest, size, content_type):
+    def _fixture_member_put(
+        writer, path, key, digest, size, content_type, operation_id
+    ) -> PyramidMemberReceipt:
         from yoao_assets_media_runtime.fixture_native_outputs import verify_object
 
         with path.open("rb") as source:
@@ -573,8 +680,10 @@ class S3ImageStorage:
         ):
             raise ImageFailure("upload_verification_failed")
         verify_object(writer.client, writer.bucket, key, digest, size, etag, version)
-        return ObjectIdentity(
-            etag=etag.strip().strip('"'), byte_size=size, version_id=version
+        return PyramidMemberReceipt(
+            operation_id=operation_id,
+            etag=etag,
+            version_id=version,
         )
 
     @staticmethod
@@ -651,6 +760,69 @@ class S3ImageStorage:
             raise
         except Exception as exc:
             raise _storage_error(exc) from None
+
+    async def _fixture_url(self, key: str, expires_in: int) -> str:
+        if self._fixture_cache_resolver is None:
+            raise ImageFailure("storage_unavailable")
+        url = await self._fixture_cache_resolver.url(key, expires_in)
+        if not isinstance(url, str) or not url:
+            raise ImageFailure("object_missing")
+        return url
+
+    async def head_fixture_cache(self, key: str) -> ObjectIdentity:
+        """Head one fixture-owned saved member; never the configured cache bucket."""
+        _validate_native_saved_key(key)
+        try:
+            url = await self._fixture_url(key, 300)
+            response = await self._get_http_client().head(url)
+            if response.status_code == 404:
+                raise ImageFailure("object_missing")
+            if response.status_code != 200:
+                raise ImageFailure("storage_unavailable")
+            return _http_identity(response.headers)
+        except (ImageFailure, asyncio.CancelledError):
+            raise
+        except Exception:
+            raise ImageFailure("storage_unavailable") from None
+
+    async def read_fixture_cache(self, key: str, limit: int) -> bytes:
+        """Read one fixture-owned saved member without any configured-bucket fallback."""
+        _validate_native_saved_key(key)
+        if type(limit) is not int or not 1 <= limit <= 16 * 1024 * 1024:
+            raise ImageFailure("resource_budget_exceeded")
+        try:
+            url = await self._fixture_url(key, 300)
+            async with self._get_http_client().stream("GET", url) as response:
+                if response.status_code == 404:
+                    raise ImageFailure("object_missing")
+                if response.status_code != 200:
+                    raise ImageFailure("storage_unavailable")
+                identity = _http_identity(response.headers)
+                if identity.byte_size > limit:
+                    raise ImageFailure("resource_budget_exceeded")
+                data = bytearray()
+                async for chunk in response.aiter_raw():
+                    if len(data) + len(chunk) > limit:
+                        raise ImageFailure("resource_budget_exceeded")
+                    data.extend(chunk)
+                if len(data) != identity.byte_size:
+                    raise ImageFailure("storage_unavailable")
+                return bytes(data)
+        except (ImageFailure, asyncio.CancelledError):
+            raise
+        except Exception:
+            raise ImageFailure("storage_unavailable") from None
+
+    async def sign_fixture_cache(self, key: str, expires_in: int = 3600) -> str:
+        """Sign one fixture-owned saved member; never the configured cache bucket."""
+        _validate_native_saved_key(key)
+        _expiry(expires_in)
+        try:
+            return await self._fixture_url(key, expires_in)
+        except (ImageFailure, asyncio.CancelledError):
+            raise
+        except Exception:
+            raise ImageFailure("storage_unavailable") from None
 
     async def iter_orphan_generations(self) -> AsyncIterator[ImageOrphanCandidate]:
         """Stream every canonical generation after its complete key prefix is seen."""
@@ -757,6 +929,20 @@ def _validate_cache_key(key: str) -> None:
 def _validate_cache_write_key(key: str) -> None:
     if not isinstance(key, str) or not (
         _IMAGE_THUMBNAIL_KEY.fullmatch(key) or _IMAGE_PYRAMID_ATTEMPT_KEY.fullmatch(key)
+    ):
+        raise ImageFailure("invalid_request")
+
+
+def _validate_native_saved_key(key: str) -> None:
+    """Only exact canonical members of one saved native output are operable."""
+    if (
+        not isinstance(key, str)
+        or not 1 <= len(key) <= 2048
+        or "\x00" in key
+        or key.startswith("/")
+        or "\\" in key
+        or any(part in {"", ".", ".."} for part in key.split("/"))
+        or _NATIVE_SAVED_KEY.fullmatch(key) is None
     ):
         raise ImageFailure("invalid_request")
 

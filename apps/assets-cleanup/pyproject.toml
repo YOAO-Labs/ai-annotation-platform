@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = ["pydantic>=2.10.0"]
 
 [project.optional-dependencies]
-worker = ["yoao-assets-media", "asyncpg>=0.30.0", "boto3>=1.43.77"]
+worker = ["yoao-assets-media", "asyncpg>=0.30.0", "boto3>=1.43.77", "httpx>=0.28.1"]
 
 [dependency-groups]
 dev = [

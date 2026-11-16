@@ -10,6 +10,8 @@ from uuid import UUID
 
 import asyncpg
 from pydantic import BaseModel, ValidationError
+from yoao_assets_images.contract import ImageFailure, decode_reply as decode_image_reply
+from yoao_assets_images.native_storage_contract import NativePyramidIoContext
 
 from .config import SourceConfig
 from yoao_assets_source.connections_contract import (
@@ -120,6 +122,9 @@ EXPECTED_ASSET_SOURCE_FUNCTIONS = frozenset(
         "record_operator_original_verified(uuid,jsonb)",
         "fail_operator_original(uuid,text,text,jsonb)",
         "close_operator_storage_operation(uuid,uuid,boolean)",
+        "capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)",
+        "capture_native_pyramid_read_io(uuid,uuid,jsonb)",
+        "capture_native_pyramid_retirement_io(uuid,uuid,uuid)",
     }
     | {
         f"{name}({signature})"
@@ -295,6 +300,35 @@ class SourceDataPorts:
     images: AsyncpgImageAdmissionData
 
 
+def _parse_json_payload(raw: Any, max_reply_bytes: int) -> object:
+    if isinstance(raw, bytes):
+        try:
+            raw = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            raise SourceFailure("invalid_response") from None
+    if isinstance(raw, str):
+        if len(raw.encode("utf-8")) > max_reply_bytes:
+            raise SourceFailure("invalid_response")
+        try:
+            payload = json.loads(raw, parse_constant=_reject_json_constant)
+        except (json.JSONDecodeError, ValueError):
+            raise SourceFailure("invalid_response") from None
+    else:
+        payload = raw
+    try:
+        encoded_size = 0
+        encoder = json.JSONEncoder(
+            ensure_ascii=False, separators=(",", ":"), allow_nan=False
+        )
+        for part in encoder.iterencode(payload):
+            encoded_size += len(part.encode("utf-8"))
+            if encoded_size > max_reply_bytes:
+                raise SourceFailure("invalid_response")
+    except (TypeError, ValueError):
+        raise SourceFailure("invalid_response") from None
+    return payload
+
+
 class _NativeData:
     def __init__(
         self,
@@ -308,32 +342,7 @@ class _NativeData:
         self._original_pool = pool
 
     def _parse_payload(self, raw: Any) -> object:
-        if isinstance(raw, bytes):
-            try:
-                raw = raw.decode("utf-8")
-            except UnicodeDecodeError:
-                raise SourceFailure("invalid_response") from None
-        if isinstance(raw, str):
-            if len(raw.encode("utf-8")) > self._max_reply_bytes:
-                raise SourceFailure("invalid_response")
-            try:
-                payload = json.loads(raw, parse_constant=_reject_json_constant)
-            except (json.JSONDecodeError, ValueError):
-                raise SourceFailure("invalid_response") from None
-        else:
-            payload = raw
-        try:
-            encoded_size = 0
-            encoder = json.JSONEncoder(
-                ensure_ascii=False, separators=(",", ":"), allow_nan=False
-            )
-            for part in encoder.iterencode(payload):
-                encoded_size += len(part.encode("utf-8"))
-                if encoded_size > self._max_reply_bytes:
-                    raise SourceFailure("invalid_response")
-        except (TypeError, ValueError):
-            raise SourceFailure("invalid_response") from None
-        return payload
+        return _parse_json_payload(raw, self._max_reply_bytes)
 
     async def _original_reply(self, statement: str, arguments: tuple[Any, ...]) -> Any:
         if self._original_pool is None:
@@ -1173,6 +1182,62 @@ class SourceDatabase:
                         connection, self._config.max_response_bytes
                     ),
                 )
+
+    async def capture_native_pyramid_write_io(
+        self,
+        operation_id: UUID,
+        job_id: UUID,
+        job_generation: int,
+        lease_token: UUID,
+        mode: str,
+    ) -> NativePyramidIoContext:
+        """Capture one exact writer scope; the statement commits on its own."""
+        return await self._capture_native_context(
+            "SELECT aap_assets_v1.capture_native_pyramid_write_io("
+            "$1::uuid,$2::uuid,$3::bigint,$4::uuid,$5::text)",
+            (operation_id, job_id, job_generation, lease_token, mode),
+        )
+
+    async def capture_native_pyramid_read_io(
+        self,
+        operation_id: UUID,
+        token: UUID,
+        relative_keys: list[str],
+    ) -> NativePyramidIoContext:
+        """Capture one exact read permit scope without holding a transaction."""
+        return await self._capture_native_context(
+            "SELECT aap_assets_v1.capture_native_pyramid_read_io("
+            "$1::uuid,$2::uuid,$3::jsonb)",
+            (operation_id, token, relative_keys),
+        )
+
+    async def capture_native_pyramid_retirement_io(
+        self,
+        output_id: UUID,
+        lease_token: UUID,
+        page_id: UUID,
+    ) -> NativePyramidIoContext:
+        """Capture one exact prepared retirement page scope."""
+        return await self._capture_native_context(
+            "SELECT aap_assets_v1.capture_native_pyramid_retirement_io("
+            "$1::uuid,$2::uuid,$3::uuid)",
+            (output_id, lease_token, page_id),
+        )
+
+    async def _capture_native_context(
+        self, statement: str, arguments: tuple[Any, ...]
+    ) -> NativePyramidIoContext:
+        async with self._pool.acquire(
+            timeout=self._config.pool_timeout_seconds
+        ) as connection:
+            raw = await connection.fetchval(statement, *arguments)
+        try:
+            payload = _parse_json_payload(raw, self._config.max_response_bytes)
+            return decode_image_reply(payload, NativePyramidIoContext)
+        except ImageFailure:
+            raise
+        except (SourceFailure, TypeError, ValueError, ValidationError):
+            raise ImageFailure("invalid_response") from None
 
     async def import_verification(self, operation: str, request: dict | None, result=None) -> dict:
         statements = {

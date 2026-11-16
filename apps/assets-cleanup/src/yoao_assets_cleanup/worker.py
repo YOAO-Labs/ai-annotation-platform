@@ -18,7 +18,6 @@ from yoao_assets_images.contract import (
     CompleteNativePyramidRetirementPageRequest,
     NativePyramidRetirementAck,
     NativePyramidRetirementPage,
-    NativePyramidRetirementStore,
     PrepareNativePyramidRetirementPageRequest,
 )
 
@@ -38,7 +37,7 @@ from .input_gc import (
     collect_video_inputs_before_stop,
 )
 from .native_gc import (
-    S3NativeRetirementStore,
+    SignedNativeRetirementStore,
     drain_native_pyramid_retirement,
 )
 from .object_store import CleanupStopped, S3PrefixDeleter
@@ -248,8 +247,7 @@ async def run_cleanup_round(
     worker_id: UUID,
     input_collector,
     video_collector,
-    native_storage: S3NativeRetirementStore,
-    native_store: NativePyramidRetirementStore,
+    native_storage: SignedNativeRetirementStore,
     stop: asyncio.Event,
     storage_stop: threading.Event,
     health: HealthState | None = None,
@@ -306,7 +304,6 @@ async def run_cleanup_round(
             data,
             native_storage,
             worker_id=worker_id,
-            store=native_store,
             page_size=min(page_size, 100),
             stop=stop,
             storage_stop=storage_stop,
@@ -354,11 +351,11 @@ async def close_input_storages(input_storage, video_storage) -> None:
 
 
 async def close_native_storage(storage) -> None:
-    """Close the native S3 client after its bounded calls have drained."""
+    """Close Native HTTP clients after their physical requests have drained."""
     if storage is None:
         return
     try:
-        await asyncio.wait_for(asyncio.to_thread(storage.close), timeout=10)
+        await asyncio.wait_for(storage.aclose(), timeout=10)
     except Exception as exc:  # noqa: BLE001 - shutdown must close the pool too.
         log.warning(
             "Native retirement storage close failed code=%s",
@@ -396,11 +393,7 @@ async def run_worker(config: CleanupConfig) -> None:
         )
         data = StorageDeletionData(pool)
         storage = S3PrefixDeleter(config)
-        native_storage = S3NativeRetirementStore(config)
-        native_store = NativePyramidRetirementStore(
-            endpoint_url=config.s3_endpoint,
-            bucket=config.bucket,
-        )
+        native_storage = SignedNativeRetirementStore(config)
         await data.verify_role_scope()
         input_collector, input_storage = build_input_garbage_collector(config, pool)
         video_collector, video_storage = build_video_garbage_collector(config, pool)
@@ -432,7 +425,6 @@ async def run_worker(config: CleanupConfig) -> None:
                 input_collector=input_collector,
                 video_collector=video_collector,
                 native_storage=native_storage,
-                native_store=native_store,
                 stop=stop,
                 storage_stop=storage_stop,
                 health=health,

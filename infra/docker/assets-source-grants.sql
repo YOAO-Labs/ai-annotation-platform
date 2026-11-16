@@ -144,6 +144,9 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.reserve_dataset_upload(uuid,uuid,uuid,te
     aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb),
     aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb),
     aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean),
+    aap_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text),
+    aap_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb),
+    aap_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid),
     aap_assets_v1.read_legacy_dataset_upload(uuid,uuid,uuid,uuid)
     TO :"asset_source_role";
 
@@ -196,6 +199,9 @@ DECLARE
         pg_catalog.to_regprocedure('aap_assets_v1.record_storage_connection_test(uuid,uuid,uuid,text,text,jsonb,jsonb,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.resolve_internal_image_source(text,uuid,text,jsonb)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.schedule_image_media(uuid,text,uuid,jsonb,boolean)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.capture_native_pyramid_write_io(uuid,uuid,bigint,uuid,text)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.capture_native_pyramid_read_io(uuid,uuid,jsonb)')::oid,
+        pg_catalog.to_regprocedure('aap_assets_v1.capture_native_pyramid_retirement_io(uuid,uuid,uuid)')::oid,
         pg_catalog.to_regprocedure('aap_assets_v1.read_legacy_dataset_upload(uuid,uuid,uuid,uuid)')::oid
     ];
 BEGIN

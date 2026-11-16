@@ -11,6 +11,8 @@ def _environment():
         "ASSET_CLEANUP_S3_ACCESS_KEY": "dedicated-user",
         "ASSET_CLEANUP_S3_SECRET_KEY": "dedicated-secret",
         "ASSET_CLEANUP_INPUTS_BUCKET": "accepted-inputs",
+        "ASSET_CLEANUP_NATIVE_STORAGE_URL": "http://source:8767",
+        "ASSET_CLEANUP_NATIVE_STORAGE_TOKEN": "native-cleanup-token-" + "x" * 32,
     }
 
 
@@ -95,4 +97,21 @@ def test_input_garbage_bucket_is_required_and_separate_from_outbox_bucket():
     environment = _environment()
     environment["ASSET_CLEANUP_INPUTS_BUCKET"] = "media-cache"
     with pytest.raises(ConfigurationError, match="separate"):
+        load_config(environment)
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("ASSET_CLEANUP_NATIVE_STORAGE_URL", ""),
+        ("ASSET_CLEANUP_NATIVE_STORAGE_URL", "http://source:8767/private"),
+        ("ASSET_CLEANUP_NATIVE_STORAGE_TOKEN", ""),
+        ("ASSET_CLEANUP_NATIVE_STORAGE_TOKEN", "x" * 32 + "\x00"),
+        ("ASSET_CLEANUP_NATIVE_STORAGE_TOKEN", "x" * 32 + "\x7f"),
+    ],
+)
+def test_native_signer_requires_an_explicit_origin_and_printable_secret(name, value):
+    environment = _environment()
+    environment[name] = value
+    with pytest.raises(ConfigurationError, match="ASSET_CLEANUP_NATIVE_STORAGE"):
         load_config(environment)

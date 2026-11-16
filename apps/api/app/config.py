@@ -388,6 +388,12 @@ class Settings(BaseSettings):
     assets_media_url: str = ""
     assets_media_token: str = Field(default="", repr=False)
     assets_media_timeout_seconds: float = Field(default=30, gt=0, le=3600)
+    assets_images_native_storage_url: str = ""
+    assets_images_native_storage_token: str = Field(default="", repr=False)
+    assets_images_native_storage_token_file: str = ""
+    assets_media_native_image_storage_url: str = ""
+    assets_media_native_image_storage_token: str = Field(default="", repr=False)
+    assets_media_native_image_storage_token_file: str = ""
 
     assets_mask_content_url: str = ""
     assets_mask_content_token: str = Field(default="", repr=False)

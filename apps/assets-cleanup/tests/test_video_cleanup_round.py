@@ -48,7 +48,6 @@ async def test_round_continues_through_all_lanes_and_counts_failures(monkeypatch
         input_collector=object(),
         video_collector=object(),
         native_storage=object(),
-        native_store=object(),
         stop=asyncio.Event(),
         storage_stop=threading.Event(),
     )
@@ -86,7 +85,6 @@ async def test_round_stops_starting_new_lanes_after_shutdown(monkeypatch):
         input_collector=object(),
         video_collector=object(),
         native_storage=object(),
-        native_store=object(),
         stop=stop,
         storage_stop=threading.Event(),
     )
@@ -117,7 +115,7 @@ async def test_video_s3_adapter_is_closed_even_if_image_adapter_close_fails(capl
 @pytest.mark.asyncio
 async def test_native_storage_close_failure_is_isolated(caplog):
     class Storage:
-        def close(self):
+        async def aclose(self):
             raise RuntimeError("close failed")
 
     await worker.close_native_storage(Storage())

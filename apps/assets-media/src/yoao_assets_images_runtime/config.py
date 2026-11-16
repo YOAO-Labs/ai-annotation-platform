@@ -21,6 +21,9 @@ _BUCKET_ADAPTER = TypeAdapter(str)
 _BUCKET_PATTERN = re.compile(
     r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?(\.[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?)*$"
 )
+# One operation-scoped capability token: printable ASCII, never whitespace,
+# NUL, DEL or any other control byte that a header or URL resolver could fold.
+_NATIVE_TOKEN = re.compile(r"^[\x21-\x7e]{32,}$")
 
 
 class ConfigurationError(ValueError):
@@ -47,11 +50,20 @@ class ImageStorageConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class NativeStorageSignerConfig:
+    """Explicit Source signer endpoint and its operation-scoped token."""
+
+    url: str
+    token: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class ImageWorkerConfig:
     database_url: str = field(repr=False)
     storage: ImageStorageConfig
     poll_seconds: float = 5.0
     srgb_profile: Path = Path("/usr/share/color/icc/sRGB.icc")
+    native_storage: NativeStorageSignerConfig | None = None
 
 
 def _secret(environment: Mapping[str, str], name: str) -> str:
@@ -133,6 +145,47 @@ def _bucket_value(name: str, value: str) -> str:
 
 def _bucket(environment: Mapping[str, str], name: str) -> str:
     return _bucket_value(name, environment.get(name, "").strip())
+
+
+def load_native_storage_config(
+    environment: Mapping[str, str],
+    url_name: str,
+    token_name: str,
+) -> NativeStorageSignerConfig | None:
+    """Load one explicit Source signer binding; refuse a partial one.
+
+    Native callers never fall back to another signer or to configured cache
+    credentials, so an unconfigured lane stays unconfigured for every consumer.
+    Deployments that render every optional signer setting as an empty string are
+    unconfigured; only a populated partial binding is an error.
+    """
+    url_value = (environment.get(url_name) or "").strip()
+    direct = environment.get(token_name)
+    token_file = environment.get(f"{token_name}_FILE")
+    direct_set = bool(direct and direct.strip())
+    file_set = bool(token_file and token_file.strip())
+    if direct_set and file_set:
+        raise ConfigurationError(f"Set only one of {token_name} and {token_name}_FILE")
+    if not url_value and not direct_set and not file_set:
+        return None
+    if not url_value:
+        raise ConfigurationError(f"Missing required setting {url_name}")
+    if not direct_set and not file_set:
+        raise ConfigurationError(f"Missing required setting {token_name}")
+    secret_environment = dict(environment)
+    if not direct_set:
+        secret_environment.pop(token_name, None)
+    if not file_set:
+        secret_environment.pop(f"{token_name}_FILE", None)
+    token = _secret(secret_environment, token_name)
+    if _NATIVE_TOKEN.fullmatch(token) is None:
+        raise ConfigurationError(
+            f"{token_name} must be 32+ printable ASCII non-whitespace characters"
+        )
+    return NativeStorageSignerConfig(
+        url=_origin(environment, url_name),
+        token=token,
+    )
 
 
 def _positive_float(
@@ -232,4 +285,9 @@ def load_config(environment: Mapping[str, str] | None = None) -> ImageWorkerConf
         storage=load_storage_config(values),
         poll_seconds=poll_seconds,
         srgb_profile=profile,
+        native_storage=load_native_storage_config(
+            values,
+            "ASSETS_IMAGES_NATIVE_STORAGE_URL",
+            "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN",
+        ),
     )

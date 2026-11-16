@@ -129,6 +129,16 @@ def configured_app(config):
                 read_timeout=config.storage.read_timeout,
             )
             state["fixture_cache_resolver"] = fixture_cache
+            native_image_storage = None
+            if config.native_image_storage is not None:
+                from yoao_assets_images.native_storage_client import (
+                    NativePyramidStorageClient,
+                )
+
+                native_image_storage = NativePyramidStorageClient(
+                    config.native_image_storage.url,
+                    config.native_image_storage.token,
+                )
             storage_values = asdict(config.storage)
             storage_values["additional_original"] = config.storage.additional_original
             state["control"] = MediaControl(
@@ -142,12 +152,18 @@ def configured_app(config):
                     }
                 ),
             )
-            state["image_control"] = ImageControl(
-                AsyncpgImageDatabase(pool, allowed_roles={"control", "system"}),
-                S3ImageStorage(image_storage, fixture_cache_resolver=fixture_cache),
-                image_policy,
-                wakeup=None,
-            )
+            try:
+                state["image_control"] = ImageControl(
+                    AsyncpgImageDatabase(pool, allowed_roles={"control", "system"}),
+                    S3ImageStorage(image_storage, fixture_cache_resolver=fixture_cache),
+                    image_policy,
+                    wakeup=None,
+                    native_storage=native_image_storage,
+                )
+            except BaseException:
+                if native_image_storage is not None:
+                    await native_image_storage.aclose()
+                raise
             state["input_storage"] = S3InputStorage(
                 image_storage, source_storage=state["image_control"].storage
             )

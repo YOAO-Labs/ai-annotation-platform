@@ -142,7 +142,7 @@ def _worker_requests():
             },
         }
     )
-    prefix = f"image-pyramids/{uuid4()}/g17/a{lease_token}/"
+    prefix = f"_aap_managed/media-cache/image-pyramids/objects/{uuid4()}/"
     pyramid = PyramidResult(
         source_identity=identity,
         source_sha256="a" * 64,

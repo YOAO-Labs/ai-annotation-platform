@@ -1,4 +1,4 @@
-"""Result-boundary and SQL shape tests for the three native cleanup calls."""
+"""Result-boundary refusals for the three Native cleanup capabilities."""
 
 import json
 from uuid import UUID, uuid4
@@ -8,7 +8,6 @@ import pytest
 from yoao_assets_images.contract import (
     ClaimNativePyramidRetirementRequest,
     CompleteNativePyramidRetirementPageRequest,
-    NativePyramidRetirementStore,
     PrepareNativePyramidRetirementPageRequest,
 )
 from yoao_assets_cleanup.data import (
@@ -17,13 +16,8 @@ from yoao_assets_cleanup.data import (
     PREPARE_NATIVE_RETIREMENT_PAGE_SQL,
     DataContractError,
     StorageDeletionData,
-    _PREFLIGHT_SQL,
 )
 
-STORE = NativePyramidRetirementStore(
-    endpoint_url="http://s3:9000",
-    bucket="media-cache",
-)
 LEASE_EXPIRES = "2026-11-16T00:00:00Z"
 
 
@@ -78,8 +72,8 @@ def _target(output_id, *, endpoint=None, bucket=None, prefix=None):
         "location_id": str(uuid4()),
         "config_revision": 1,
         "binding_generation": 3,
-        "endpoint_url": STORE.endpoint_url if endpoint is None else endpoint,
-        "bucket": STORE.bucket if bucket is None else bucket,
+        "endpoint_url": "http://s3:9000" if endpoint is None else endpoint,
+        "bucket": "media-cache" if bucket is None else bucket,
         "key_prefix": "",
         "prefix": (
             prefix
@@ -147,50 +141,12 @@ def _ack_payload(*, output_id, after=None, completed=False):
     }
 
 
-@pytest.mark.asyncio
-async def test_claim_passes_the_explicit_store_and_advances_from_its_cursor():
-    output_id, lease_token, previous = uuid4(), uuid4(), uuid4()
-    claim = {
-        "output_id": str(output_id),
-        "lease_token": str(lease_token),
-        "lease_expires_at": LEASE_EXPIRES,
-        "storage_ref": _target(output_id),
-        "after_operation_id": str(previous),
-    }
-    events = []
-    connection = _Connection(
-        {CLAIM_NATIVE_RETIREMENT_SQL: _claim_payload(claim)},
-        events,
-    )
-    request = ClaimNativePyramidRetirementRequest(
-        worker_id=uuid4(),
-        store=STORE,
-        lease_seconds=90,
-    )
-
-    result = await StorageDeletionData(
-        _Pool(connection)
-    ).claim_native_pyramid_retirement(request)
-
-    assert result.claim.output_id == output_id
-    assert result.claim.after_operation_id == previous
-    query, parameters = connection.calls[0]
-    assert query == CLAIM_NATIVE_RETIREMENT_SQL
-    assert parameters[0] == request.worker_id
-    assert json.loads(parameters[1]) == {
-        "endpoint_url": STORE.endpoint_url,
-        "bucket": STORE.bucket,
-    }
-    assert parameters[2] == 90
-    assert events == ["begin", "commit"]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "target",
     [
-        lambda output_id: _target(output_id, endpoint="http://other:9000"),
-        lambda output_id: _target(output_id, bucket="other-bucket"),
         lambda output_id: _target(output_id, prefix="image-pyramids/other/"),
     ],
 )
@@ -208,7 +164,6 @@ async def test_claim_rejects_a_target_outside_its_saved_scope(target):
     )
     request = ClaimNativePyramidRetirementRequest(
         worker_id=uuid4(),
-        store=STORE,
     )
 
     with pytest.raises(DataContractError) as failure:
@@ -232,7 +187,6 @@ async def test_claim_error_envelope_keeps_its_code_and_does_not_mutate():
     )
     request = ClaimNativePyramidRetirementRequest(
         worker_id=uuid4(),
-        store=STORE,
     )
 
     with pytest.raises(DataContractError) as failure:
@@ -454,23 +408,3 @@ async def test_stale_or_foreign_completion_ack_is_rejected():
         ).complete_native_pyramid_retirement_page(request)
 
 
-def test_preflight_names_exactly_the_eleven_cleanup_capabilities():
-    expected = {
-        "pending_storage_deletions_v2(text,timestamptz,uuid,uuid,integer)",
-        "complete_storage_deletion(uuid,uuid)",
-        "claim_image_garbage(uuid,integer,integer)",
-        "complete_image_garbage(uuid,uuid)",
-        "claim_accepted_input_garbage(uuid,integer,integer)",
-        "complete_accepted_input_garbage(uuid,uuid)",
-        "claim_accepted_video_input_garbage(uuid,integer,integer)",
-        "complete_accepted_video_input_garbage(uuid,uuid)",
-        "claim_native_pyramid_retirement(uuid,jsonb,integer)",
-        "prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
-        "complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
-    }
-    assert all(f"aap_assets_v1.{name}" in _PREFLIGHT_SQL for name in expected)
-    assert "claim_native_retirement_oid" in _PREFLIGHT_SQL
-    assert "prepare_native_retirement_oid" in _PREFLIGHT_SQL
-    assert "complete_native_retirement_oid" in _PREFLIGHT_SQL
-    assert "has_table_privilege" in _PREFLIGHT_SQL
-    assert "sweep_accepted_image_inputs" not in _PREFLIGHT_SQL

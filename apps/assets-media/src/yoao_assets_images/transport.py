@@ -68,12 +68,12 @@ class ImageSourceReferences(Value):
 
 class InternalImageSourceReferenceRequest(Value):
     source: InternalImageSourceRequest
-    expires_in: StrictInt = Field(default=3600, ge=1, le=604800)
+    expires_in: Annotated[StrictInt, Field(ge=1, le=604800)] | None = None
 
 
 class ImageGenerationReferenceRequest(ReadImageGenerationRequest):
     expected_source_snapshot: Digest | None = None
-    expires_in: StrictInt = Field(default=3600, ge=1, le=604800)
+    expires_in: Annotated[StrictInt, Field(ge=1, le=604800)] | None = None
 
 
 class ImageGenerationReference(Value):

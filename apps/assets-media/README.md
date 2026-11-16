@@ -22,13 +22,63 @@ reads retain their existing settlement and uncertainty fences.
 
 Native pyramid attempts allocate their saved output and media-cache target at
 claim time, before any member write, and publish only after every reserved
-member returns its actual ETag/VersionId receipt. The retained Celery
-`generate_image_pyramid` callers (ordinary-thumbnail auto-generation, the
-operator backfill script, and fixture-independent execution) are not replaced by
-this path; they allocate through `acquire_generation_lease` and publish through
-`publish_generation`, which require the live lease, current generation and
-`building_generation` fence before setting `output_id`. No retained caller may
-publish `ready` with an unowned output.
+member returns its actual ETag/VersionId receipt. Each reservation's ordinary
+PUT executes only the Source-issued reserved-key request; the worker validates
+the raw HTTP ETag/VersionId, records that receipt, then fully reads back the
+recorded saved version (size, digest, ETag, version) before it verifies the
+member. Fixture-native writes keep their existing writer/private-target receipt
+and full-byte proof, and are never re-read.
+
+The saved target, not the current media-cache binding, owns each output's
+endpoint, bucket, prefix and storage identity. Switching the management
+binding from one location to another sends new outputs to the new location
+while earlier outputs continue to read and retire at their saved location; no
+separate Images or Cleanup bucket reconfiguration is involved. A saved
+location that no longer matches the registered location/connection is refused
+rather than redirected, and no configured-cache bucket, ambient credential or
+reconstructed key is ever substituted for a Native read or write.
+
+The Source process is the only storage-credential owner and finite signer.
+Ordinary callers hold only operation-scoped tokens:
+
+- image worker (writer): `ASSETS_IMAGES_NATIVE_STORAGE_URL`,
+  `ASSETS_IMAGES_NATIVE_STORAGE_TOKEN` or `..._TOKEN_FILE`
+- media control (reader): `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL`,
+  `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` or `..._TOKEN_FILE`
+- Assets Cleanup (cleanup/retirement): `ASSET_CLEANUP_NATIVE_STORAGE_URL`,
+  `ASSET_CLEANUP_NATIVE_STORAGE_TOKEN` or `..._TOKEN_FILE`
+
+A partial Native token/URL configuration fails startup; an installation with
+no Native signer configuration never falls back to another signer. Source holds
+the three distinct tokens plus its separate Native S3 identity
+(`ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN[_FILE]`,
+`ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN[_FILE]`,
+`ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN[_FILE]`,
+`ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY[_FILE]`,
+`ASSETS_SOURCE_NATIVE_S3_SECRET_KEY[_FILE]`). Registered connection targets
+keep their own secrets inside Source. Deployment must provision these settings
+and the matching IAM policy; the repository defaults do not.
+
+Native generation and asset references use the selected saved output, a
+durable read permit, saved member receipts, Source-issued inspection requests,
+existing strict manifest validation and a final owner/source fence. Inspection
+(`purpose=inspect`) completes before URL publication (`purpose=publish`) so a
+slow manifest read does not consume the advertised URL lifetime, and a permit
+is settled even when the read fails. Public references expose only URLs and
+report the shortest constituent lifetime for combined original/thumbnail and
+overview/tile references. `expires_in` defaults to null so the owner selects
+its bounded lifetime; an explicit requested lifetime is returned exactly, and
+an explicit request above the frozen policy bound is refused instead of
+silently clamped. Fixture-owned outputs remain on the fixture read owner;
+production has no fixture resolver and therefore refuses them.
+
+The retained Celery `generate_image_pyramid` callers (ordinary-thumbnail
+auto-generation, the operator backfill script, and fixture-independent
+execution) are not replaced by this path; they allocate through
+`acquire_generation_lease` and publish through `publish_generation`, which
+require the live lease, current generation and `building_generation` fence
+before setting `output_id`. No retained caller may publish `ready` with an
+unowned output.
 
 `ready_source_reference` is the strict reference path for callers that have
 already admitted and verified output work. Its video and image HTTP routes are

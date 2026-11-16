@@ -491,7 +491,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)",
             "aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)",
             "aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)",
-            "aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)",
+            "aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)",
             "aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)",
             "aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)",
         ):
@@ -538,7 +538,7 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure, "
                     "'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure, "
                     "'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure, "
-                    "'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)'::regprocedure, "
+                    "'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::regprocedure, "
                     "'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::regprocedure, "
                     "'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::regprocedure)) "
                     "OR (namespace.nspname <> 'aap_assets_v1' "

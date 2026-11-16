@@ -53,6 +53,7 @@ from yoao_assets_images.contract import (
     ImageWorkOutcome,
     ImageWorkResult,
     NativePyramidAllocationRequest,
+    NativePyramidSavedTarget,
     ObjectIdentity,
     PyramidMemberAbandon,
     PyramidMemberOperation,
@@ -84,7 +85,7 @@ from .config import ImageWorkerConfig, load_config
 from .database import AsyncpgImageDatabase, ImageDatabase
 from .health import check_capabilities
 from .original_read import admitted_original
-from .storage import DownloadedSource, ImageStorage, S3ImageStorage, _if_match
+from .storage import DownloadedSource, ImageStorage, S3ImageStorage
 
 _BACKFILL_CALL_LIMIT = 1_000_000
 _FINISH_RETRY_LIMIT = 5
@@ -294,8 +295,54 @@ async def _job_storage_call(heartbeat, operation, /, *args, **kwargs):
     return result
 
 
+async def _job_native_member_write(heartbeat, operation, /, *args, **kwargs):
+    """Run one saved-member mutation and keep its proven receipt.
+
+    A drained PUT is a physical fact that only its receipt can prove.  The
+    trailing heartbeat check of ``_job_storage_call`` would discard that receipt
+    after a lease loss, and a deadline that races the completion would report an
+    already-sent PUT as ``not_written``.  Admission is still checked before the
+    request, and the caller registers the receipt before any later authority
+    check.
+    """
+    heartbeat.check()
+    try:
+        async with asyncio.timeout_at(heartbeat.deadline):
+            return await operation(*args, **kwargs)
+    except TimeoutError:
+        failure = ImageFailure("timeout")
+        failure.storage_operation_unsettled = True
+        raise failure from None
+
+
 class _ImageClaimBusy(ImageFailure):
     """Native claim rejection with no accepted lease or physical work."""
+
+
+def _require_native_allocation(
+    claim: ImageClaim, allocation: object
+) -> NativePyramidSavedTarget:
+    """Prove the full saved-output scope before any member is reserved."""
+    if (
+        not isinstance(allocation, PyramidOutputAllocation)
+        or allocation.job_id != claim.job_id
+        or allocation.job_generation != claim.generation
+        or allocation.lease_token != claim.lease_token
+        or allocation.asset_id != claim.pyramid_asset_id
+        or allocation.generation != claim.pyramid_generation
+    ):
+        raise ImageFailure("invalid_response")
+    target = allocation.storage_ref
+    if (
+        not isinstance(target, NativePyramidSavedTarget)
+        or target.prefix
+        != target.key_prefix
+        + "image-pyramids/objects/"
+        + str(allocation.output_id)
+        + "/"
+    ):
+        raise ImageFailure("invalid_response")
+    return target
 
 
 class ImageExecutor:
@@ -376,15 +423,7 @@ class ImageExecutor:
                     generation=claim.pyramid_generation,
                 ),
             )
-            if (
-                not isinstance(allocation, PyramidOutputAllocation)
-                or allocation.job_id != claim.job_id
-                or allocation.job_generation != claim.generation
-                or allocation.lease_token != claim.lease_token
-                or allocation.generation != claim.pyramid_generation
-                or not allocation.prefix.endswith("/")
-            ):
-                raise ImageFailure("invalid_response")
+            _require_native_allocation(claim, allocation)
         policy = claim.spec.policy
         heartbeat = _LeaseHeartbeat(
             self.database,
@@ -506,7 +545,7 @@ class ImageExecutor:
                 require_result_scope(
                     claim,
                     result,
-                    prefix=None if allocation is None else allocation.prefix,
+                    prefix=None if allocation is None else allocation.storage_ref.prefix,
                 )
                 finish = (
                     FinishNativePyramidRequest(
@@ -885,13 +924,7 @@ class ImageExecutor:
         assert isinstance(claim.spec, PyramidWorkSpec)
         assert claim.source is not None
         assert claim.pyramid_generation is not None
-        if (
-            allocation.output_id is None
-            or allocation.job_id != claim.job_id
-            or allocation.lease_token != claim.lease_token
-            or allocation.generation != claim.pyramid_generation
-        ):
-            raise ImageFailure("lease_lost")
+        _require_native_allocation(claim, allocation)
         if not self.srgb_profile.is_file():
             raise ImageFailure("color_profile_unavailable")
         body = await _run_child(
@@ -1007,7 +1040,7 @@ class ImageExecutor:
         ):
             raise ImageFailure("resource_limit")
 
-        prefix = allocation.prefix
+        prefix = allocation.storage_ref.prefix
         tile_shas: list[str] = []
         for tile in local_tiles:
             tile_shas.append(await asyncio.to_thread(_file_sha256, Path(tile["path"])))
@@ -1159,7 +1192,7 @@ class ImageExecutor:
     ) -> Artifact:
         """Reserve, write and prove exactly one saved-output member."""
         operation_id = uuid4()
-        key = allocation.prefix + relative_key
+        key = allocation.storage_ref.prefix + relative_key
         reservation = PyramidMemberReservation(
             operation_id=operation_id,
             output_id=allocation.output_id,
@@ -1179,7 +1212,7 @@ class ImageExecutor:
             await self._abandon_pyramid_member(operation_id, "not_written")
             raise
         try:
-            identity = await _job_storage_call(
+            receipt = await _job_native_member_write(
                 heartbeat,
                 self.storage.upload_pyramid_member,
                 path,
@@ -1187,6 +1220,9 @@ class ImageExecutor:
                 reservation,
             )
         except BaseException as exc:
+            # An observed receipt is never returned unless the storage port
+            # proved the physical operation closed; anything else stays
+            # unknown so it keeps blocking retirement.
             state = (
                 "unknown"
                 if getattr(exc, "storage_operation_unsettled", False)
@@ -1194,25 +1230,65 @@ class ImageExecutor:
             )
             await self._abandon_pyramid_member(operation_id, state)
             raise
-        heartbeat.check()
+        if not isinstance(receipt, PyramidMemberReceipt) or (
+            receipt.operation_id != operation_id
+        ):
+            # The port must hand back the exact admitted receipt; never invent
+            # one for a write whose identity is unclear.
+            await self._abandon_pyramid_member(operation_id, "unknown")
+            raise ImageFailure("invalid_response")
+        # The bytes may already exist from here on; retirement must settle the
+        # saved members even if the readback or verification fails.
+        # Exact-version readers compare the recorded HTTP ETag, not the source.
+        await self._register_native_member_receipt(receipt)
+        verify_in_flight = False
         try:
-            # Exact-version readers compare the HTTP ETag, not the source identity.
-            await self.database.call(
-                "write_native_pyramid_member",
-                PyramidMemberReceipt(
-                    operation_id=operation_id,
-                    etag=_if_match(identity.etag),
-                    version_id=identity.version_id,
-                ),
+            heartbeat.check()
+            verify_in_flight = True
+            await _job_storage_call(
+                heartbeat,
+                self.storage.verify_pyramid_member,
+                allocation,
+                reservation,
+                receipt,
             )
+            # The exact-version GET and its body/client closure completed; a
+            # later failure may now settle the still-open permit truthfully.
+            verify_in_flight = False
+            heartbeat.check()
             await self.database.call(
                 "verify_native_pyramid_member",
                 PyramidMemberOperation(operation_id=operation_id),
             )
-        except BaseException:
-            # The bytes may already exist; keep the reservation unresolved.
+        except BaseException as exc:
+            if verify_in_flight or getattr(exc, "storage_operation_unsettled", False):
+                # PUT/verify/body/client I/O is not proven drained.  Keep the
+                # durable permit open so retirement stays blocked.
+                raise
+            # Every physical operation drained.  Close the registered written
+            # member without claiming verification or physical absence.
+            await self._close_written_native_member(operation_id)
             raise
         return Artifact(key=key, byte_size=size_bytes, sha256=sha256)
+
+    async def _register_native_member_receipt(self, receipt):
+        """Record one already-admitted physical member write."""
+        await self.database.call("write_native_pyramid_member", receipt)
+
+    async def _close_written_native_member(self, operation_id) -> None:
+        """Settle a registered written member without claiming verification.
+
+        The receipt already exists and every physical operation drained, so the
+        owner may close this exact permit while keeping the written member
+        retirable.  A refusal leaves the permit open and blocks retirement.
+        """
+        try:
+            await self.database.call(
+                "abandon_native_pyramid_member",
+                PyramidMemberAbandon(operation_id=operation_id, state="written"),
+            )
+        except BaseException:
+            return
 
     async def _abandon_pyramid_member(self, operation_id, state: str) -> None:
         try:
@@ -1907,9 +1983,20 @@ async def _run_worker(
     try:
         if not await check_capabilities(database.pool, "worker"):
             raise RuntimeError("Assets image worker SQL capabilities are not valid")
+        native_writer = None
         try:
-            storage = S3ImageStorage(config.storage)
-        except Exception:
+            if config.native_storage is not None:
+                from yoao_assets_images.native_storage_client import (
+                    NativePyramidStorageClient,
+                )
+
+                native_writer = NativePyramidStorageClient(
+                    config.native_storage.url, config.native_storage.token
+                )
+            storage = S3ImageStorage(config.storage, native_writer=native_writer)
+        except BaseException:
+            if native_writer is not None:
+                await native_writer.aclose()
             raise RuntimeError(
                 "Assets image worker storage configuration is not valid"
             ) from None

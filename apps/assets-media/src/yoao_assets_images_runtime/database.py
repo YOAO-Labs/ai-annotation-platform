@@ -79,17 +79,26 @@ def _validate_finish_request(request: FinishImageMediaRequest) -> None:
         if result.artifact.key != expected:
             raise ImageFailure("invalid_request")
         return
-    pyramid_generation = result.manifest.generation
-    match = re.fullmatch(
-        rf"image-pyramids/({_UUID_PATTERN})/g{pyramid_generation}/a{token}/",
-        result.manifest_artifact.key.removesuffix("manifest.json"),
-    )
-    if match is None:
+    if result.kind != "pyramid":
         raise ImageFailure("invalid_request")
-    prefix = match.group(0)
+    manifest_key = result.manifest_artifact.key
+    if not manifest_key.endswith("/manifest.json"):
+        raise ImageFailure("invalid_request")
+    prefix = manifest_key[: -len("manifest.json")]
+    # Ordinary and fixture native attempts write only the allocation's saved
+    # output prefix.  Its exact output identity is proven by the executor's
+    # allocation scope and by the SQL saved-member receipts.
     if (
-        result.manifest_artifact.key != prefix + "manifest.json"
-        or result.overview_artifact.key != prefix + "overview.webp"
+        not 1 <= len(prefix) <= 496
+        or prefix.startswith("/")
+        or "\\" in prefix
+        or any(part in {"", ".", ".."} for part in prefix.split("/"))
+        or re.fullmatch(rf"[^\\]*image-pyramids/objects/{_UUID_PATTERN}/", prefix)
+        is None
+    ):
+        raise ImageFailure("invalid_request")
+    if (
+        result.overview_artifact.key != prefix + "overview.webp"
         or any(
             tile.artifact.key != prefix + f"tiles/{tile.level}/{tile.x}/{tile.y}.webp"
             for tile in result.tile_artifacts

@@ -16,6 +16,10 @@ from .config import (
     _secret,
     load_storage_config,
 )
+from yoao_assets_images_runtime.config import (
+    NativeStorageSignerConfig,
+    load_native_storage_config,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +33,7 @@ class MediaControlConfig:
     pool_max_size: int = 8
     pool_timeout_seconds: float = 2
     sql_timeout_seconds: float = 5
+    native_image_storage: NativeStorageSignerConfig | None = None
 
 
 def load_control_config(
@@ -81,5 +86,10 @@ def load_control_config(
         ),
         sql_timeout_seconds=_positive_float(
             values, "ASSETS_MEDIA_SQL_TIMEOUT_SECONDS", "5", maximum=60
+        ),
+        native_image_storage=load_native_storage_config(
+            values,
+            "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL",
+            "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN",
         ),
     )

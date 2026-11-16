@@ -1,9 +1,9 @@
-"""Retire exact saved Native pyramid outputs in the configured S3 store."""
+"""Retire saved Native pyramid outputs through scoped storage capabilities."""
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -11,10 +11,9 @@ import logging
 import threading
 from typing import Protocol
 from uuid import UUID
+from xml.etree import ElementTree
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
+import httpx
 
 from yoao_assets_images.contract import (
     ClaimNativePyramidRetirementRequest,
@@ -22,11 +21,16 @@ from yoao_assets_images.contract import (
     CompleteNativePyramidRetirementPageRequest,
     NativePyramidRetirementAck,
     NativePyramidRetirementClaim,
-    NativePyramidRetirementMember,
+    NativePyramidSavedMember,
     NativePyramidRetirementPage,
-    NativePyramidRetirementStore,
-    NativePyramidRetirementTarget,
     PrepareNativePyramidRetirementPageRequest,
+)
+from yoao_assets_images.native_storage_client import NativePyramidStorageClient
+from yoao_assets_images.native_storage_contract import (
+    NativePyramidRetirementIoRequest,
+    NativePyramidRetirementPrefixIoRequest,
+    NativePyramidSignedMember,
+    NativePyramidSignedRequest,
 )
 
 from .config import CleanupConfig
@@ -37,17 +41,12 @@ from .object_store import CleanupStopped
 log = logging.getLogger("aap.assets_cleanup")
 
 _CHUNK = 1024 * 1024
-_MAX_KEY_BYTES = 1024
+_MAX_XML_BYTES = 64 * 1024
+_S3_NAMESPACE = "http://s3.amazonaws.com/doc/2006-03-01/"
 _MAX_PAGE_SIZE = 100
 NATIVE_RETIREMENT_LEASE_SECONDS = 300
 
 
-class NativeTargetRefused(RuntimeError):
-    """The claimed saved output is outside the configured cleanup store."""
-
-    def __init__(self, code: str):
-        super().__init__(code)
-        self.code = code
 
 
 class NativeStorageError(RuntimeError):
@@ -74,20 +73,27 @@ class NativeRetirementDataPort(Protocol):
 
 
 class NativeRetirementStoragePort(Protocol):
-    def verify_target(
-        self, output_id: UUID, target: NativePyramidRetirementTarget
-    ) -> None: ...
-
-    def delete_member(
+    async def prepare_page(
         self,
-        prefix: str,
-        member: NativePyramidRetirementMember,
+        claim: NativePyramidRetirementClaim,
+        page: NativePyramidRetirementPage,
+    ) -> dict[UUID, NativePyramidSignedMember]: ...
+
+    async def delete_member(
+        self,
+        member: NativePyramidSavedMember,
+        reference: NativePyramidSignedMember,
         stop: threading.Event,
     ) -> None: ...
 
-    def verify_prefix_absent(self, prefix: str, stop: threading.Event) -> None: ...
+    async def verify_prefix_absent(
+        self,
+        claim: NativePyramidRetirementClaim,
+        page: NativePyramidRetirementPage,
+        stop: threading.Event,
+    ) -> None: ...
 
-    def close(self) -> None: ...
+    async def aclose(self) -> None: ...
 
 
 def _code(exc: BaseException) -> str:
@@ -99,399 +105,292 @@ def _check_stop(stop: threading.Event) -> None:
         raise CleanupStopped("shutdown before the exact native scope was settled")
 
 
-class S3NativeRetirementStore:
-    """Head, stream, conditionally delete and prove absence of saved members."""
+class SignedNativeRetirementStore:
+    """Execute only Source-issued requests for the prepared immutable page."""
 
-    def __init__(self, config: CleanupConfig):
-        self.endpoint = config.s3_endpoint
-        self.bucket = config.bucket
-        self.client = boto3.client(
-            "s3",
-            endpoint_url=config.s3_endpoint,
-            region_name=config.s3_region,
-            aws_access_key_id=config.s3_access_key,
-            aws_secret_access_key=config.s3_secret_key,
-            config=Config(
-                connect_timeout=3,
-                read_timeout=15,
-                retries={"mode": "standard", "total_max_attempts": 2},
-                max_pool_connections=2,
-            ),
+    def __init__(self, config: CleanupConfig, *, signer=None, http=None):
+        self._owns_signer = signer is None
+        self._owns_http = http is None
+        self.signer = signer or NativePyramidStorageClient(
+            config.native_storage_url, config.native_storage_token
+        )
+        self.http = http or httpx.AsyncClient(
+            timeout=httpx.Timeout(15, connect=3),
+            limits=httpx.Limits(max_connections=2, max_keepalive_connections=2),
+            headers={"Accept-Encoding": "identity"},
+            follow_redirects=False,
+            trust_env=False,
         )
 
-    def verify_target(
-        self, output_id: UUID, target: NativePyramidRetirementTarget
-    ) -> None:
-        if target.endpoint_url != self.endpoint:
-            raise NativeTargetRefused("native_target_endpoint_mismatch")
-        if target.bucket != self.bucket:
-            raise NativeTargetRefused("native_target_bucket_mismatch")
-        if target.schema_ != 2 or target.purpose != "media-cache":
-            raise NativeTargetRefused("native_target_kind_mismatch")
-        expected = (
-            target.key_prefix + "image-pyramids/objects/" + str(output_id) + "/"
+    async def aclose(self) -> None:
+        try:
+            if self._owns_http:
+                await self.http.aclose()
+        finally:
+            if self._owns_signer:
+                await self.signer.aclose()
+
+    @staticmethod
+    def _scope_matches(reference, claim, page) -> bool:
+        return (
+            reference.scope_id == page.page_id
+            and reference.scope_token == page.lease_token
+            and reference.output_id == claim.output_id
+            and reference.storage_ref == claim.storage_ref
         )
-        if target.prefix != expected:
-            raise NativeTargetRefused("native_target_prefix_mismatch")
 
-    def close(self) -> None:
-        self.client.close()
-
-    @staticmethod
-    def _member_key(
-        prefix: str, member: NativePyramidRetirementMember
-    ) -> str:
-        relative = member.relative_key
-        if (
-            not isinstance(prefix, str)
-            or not prefix.endswith("/")
-            or not isinstance(relative, str)
-            or not relative
-            or relative.startswith("/")
-            or "\\" in relative
-            or "\x00" in relative
-        ):
-            raise NativeStorageError("native_member_key_invalid")
-        key = prefix + relative
-        if len(key) > _MAX_KEY_BYTES:
-            raise NativeStorageError("native_member_key_invalid")
-        return key
-
-    @staticmethod
-    def _member_etag(member: NativePyramidRetirementMember) -> str:
-        etag = member.etag
-        if (
-            not isinstance(etag, str)
-            or len(etag) < 3
-            or not etag.startswith('"')
-            or not etag.endswith('"')
-            or '"' in etag[1:-1]
-            or "\r" in etag
-            or "\n" in etag
-        ):
-            raise NativeStorageError("native_member_etag_invalid")
-        return etag
-
-    @staticmethod
-    def _member_version(member: NativePyramidRetirementMember) -> str | None:
-        version = member.version_id
-        if version is None:
-            return None
-        if (
-            not isinstance(version, str)
-            or not version
-            or len(version) > 1024
-            or "\x00" in version
-            or "\r" in version
-            or "\n" in version
-        ):
-            raise NativeStorageError("native_member_version_invalid")
-        return version
-
-    @staticmethod
-    def _member_bytes(member: NativePyramidRetirementMember) -> None:
-        sha = member.sha256
-        size = member.size_bytes
-        if (
-            not isinstance(sha, str)
-            or len(sha) != 64
-            or any(char not in "0123456789abcdef" for char in sha)
-            or type(size) is not int
-            or size < 0
-        ):
-            raise NativeStorageError("native_member_receipt_invalid")
-
-    @staticmethod
-    def _check_identity(
-        response: dict,
-        *,
-        etag: str,
-        size: int,
-        version: str | None,
-    ) -> None:
-        if response.get("ETag") != etag or response.get("ContentLength") != size:
-            raise NativeStorageError("native_member_identity_mismatch")
-        if version is not None and response.get("VersionId") != version:
-            raise NativeStorageError("native_member_identity_mismatch")
-
-    @staticmethod
-    def _missing(exc: ClientError) -> bool:
-        error = exc.response.get("Error", {})
-        code = str(error.get("Code", ""))
-        status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        if code in {"NoSuchKey", "NoSuchVersion", "NotFound", "404", "Not Found"}:
-            return True
-        return status == 404 and not code
-
-    @staticmethod
-    def _client_error(
-        exc: ClientError, *, mutation: bool
-    ) -> NativeStorageError:
-        error = exc.response.get("Error", {})
-        code = str(error.get("Code", "") or "s3_request_failed")[:64]
-        status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-        unsettled = mutation and (
-            status is None or status in {408, 409} or status >= 500
-        )
-        return NativeStorageError(code, unsettled=unsettled)
-
-    def _head(self, stop, key: str, version: str | None):
-        _check_stop(stop)
-        parameters: dict[str, object] = {"Bucket": self.bucket, "Key": key}
-        if version is not None:
-            parameters["VersionId"] = version
-        try:
-            return self.client.head_object(**parameters)
-        except ClientError as exc:
-            if self._missing(exc):
-                return None
-            raise self._client_error(exc, mutation=False) from exc
-        except Exception as exc:
-            raise NativeStorageError("native_head_failed") from exc
-
-    def _read(
-        self,
-        stop,
-        key: str,
-        member: NativePyramidRetirementMember,
-        version: str | None,
-        etag: str,
-    ) -> bool | None:
-        _check_stop(stop)
-        parameters: dict[str, object] = {
-            "Bucket": self.bucket,
-            "Key": key,
-            "IfMatch": etag,
-        }
-        if version is not None:
-            parameters["VersionId"] = version
-        try:
-            response = self.client.get_object(**parameters)
-        except ClientError as exc:
-            if self._missing(exc):
-                return None
-            error = exc.response.get("Error", {})
-            code = str(error.get("Code", ""))
-            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            if code in {"PreconditionFailed", "412"} or status == 412:
-                raise NativeStorageError(
-                    "native_member_identity_changed"
-                ) from exc
-            raise self._client_error(exc, mutation=False) from exc
-        except Exception as exc:
-            raise NativeStorageError("native_get_failed") from exc
-        body = response.get("Body")
-        try:
-            if body is None:
-                raise NativeStorageError("native_get_failed")
-            self._check_identity(
-                response,
-                etag=etag,
-                size=member.size_bytes,
-                version=version,
+    async def prepare_page(self, claim, page):
+        result = await self.signer.retirement_references(
+            NativePyramidRetirementIoRequest(
+                output_id=claim.output_id,
+                lease_token=page.lease_token,
+                page_id=page.page_id,
             )
-            digest = hashlib.sha256()
-            written = 0
-            while True:
-                _check_stop(stop)
-                chunk = body.read(_CHUNK)
-                if not chunk:
-                    break
-                written += len(chunk)
-                if written > member.size_bytes:
-                    raise NativeStorageError("native_member_identity_mismatch")
-                digest.update(chunk)
+        )
+        if (
+            not self._scope_matches(result, claim, page)
+            or result.mode != "retirement_members"
+            or len(result.members) != len(page.items)
+        ):
+            raise NativeStorageError("native_retirement_reference_mismatch")
+        references = {}
+        for expected, reference in zip(page.items, result.members, strict=True):
             if (
-                written != member.size_bytes
-                or digest.hexdigest() != member.sha256
+                reference.member.model_dump() != expected.model_dump()
+                or reference.head is None
+                or reference.get is None
+                or reference.delete is None
             ):
-                raise NativeStorageError("native_member_identity_mismatch")
+                raise NativeStorageError("native_member_reference_mismatch")
+            references[expected.operation_id] = reference
+        return references
+
+    @asynccontextmanager
+    async def _response(
+        self,
+        call: NativePyramidSignedRequest,
+        stop: threading.Event,
+        *,
+        mutation: bool = False,
+    ):
+        _check_stop(stop)
+        if _lease_expired(call.expires_at):
+            raise NativeStorageError("native_storage_capability_expired")
+        try:
+            request = self.http.build_request(
+                call.method, call.url, headers=call.headers
+            )
+            response = await self.http.send(request, stream=True)
+        except asyncio.CancelledError as exc:
+            exc.storage_operation_unsettled = True
+            raise
+        except Exception:
+            raise NativeStorageError(
+                "native_storage_request_failed", unsettled=mutation
+            ) from None
+        try:
+            yield response
+        finally:
+            try:
+                await response.aclose()
+            except asyncio.CancelledError as exc:
+                exc.storage_operation_unsettled = True
+                raise
+            except Exception:
+                raise NativeStorageError(
+                    "native_response_close_unproven", unsettled=True
+                ) from None
+
+    @staticmethod
+    async def _bounded_body(response, stop) -> bytes:
+        body = bytearray()
+        try:
+            async for chunk in response.aiter_raw():
+                _check_stop(stop)
+                if len(body) + len(chunk) > _MAX_XML_BYTES:
+                    raise NativeStorageError("native_storage_reply_too_large")
+                body.extend(chunk)
         except (NativeStorageError, CleanupStopped):
             raise
-        except Exception as exc:
-            raise NativeStorageError("native_get_failed") from exc
-        finally:
-            if body is not None:
-                with suppress(Exception):
-                    body.close()
-        return True
+        except Exception:
+            # httpx may mark a response closed before its stream close fails.
+            raise NativeStorageError(
+                "native_response_body_unsettled", unsettled=True
+            ) from None
+        return bytes(body)
 
-    def _delete(
-        self,
-        stop,
-        key: str,
-        version: str | None,
-        etag: str,
-    ) -> None:
-        _check_stop(stop)
-        parameters: dict[str, object] = {
-            "Bucket": self.bucket,
-            "Key": key,
-            "IfMatch": etag,
-        }
-        if version is not None:
-            parameters["VersionId"] = version
+    @staticmethod
+    def _xml(body: bytes):
+        if b"<!DOCTYPE" in body or b"<!ENTITY" in body:
+            raise NativeStorageError("native_storage_reply_invalid")
         try:
-            response = self.client.delete_object(**parameters)
-        except ClientError as exc:
-            if self._missing(exc):
-                return
-            error = exc.response.get("Error", {})
-            code = str(error.get("Code", ""))
-            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
-            if code in {"PreconditionFailed", "412"} or status == 412:
-                raise NativeStorageError(
-                    "native_member_identity_changed"
-                ) from exc
-            raise self._client_error(exc, mutation=True) from exc
-        except Exception as exc:
-            raise NativeStorageError(
-                "native_member_delete_unsettled", unsettled=True
-            ) from exc
-        deleted_version = response.get("VersionId")
-        if version is not None and (
-            response.get("DeleteMarker") is True
-            or (deleted_version is not None and deleted_version != version)
-        ):
-            raise NativeStorageError(
-                "native_member_version_unknown", unsettled=True
-            )
+            return ElementTree.fromstring(body.decode("utf-8"))
+        except (UnicodeDecodeError, ElementTree.ParseError):
+            raise NativeStorageError("native_storage_reply_invalid") from None
 
-    def _verify_absent(
-        self, stop, key: str, version: str | None
-    ) -> None:
-        if self._head(stop, key, version) is not None:
+    @classmethod
+    async def _missing(cls, response, stop) -> bool:
+        if response.status_code != 404:
+            return False
+        if response.headers.get("x-amz-delete-marker", "").lower() == "true":
+            raise NativeStorageError("native_member_version_unknown")
+        code = response.headers.get("x-amz-error-code")
+        body = await cls._bounded_body(response, stop)
+        if body:
+            root = cls._xml(body)
+            if root.tag == "Error":
+                code = root.findtext("Code")
+            elif root.tag == f"{{{_S3_NAMESPACE}}}Error":
+                code = root.findtext(f"{{{_S3_NAMESPACE}}}Code")
+            else:
+                raise NativeStorageError("native_storage_reply_invalid")
+        return code in {None, "", "NoSuchKey", "NoSuchVersion", "NotFound", "404"}
+
+    @staticmethod
+    def _status_error(response, *, mutation=False):
+        status = response.status_code
+        raise NativeStorageError(
+            "native_member_identity_changed"
+            if status == 412
+            else f"native_storage_http_{status}",
+            unsettled=mutation and (status in {408, 409} or status >= 500),
+        )
+
+    @staticmethod
+    def _check_identity(response, member):
+        length = response.headers.get("content-length", "")
+        try:
+            size = int(length) if length.isascii() and length.isdecimal() else -1
+        except ValueError:
+            size = -1
+        actual_version = response.headers.get("x-amz-version-id")
+        version_matches = actual_version == member.version_id or (
+            member.version_id == "null" and actual_version is None
+        )
+        if (
+            response.headers.get("etag") != member.etag
+            or size != member.size_bytes
+            or not version_matches
+        ):
+            raise NativeStorageError("native_member_identity_mismatch")
+
+    async def _head(self, call, member, stop) -> bool:
+        async with self._response(call, stop) as response:
+            if await self._missing(response, stop):
+                return False
+            if response.status_code != 200:
+                self._status_error(response)
+            self._check_identity(response, member)
+            return True
+
+    async def _read(self, call, member, stop) -> bool:
+        async with self._response(call, stop) as response:
+            if await self._missing(response, stop):
+                return False
+            if response.status_code != 200:
+                self._status_error(response)
+            self._check_identity(response, member)
+            digest = hashlib.sha256()
+            size = 0
+            try:
+                async for chunk in response.aiter_raw(chunk_size=_CHUNK):
+                    _check_stop(stop)
+                    size += len(chunk)
+                    if size > member.size_bytes:
+                        raise NativeStorageError("native_member_identity_mismatch")
+                    digest.update(chunk)
+            except (NativeStorageError, CleanupStopped):
+                raise
+            except Exception:
+                raise NativeStorageError(
+                    "native_member_read_failed", unsettled=True
+                ) from None
+            if size != member.size_bytes or digest.hexdigest() != member.sha256:
+                raise NativeStorageError("native_member_identity_mismatch")
+            return True
+
+    async def _delete(self, call, member, stop) -> None:
+        async with self._response(call, stop, mutation=True) as response:
+            if await self._missing(response, stop):
+                return
+            if response.status_code not in {200, 204}:
+                if 200 <= response.status_code < 300:
+                    raise NativeStorageError(
+                        "native_delete_ack_unproven", unsettled=True
+                    )
+                self._status_error(response, mutation=True)
+            await self._bounded_body(response, stop)
+            actual_version = response.headers.get("x-amz-version-id")
+            if (
+                response.headers.get("x-amz-delete-marker", "").lower() == "true"
+                or (
+                    actual_version is not None
+                    and actual_version != member.version_id
+                )
+            ):
+                raise NativeStorageError(
+                    "native_member_version_unknown", unsettled=True
+                )
+
+    async def delete_member(self, member, reference, stop) -> None:
+        if not await self._head(reference.head, member, stop):
+            return
+        if not await self._read(reference.get, member, stop):
+            return
+        await self._delete(reference.delete, member, stop)
+        if await self._head(reference.head, member, stop):
             raise NativeStorageError("native_member_present_after_delete")
 
-    def delete_member(
-        self,
-        prefix: str,
-        member: NativePyramidRetirementMember,
-        stop: threading.Event,
-    ) -> None:
-        key = self._member_key(prefix, member)
-        etag = self._member_etag(member)
-        version = self._member_version(member)
-        self._member_bytes(member)
-        head = self._head(stop, key, version)
-        if head is None:
-            return
-        self._check_identity(
-            head,
-            etag=etag,
-            size=member.size_bytes,
-            version=version,
+    async def verify_prefix_absent(self, claim, page, stop) -> None:
+        shapes = (
+            ("versions", "ListVersionsResult", "Name", ("Version", "DeleteMarker")),
+            ("uploads", "ListMultipartUploadsResult", "Bucket", ("Upload",)),
+            ("objects", "ListBucketResult", "Name", ("Contents",)),
         )
-        if self._read(stop, key, member, version, etag) is None:
-            return
-        self._delete(stop, key, version, etag)
-        self._verify_absent(stop, key, version)
-
-    def verify_prefix_absent(self, prefix: str, stop: threading.Event) -> None:
-        if (
-            not isinstance(prefix, str)
-            or not prefix
-            or not prefix.endswith("/")
-            or "\x00" in prefix
-        ):
-            raise NativeStorageError("native_prefix_invalid")
-        self._versions_absent(stop, prefix)
-        self._uploads_absent(stop, prefix)
-        self._objects_absent(stop, prefix)
-
-    def _versions_absent(self, stop, prefix: str) -> None:
-        _check_stop(stop)
-        try:
-            page = self.client.list_object_versions(
-                Bucket=self.bucket, Prefix=prefix, MaxKeys=1
+        for kind, root_name, bucket_name, entries in shapes:
+            _check_stop(stop)
+            reference = await self.signer.retirement_prefix_reference(
+                NativePyramidRetirementPrefixIoRequest(
+                    output_id=claim.output_id,
+                    lease_token=page.lease_token,
+                    page_id=page.page_id,
+                    kind=kind,
+                )
             )
-        except ClientError as exc:
-            raise self._client_error(exc, mutation=False) from exc
-        except Exception as exc:
-            raise NativeStorageError("native_prefix_probe_failed") from exc
-        if not isinstance(page, dict):
-            raise NativeStorageError("native_prefix_scan_incomplete")
-        versions = page.get("Versions") or []
-        markers = page.get("DeleteMarkers") or []
-        if not isinstance(versions, list) or not isinstance(markers, list):
-            raise NativeStorageError("native_prefix_scan_incomplete")
-        entries = versions + markers
-        for entry in entries:
-            if not isinstance(entry, dict):
-                raise NativeStorageError("native_prefix_scan_incomplete")
-            key = entry.get("Key")
-            if not isinstance(key, str) or not key.startswith(prefix):
-                raise NativeStorageError("native_prefix_foreign_material")
-            version = entry.get("VersionId")
-            if not isinstance(version, str) or not version:
-                raise NativeStorageError("native_prefix_scan_incomplete")
-        if entries:
-            raise NativeStorageError("native_prefix_not_empty")
-        if page.get("IsTruncated") is True:
-            raise NativeStorageError("native_prefix_scan_incomplete")
-
-    def _uploads_absent(self, stop, prefix: str) -> None:
-        _check_stop(stop)
-        try:
-            page = self.client.list_multipart_uploads(
-                Bucket=self.bucket, Prefix=prefix, MaxUploads=1
+            if (
+                not self._scope_matches(reference, claim, page)
+                or reference.kind != kind
+            ):
+                raise NativeStorageError("native_retirement_reference_mismatch")
+            async with self._response(reference.request, stop) as response:
+                if response.status_code != 200:
+                    self._status_error(response)
+                root = self._xml(await self._bounded_body(response, stop))
+            namespace = (
+                f"{{{_S3_NAMESPACE}}}"
+                if root.tag == f"{{{_S3_NAMESPACE}}}{root_name}"
+                else ""
             )
-        except ClientError as exc:
-            raise self._client_error(exc, mutation=False) from exc
-        except Exception as exc:
-            raise NativeStorageError("native_prefix_probe_failed") from exc
-        if not isinstance(page, dict):
-            raise NativeStorageError("native_prefix_scan_incomplete")
-        uploads = page.get("Uploads") or []
-        if not isinstance(uploads, list):
-            raise NativeStorageError("native_prefix_scan_incomplete")
-        for upload in uploads:
-            if not isinstance(upload, dict):
+            if (
+                root.tag != namespace + root_name
+                or root.findtext(namespace + bucket_name) != claim.storage_ref.bucket
+                or root.findtext(namespace + "Prefix") != claim.storage_ref.prefix
+            ):
+                raise NativeStorageError("native_prefix_scan_scope_mismatch")
+            if any(root.findall(namespace + name) for name in entries) or root.findall(
+                namespace + "CommonPrefixes"
+            ):
+                raise NativeStorageError("native_prefix_not_empty")
+            if root.findtext(namespace + "IsTruncated") != "false":
                 raise NativeStorageError("native_prefix_scan_incomplete")
-            key = upload.get("Key")
-            upload_id = upload.get("UploadId")
-            if not isinstance(key, str) or not key.startswith(prefix):
-                raise NativeStorageError("native_prefix_foreign_material")
-            if not isinstance(upload_id, str) or not upload_id:
-                raise NativeStorageError("native_prefix_scan_incomplete")
-        if uploads:
-            raise NativeStorageError("native_prefix_not_empty")
-        if page.get("IsTruncated") is True:
-            raise NativeStorageError("native_prefix_scan_incomplete")
-
-    def _objects_absent(self, stop, prefix: str) -> None:
-        _check_stop(stop)
-        try:
-            page = self.client.list_objects_v2(
-                Bucket=self.bucket, Prefix=prefix, MaxKeys=1
-            )
-        except ClientError as exc:
-            raise self._client_error(exc, mutation=False) from exc
-        except Exception as exc:
-            raise NativeStorageError("native_prefix_probe_failed") from exc
-        if not isinstance(page, dict):
-            raise NativeStorageError("native_prefix_scan_incomplete")
-        contents = page.get("Contents") or []
-        if not isinstance(contents, list):
-            raise NativeStorageError("native_prefix_scan_incomplete")
-        for entry in contents:
-            if not isinstance(entry, dict):
-                raise NativeStorageError("native_prefix_scan_incomplete")
-            key = entry.get("Key")
-            if not isinstance(key, str) or not key.startswith(prefix):
-                raise NativeStorageError("native_prefix_foreign_material")
-        if contents:
-            raise NativeStorageError("native_prefix_not_empty")
-        if page.get("IsTruncated") is True:
-            raise NativeStorageError("native_prefix_scan_incomplete")
 
 
 async def _run_native_io(function, *args, stop: threading.Event):
-    """Finish the bounded S3 call on cancellation before releasing any page."""
-    task = asyncio.create_task(asyncio.to_thread(function, *args, stop))
+    """Drain the physical request before reporting cancellation to the owner."""
+    task = asyncio.create_task(function(*args, stop))
     try:
         return await asyncio.shield(task)
-    except asyncio.CancelledError:
+    except asyncio.CancelledError as cancelled:
         stop.set()
         while not task.done():
             try:
@@ -500,8 +399,14 @@ async def _run_native_io(function, *args, stop: threading.Event):
                 continue
             except BaseException:
                 break
+        cancelled.storage_operation_unsettled = True
         if task.done() and not task.cancelled():
             error = task.exception()
+            cancelled.storage_operation_unsettled = (
+                False
+                if error is None or isinstance(error, CleanupStopped)
+                else getattr(error, "unsettled", True)
+            )
             if error is not None:
                 log.warning(
                     "Native retirement I/O closed after cancellation code=%s",
@@ -647,6 +552,20 @@ async def _retire_output(
                 raise DataContractError(
                     "Assets returned a retirement page behind its cursor"
                 )
+            try:
+                references = await storage.prepare_page(claim, page)
+            except asyncio.CancelledError:
+                # Signing performs no object I/O; this prepared page is unstarted.
+                await asyncio.shield(_release_page(data, page, previous_cursor))
+                raise
+            except Exception as exc:
+                log.warning(
+                    "Native retirement signing failed output_id=%s code=%s",
+                    claim.output_id,
+                    _code(exc),
+                )
+                await _release_page(data, page, previous_cursor)
+                return _RetirementOutcome(0, 1, pages, True)
             for member in page.items:
                 if stop.is_set():
                     await _release_page(data, page, previous_cursor)
@@ -661,10 +580,16 @@ async def _retire_output(
                 try:
                     await _run_native_io(
                         storage.delete_member,
-                        claim.storage_ref.prefix,
                         member,
+                        references[member.operation_id],
                         stop=storage_stop,
                     )
+                except asyncio.CancelledError as exc:
+                    if not getattr(exc, "storage_operation_unsettled", True):
+                        await asyncio.shield(
+                            _release_page(data, page, previous_cursor)
+                        )
+                    raise
                 except CleanupStopped:
                     await _release_page(data, page, previous_cursor)
                     return _RetirementOutcome(0, 0, pages, True)
@@ -732,9 +657,14 @@ async def _retire_output(
         try:
             await _run_native_io(
                 storage.verify_prefix_absent,
-                claim.storage_ref.prefix,
+                claim,
+                page,
                 stop=storage_stop,
             )
+        except asyncio.CancelledError as exc:
+            if not getattr(exc, "storage_operation_unsettled", True):
+                await asyncio.shield(_release_page(data, page, previous_cursor))
+            raise
         except CleanupStopped:
             await _release_page(data, page, previous_cursor)
             return _RetirementOutcome(0, 0, pages, True)
@@ -744,7 +674,8 @@ async def _retire_output(
                 claim.output_id,
                 exc.code,
             )
-            await _release_page(data, page, previous_cursor)
+            if not exc.unsettled:
+                await _release_page(data, page, previous_cursor)
             return _RetirementOutcome(0, 1, pages, True)
         except Exception as exc:  # noqa: BLE001 - absence remains unproven.
             log.warning(
@@ -789,7 +720,6 @@ async def drain_native_pyramid_retirement(
     storage: NativeRetirementStoragePort,
     *,
     worker_id: UUID,
-    store: NativePyramidRetirementStore,
     page_size: int,
     stop: asyncio.Event,
     storage_stop: threading.Event,
@@ -805,7 +735,6 @@ async def drain_native_pyramid_retirement(
     while not stop.is_set():
         request = ClaimNativePyramidRetirementRequest(
             worker_id=worker_id,
-            store=store,
             lease_seconds=lease_seconds,
         )
         try:
@@ -817,7 +746,6 @@ async def drain_native_pyramid_retirement(
         if claimed.claim is None:
             break
         claim = claimed.claim
-        storage.verify_target(claim.output_id, claim.storage_ref)
         if health is not None:
             health.heartbeat()
         outcome = await _retire_output(

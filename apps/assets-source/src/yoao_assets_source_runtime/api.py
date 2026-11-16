@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 import hmac
+import json
 import logging
 from tempfile import SpooledTemporaryFile
 from typing import Any
@@ -47,6 +48,30 @@ from yoao_assets_source.connections_contract import (
     decode_connection_reply,
 )
 from yoao_assets_source.import_verification_contract import ImportVerificationRequest
+from yoao_assets_images.contract import (
+    IMAGE_SCHEMA,
+    REPLY_BYTES,
+    REQUEST_BYTES,
+    ImageFailure,
+    decode_reply,
+    http_error_status,
+    json_bytes,
+)
+from yoao_assets_images.native_storage_contract import (
+    NATIVE_READ_REFERENCES_PATH,
+    NATIVE_RETIREMENT_PREFIX_REFERENCE_PATH,
+    NATIVE_RETIREMENT_REFERENCES_PATH,
+    NATIVE_VERIFY_REFERENCE_PATH,
+    NATIVE_WRITE_REFERENCE_PATH,
+    NativePyramidIoContext,
+    NativePyramidIoReferences,
+    NativePyramidPrefixIoReference,
+    NativePyramidReadIoRequest,
+    NativePyramidRetirementIoRequest,
+    NativePyramidRetirementPrefixIoRequest,
+    NativePyramidWriteIoRequest,
+)
+from .config import NativeSignerSettings
 from .runtime import SourceRuntime
 
 logger = logging.getLogger("yoao_assets_source_runtime")
@@ -271,6 +296,136 @@ def _connection_failure_response(code: str) -> JSONResponse:
     else:
         raise RuntimeError("Connection failure response decoded as success")
     return JSONResponse(status_code=200, content=payload)
+
+
+def _reject_json_constant(_value):
+    raise ValueError("nonfinite JSON")
+
+
+def _native_failure(code: str, status: int) -> Response:
+    payload = {"schema": IMAGE_SCHEMA, "ok": False, "error": {"code": code}}
+    try:
+        decode_reply(payload, NativePyramidIoContext)
+    except ImageFailure as exc:
+        if exc.code != code:
+            payload = {
+                "schema": IMAGE_SCHEMA,
+                "ok": False,
+                "error": {"code": "invalid_response"},
+            }
+            status = http_error_status("invalid_response")
+    except (TypeError, ValueError, UnicodeError, RecursionError):
+        payload = {
+            "schema": IMAGE_SCHEMA,
+            "ok": False,
+            "error": {"code": "invalid_response"},
+        }
+        status = http_error_status("invalid_response")
+    raw = json_bytes(payload)
+    if len(raw) > REPLY_BYTES:
+        return Response(
+            content=json_bytes(
+                {
+                    "schema": IMAGE_SCHEMA,
+                    "ok": False,
+                    "error": {"code": "resource_budget_exceeded"},
+                }
+            ),
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            media_type="application/json",
+        )
+    return Response(raw, status_code=status, media_type="application/json")
+
+
+def _native_success(result) -> Response:
+    try:
+        payload = {
+            "schema": IMAGE_SCHEMA,
+            "ok": True,
+            "data": result.model_dump(mode="json", by_alias=True),
+        }
+        decoded = decode_reply(payload, type(result))
+        if decoded != result:
+            raise ImageFailure("invalid_response")
+        raw = json_bytes(payload)
+    except ImageFailure as exc:
+        return _native_failure(exc.code, http_error_status(exc.code))
+    except (TypeError, ValueError, AttributeError, UnicodeError, RecursionError):
+        return _native_failure(
+            "invalid_response", http_error_status("invalid_response")
+        )
+    if len(raw) > REPLY_BYTES:
+        return _native_failure(
+            "resource_budget_exceeded",
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    return Response(raw, status_code=200, media_type="application/json")
+
+
+def _native_bearer_matches(request: Request, expected: str) -> bool:
+    authorization = request.headers.get("authorization", "")
+    scheme, separator, token = authorization.partition(" ")
+    return bool(
+        separator
+        and scheme.casefold() == "bearer"
+        and token
+        and token.isascii()
+        and hmac.compare_digest(token, expected)
+    )
+
+
+async def _native_invoke(
+    request: Request,
+    *,
+    settings: NativeSignerSettings | None,
+    expected_token: str,
+    model: type,
+    result_type: type,
+    callback,
+) -> Response:
+    if settings is None:
+        return _native_failure(
+            "source_unavailable", status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+    if not _native_bearer_matches(request, expected_token):
+        return _native_failure("permission_denied", status.HTTP_401_UNAUTHORIZED)
+    try:
+        raw = await request.body()
+    except Exception:
+        return _native_failure("invalid_request", status.HTTP_422_UNPROCESSABLE_ENTITY)
+    if len(raw) > REQUEST_BYTES:
+        return _native_failure(
+            "resource_budget_exceeded",
+            status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        )
+    try:
+        value = model.model_validate(
+            json.loads(raw, parse_constant=_reject_json_constant)
+        )
+    except (
+        ValidationError,
+        ValueError,
+        TypeError,
+        UnicodeError,
+        RecursionError,
+    ):
+        return _native_failure("invalid_request", status.HTTP_422_UNPROCESSABLE_ENTITY)
+    try:
+        result = await callback(value)
+        if not isinstance(result, result_type):
+            raise ImageFailure("invalid_response")
+        return _native_success(result)
+    except ImageFailure as exc:
+        return _native_failure(exc.code, http_error_status(exc.code))
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:  # noqa: BLE001 - never leak credentials or SQL detail
+        logger.error(
+            "Assets source native signing failed (%s)", type(exc).__name__
+        )
+        return _native_failure(
+            "storage_unavailable", status.HTTP_503_SERVICE_UNAVAILABLE
+        )
 
 
 async def _run_until_disconnect(request: Request, operation):
@@ -550,5 +705,65 @@ def create_app(
     ) -> Response:
         payload = await request.app.state.runtime.manage_connection("test", body)
         return Response(content=payload, media_type="application/json")
+
+    @app.post(NATIVE_WRITE_REFERENCE_PATH)
+    async def native_write_reference(request: Request) -> Response:
+        settings = request.app.state.config.native
+        return await _native_invoke(
+            request,
+            settings=settings,
+            expected_token=settings.writer_token if settings is not None else "",
+            model=NativePyramidWriteIoRequest,
+            result_type=NativePyramidIoReferences,
+            callback=request.app.state.runtime.native_write_reference,
+        )
+
+    @app.post(NATIVE_VERIFY_REFERENCE_PATH)
+    async def native_verify_reference(request: Request) -> Response:
+        settings = request.app.state.config.native
+        return await _native_invoke(
+            request,
+            settings=settings,
+            expected_token=settings.writer_token if settings is not None else "",
+            model=NativePyramidWriteIoRequest,
+            result_type=NativePyramidIoReferences,
+            callback=request.app.state.runtime.native_verify_reference,
+        )
+
+    @app.post(NATIVE_READ_REFERENCES_PATH)
+    async def native_read_references(request: Request) -> Response:
+        settings = request.app.state.config.native
+        return await _native_invoke(
+            request,
+            settings=settings,
+            expected_token=settings.reader_token if settings is not None else "",
+            model=NativePyramidReadIoRequest,
+            result_type=NativePyramidIoReferences,
+            callback=request.app.state.runtime.native_read_references,
+        )
+
+    @app.post(NATIVE_RETIREMENT_REFERENCES_PATH)
+    async def native_retirement_references(request: Request) -> Response:
+        settings = request.app.state.config.native
+        return await _native_invoke(
+            request,
+            settings=settings,
+            expected_token=settings.cleanup_token if settings is not None else "",
+            model=NativePyramidRetirementIoRequest,
+            result_type=NativePyramidIoReferences,
+            callback=request.app.state.runtime.native_retirement_references,
+        )
+
+    @app.post(NATIVE_RETIREMENT_PREFIX_REFERENCE_PATH)
+    async def native_retirement_prefix_reference(request: Request) -> Response:
+        settings = request.app.state.config.native
+        return await _native_invoke(
+            request,
+            settings=settings,
+            expected_token=settings.cleanup_token if settings is not None else "",
+            model=NativePyramidRetirementPrefixIoRequest,
+            result_type=NativePyramidPrefixIoReference,
+            callback=request.app.state.runtime.native_retirement_prefix_reference,
+        )
 
     return app

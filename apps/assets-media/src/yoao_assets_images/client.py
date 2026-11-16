@@ -233,7 +233,9 @@ class ImageClient:
         )
         try:
             require_internal_source_reference_scope(request, result)
-            if result.expires_in != request.expires_in:
+            if request.expires_in is not None and (
+                result.expires_in != request.expires_in
+            ):
                 raise ValueError("image reference changed requested lifetime")
         except (ValueError, TypeError, AttributeError):
             raise c.ImageFailure("invalid_response") from None
@@ -249,7 +251,9 @@ class ImageClient:
         )
         try:
             require_generation_reference_scope(request, result)
-            if result.expires_in != request.expires_in:
+            if request.expires_in is not None and (
+                result.expires_in != request.expires_in
+            ):
                 raise ValueError("image reference changed requested lifetime")
         except (ValueError, TypeError, AttributeError):
             raise c.ImageFailure("invalid_response") from None

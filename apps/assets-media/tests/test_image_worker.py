@@ -29,12 +29,16 @@ from yoao_assets_images.contract import (
     ImageWorkOutcome,
     OriginalRead,
     ObjectIdentity,
+    NativePyramidSavedTarget,
+    PyramidMemberReceipt,
+    PyramidMemberReservation,
     PyramidOutputAllocation,
     PyramidWorkSpec,
     ThumbnailWorkSpec,
 )
 from yoao_assets_images.policy import ImagePolicy
 from yoao_assets_images_runtime.config import ConfigurationError, load_config
+from yoao_assets_images_runtime import native_media
 from yoao_assets_images_runtime.storage import DownloadedSource, SourceHeader
 from yoao_assets_images_runtime.worker import ImageExecutor, _LeaseHeartbeat, _run_child
 
@@ -189,14 +193,45 @@ class _FakeDatabase:
                 outcome="failed",
             )
         if name == "allocate_native_pyramid_output":
+            output_id = uuid4()
+            key_prefix = "_aap_managed/media-cache/"
             return PyramidOutputAllocation(
-                output_id=uuid4(),
-                prefix=f"image-pyramids/objects/{uuid4()}/",
+                output_id=output_id,
+                storage_ref=NativePyramidSavedTarget(
+                    schema_=2,
+                    purpose="media-cache",
+                    location_id=uuid4(),
+                    config_revision=1,
+                    binding_generation=1,
+                    endpoint_url="http://saved.internal",
+                    bucket="saved-bucket",
+                    key_prefix=key_prefix,
+                    prefix=f"{key_prefix}image-pyramids/objects/{output_id}/",
+                    storage_identity="f" * 64,
+                ),
                 job_id=request.job_id,
                 job_generation=request.job_generation,
                 lease_token=request.lease_token,
                 asset_id=request.asset_id,
                 generation=request.generation,
+            )
+        if name == "begin_native_pyramid_member":
+            return request
+        if name == "submit_native_pyramid_member":
+            return request
+        if name == "write_native_pyramid_member":
+            return request
+        if name == "verify_native_pyramid_member":
+            return request
+        if name == "abandon_native_pyramid_member":
+            return request
+        if name == "finish_native_pyramid_output":
+            if self.finish_failures:
+                raise ImageFailure(self.finish_failures.pop(0))
+            return ImageWorkOutcome(
+                job_id=request.job_id,
+                generation=request.generation,
+                outcome="published",
             )
         if name == "finish_image_media":
             if self.finish_failures:
@@ -220,6 +255,7 @@ class _FakeStorage:
         self.uploads = []
         self.sources = []
         self.orphans = []
+        self.verified = []
 
     def bind_original(self, permit):
         assert permit.ownership == "ordinary"
@@ -249,6 +285,26 @@ class _FakeStorage:
             identity=source.object_identity,
             byte_size=len(self.source_bytes),
             sha256=hashlib.sha256(self.source_bytes).hexdigest(),
+        )
+
+    async def upload_pyramid_member(self, path, allocation, member):
+        data = Path(path).read_bytes()
+        key = allocation.storage_ref.prefix + member.relative_key
+        artifact = Artifact(
+            key=key,
+            byte_size=len(data),
+            sha256=hashlib.sha256(data).hexdigest(),
+        )
+        self.uploads.append((key, data, artifact))
+        return PyramidMemberReceipt(
+            operation_id=member.operation_id,
+            etag='"member-etag"',
+            version_id="member-version",
+        )
+
+    async def verify_pyramid_member(self, allocation, member, receipt):
+        self.verified.append(
+            (allocation.output_id, member.operation_id, receipt.etag)
         )
 
     async def upload_cache(self, path, key):
@@ -1058,6 +1114,17 @@ async def test_pyramid_worker_executes_real_libvips_child_and_publishes_every_ar
         pyramid.overview_artifact.key,
         *(tile.artifact.key for tile in pyramid.tile_artifacts),
     }
+    assert all(
+        key.startswith("_aap_managed/media-cache/image-pyramids/objects/")
+        for key, _data, _artifact in storage.uploads
+    )
+    names = [name for name, _request in database.calls]
+    assert names.count("write_native_pyramid_member") == len(storage.uploads)
+    assert names.count("verify_native_pyramid_member") == len(storage.uploads)
+    assert names.index("write_native_pyramid_member") < names.index(
+        "verify_native_pyramid_member"
+    )
+    assert len(storage.verified) == len(storage.uploads)
 
 
 @pytest.mark.asyncio
@@ -1406,3 +1473,375 @@ def test_image_child_environment_does_not_receive_storage_or_database_secrets(
     assert "ASSETS_IMAGES_DATABASE_URL" not in environment
     assert "ASSETS_MEDIA_S3_SECRET_KEY" not in environment
     assert "AWS_SECRET_ACCESS_KEY" not in environment
+
+
+def _native_member_allocation():
+    output_id = uuid4()
+    key_prefix = "_aap_managed/media-cache/"
+    return PyramidOutputAllocation(
+        output_id=output_id,
+        storage_ref=NativePyramidSavedTarget(
+            schema_=2,
+            purpose="media-cache",
+            location_id=uuid4(),
+            config_revision=1,
+            binding_generation=1,
+            endpoint_url="http://saved.internal",
+            bucket="saved-bucket",
+            key_prefix=key_prefix,
+            prefix=f"{key_prefix}image-pyramids/objects/{output_id}/",
+            storage_identity="f" * 64,
+        ),
+        job_id=uuid4(),
+        job_generation=2,
+        lease_token=uuid4(),
+        asset_id=uuid4(),
+        generation=3,
+    )
+
+
+def _member_write_args(tmp_path):
+    allocation = _native_member_allocation()
+    body = b"member-bytes"
+    path = tmp_path / "manifest.json"
+    path.write_bytes(body)
+    reservation = PyramidMemberReservation(
+        operation_id=uuid4(),
+        output_id=allocation.output_id,
+        relative_key="manifest.json",
+        sha256=hashlib.sha256(body).hexdigest(),
+        size_bytes=len(body),
+    )
+    return allocation, path, reservation
+
+
+class _MemberWriteStorage:
+    def __init__(self, *, receipt=None, failure=None, verify_failure=None):
+        self.receipt = receipt
+        self.failure = failure
+        self.verify_failure = verify_failure
+        self.verified = []
+
+    async def upload_pyramid_member(self, path, allocation, member):
+        if self.failure is not None:
+            raise self.failure
+        return self.receipt
+
+    async def verify_pyramid_member(self, allocation, member, receipt):
+        if self.verify_failure is not None:
+            raise self.verify_failure
+        self.verified.append(receipt)
+
+
+class _StubHeartbeat:
+    """Heartbeat with scripted checks: ``None`` passes, a code raises."""
+
+    def __init__(self, checks=()):
+        self.checks = list(checks)
+        self.deadline = time.monotonic() + 30
+
+    def check(self):
+        if self.checks:
+            code = self.checks.pop(0)
+            if code is not None:
+                raise ImageFailure(code)
+
+
+async def _member_write(executor, allocation, path, reservation, heartbeat):
+    return await executor._upload_pyramid_member(
+        allocation,
+        path,
+        "manifest.json",
+        reservation.sha256,
+        reservation.size_bytes,
+        heartbeat,
+    )
+
+
+@pytest.mark.asyncio
+async def test_native_member_receipt_is_registered_before_a_later_heartbeat_loss(
+    tmp_path,
+):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    receipt = PyramidMemberReceipt(
+        operation_id=reservation.operation_id,
+        etag='"raw-etag"',
+        version_id="null",
+    )
+    storage = _MemberWriteStorage(receipt=receipt)
+    database = _FakeDatabase(None)
+    heartbeat = _StubHeartbeat([None, None, None, "lease_lost"])
+
+    with pytest.raises(ImageFailure, match="lease_lost"):
+        await _member_write(
+            ImageExecutor(database, storage),
+            allocation,
+            path,
+            reservation,
+            heartbeat,
+        )
+
+    names = [name for name, _request in database.calls]
+    # The receipt is durable before the lost heartbeat is observed, and the
+    # still-open permit is settled as written rather than abandoned.
+    assert names == [
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+        "abandon_native_pyramid_member",
+    ]
+    recorded = database.calls[2][1]
+    assert recorded == receipt
+    assert recorded.etag == '"raw-etag"'
+    # A literal returned ``null`` version stays a recorded receipt, not ``None``.
+    assert recorded.version_id == "null"
+    assert database.calls[-1][1].state == "written"
+    assert storage.verified == []
+
+
+@pytest.mark.asyncio
+async def test_native_member_unproven_closure_is_never_registered(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _FakeDatabase(None)
+    # Headers may already have been observed, but a failed body/client close
+    # leaves the physical operation unproven.  Only a drained, closed PUT is a
+    # known receipt; this one must stay blocked as unknown.
+    unproven = ImageFailure("storage_unavailable")
+    unproven.storage_operation_unsettled = True
+
+    with pytest.raises(ImageFailure, match="storage_unavailable"):
+        await _member_write(
+            ImageExecutor(database, _MemberWriteStorage(failure=unproven)),
+            allocation,
+            path,
+            reservation,
+            _StubHeartbeat([None, None, None]),
+        )
+
+    names = [name for name, _request in database.calls]
+    assert "write_native_pyramid_member" not in names
+    assert database.calls[-1][0] == "abandon_native_pyramid_member"
+    assert database.calls[-1][1].state == "unknown"
+
+
+@pytest.mark.asyncio
+async def test_native_member_unknown_write_is_never_reported_as_not_written(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    unsettled = ImageFailure("timeout")
+    unsettled.storage_operation_unsettled = True
+    database = _FakeDatabase(None)
+
+    with pytest.raises(ImageFailure, match="timeout"):
+        await _member_write(
+            ImageExecutor(database, _MemberWriteStorage(failure=unsettled)),
+            allocation,
+            path,
+            reservation,
+            _StubHeartbeat([None, None, None]),
+        )
+
+    assert database.calls[-1][0] == "abandon_native_pyramid_member"
+    assert database.calls[-1][1].state == "unknown"
+    assert all(
+        name != "write_native_pyramid_member" for name, _request in database.calls
+    )
+
+
+@pytest.mark.asyncio
+async def test_native_member_refused_put_records_not_written(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _FakeDatabase(None)
+
+    with pytest.raises(native_media.NativeWriteRefused):
+        await _member_write(
+            ImageExecutor(
+                database,
+                _MemberWriteStorage(failure=native_media.NativeWriteRefused()),
+            ),
+            allocation,
+            path,
+            reservation,
+            _StubHeartbeat([None, None, None]),
+        )
+
+    assert database.calls[-1][0] == "abandon_native_pyramid_member"
+    assert database.calls[-1][1].state == "not_written"
+
+
+@pytest.mark.asyncio
+async def test_native_member_write_deadline_race_stays_unknown(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+
+    class _SlowStorage(_MemberWriteStorage):
+        async def upload_pyramid_member(self, path, allocation, member):
+            await asyncio.sleep(5)
+
+    heartbeat = _StubHeartbeat([None, None, None])
+    heartbeat.deadline = time.monotonic() + 0.01
+    database = _FakeDatabase(None)
+
+    with pytest.raises(ImageFailure, match="timeout") as error:
+        await _member_write(
+            ImageExecutor(database, _SlowStorage()),
+            allocation,
+            path,
+            reservation,
+            heartbeat,
+        )
+
+    assert error.value.storage_operation_unsettled
+    assert database.calls[-1][1].state == "unknown"
+
+
+class _VerifyFailingDatabase(_FakeDatabase):
+    def __init__(self, failure):
+        super().__init__(None)
+        self.failure = failure
+
+    async def call(self, name, request):
+        if name == "verify_native_pyramid_member":
+            self.calls.append((name, request))
+            raise self.failure
+        return await super().call(name, request)
+
+
+def _registered_receipt(reservation):
+    return PyramidMemberReceipt(
+        operation_id=reservation.operation_id,
+        etag='"raw-etag"',
+        version_id="v9",
+    )
+
+
+@pytest.mark.asyncio
+async def test_native_member_unknown_verify_io_keeps_the_permit_open(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    unsettled = ImageFailure("timeout")
+    unsettled.storage_operation_unsettled = True
+    database = _FakeDatabase(None)
+    storage = _MemberWriteStorage(
+        receipt=_registered_receipt(reservation), verify_failure=unsettled
+    )
+
+    with pytest.raises(ImageFailure, match="timeout"):
+        await _member_write(
+            ImageExecutor(database, storage),
+            allocation,
+            path,
+            reservation,
+            _StubHeartbeat(),
+        )
+
+    names = [name for name, _request in database.calls]
+    assert names == [
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+    ]
+    assert storage.verified == []
+
+
+@pytest.mark.asyncio
+async def test_native_member_cancelled_verify_keeps_the_permit_open(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _FakeDatabase(None)
+    storage = _MemberWriteStorage(
+        receipt=_registered_receipt(reservation),
+        verify_failure=asyncio.CancelledError(),
+    )
+
+    with pytest.raises(asyncio.CancelledError):
+        await _member_write(
+            ImageExecutor(database, storage),
+            allocation,
+            path,
+            reservation,
+            _StubHeartbeat(),
+        )
+
+    names = [name for name, _request in database.calls]
+    assert "abandon_native_pyramid_member" not in names
+    assert storage.verified == []
+
+
+@pytest.mark.asyncio
+async def test_native_member_drained_verify_then_heartbeat_loss_settles_written(
+    tmp_path,
+):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _FakeDatabase(None)
+    storage = _MemberWriteStorage(receipt=_registered_receipt(reservation))
+    # The seventh check is the one after the exact-version GET drained.
+    heartbeat = _StubHeartbeat([None, None, None, None, None, None, "timeout"])
+
+    with pytest.raises(ImageFailure, match="timeout"):
+        await _member_write(
+            ImageExecutor(database, storage),
+            allocation,
+            path,
+            reservation,
+            heartbeat,
+        )
+
+    names = [name for name, _request in database.calls]
+    assert names == [
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+        "abandon_native_pyramid_member",
+    ]
+    assert database.calls[-1][1].state == "written"
+    assert len(storage.verified) == 1
+
+
+@pytest.mark.asyncio
+async def test_native_member_verify_rpc_failure_after_drained_get_settles_written(
+    tmp_path,
+):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _VerifyFailingDatabase(ImageFailure("lease_lost"))
+    storage = _MemberWriteStorage(receipt=_registered_receipt(reservation))
+
+    with pytest.raises(ImageFailure, match="lease_lost"):
+        await _member_write(
+            ImageExecutor(database, storage),
+            allocation,
+            path,
+            reservation,
+            _StubHeartbeat(),
+        )
+
+    names = [name for name, _request in database.calls]
+    assert names == [
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+        "verify_native_pyramid_member",
+        "abandon_native_pyramid_member",
+    ]
+    assert database.calls[-1][1].state == "written"
+
+
+@pytest.mark.asyncio
+async def test_native_member_successful_verify_uses_the_verify_call(tmp_path):
+    allocation, path, reservation = _member_write_args(tmp_path)
+    database = _FakeDatabase(None)
+    storage = _MemberWriteStorage(receipt=_registered_receipt(reservation))
+
+    artifact = await _member_write(
+        ImageExecutor(database, storage),
+        allocation,
+        path,
+        reservation,
+        _StubHeartbeat(),
+    )
+
+    names = [name for name, _request in database.calls]
+    assert names == [
+        "begin_native_pyramid_member",
+        "submit_native_pyramid_member",
+        "write_native_pyramid_member",
+        "verify_native_pyramid_member",
+    ]
+    assert artifact.key == allocation.storage_ref.prefix + "manifest.json"
+    assert len(storage.verified) == 1

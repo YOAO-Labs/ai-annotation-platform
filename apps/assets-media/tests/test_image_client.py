@@ -403,3 +403,80 @@ async def test_service_token_is_not_forwarded_through_proxy_or_redirect(monkeypa
     assert not proxy_hits
     assert not redirect_hits
     assert b"Authorization: Bearer " + token.encode() in origin_hits[0]
+
+
+@pytest.mark.asyncio
+async def test_generation_reference_client_keeps_explicit_lifetime_and_accepts_default():
+    current = source()
+    actor_id = uuid4()
+    summary = ImagePyramidSummary(
+        profile_version="pyramid-v1",
+        status="missing",
+        required=False,
+        generation=None,
+        source_snapshot=None,
+        building_generation=None,
+        building_status=None,
+        width=None,
+        height=None,
+        format=None,
+    )
+
+    def reply_for(expires_in):
+        reference = ImageGenerationReference(
+            source=current,
+            pyramid=summary,
+            pyramid_source_generation=None,
+            pyramid_source_snapshot=None,
+            manifest=None,
+            overview_url=None,
+            expires_in=expires_in,
+        )
+
+        async def reply(_request):
+            return httpx.Response(
+                200,
+                content=c.json_bytes(
+                    {
+                        "schema": c.IMAGE_SCHEMA,
+                        "ok": True,
+                        "data": reference.model_dump(mode="json", by_alias=True),
+                    }
+                ),
+            )
+
+        return reply
+
+    client = ImageClient(
+        "http://image.local",
+        "i" * 40,
+        transport=httpx.MockTransport(reply_for(90)),
+    )
+    with pytest.raises(c.ImageFailure, match="invalid_response"):
+        await client.generation_reference(
+            ImageGenerationReferenceRequest(
+                actor_id=actor_id,
+                dataset_item_id=current.item_id,
+                expires_in=60,
+            )
+        )
+    default = await client.generation_reference(
+        ImageGenerationReferenceRequest(
+            actor_id=actor_id, dataset_item_id=current.item_id
+        )
+    )
+    assert default.expires_in == 90
+
+    exact = ImageClient(
+        "http://image.local",
+        "i" * 40,
+        transport=httpx.MockTransport(reply_for(60)),
+    )
+    result = await exact.generation_reference(
+        ImageGenerationReferenceRequest(
+            actor_id=actor_id,
+            dataset_item_id=current.item_id,
+            expires_in=60,
+        )
+    )
+    assert result.expires_in == 60

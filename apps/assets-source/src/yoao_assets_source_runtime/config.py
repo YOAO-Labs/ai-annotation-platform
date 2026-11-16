@@ -30,6 +30,15 @@ _BUCKET_RE = re.compile(
 )
 _IP_BUCKET_RE = re.compile(r"^[0-9]+(?:\.[0-9]+){3}$")
 
+_NATIVE_SIGNER_SECRETS = (
+    "ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN",
+    "ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN",
+    "ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN",
+    "ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY",
+    "ASSETS_SOURCE_NATIVE_S3_SECRET_KEY",
+)
+_NATIVE_ROLE_SECRETS = _NATIVE_SIGNER_SECRETS[:3]
+
 
 def _required_secret(environment: Mapping[str, str], name: str) -> str:
     file_name = f"{name}_FILE"
@@ -238,6 +247,17 @@ def _common_runtime_settings(
 
 
 @dataclass(frozen=True, slots=True)
+class NativeSignerSettings:
+    """Explicit Source-owned identity and role tokens for Native S3 signing."""
+
+    writer_token: str = field(repr=False)
+    reader_token: str = field(repr=False)
+    cleanup_token: str = field(repr=False)
+    s3_access_key: str = field(repr=False)
+    s3_secret_key: str = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True)
 class SourceConfig:
     database_url: str
     driver_database_url: str
@@ -268,11 +288,61 @@ class SourceConfig:
     image_policy: ImagePolicy = field(default_factory=ImagePolicy)
     upload_url_expires_seconds: int = 900
     image_header_bytes: int = 256 * 1024
+    native: NativeSignerSettings | None = None
 
     @property
     def cleanup_bucket(self) -> str:
         """Bucket recorded for deferred pyramid cleanup; no S3 write is granted."""
         return self.media_cache_bucket
+
+
+def _native_signer_settings(
+    environment: Mapping[str, str],
+    *,
+    service_token: str,
+    import_verify_token: str,
+    source_access_key: str,
+) -> NativeSignerSettings | None:
+    """Load the whole Native signer or leave the feature unconfigured."""
+    values = {
+        name: _optional_secret(environment, name)
+        for name in _NATIVE_SIGNER_SECRETS
+    }
+    configured = [name for name, value in values.items() if value]
+    if not configured:
+        return None
+    missing = [name for name in _NATIVE_SIGNER_SECRETS if not values[name]]
+    if missing:
+        raise ConfigurationError(
+            "ASSETS_SOURCE_NATIVE_* settings must be configured together: "
+            + ", ".join(missing)
+        )
+    roles = [values[name] for name in _NATIVE_ROLE_SECRETS]
+    for name, token in zip(_NATIVE_ROLE_SECRETS, roles):
+        try:
+            token_bytes = token.encode("ascii")
+        except UnicodeEncodeError as exc:
+            raise ConfigurationError(f"{name} must be ASCII") from exc
+        if len(token_bytes) < 32 or any(chr(byte).isspace() for byte in token_bytes):
+            raise ConfigurationError(
+                f"{name} must be 32+ ASCII non-whitespace characters"
+            )
+    if len({*roles, service_token, import_verify_token}) != 5:
+        raise ConfigurationError(
+            "ASSETS_SOURCE_NATIVE_PYRAMID_*_TOKEN values must be distinct from "
+            "each other and from existing Source tokens"
+        )
+    if values["ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY"] == source_access_key:
+        raise ConfigurationError(
+            "ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY must differ from the Source identity"
+        )
+    return NativeSignerSettings(
+        writer_token=values["ASSETS_SOURCE_NATIVE_PYRAMID_WRITER_TOKEN"],
+        reader_token=values["ASSETS_SOURCE_NATIVE_PYRAMID_READER_TOKEN"],
+        cleanup_token=values["ASSETS_SOURCE_NATIVE_PYRAMID_CLEANUP_TOKEN"],
+        s3_access_key=values["ASSETS_SOURCE_NATIVE_S3_ACCESS_KEY"],
+        s3_secret_key=values["ASSETS_SOURCE_NATIVE_S3_SECRET_KEY"],
+    )
 
 
 def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
@@ -316,6 +386,14 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
     except ValueError:
         raise ConfigurationError("IMAGE_PYRAMID_* settings are invalid") from None
 
+    source_access_key = _required_secret(source, "ASSETS_SOURCE_S3_ACCESS_KEY")
+    native = _native_signer_settings(
+        source,
+        service_token=service_token,
+        import_verify_token=import_verify_token,
+        source_access_key=source_access_key,
+    )
+
     return SourceConfig(
         database_url=database_url,
         driver_database_url=driver_database_url,
@@ -324,7 +402,7 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
         s3_endpoint=s3_endpoint,
         s3_public_endpoint=s3_public_endpoint,
         s3_region=region,
-        s3_access_key=_required_secret(source, "ASSETS_SOURCE_S3_ACCESS_KEY"),
+        s3_access_key=source_access_key,
         s3_secret_key=_required_secret(source, "ASSETS_SOURCE_S3_SECRET_KEY"),
         connector_encryption_key=_connector_encryption_key(source),
         connector_host_allowlist=_connector_host_allowlist(source),
@@ -354,6 +432,7 @@ def _load_source_config(source: Mapping[str, str]) -> SourceConfig:
             source, "ASSETS_SOURCE_IMPORT_VERIFY_TIMEOUT_SECONDS", "120", maximum=600
         ),
         image_policy=image_policy,
+        native=native,
     )
 
 

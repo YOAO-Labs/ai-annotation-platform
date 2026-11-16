@@ -939,6 +939,8 @@ GRANT EXECUTE ON FUNCTION
     aap_assets_v1.read_image_summaries(uuid,jsonb,text),
     aap_assets_v1.prepare_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean),
     aap_assets_v1.read_image_generation(uuid,uuid,uuid,integer,text),
+    aap_assets_v1.begin_native_pyramid_read(uuid,uuid,uuid,integer,text,uuid,uuid),
+    aap_assets_v1.complete_native_pyramid_read(uuid,uuid),
     aap_assets_v1.read_image_work(uuid,uuid),
     aap_assets_v1.retry_image_media(uuid,uuid,uuid,uuid,text,text,jsonb,boolean),
     aap_assets_v1.invalidate_image_media(uuid,uuid,uuid,jsonb),
@@ -1020,7 +1022,7 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
     aap_assets_v1.complete_accepted_input_garbage(uuid,uuid),
     aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer),
     aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid),
-    aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer),
+    aap_assets_v1.claim_native_pyramid_retirement(uuid,integer),
     aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer),
     aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)
     TO :"asset_cleanup_role";
@@ -1205,7 +1207,7 @@ DECLARE
         'aap_assets_v1.complete_accepted_input_garbage(uuid,uuid)'::regprocedure::oid,
         'aap_assets_v1.claim_accepted_video_input_garbage(uuid,integer,integer)'::regprocedure::oid,
         'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'::regprocedure::oid,
-        'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)'::regprocedure::oid,
+        'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'::regprocedure::oid,
         'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::regprocedure::oid,
         'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::regprocedure::oid
     ];

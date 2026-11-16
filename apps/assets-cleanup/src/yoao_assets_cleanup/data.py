@@ -47,7 +47,7 @@ SELECT aap_assets_v1.complete_image_garbage($1::uuid, $2::uuid)
 """
 CLAIM_NATIVE_RETIREMENT_SQL = """
 SELECT aap_assets_v1.claim_native_pyramid_retirement(
-    $1::uuid, $2::jsonb, $3::integer
+    $1::uuid, $2::integer
 )
 """
 PREPARE_NATIVE_RETIREMENT_PAGE_SQL = """
@@ -94,7 +94,7 @@ allowed_functions AS (
             'aap_assets_v1.complete_accepted_video_input_garbage(uuid,uuid)'
         )::oid AS complete_video_inputs_oid,
         pg_catalog.to_regprocedure(
-            'aap_assets_v1.claim_native_pyramid_retirement(uuid,jsonb,integer)'
+            'aap_assets_v1.claim_native_pyramid_retirement(uuid,integer)'
         )::oid AS claim_native_retirement_oid,
         pg_catalog.to_regprocedure(
             'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'
@@ -412,7 +412,6 @@ class StorageDeletionData:
                 payload = await connection.fetchval(
                     CLAIM_NATIVE_RETIREMENT_SQL,
                     request.worker_id,
-                    _jsonb(request.store.model_dump(mode="json", by_alias=True)),
                     request.lease_seconds,
                 )
         return _decode_reply(
