@@ -12,6 +12,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app.db.models.dataset import DatasetItem
+from app.db.models.dataset_asset import StorageLocation
 from app.db.models.task import Task
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 from tests.factory import create_project
@@ -109,7 +110,7 @@ async def test_raw_media_reference_fences_enrolled_store_before_reservation(
     from yoao_assets_media_runtime.control import MediaControl
     from yoao_assets_media_runtime.storage import S3MediaStorage
     from app.config import settings
-    from app.db.models.fixture_run import FixtureRun
+    from app.db.models.fixture_run import FixtureOriginalTarget, FixtureRun
     from app.services import fixture_run_ownership
     from app.services.assets_media import SqlAlchemyMediaDatabase
     from app.services.managed_original_retirement import managed_storage_identity
@@ -124,21 +125,41 @@ async def test_raw_media_reference_fences_enrolled_store_before_reservation(
     key = f"__aap_managed_datasets__/{fixture_dataset}/_objects/{uuid4()}/image.png"
     item = await db_session.get(DatasetItem, item_id)
     item.file_path = key
+    fixture_endpoint = f"http://fixture-store-{uuid4().hex}.invalid"
+    fixture_identity = managed_storage_identity(fixture_endpoint, "fixtures")
+    location_id, target_id = uuid4(), uuid4()
+    db_session.add(
+        StorageLocation(
+            id=location_id,
+            name=f"fixture-store-{location_id.hex}",
+            kind="s3",
+            config={},
+        )
+    )
+    target = FixtureOriginalTarget(
+        id=target_id,
+        location_id=location_id,
+        bucket="fixtures",
+        generation=1,
+        storage_identity=fixture_identity,
+        store_receipt_sha256="a" * 64,
+    )
+    db_session.add(target)
+    await db_session.flush()
     db_session.add(
         FixtureRun(
             id=run_id,
             family="owned",
-            original_storage_identity=managed_storage_identity(
-                "http://fixture-store", "fixtures"
-            ),
-            original_store_receipt_sha256="a" * 64,
+            original_target_id=target_id,
+            original_storage_identity=fixture_identity,
+            original_store_receipt_sha256=target.store_receipt_sha256,
         )
     )
     await db_session.flush()
 
     class Signer:
         def __init__(self):
-            self.meta = SimpleNamespace(endpoint_url="http://fixture-store")
+            self.meta = SimpleNamespace(endpoint_url=fixture_endpoint)
             self.calls = []
 
         def generate_presigned_url(self, operation, *, Params, ExpiresIn):
@@ -149,8 +170,8 @@ async def test_raw_media_reference_fences_enrolled_store_before_reservation(
 
     def control(bucket):
         storage = S3MediaStorage(
-            endpoint="http://fixture-store",
-            public_endpoint="http://fixture-store",
+            endpoint=fixture_endpoint,
+            public_endpoint=fixture_endpoint,
             region="us-east-1",
             access_key="test",
             secret_key="test",
@@ -183,10 +204,9 @@ async def test_raw_media_reference_fences_enrolled_store_before_reservation(
         FixtureRun(
             id=run_id,
             family="owned",
-            original_storage_identity=managed_storage_identity(
-                "http://fixture-store", "fixtures"
-            ),
-            original_store_receipt_sha256="a" * 64,
+            original_target_id=target_id,
+            original_storage_identity=fixture_identity,
+            original_store_receipt_sha256=target.store_receipt_sha256,
         )
     )
     await db_session.flush()
@@ -197,7 +217,7 @@ async def test_raw_media_reference_fences_enrolled_store_before_reservation(
         "dataset",
         fixture_dataset,
         logical_key="source",
-        storage_identity=managed_storage_identity("http://fixture-store", "fixtures"),
+        storage_identity=fixture_identity,
     )
     with pytest.raises(DBAPIError, match="fixture_resource_identity_immutable"):
         async with db_session.begin_nested():

@@ -1010,8 +1010,18 @@ async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fen
             assert claimed["status"] == "running" and claimed["lease_token"]
             assert claimed["attempt_count"] == 1
             stale_token = claimed["lease_token"]
-            stale_prefix = claimed["output_prefix"]
-            assert stale_prefix.startswith(
+            async with runtime.test_engine.connect() as owner:
+                stale_prefix = await owner.scalar(
+                    text(
+                        "SELECT output_prefix FROM public.image_pyramid_generations "
+                        "WHERE asset_id=:asset AND generation=:generation"
+                    ),
+                    {
+                        "asset": claimed["pyramid_asset_id"],
+                        "generation": claimed["pyramid_generation"],
+                    },
+                )
+            assert isinstance(stale_prefix, str) and stale_prefix.startswith(
                 f"image-pyramids/{claimed['pyramid_asset_id']}/"
             )
             runtime.cache_prefixes.append(
@@ -1065,18 +1075,20 @@ async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fen
                 timeout=30,
             )
             assert ready["attempt_count"] == 2
-            assert ready["output_prefix"] != stale_prefix
             async with runtime.test_engine.connect() as owner:
-                garbage = (
+                stale_output = (
                     await owner.execute(
                         text(
-                            "SELECT prefix,reason FROM public.asset_image_garbage "
-                            "WHERE prefix=:prefix"
+                            "SELECT state,lease_token "
+                            "FROM public.image_pyramid_outputs "
+                            "WHERE storage_ref->>'prefix'=:prefix"
                         ),
                         {"prefix": stale_prefix},
                     )
-                ).first()
-            assert garbage is not None and garbage.reason == "attempt_abandoned"
+                ).one_or_none()
+            assert stale_output is not None
+            assert stale_output.state == "building"
+            assert str(stale_output.lease_token) == stale_token
 
             (gate[1] / "release").touch()
             os.killpg(stale_worker.pid, signal.SIGCONT)
