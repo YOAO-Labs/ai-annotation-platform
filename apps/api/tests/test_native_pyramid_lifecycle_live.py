@@ -72,6 +72,10 @@ from yoao_assets_images.policy import ImagePolicy
 from yoao_assets_images_runtime.config import ImageStorageConfig
 from yoao_assets_images_runtime.database import AsyncpgImageDatabase
 from yoao_assets_images_runtime.storage import S3ImageStorage
+from yoao_assets_media_runtime.fixture_native_outputs import (
+    native_execution,
+    output_scope,
+)
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -241,6 +245,15 @@ class _Executor:
         return c.Artifact(key=key, byte_size=len(body), sha256=digest)
 
     async def produce(self, claim: c.ImageClaim):
+        async with native_execution(self.database, "image", claim.job_id) as admitted:
+            if not admitted:
+                raise AssertionError("ordinary producer execution was not admitted")
+            async with output_scope(
+                self.database, self.storage, claim, "image", None
+            ):
+                return await self._produce_admitted(claim)
+
+    async def _produce_admitted(self, claim: c.ImageClaim):
         allocation = await self.database.call(
             "allocate_native_pyramid_output",
             c.NativePyramidAllocationRequest(

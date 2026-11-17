@@ -440,7 +440,13 @@ async def test_unknown_and_unwritten_members_never_close_their_operation(test_en
             abandoned = _data(await _abandon(session, unknown, "unknown"))
             assert abandoned["state"] == "unknown"
             assert await _permits(session, output_id) == 1
-            for outcome in ("written", "not_written"):
+            with pytest.raises(c.ImageFailure) as failure:
+                c.decode_reply(
+                    await _abandon(session, unknown, "written"),
+                    c.PyramidMemberStatus,
+                )
+            assert failure.value.code == "invalid_request"
+            for outcome in ("unknown", "not_written"):
                 replay = _data(await _abandon(session, unknown, outcome))
                 assert replay["state"] == "unknown"
             assert await _permits(session, output_id) == 1
