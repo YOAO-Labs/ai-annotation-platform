@@ -696,6 +696,12 @@ node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
 `cleanup.retention_reason=requested_failed_runtime`；退出码仍表示失败。
 测试内部的进程退出逻辑可能已执行，该参数不能替代在途工作的原生许可或物理结算证明。
 后续须按准确 owner 核实并退役，不按超时或进程退出清理保留资源。
+普通 Native 整链 `tests/test_native_pyramid_lifecycle_live.py` 使用独占 `native-lifecycle`
+profile：先核对有界分页、重启完整性和有限权限，再创建本批数据库。API／Source 的内置目标
+只在独立测试进程中切换；Images／Cleanup 继续使用原临时存储配置，不修改日常 MinIO。
+该 profile 的失败环境必须另获该批退休批准；独立提供方的 owner 和退休状态会进入
+`cleanup`。配置隔离、前置报告与证明边界见
+[Native 输出目标资格](docs-site/ops/deploy/storage-candidate-poc.md#普通-native-整链验收)。
 冷装配验收要求 Docker CLI／Engine 支持 `docker network connect --gw-priority`。
 现有 PostgreSQL、Redis 和 MinIO 接入临时消费者网络时使用较低网关优先级 `-1`，
 保留原网关及宿主端口上的已有连接；不能用清空连接池或重试失败命令掩盖网络切换断连。

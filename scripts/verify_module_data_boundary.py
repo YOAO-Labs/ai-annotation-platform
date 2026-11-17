@@ -31,6 +31,7 @@ import shutil
 from urllib.parse import quote, urlsplit
 import xml.etree.ElementTree as ET
 
+
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps/api"))
 
@@ -2439,6 +2440,7 @@ TEST_FILES = (
     "tests/test_assets_images_retention.py",
     "tests/test_image_cleanup_native.py",
     "tests/test_native_pyramid_saved_targets.py",
+    "tests/test_native_pyramid_lifecycle_live.py",
     "tests/test_image_admission_share.py",
     "tests/test_image_thumbnail_publication.py",
     "tests/test_image_pyramid.py",
@@ -2655,6 +2657,7 @@ _STRICT_PROFILE_TARGETS = {
     "tests/test_seed_parent_operator_live.py": "parent-seed",
     "tests/test_workspace_seed_operator_live.py": "workspace-seed",
     "tests/test_workspace_import_cli_live.py": "workspace-import",
+    "tests/test_native_pyramid_lifecycle_live.py": "native-lifecycle",
     # These destructive fixtures advance the whole store's retention cutoff.
     "tests/test_mask_gc_collection_live.py": "mask-gc-collection",
     "tests/test_mask_gc_runtime_image.py": "mask-gc-runtime",
@@ -4439,7 +4442,6 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
 # four ordinary cleanup lanes, and from every worker/control identity.  Root
 # admin credentials provision it; no runtime receives the raw pair except the
 # Source signer process.
-NATIVE_CONNECTION_BASE_PREFIX = "aap-native-b"
 NATIVE_SOURCE_WRITER_TOKEN_SETTING = "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_WRITER_TOKEN"
 NATIVE_SOURCE_READER_TOKEN_SETTING = "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_READER_TOKEN"
 NATIVE_SOURCE_CLEANUP_TOKEN_SETTING = (
@@ -4465,96 +4467,6 @@ def _native_storage_scope(backend) -> dict:
     scope["policy"] = "aap-native-" + secrets.token_hex(8)
     scope["access_key"] = "aapnat" + secrets.token_hex(7)
     return scope
-
-
-def _native_source_storage_policy(scope: dict) -> dict:
-    bucket_arn = f"arn:aws:s3:::{scope['bucket']}"
-    native_objects = [
-        f"{bucket_arn}/image-pyramids/objects/*",
-        f"{bucket_arn}/_aap_managed/media-cache/image-pyramids/objects/*",
-    ]
-    native_prefixes = [
-        "image-pyramids/objects/*",
-        "_aap_managed/media-cache/image-pyramids/objects/*",
-    ]
-    return {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Deny",
-                "Action": [
-                    "s3:AbortMultipartUpload",
-                    "s3:ListMultipartUploadParts",
-                ],
-                "Resource": ["*"],
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:PutObject",
-                    "s3:GetObject",
-                    "s3:GetObjectVersion",
-                    "s3:DeleteObject",
-                    "s3:DeleteObjectVersion",
-                ],
-                "Resource": native_objects,
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
-                "Resource": [bucket_arn],
-                "Condition": {"StringLike": {"s3:prefix": native_prefixes}},
-            },
-            {
-                # Metadata-only permission requires complete bounded pages.
-                # Explicit denials above prevent a peer from expanding
-                # PutObject into abort or part-inspection authority.
-                "Effect": "Allow",
-                "Action": ["s3:ListBucketMultipartUploads"],
-                "Resource": [bucket_arn],
-            },
-        ],
-    }
-
-
-def _native_connection_storage_policy(scope: dict) -> dict:
-    bucket_arn = f"arn:aws:s3:::{scope['bucket']}"
-    prefix = NATIVE_CONNECTION_BASE_PREFIX
-    return {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Deny",
-                "Action": [
-                    "s3:AbortMultipartUpload",
-                    "s3:ListMultipartUploadParts",
-                ],
-                "Resource": ["*"],
-            },
-            {
-                "Effect": "Allow",
-                "Action": [
-                    "s3:PutObject",
-                    "s3:GetObject",
-                    "s3:GetObjectVersion",
-                    "s3:DeleteObject",
-                    "s3:DeleteObjectVersion",
-                ],
-                "Resource": [f"{bucket_arn}/{prefix}/*"],
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucket", "s3:ListBucketVersions"],
-                "Resource": [bucket_arn],
-                "Condition": {"StringLike": {"s3:prefix": [f"{prefix}/*"]}},
-            },
-            {
-                "Effect": "Allow",
-                "Action": ["s3:ListBucketMultipartUploads"],
-                "Resource": [bucket_arn],
-            },
-        ],
-    }
 
 
 def _create_native_storage_scope(scope: dict, policy: dict) -> None:
@@ -4605,6 +4517,7 @@ def _verify_native_storage_scopes(
     requests with the scoped identities the runtimes will receive.
     """
     from botocore.exceptions import ClientError
+    from native_storage_identity import NATIVE_CONNECTION_BASE_PREFIX
 
     cache_bucket = native["bucket"]
     connection_bucket = connection["bucket"]
@@ -7259,6 +7172,7 @@ def main(
             "head_after_upgrade": None,
             "runtime_grants_reapplied": False,
         },
+        "native_provider": {"status": "not_selected"},
         "cleanup": {
             "storage_identity_removed": False,
             "catalog_storage_identity_removed": False,
@@ -7270,6 +7184,11 @@ def main(
             "image_worker_storage_identity_removed": False,
             "native_source_storage_identity_removed": False,
             "native_connection_storage_identity_removed": False,
+            "native_provider_retired": None,
+            "native_provider_owner_manifest": None,
+            "native_provider_retention_reason": None,
+            "native_contract_owner_manifest": None,
+            "native_contract_report": None,
             "api_bootstrap_storage_identity_removed": None,
             "audit_archive_writer_storage_identity_removed": None,
             "audit_archive_reader_storage_identity_removed": None,
@@ -7299,6 +7218,12 @@ def main(
     image_worker_storage = None
     native_source_storage = None
     native_connection_storage = None
+    native_lifecycle_profile = False
+    native_provider_owner = None
+    native_provider_state = None
+    native_provider_scopes = None
+    native_process_environment_path = None
+    native_process_environment_sha256 = ""
     image_import_storage = None
     api_bootstrap_storage = None
     audit_archive_writer_storage = None
@@ -7311,6 +7236,12 @@ def main(
 
     try:
         selected_test_paths = {name.split("::", 1)[0] for name in test_files}
+        native_lifecycle_profile = (
+            not collect_only
+            and "tests/test_native_pyramid_lifecycle_live.py" in selected_test_paths
+        )
+        if native_lifecycle_profile and len(selected_test_paths) != 1:
+            raise RuntimeError("Native lifecycle requires an exclusive runtime profile")
         physical_retirement_profiles = {
             "tests/test_image_import_identity_profile.py",
             "tests/test_identity_seed_selection_live.py",
@@ -8121,6 +8052,11 @@ def main(
         from sqlalchemy.engine import URL, make_url
 
         from app.config import settings
+        from native_storage_identity import (
+            NATIVE_CONNECTION_BASE_PREFIX,
+            _native_connection_storage_policy,
+            _native_source_storage_policy,
+        )
         from worktree_env import load_identity, read_state, state_path, topology
         from worktree_resources import (
             LocalResources,
@@ -8132,6 +8068,35 @@ def main(
 
         if settings.environment != "development":
             raise RuntimeError("module-data acceptance requires development settings")
+        if native_lifecycle_profile:
+            from urllib.parse import urlsplit
+
+            from native_storage_acceptance import (
+                native_profile_environment,
+                provision_native_provider,
+                qualify_native_provider,
+                start_native_provider,
+            )
+            from storage_s3_contract import sha256
+            from verify_storage_candidates import Owner, private_write
+
+            phase = "native-provider-qualification"
+            evidence["cleanup"]["native_contract_owner_manifest"] = str(
+                output.with_suffix(".native-contract-owner.json")
+            )
+            evidence["cleanup"]["native_contract_report"] = str(
+                output.with_suffix(".native-contract.json")
+            )
+            qualify_native_provider(output, evidence["native_provider"])
+            phase = "native-provider-start"
+            native_owner_path = output.with_suffix(".native-provider-owner.json")
+            evidence["cleanup"]["native_provider_owner_manifest"] = str(
+                native_owner_path
+            )
+            native_provider_owner = Owner(native_owner_path, create=True)
+            native_provider_state = start_native_provider(
+                native_provider_owner, evidence["native_provider"]
+            )
         owner_password = f"owner-{secrets.token_hex(16)}"
         runtime_password = f"runtime-{secrets.token_hex(16)}"
         identity_api_consumer_password = secrets.token_hex(24)
@@ -8240,6 +8205,14 @@ def main(
                 update={
                     "database_url": legacy_url,
                     "migration_database_url": owner_url,
+                    "connector_host_allowlist": (
+                        [
+                            *settings.connector_host_allowlist,
+                            urlsplit(native_provider_state["endpoint"]).hostname,
+                        ]
+                        if native_provider_state is not None
+                        else settings.connector_host_allowlist
+                    ),
                 }
             ),
             code_root=ROOT,
@@ -12300,19 +12273,36 @@ SELECT pg_catalog.jsonb_build_object(
         # Source owns finite Native signing under its own bounded S3 identity;
         # the executors receive role tokens only.  One extra scoped identity
         # represents a registered connection target for the A->B switch.
-        native_source_storage = _native_storage_scope(backend)
-        _create_native_storage_scope(
-            native_source_storage, _native_source_storage_policy(native_source_storage)
-        )
-        native_connection_storage = _native_storage_scope(backend)
-        native_connection_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]
-        native_connection_storage["policy"] = (
-            "aap-native-connection-" + secrets.token_hex(8)
-        )
-        _create_native_storage_scope(
-            native_connection_storage,
-            _native_connection_storage_policy(native_connection_storage),
-        )
+        if native_provider_owner is not None:
+            phase = "provision-native-provider"
+            native_provider_scopes = provision_native_provider(
+                native_provider_owner,
+                native_provider_state,
+                resources,
+                {
+                    "images_control": media_control_storage,
+                    "images_worker": image_worker_storage,
+                    "cleanup": cleanup_storage,
+                },
+                evidence["native_provider"],
+            )
+            native_source_storage = native_provider_scopes["native_source"]
+            native_connection_storage = native_provider_scopes["native_connection"]
+        else:
+            native_source_storage = _native_storage_scope(backend)
+            _create_native_storage_scope(
+                native_source_storage,
+                _native_source_storage_policy(native_source_storage),
+            )
+            native_connection_storage = _native_storage_scope(backend)
+            native_connection_storage["bucket"] = resources["buckets"]["MINIO_BUCKET"]
+            native_connection_storage["policy"] = (
+                "aap-native-connection-" + secrets.token_hex(8)
+            )
+            _create_native_storage_scope(
+                native_connection_storage,
+                _native_connection_storage_policy(native_connection_storage),
+            )
         native_signer_tokens = {
             "writer": secrets.token_urlsafe(48),
             "reader": secrets.token_urlsafe(48),
@@ -12330,13 +12320,14 @@ SELECT pg_catalog.jsonb_build_object(
             or native_connection_storage["access_key"] == source_storage["access_key"]
         ):
             raise RuntimeError("Native S3 identities are not distinct")
-        phase = "verify-native-storage-scopes"
-        evidence["native_storage_s3"] = _verify_native_storage_scopes(
-            backend,
-            native_source_storage,
-            native_connection_storage,
-            cleanup_storage,
-        )
+        if native_provider_owner is None:
+            phase = "verify-native-storage-scopes"
+            evidence["native_storage_s3"] = _verify_native_storage_scopes(
+                backend,
+                native_source_storage,
+                native_connection_storage,
+                cleanup_storage,
+            )
 
         if (
             "tests/test_audit_maintenance_module_live.py" in selected_test_paths
@@ -12645,6 +12636,22 @@ SELECT pg_catalog.jsonb_build_object(
             "separate_native_s3_identity": True,
             "separate_connection_s3_identity": True,
         }
+        if native_provider_owner is not None:
+            native_environment = native_profile_environment(
+                native_provider_owner,
+                native_provider_state,
+                native_provider_scopes,
+                f"{'https' if settings.minio_use_ssl else 'http'}://"
+                f"{settings.minio_endpoint}",
+            )
+            native_process_environment_path = (
+                native_provider_owner.private / "native-process-env.json"
+            )
+            native_process_environment_bytes = json.dumps(native_environment).encode()
+            private_write(
+                native_process_environment_path, native_process_environment_bytes
+            )
+            native_process_environment_sha256 = sha256(native_process_environment_bytes)
         if image_import_storage is not None:
             resource_environment.update(
                 {
@@ -12705,6 +12712,15 @@ SELECT pg_catalog.jsonb_build_object(
             "args=sys.argv[1:]\n"
             "os.chdir(args.pop(0))\n"
             "manifest=args.pop(0)\n"
+            "native_env=args.pop(0)\n"
+            "native_sha=args.pop(0)\n"
+            "if native_env:\n"
+            "    from pathlib import Path\n"
+            "    from hashlib import sha256\n"
+            "    raw=Path(native_env).read_bytes()\n"
+            "    if sha256(raw).hexdigest() != native_sha:\n"
+            "        raise RuntimeError('Native process environment identity changed')\n"
+            "    os.environ.update(json.loads(raw))\n"
             "sys.path.insert(0, os.getcwd())\n"
             "import pytest\n"
             "class CollectionManifest:\n"
@@ -12714,6 +12730,8 @@ SELECT pg_catalog.jsonb_build_object(
             "raise SystemExit(pytest.main(args, plugins=[CollectionManifest()]))\n",
             str(ROOT / "apps/api"),
             str(collection_manifest),
+            str(native_process_environment_path or ""),
+            native_process_environment_sha256,
             "-q" if collect_only else "-v",
             "--tb=short",
             *(["--collect-only"] if collect_only else [f"--junitxml={junit}"]),
@@ -12870,6 +12888,20 @@ SELECT pg_catalog.jsonb_build_object(
     except Exception as error:
         evidence["status"] = "failed"
         evidence["failure"] = {"phase": phase, "error_type": type(error).__name__}
+        if phase.startswith("native-provider") or phase == "provision-native-provider":
+            from storage_s3_contract import safe_error
+
+            evidence["failure"]["error_code"] = safe_error(error)
+            if (
+                native_provider_owner is not None
+                and native_provider_owner.private.exists()
+            ):
+                private_write(
+                    native_provider_owner.private / "native-acceptance-failure.json",
+                    json.dumps(
+                        {"type": type(error).__name__, "detail": str(error)}
+                    ).encode(),
+                )
         if isinstance(error, ModuleNotFoundError):
             evidence["failure"]["module"] = error.name
         if isinstance(error, RuntimeError) and (
@@ -12896,6 +12928,13 @@ SELECT pg_catalog.jsonb_build_object(
         local_resources_destroyed = backend is None or not backend.touched
         if backend is not None and backend.touched:
             try:
+                if native_lifecycle_profile and exit_code != 0:
+                    evidence["cleanup"]["retention_reason"] = (
+                        "failed_native_lifecycle_runtime"
+                    )
+                    raise RuntimeError(
+                        "Failed Native lifecycle retained for explicit retirement approval"
+                    )
                 if not collect_only and physical_retirement_profile and exit_code != 0:
                     evidence["cleanup"]["retention_reason"] = (
                         "failed_image_import_runtime"
@@ -13164,7 +13203,11 @@ SELECT pg_catalog.jsonb_build_object(
             ("native_source", native_source_storage),
             ("native_connection", native_connection_storage),
         ):
-            if scope is not None and local_resources_destroyed:
+            if (
+                scope is not None
+                and local_resources_destroyed
+                and native_provider_owner is None
+            ):
                 try:
                     _destroy_cleanup_storage_scope(scope)
                     evidence["cleanup"][f"{label}_storage_identity_removed"] = True
@@ -13192,6 +13235,34 @@ SELECT pg_catalog.jsonb_build_object(
                         "resource": "postgres-container",
                         "error_type": type(error).__name__,
                     }
+                )
+                exit_code = 1
+        if native_provider_owner is not None:
+            try:
+                if exit_code != 0:
+                    evidence["cleanup"]["native_provider_retired"] = False
+                    evidence["cleanup"]["native_provider_retention_reason"] = (
+                        "failed_native_lifecycle_runtime"
+                    )
+                    evidence["native_provider"][
+                        "retirement_requires_separate_approval"
+                    ] = True
+                else:
+                    retired = native_provider_owner.cleanup()
+                    evidence["cleanup"]["native_provider_retired"] = retired
+                    if not retired:
+                        raise RuntimeError("Native provider retirement failed")
+                    evidence["cleanup"]["native_source_storage_identity_removed"] = True
+                    evidence["cleanup"][
+                        "native_connection_storage_identity_removed"
+                    ] = True
+                    evidence["native_provider"]["status"] = "retired"
+                evidence["native_provider"]["owner_manifest_sha256"] = sha256(
+                    native_provider_owner.path.read_bytes()
+                )
+            except Exception as error:
+                evidence["cleanup"]["errors"].append(
+                    {"native_provider": type(error).__name__}
                 )
                 exit_code = 1
         if local_resources_destroyed:

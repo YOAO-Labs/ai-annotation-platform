@@ -13,8 +13,6 @@ from pathlib import Path
 import time
 import urllib.request
 
-import boto3
-from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from storage_s3_contract import (
@@ -26,10 +24,14 @@ from storage_s3_contract import (
     require,
     safe_error,
 )
-from verify_module_data_boundary import (
+from native_storage_identity import (
     NATIVE_CONNECTION_BASE_PREFIX,
     _native_connection_storage_policy,
     _native_source_storage_policy,
+    client_for,
+    identity_state,
+    policy_fingerprint,
+    provision_identity,
 )
 from verify_storage_candidates import (
     ROOT,
@@ -41,26 +43,6 @@ from verify_storage_candidates import (
 
 
 PAGE_SIZE = 100
-
-
-def client_for(service, endpoint, credentials, budget):
-    # Match the real consumers: no checksum suppression or implicit SDK retries.
-    client = boto3.client(
-        service,
-        endpoint_url=endpoint,
-        aws_access_key_id=credentials[0],
-        aws_secret_access_key=credentials[1],
-        config=Config(
-            signature_version="s3v4" if service == "s3" else "v4",
-            region_name="us-east-1",
-            s3={"addressing_style": "path"},
-            connect_timeout=3,
-            read_timeout=15,
-            retries={"total_max_attempts": 1},
-        ),
-    )
-    client.meta.events.register("before-parameter-build." + service, budget.hook)
-    return client
 
 
 def expect_error(call, status, codes):
@@ -129,59 +111,6 @@ def upload_pages(client, bucket, expected, *, cursor=None):
             first_cursor = next_cursor
         cursor = next_cursor
     raise ContractError("upload_page_budget")
-
-
-def identity_state(iam, identity):
-    from fixture_store import _canonical_native_output_policy
-
-    user, key, policy_arn, policy = identity
-    require(iam.get_user(UserName=user)["User"]["UserName"] == user, "iam_user")
-    keys = iam.list_access_keys(UserName=user)
-    require(not keys.get("IsTruncated"), "iam_keys_truncated")
-    require(
-        [(item["AccessKeyId"], item["Status"]) for item in keys["AccessKeyMetadata"]]
-        == [(key["AccessKeyId"], "Active")],
-        "iam_exact_active_key",
-    )
-    groups = iam.list_groups_for_user(UserName=user)
-    require(not groups.get("IsTruncated") and not groups["Groups"], "iam_no_groups")
-    attached = iam.list_attached_user_policies(UserName=user)
-    require(
-        not attached.get("IsTruncated")
-        and [item["PolicyArn"] for item in attached["AttachedPolicies"]]
-        == [policy_arn],
-        "iam_exact_policy",
-    )
-    inline = iam.list_user_policies(UserName=user)
-    require(
-        not inline.get("IsTruncated") and not inline["PolicyNames"], "iam_no_inline"
-    )
-    description = iam.get_policy(PolicyArn=policy_arn)["Policy"]
-    actual = iam.get_policy_version(
-        PolicyArn=policy_arn, VersionId=description["DefaultVersionId"]
-    )["PolicyVersion"]["Document"]
-    require(
-        _canonical_native_output_policy(actual)
-        == _canonical_native_output_policy(policy),
-        "iam_policy_roundtrip",
-    )
-
-
-def provision_identity(iam, user, policy):
-    iam.create_user(UserName=user)
-    arn = iam.create_policy(PolicyName=user, PolicyDocument=json.dumps(policy))[
-        "Policy"
-    ]["Arn"]
-    iam.attach_user_policy(UserName=user, PolicyArn=arn)
-    returned = iam.create_access_key(UserName=user)["AccessKey"]
-    require(
-        returned["UserName"] == user and returned["Status"] == "Active",
-        "iam_created_key",
-    )
-    key = {field: returned[field] for field in ("AccessKeyId", "SecretAccessKey")}
-    identity = (user, key, arn, policy)
-    identity_state(iam, identity)
-    return identity
 
 
 def verify_scoped_access(client, iam, identity, bucket, key, other_bucket):
@@ -288,6 +217,8 @@ def verify_object(client, bucket, key, body, budget, *, versioned):
 
 
 def qualify(owner, lock, candidate, budget, report):
+    from urllib.parse import urlsplit
+
     def stage(name):
         report["stage"] = name
         print(json.dumps({"stage": name}), flush=True)
@@ -295,10 +226,19 @@ def qualify(owner, lock, candidate, budget, report):
 
     stage("provider_start")
     container, startup_client, _, _, _, credentials = start_candidate(
-        owner, lock, candidate, budget, report, native_identity_management=True
+        owner,
+        lock,
+        candidate,
+        budget,
+        report,
+        native_identity_management=True,
+        publish_on_bridge=True,
     )
     endpoint = startup_client.meta.endpoint_url
     startup_client.close()
+    os.environ["NO_PROXY"] = "127.0.0.1,localhost," + urlsplit(endpoint).hostname
+    os.environ["no_proxy"] = os.environ["NO_PROXY"]
+    report["publication"] = "owned_private_bridge"
     clients = []
     root = client_for("s3", endpoint, credentials, budget)
     iam = client_for("iam", endpoint, credentials, budget)
@@ -592,6 +532,7 @@ def main():
         "scope": "native_saved_output_target_only",
         "candidate": candidate["name"],
         "image": candidate["image"],
+        "policy_sha256": policy_fingerprint(),
         "native_target_contract_passed": False,
         "general_storage_replacement_qualified": False,
         "native_lifecycle_qualified": False,

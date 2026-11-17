@@ -5,7 +5,7 @@ production-port member write -> owner receipt registration/verification ->
 independent Images control read -> binding switch A->B -> independent cleanup.
 
 Every SQL capability runs through its restricted LOGIN role and every object
-operation is an actual S3 request against the verifier's owned MinIO.  The
+operation is an actual S3 request against the verifier's owned Native provider.
 Source signer runs as its own process under the bounded Native identity; the
 executors only receive role tokens.
 """
@@ -45,7 +45,6 @@ from app.schemas.storage_location import (
     MediaCacheBindingChange,
 )
 from tests.test_asset_storage_cleanup_runtime import (
-    _local_s3_client,
     _required_env,
     _verified_resource_manifest,
     _verify_bucket_owner,
@@ -54,7 +53,6 @@ from tests.test_asset_storage_cleanup_runtime import (
 from tests.test_assets_catalog_native import _seed_actor, _seed_dataset
 from tests.test_assets_media_live import (
     _free_loopback_port,
-    _process_log,
     _runtime_database_url,
     _runtime_environment,
     _start_process,
@@ -236,9 +234,7 @@ class _Executor:
         if verified.state != "verified":
             raise AssertionError("owner did not record the verified member")
         key = allocation.storage_ref.prefix + relative_key
-        head = self.owner_s3.head_object(
-            Bucket=allocation.storage_ref.bucket, Key=key
-        )
+        head = self.owner_s3.head_object(Bucket=allocation.storage_ref.bucket, Key=key)
         if head.get("ETag") != receipt.etag:
             raise AssertionError("recorded ETag differs from the raw HTTP ETag")
         if head.get("VersionId") != receipt.version_id:
@@ -250,9 +246,7 @@ class _Executor:
         async with native_execution(self.database, "image", claim.job_id) as admitted:
             if not admitted:
                 raise AssertionError("ordinary producer execution was not admitted")
-            async with output_scope(
-                self.database, self.storage, claim, "image", None
-            ):
+            async with output_scope(self.database, self.storage, claim, "image", None):
                 return await self._produce_admitted(claim)
 
     async def _produce_admitted(self, claim: c.ImageClaim):
@@ -320,7 +314,9 @@ class _Executor:
         return allocation, manifest, artifacts
 
 
-async def _prepare(client: httpx.AsyncClient, token: str, actor_id, item_id, *, force=False):
+async def _prepare(
+    client: httpx.AsyncClient, token: str, actor_id, item_id, *, force=False
+):
     request = {
         "actor_id": str(actor_id),
         "task_id": None,
@@ -364,9 +360,50 @@ async def _assert_generation_reference(client, response, claim, target):
     assert parse_qs(signed.query)["X-Amz-Expires"] == [str(reference.expires_in)]
     overview = await client.get(reference.overview_url)
     assert overview.status_code == 200
-    assert overview.content == _member_layout(
-        target.prefix, claim.pyramid_generation, claim.source.content_hash
-    )[1]["overview.webp"]
+    assert (
+        overview.content
+        == _member_layout(
+            target.prefix, claim.pyramid_generation, claim.source.content_hash
+        )[1]["overview.webp"]
+    )
+
+
+@pytest.fixture
+def native_provider(test_engine, native_signer):
+    from native_storage_acceptance import (
+        OWNER_DIGEST_SETTING,
+        OWNER_SETTING,
+        verified_native_provider,
+    )
+
+    resources = _verified_resource_manifest(
+        test_engine, _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_URL")
+    )
+    state, client = verified_native_provider(
+        _required_env(OWNER_SETTING),
+        _required_env(OWNER_DIGEST_SETTING),
+        resources,
+    )
+    try:
+        api_endpoint = (
+            f"{'https' if settings.minio_use_ssl else 'http'}://"
+            f"{settings.minio_endpoint}"
+        )
+        if api_endpoint != state["endpoint"] or native_signer.endpoint != api_endpoint:
+            pytest.fail("API and Source differ from the owned Native target")
+        source_key = state["identities"]["native_source"][1]
+        connection_key = state["identities"]["native_connection"][1]
+        if (native_signer.native_access_key, native_signer.native_secret_key) != (
+            source_key["AccessKeyId"],
+            source_key["SecretAccessKey"],
+        ) or (
+            native_signer.connection_access_key,
+            native_signer.connection_secret_key,
+        ) != (connection_key["AccessKeyId"], connection_key["SecretAccessKey"]):
+            pytest.fail("Native signer identities differ from their owned provision")
+        yield client, resources
+    finally:
+        client.close()
 
 
 async def _create_connection(
@@ -404,7 +441,7 @@ async def _create_connection(
 
 
 async def test_native_saved_output_lifecycle_across_binding_switch(
-    test_engine, tmp_path, native_signer
+    test_engine, tmp_path, native_signer, native_provider
 ):
     native_signer.assert_running()
     control_url = _guard_role_url(
@@ -422,15 +459,11 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         "asset_cleanup_client",
         test_engine,
     )
-    resources = _verified_resource_manifest(test_engine, cleanup_url)
-    endpoint = (
-        f"{'https' if settings.minio_use_ssl else 'http'}://{settings.minio_endpoint}"
-    )
+    owner_s3, resources = native_provider
+    endpoint = _required_env("AAP_MODULE_DATA_NATIVE_LEGACY_S3_ENDPOINT")
+    assert endpoint != native_signer.endpoint
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     cache_bucket = resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
-    owner_s3 = _local_s3_client(
-        settings, settings.minio_access_key, settings.minio_secret_key
-    )
     for bucket in (datasets_bucket, cache_bucket, native_signer.connection_bucket):
         _verify_bucket_owner(owner_s3, bucket, resources["owner"])
     if (
@@ -461,12 +494,8 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         datasets_bucket=datasets_bucket,
         legacy_bucket=native_signer.connection_bucket,
         cache_bucket=cache_bucket,
-        access_key=_required_env(
-            "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_ACCESS_KEY"
-        ),
-        secret_key=_required_env(
-            "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_SECRET_KEY"
-        ),
+        access_key=_required_env("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_ACCESS_KEY"),
+        secret_key=_required_env("AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3_SECRET_KEY"),
         token=control_token,
         port=control_port,
         image_control_settings={
@@ -488,7 +517,9 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
     connection_id = None
     location_id = None
     previous_binding = None
-    control_client = httpx.AsyncClient(base_url=f"http://127.0.0.1:{control_port}", timeout=30, trust_env=False)
+    control_client = httpx.AsyncClient(
+        base_url=f"http://127.0.0.1:{control_port}", timeout=30, trust_env=False
+    )
     proof_succeeded = False
     try:
         await _wait_control_ready(control_client, control_process, control_log)
@@ -555,7 +586,9 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         claimed = await worker_db.call(
             "claim_image_media",
             c.ClaimImageMediaRequest(
-                worker_id=uuid4(), job_id=first_job, lease_seconds=300,
+                worker_id=uuid4(),
+                job_id=first_job,
+                lease_seconds=300,
                 kinds=["pyramid"],
             ),
         )
@@ -563,9 +596,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         assert claim is not None and isinstance(claim.spec, c.PyramidWorkSpec)
         allocation_a, manifest_a, artifacts_a = await executor.produce(claim)
         target_a = allocation_a.storage_ref
-        saved_keys.extend(
-            (cache_bucket, key) for key in _layout_keys(target_a.prefix)
-        )
+        saved_keys.extend((cache_bucket, key) for key in _layout_keys(target_a.prefix))
         assert target_a.bucket == cache_bucket
         assert target_a.key_prefix == ""
         assert target_a.prefix == f"image-pyramids/objects/{allocation_a.output_id}/"
@@ -760,7 +791,9 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         claimed_b = await worker_db.call(
             "claim_image_media",
             c.ClaimImageMediaRequest(
-                worker_id=uuid4(), job_id=second_job, lease_seconds=300,
+                worker_id=uuid4(),
+                job_id=second_job,
+                lease_seconds=300,
                 kinds=["pyramid"],
             ),
         )
@@ -816,7 +849,9 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         claimed_c = await worker_db.call(
             "claim_image_media",
             c.ClaimImageMediaRequest(
-                worker_id=uuid4(), job_id=third_job, lease_seconds=300,
+                worker_id=uuid4(),
+                job_id=third_job,
+                lease_seconds=300,
                 kinds=["pyramid"],
             ),
         )
@@ -866,10 +901,15 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                     {"operation": unknown_operation},
                 )
             ) == "unknown"
-            assert await owner.scalar(
-                text("SELECT count(*) FROM public.storage_operations WHERE purpose=:p"),
-                {"p": purpose},
-            ) == 1
+            assert (
+                await owner.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations WHERE purpose=:p"
+                    ),
+                    {"p": purpose},
+                )
+                == 1
+            )
             assert not await owner.scalar(
                 text(
                     "SELECT count(*) FROM aap_assets_v1.image_pyramid_native_members "
@@ -884,10 +924,15 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             c.PyramidMemberAbandon(operation_id=unknown_operation, state="unknown"),
         )
         async with test_engine.connect() as owner:
-            assert await owner.scalar(
-                text("SELECT count(*) FROM public.storage_operations WHERE purpose=:p"),
-                {"p": purpose},
-            ) == 1
+            assert (
+                await owner.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations WHERE purpose=:p"
+                    ),
+                    {"p": purpose},
+                )
+                == 1
+            )
         # A drained no-write reservation is the bounded outcome that settles it.
         drained_operation = uuid4()
         await worker_db.call(
@@ -906,9 +951,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         )
         await worker_db.call(
             "abandon_native_pyramid_member",
-            c.PyramidMemberAbandon(
-                operation_id=drained_operation, state="not_written"
-            ),
+            c.PyramidMemberAbandon(operation_id=drained_operation, state="not_written"),
         )
         async with test_engine.connect() as owner:
             assert (
@@ -994,7 +1037,9 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         owned_upload = owner_s3.create_multipart_upload(
             Bucket=cache_bucket, Key=target_a.prefix + "owned-orphan-upload"
         )
-        uploads.append((owned_upload["Bucket"], owned_upload["Key"], owned_upload["UploadId"]))
+        uploads.append(
+            (owned_upload["Bucket"], owned_upload["Key"], owned_upload["UploadId"])
+        )
         cleanup_health = _free_loopback_port()
         cleanup_environment = {
             "LANG": os.environ.get("LANG", "C.UTF-8"),
@@ -1038,12 +1083,13 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 try:
                     owner_s3.head_object(Bucket=cache_bucket, Key=key)
                 except ClientError as exc:
-                    if (
-                        exc.response["ResponseMetadata"]["HTTPStatusCode"] == 404
-                        and exc.response["Error"]["Code"] in {
-                            "404", "NoSuchKey", "NoSuchVersion"
-                        }
-                    ):
+                    if exc.response["ResponseMetadata"][
+                        "HTTPStatusCode"
+                    ] == 404 and exc.response["Error"]["Code"] in {
+                        "404",
+                        "NoSuchKey",
+                        "NoSuchVersion",
+                    }:
                         continue
                     raise
                 return False
@@ -1074,6 +1120,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             timeout=120,
             message="cleanup did not delete the saved A members",
         )
+
         async def owned_upload_refused():
             return (
                 f"prefix check failed output_id={allocation_a.output_id} "
@@ -1135,15 +1182,19 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         )
         async with test_engine.connect() as owner:
             page_outcomes = (
-                await owner.execute(
-                    text(
-                        "SELECT state FROM aap_assets_v1."
-                        "native_pyramid_retirement_pages "
-                        "WHERE output_id=CAST(:output AS uuid) ORDER BY prepared_at, page_id"
-                    ),
-                    {"output": allocation_a.output_id},
+                (
+                    await owner.execute(
+                        text(
+                            "SELECT state FROM aap_assets_v1."
+                            "native_pyramid_retirement_pages "
+                            "WHERE output_id=CAST(:output AS uuid) ORDER BY prepared_at, page_id"
+                        ),
+                        {"output": allocation_a.output_id},
+                    )
                 )
-            ).scalars().all()
+                .scalars()
+                .all()
+            )
         assert page_outcomes and page_outcomes[-1] == "prefix_absent"
         # B (still the active generation) and every foreign upload remain.
         for key in _layout_keys(target_b.prefix):
@@ -1213,29 +1264,38 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             assert head["ETag"] == receipt.etag
             assert head.get("VersionId") == receipt.version_id
         async with test_engine.connect() as owner:
-            assert await owner.scalar(
-                text(
-                    "SELECT count(*) FROM public.storage_operations AS operation "
-                    "JOIN aap_assets_v1.image_pyramid_native_members AS member "
-                    "ON operation.id=member.operation_permit "
-                    "WHERE member.operation_id=CAST(:operation AS uuid)"
-                ),
-                {"operation": unknown_operation},
-            ) == 1
-            assert await owner.scalar(
-                text(
-                    "SELECT aap_assets_v1._native_pyramid_retirement_claimable("
-                    "CAST(:output AS uuid))"
-                ),
-                {"output": allocation_c.output_id},
-            ) is False
-            assert await owner.scalar(
-                text(
-                    "SELECT state FROM aap_assets_v1.image_pyramid_native_members "
-                    "WHERE operation_id=CAST(:operation AS uuid)"
-                ),
-                {"operation": unknown_operation},
-            ) == "unknown"
+            assert (
+                await owner.scalar(
+                    text(
+                        "SELECT count(*) FROM public.storage_operations AS operation "
+                        "JOIN aap_assets_v1.image_pyramid_native_members AS member "
+                        "ON operation.id=member.operation_permit "
+                        "WHERE member.operation_id=CAST(:operation AS uuid)"
+                    ),
+                    {"operation": unknown_operation},
+                )
+                == 1
+            )
+            assert (
+                await owner.scalar(
+                    text(
+                        "SELECT aap_assets_v1._native_pyramid_retirement_claimable("
+                        "CAST(:output AS uuid))"
+                    ),
+                    {"output": allocation_c.output_id},
+                )
+                is False
+            )
+            assert (
+                await owner.scalar(
+                    text(
+                        "SELECT state FROM aap_assets_v1.image_pyramid_native_members "
+                        "WHERE operation_id=CAST(:operation AS uuid)"
+                    ),
+                    {"operation": unknown_operation},
+                )
+                == "unknown"
+            )
         assert control_process.poll() is None
         assert cleanup_process.poll() is None
         proof_succeeded = True

@@ -350,6 +350,58 @@ def host_port(owner, item, container_port):
     return int(ports[0]["HostPort"])
 
 
+def owned_bridge_gateway(owner, network):
+    import ipaddress
+
+    observed = owner.verified(network)
+    gateways = [
+        ipaddress.ip_address(entry["Gateway"])
+        for entry in observed.get("IPAM", {}).get("Config", [])
+        if entry.get("Gateway") and ipaddress.ip_address(entry["Gateway"]).version == 4
+    ]
+    require(observed.get("Driver") == "bridge" and len(gateways) == 1, "owned_bridge")
+    address = gateways[0]
+    require(
+        address.is_private
+        and not any(
+            (
+                address.is_loopback,
+                address.is_link_local,
+                address.is_multicast,
+                address.is_reserved,
+                address.is_unspecified,
+            )
+        ),
+        "owned_bridge_gateway",
+    )
+    return str(address)
+
+
+def owned_bridge_endpoint(owner, container, network, container_port=9000):
+    gateway = owned_bridge_gateway(owner, network)
+    peer = owner.verified(container)
+    ports = (peer.get("NetworkSettings", {}).get("Ports") or {}).get(
+        f"{container_port}/tcp"
+    ) or []
+    attachments = list((peer.get("NetworkSettings", {}).get("Networks") or {}).values())
+    member = (owner.verified(network).get("Containers") or {}).get(container["id"])
+    require(
+        peer.get("State", {}).get("Running") is True
+        and len(ports) == 1
+        and ports[0].get("HostIp") == gateway
+        and len(attachments) == 1
+        and attachments[0].get("NetworkID") == network["id"]
+        and attachments[0].get("Gateway") == gateway
+        and bool(attachments[0].get("EndpointID"))
+        and isinstance(member, dict)
+        and member.get("EndpointID") == attachments[0]["EndpointID"],
+        "owned_bridge_publication",
+    )
+    port = int(ports[0]["HostPort"])
+    require(0 < port <= 65535, "owned_bridge_port")
+    return f"http://{gateway}:{port}"
+
+
 def s3_config():
     from botocore.config import Config
 
@@ -496,9 +548,9 @@ def fixtures(directory):
     }
 
 
-def candidate_args(name, private, env_file, volume, network):
+def candidate_args(name, private, env_file, volume, network, *, bind_host="127.0.0.1"):
     with socket.socket() as reservation:
-        reservation.bind(("127.0.0.1", 0))
+        reservation.bind((bind_host, 0))
         port = reservation.getsockname()[1]
     args = [
         "--network",
@@ -506,7 +558,7 @@ def candidate_args(name, private, env_file, volume, network):
         "--network-alias",
         "candidate",
         "--publish",
-        f"127.0.0.1:{port}:9000",
+        f"{bind_host}:{port}:9000",
         "--mount",
         f"type=volume,source={volume['id']},target=/data",
         "--env-file",
@@ -1551,7 +1603,14 @@ def performance_case(recorder, owner, container, client, bucket, media, budget):
 
 
 def start_candidate(
-    owner, lock, candidate, budget, evidence, *, native_identity_management=False
+    owner,
+    lock,
+    candidate,
+    budget,
+    evidence,
+    *,
+    native_identity_management=False,
+    publish_on_bridge=False,
 ):
     """Start only the locked provider in newly owned isolated resources."""
     result = evidence
@@ -1560,6 +1619,10 @@ def start_candidate(
         require(
             not native_identity_management or candidate["name"] == "seaweedfs",
             "native_identity_provider",
+        )
+        require(
+            not publish_on_bridge or native_identity_management,
+            "native_bridge_profile",
         )
         owner.private.mkdir(mode=0o700, exist_ok=True)
         image = json.loads(command(["docker", "image", "inspect", candidate["image"]]))[
@@ -1666,7 +1729,16 @@ def start_candidate(
                 ],
             )
         args, cmd = candidate_args(
-            candidate["name"], owner.private, env_file, volume, network
+            candidate["name"],
+            owner.private,
+            env_file,
+            volume,
+            network,
+            bind_host=(
+                owned_bridge_gateway(owner, network)
+                if publish_on_bridge
+                else "127.0.0.1"
+            ),
         )
         if native_identity_management:
             cmd += [
@@ -1676,8 +1748,19 @@ def start_candidate(
             ]
         container = owner.container(candidate["image"], args=args, cmd=cmd)
         owner.start(container)
-        endpoint = "http://127.0.0.1:" + str(host_port(owner, container, 9000))
-        client = client_for(endpoint, credentials, budget)
+        endpoint = (
+            owned_bridge_endpoint(owner, container, network)
+            if publish_on_bridge
+            else "http://127.0.0.1:" + str(host_port(owner, container, 9000))
+        )
+        if native_identity_management:
+            import native_storage_identity
+
+            client = native_storage_identity.client_for(
+                "s3", endpoint, credentials, budget
+            )
+        else:
+            client = client_for(endpoint, credentials, budget)
         stage = "candidate_readiness"
         ready(client, budget)
         return container, client, network, volume, env_file, credentials
