@@ -719,7 +719,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
 
         async with sessions() as db:
             actor = await db.get(User, actor_id)
-            if actor is None or actor.role.value != "super_admin":
+            if actor is None or actor.role != "super_admin":
                 pytest.fail("the seeded binding administrator is not active")
             binding = (
                 await db.execute(
@@ -1287,14 +1287,19 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 # its unknown member receipt is not rewritten as successful.
                 removed = await db.execute(
                     text(
-                        "DELETE FROM public.storage_operations "
-                        "WHERE id=CAST(:operation AS uuid) AND purpose=:purpose "
-                        "AND location_id=CAST(:location AS uuid)"
+                        "DELETE FROM public.storage_operations AS operation "
+                        "USING aap_assets_v1.image_pyramid_native_members AS member "
+                        "WHERE operation.id=member.operation_permit "
+                        "AND member.operation_id=CAST(:operation AS uuid) "
+                        "AND member.output_id=CAST(:output AS uuid) "
+                        "AND member.state='unknown' AND operation.purpose=:purpose "
+                        "AND operation.location_id=CAST(:location AS uuid)"
                     ),
                     {
                         "operation": unknown_operation,
+                        "output": allocation_c.output_id,
                         "purpose": purpose,
-                        "location": location_id,
+                        "location": allocation_c.storage_ref.location_id,
                     },
                 )
                 assert removed.rowcount == 1
