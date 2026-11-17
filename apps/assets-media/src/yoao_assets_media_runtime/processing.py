@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from dataclasses import dataclass
 import hashlib
+import logging
 import math
 from pathlib import Path
 import subprocess
@@ -44,6 +45,8 @@ FFMPEG_FRAME_TIMEOUT_SECONDS = 60
 BROWSER_PLAYABLE_VIDEO_CODECS = {"h264", "avc1"}
 SMART_COPY_VIDEO_CODECS = {"h264", "avc1", "hevc", "h265"}
 
+logger = logging.getLogger(__name__)
+
 
 class MediaProcessingError(RuntimeError):
     """A stable processing error safe to persist on the accepted work row."""
@@ -80,7 +83,7 @@ class MediaProbe(Protocol):
 def _run_ffmpeg(args: list[str], *, timeout: int, error: str) -> None:
     try:
         process = subprocess.run(
-            ["ffmpeg", "-y", *args],
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", *args],
             check=False,
             capture_output=True,
             text=True,
@@ -89,6 +92,12 @@ def _run_ffmpeg(args: list[str], *, timeout: int, error: str) -> None:
     except subprocess.TimeoutExpired as exc:
         raise MediaProcessingError("timeout", f"{error} timed out") from exc
     if process.returncode != 0:
+        logger.warning(
+            "%s failed (exit %s): %s",
+            error,
+            process.returncode,
+            process.stderr.strip()[-2000:],
+        )
         raise MediaProcessingError(
             "media_processing_failed", process.stderr.strip() or error
         )
@@ -110,6 +119,10 @@ def extract_video_frame_image(
     try:
         _run_ffmpeg(
             [
+                "-threads",
+                "1",
+                "-filter_threads",
+                "1",
                 "-i",
                 str(input_path),
                 "-map",
@@ -120,6 +133,8 @@ def extract_video_frame_image(
                 f"select='eq(n,{max(0, frame_index)})',scale='min({max(1, width)},iw)':-2",
                 "-fps_mode",
                 "vfr",
+                "-threads",
+                "1",
                 str(decoded_path),
             ],
             timeout=FFMPEG_FRAME_TIMEOUT_SECONDS,

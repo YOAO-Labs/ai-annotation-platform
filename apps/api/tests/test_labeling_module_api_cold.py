@@ -434,10 +434,12 @@ async def _wait_for_api(
     timeout: float = 75,
 ) -> None:
     deadline = time.monotonic() + timeout
+    state = None
     async with httpx.AsyncClient(trust_env=False, timeout=2) as client:
         while time.monotonic() < deadline:
             details = _inspect_docker(container_id)
-            if details.get("State", {}).get("Running") is not True:
+            state = details["State"]
+            if state["Running"] is not True:
                 break
             try:
                 response = await client.get(origin + "/health/db")
@@ -448,6 +450,8 @@ async def _wait_for_api(
             await asyncio.sleep(0.2)
     pytest.fail(
         "cold API did not become database-ready:\n"
+        + json.dumps(state, sort_keys=True)
+        + "\n"
         + _api_failure_logs(container_id, secrets_to_redact)[-4000:],
         pytrace=False,
     )
@@ -640,6 +644,7 @@ async def test_current_cold_api_reads_writes_and_persists_labeling_data(
     api_environment = {
         "ENVIRONMENT": "development",
         "DEBUG": "false",
+        "OPENBLAS_NUM_THREADS": "1",
         "SECRET_KEY": api_secret,
         "DATABASE_URL": api_database_url.render_as_string(hide_password=False),
         "MIGRATION_DATABASE_URL": "",

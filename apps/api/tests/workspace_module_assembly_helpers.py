@@ -11,6 +11,7 @@ import re
 import subprocess
 import time
 from types import SimpleNamespace
+from typing import cast
 from urllib.parse import urlsplit
 import uuid
 
@@ -188,6 +189,22 @@ class WorkspaceModuleStack:
                 self._assets_identity,
             ),
         }
+
+    @property
+    def database_roles(self) -> tuple[str, ...]:
+        return cast(
+            tuple[str, ...],
+            tuple(
+                url.username
+                for url in (
+                    *self._database_urls.values(),
+                    self._api_database_url,
+                    self._briefs_dsn,
+                    self._identity_auth_dsn,
+                    self._inference_dsn,
+                )
+            ),
+        )
 
     @property
     def api_origin(self) -> str:
@@ -468,6 +485,7 @@ class WorkspaceModuleStack:
         values = {
             "ENVIRONMENT": "development",
             "DEBUG": "false",
+            "OPENBLAS_NUM_THREADS": "1",
             "SECRET_KEY": self._api_secret,
             "DATABASE_URL": api_container,
             "MIGRATION_DATABASE_URL": "",

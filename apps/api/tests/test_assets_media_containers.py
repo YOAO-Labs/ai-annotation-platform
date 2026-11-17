@@ -9,6 +9,7 @@ from pathlib import Path
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 from uuid import uuid4
 
@@ -575,15 +576,31 @@ async def test_restricted_media_images_serve_real_video_assets(
             if peak is not None:
                 record_property(f"{role}_cgroup_memory_peak_bytes", peak)
     finally:
+        primary = sys.exception()
         cleanup_errors = []
-        for container_id in (worker_container, control_container):
+        for role, container_id in (
+            ("worker", worker_container),
+            ("control", control_container),
+        ):
             if container_id is not None:
+                try:
+                    captured = subprocess.run(
+                        ["docker", "logs", container_id],
+                        capture_output=True,
+                        timeout=15,
+                        check=True,
+                    )
+                    (tmp_path / f"container-media-{role}.log").write_bytes(
+                        captured.stdout + captured.stderr
+                    )
+                except Exception as error:
+                    cleanup_errors.append(error)
                 try:
                     _stop_remove_container(container_id, identity)
                 except BaseException as error:
                     if isinstance(error, (KeyboardInterrupt, SystemExit)):
                         raise
-                    cleanup_errors.append(type(error).__name__)
+                    cleanup_errors.append(error)
         if actor_id is not None:
             try:
                 async with test_engine.connect() as owner:
@@ -608,13 +625,16 @@ async def test_restricted_media_images_serve_real_video_assets(
             except BaseException as error:
                 if isinstance(error, (KeyboardInterrupt, SystemExit)):
                     raise
-                cleanup_errors.append(type(error).__name__)
+                cleanup_errors.append(error)
         if source_uploaded:
             try:
                 owner_s3.delete_object(Bucket=datasets_bucket, Key=source_key)
             except BaseException as error:
                 if isinstance(error, (KeyboardInterrupt, SystemExit)):
                     raise
-                cleanup_errors.append(type(error).__name__)
+                cleanup_errors.append(error)
         if cleanup_errors:
-            pytest.fail("container acceptance cleanup did not complete safely")
+            raise BaseExceptionGroup(
+                "Media container acceptance cleanup failed",
+                ([primary] if primary is not None else []) + cleanup_errors,
+            ) from None

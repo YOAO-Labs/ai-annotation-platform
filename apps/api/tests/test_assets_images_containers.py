@@ -13,6 +13,7 @@ from io import BytesIO
 
 from PIL import Image
 import pytest
+from sqlalchemy import text
 
 from tests.test_asset_storage_cleanup_runtime import (
     _container_database_url,
@@ -83,6 +84,8 @@ def _image_worker_environment(
         "ASSETS_IMAGES_LEGACY_BUCKET": runtime.legacy_bucket,
         "ASSETS_IMAGES_POLL_SECONDS": "0.1",
         "ASSETS_IMAGES_SRGB_PROFILE": "/usr/share/color/icc/sRGB.icc",
+        "ASSETS_IMAGES_NATIVE_STORAGE_URL": runtime.native_signer.url,
+        "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": runtime.native_signer.writer_token,
         "ASSETS_MEDIA_S3_ENDPOINT": internal_s3,
         "ASSETS_MEDIA_S3_PUBLIC_ENDPOINT": public_s3,
         "ASSETS_MEDIA_S3_REGION": "us-east-1",
@@ -117,6 +120,8 @@ def _verify_image_worker_container(
         "ASSETS_IMAGES_LEGACY_BUCKET",
         "ASSETS_IMAGES_POLL_SECONDS",
         "ASSETS_IMAGES_SRGB_PROFILE",
+        "ASSETS_IMAGES_NATIVE_STORAGE_URL",
+        "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN",
         "ASSETS_MEDIA_S3_ENDPOINT",
         "ASSETS_MEDIA_S3_PUBLIC_ENDPOINT",
         "ASSETS_MEDIA_S3_ACCESS_KEY",
@@ -190,11 +195,13 @@ async def _wait_for_image_jobs(
 
 
 async def test_restricted_image_worker_container_generates_thumbnail_and_vips_pyramid(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, native_signer
 ):
     image_ref = _required_env("AAP_ASSETS_IMAGES_WORKER_IMAGE")
     image_id, _image_identity = _owned_image_ref(image_ref)
-    async with _image_live_runtime(test_engine, tmp_path) as runtime:
+    async with _image_live_runtime(
+        test_engine, tmp_path, native_signer=native_signer
+    ) as runtime:
         identity = uuid4().hex[:24]
         name = f"aap-images-worker-{identity[:12]}"
         environment_file = tmp_path / "image-worker.env"
@@ -279,6 +286,25 @@ async def test_restricted_image_worker_container_generates_thumbnail_and_vips_py
             assert jobs[pyramid_job_id]["result"]["kind"] == "pyramid"
             assert jobs[thumbnail_job_id]["attempt_count"] == 1
             assert jobs[pyramid_job_id]["attempt_count"] == 1
+            async with runtime.test_engine.connect() as owner:
+                output = (
+                    await owner.execute(
+                        text(
+                            "SELECT output.storage_ref "
+                            "FROM public.image_pyramid_generations AS generation "
+                            "JOIN public.image_pyramid_outputs AS output "
+                            "ON output.id=generation.output_id "
+                            "WHERE generation.asset_id=:asset "
+                            "AND generation.generation=:generation"
+                        ),
+                        {
+                            "asset": jobs[pyramid_job_id]["pyramid_asset_id"],
+                            "generation": jobs[pyramid_job_id]["pyramid_generation"],
+                        },
+                    )
+                ).scalar_one()
+            assert output["bucket"] == runtime.cache_bucket
+            runtime.cache_prefixes.append(output["prefix"])
 
             thumbnail_reference = await _post(
                 runtime.control_client,

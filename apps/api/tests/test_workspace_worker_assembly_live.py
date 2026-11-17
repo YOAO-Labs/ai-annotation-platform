@@ -36,8 +36,10 @@ from tests.project_guide_asset_owner_helpers import (
 )
 from tests.factory import create_project, create_user
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.native_signer_support import bridge_gateway
 from tests.test_module_data_roles import _role_url
 from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
+from tests.workspace_inference_worker_helpers import WorkspaceInferenceCeleryWorker
 
 
 pytestmark = [
@@ -51,7 +53,7 @@ pytestmark = [
 
 
 @contextmanager
-def _prediction_backend(*, token: str):
+def _prediction_backend(*, token: str, host: str):
     """Serve a deterministic retry protocol fixture; this is not ML qualification."""
     calls: list[dict] = []
     request_seen = threading.Event()
@@ -114,12 +116,12 @@ def _prediction_backend(*, token: str):
         def log_message(self, *_args):
             pass
 
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = ThreadingHTTPServer((host, 0), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
         yield (
-            f"http://127.0.0.1:{server.server_port}",
+            f"http://{host}:{server.server_port}",
             calls,
             request_seen,
             release_first,
@@ -457,7 +459,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
     minio_scheme = urlsplit(minio_origin).scheme
     if minio_scheme not in {"http", "https"}:
         raise AssertionError("owned object storage endpoint must use HTTP or HTTPS")
-    with _prediction_backend(token=backend_token) as (
+    with _prediction_backend(token=backend_token, host=bridge_gateway()) as (
         backend_origin,
         backend_calls,
         first_request_seen,
@@ -471,7 +473,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
             f"outside-guide/{uuid.uuid4()}.txt",
         )
         try:
-            worker = WorkspaceCeleryWorker(
+            worker = WorkspaceInferenceCeleryWorker(
                 test_engine,
                 tmp_path,
                 backend_token=backend_token,
@@ -488,9 +490,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
             worlds.append(
                 await _seed_retry_world(
                     test_engine,
-                    backend_url=backend_origin.replace(
-                        "127.0.0.1", "host.docker.internal"
-                    ),
+                    backend_url=backend_origin,
                     backend_token=backend_token,
                     index=1,
                     execution_queue=worker.queue,
@@ -499,9 +499,7 @@ async def test_real_celery_retry_worker_uses_native_workspace_acl_and_restarts(
             worlds.append(
                 await _seed_retry_world(
                     test_engine,
-                    backend_url=backend_origin.replace(
-                        "127.0.0.1", "host.docker.internal"
-                    ),
+                    backend_url=backend_origin,
                     backend_token=backend_token,
                     index=2,
                     execution_queue=worker.queue,

@@ -137,6 +137,12 @@ The default Compose stack remains unchanged. `IMAGE_PYRAMID_AUTO_GENERATE`
 defaults to false; enabling it changes admission behavior and should follow the
 image capacity runbook.
 
+Video poster and exact-frame extraction each use one decoder, filter and encoder
+thread, rather than FFmpeg's host-CPU-based defaults. Container PID, CPU and memory
+limits remain independent constraints. A failed FFmpeg command keeps its stable
+public error code and writes a bounded stderr tail to the owning process log;
+that diagnostic can contain source paths and is not a public response.
+
 Video has passed isolated local HTTP/S3/FFmpeg and bounded container acceptance
 with separate restricted identities. Image runtime integration does not itself
 qualify database migrations, production S3 permissions or sustained image

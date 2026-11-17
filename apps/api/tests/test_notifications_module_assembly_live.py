@@ -308,7 +308,7 @@ asyncio.run(main())
     )
 
 
-async def _deliver_notification_import_in_api(stack, delivery):
+async def _deliver_notification_import_in_worker(stack, delivery):
     source = """import asyncio, json, sys
 from yoao_assets_source.import_delivery_contract import DatasetImportDelivery
 from yoao_notifications.publication_contract import ImmediatePublicationUnavailable
@@ -329,7 +329,11 @@ asyncio.run(main())
 """
     output = await asyncio.to_thread(
         stack._compose,
-        "exec",
+        "run",
+        "--rm",
+        "--no-deps",
+        "--pull",
+        "never",
         "-T",
         "identity-api",
         "python",
@@ -769,7 +773,9 @@ async def test_notifications_module_cold_composition_and_full_restore(
                         )
                         await stack.stop_service("identity-notification-publisher")
                         assert (
-                            await _deliver_notification_import_in_api(stack, delivery)
+                            await _deliver_notification_import_in_worker(
+                                stack, delivery
+                            )
                             == "deferred"
                         )
                         async with seed() as db:

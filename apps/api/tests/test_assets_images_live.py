@@ -29,6 +29,7 @@ from app.db.models.dataset import DatasetItem, ProjectDataset
 from app.db.models.task import Task
 from app.db.models.task_dataset_item_link import TaskDatasetItemLink
 from tests.factory import create_project
+from tests.native_signer_support import NativeSigner
 from tests.test_asset_storage_cleanup_runtime import (
     _expect_s3_denied,
     _local_s3_client,
@@ -243,6 +244,7 @@ class _ImageLiveRuntime:
     control_client: httpx.AsyncClient
     owner_sessions: async_sessionmaker
     srgb_profile: Path
+    native_signer: NativeSigner | None = None
     processes: list[subprocess.Popen] = field(default_factory=list)
     streams: list[object] = field(default_factory=list)
     source_objects: list[tuple[str, str]] = field(default_factory=list)
@@ -279,6 +281,13 @@ class _ImageLiveRuntime:
             srgb_profile=self.srgb_profile,
             vips_gate=gate,
         )
+        if self.native_signer is not None:
+            environment.update(
+                {
+                    "ASSETS_IMAGES_NATIVE_STORAGE_URL": self.native_signer.url,
+                    "ASSETS_IMAGES_NATIVE_STORAGE_TOKEN": self.native_signer.writer_token,
+                }
+            )
         command = [sys.executable, "-m", "yoao_assets_images_runtime.worker"]
         if job_id is not None and input_id is not None:
             raise ValueError("choose an image job or an input reservation")
@@ -390,7 +399,9 @@ async def _delete_objects(client, bucket: str, prefixes: list[str]) -> None:
 
 
 @asynccontextmanager
-async def _image_live_runtime(test_engine, tmp_path: Path):
+async def _image_live_runtime(
+    test_engine, tmp_path: Path, *, native_signer: NativeSigner | None = None
+):
     control_url = _guard_role_url(
         "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_URL",
         "asset_media_control_client",
@@ -459,6 +470,15 @@ async def _image_live_runtime(test_engine, tmp_path: Path):
     control_token = secrets.token_urlsafe(32)
     control_port = _free_loopback_port()
     control_log = tmp_path / "image-control.log"
+    control_settings = dict(_CONTROL_POLICY_ENV)
+    if native_signer is not None:
+        native_signer.assert_running()
+        control_settings.update(
+            {
+                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL": native_signer.url,
+                "ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN": native_signer.reader_token,
+            }
+        )
     control_environment = _runtime_environment(
         tmp_path=tmp_path,
         role="control",
@@ -472,7 +492,7 @@ async def _image_live_runtime(test_engine, tmp_path: Path):
         secret_key=control_secret,
         token=control_token,
         port=control_port,
-        image_control_settings=_CONTROL_POLICY_ENV,
+        image_control_settings=control_settings,
     )
     control_process, control_stream = _start_process(
         [sys.executable, "-m", "yoao_assets_media_runtime"],
@@ -505,6 +525,7 @@ async def _image_live_runtime(test_engine, tmp_path: Path):
         control_client=control_client,
         owner_sessions=async_sessionmaker(test_engine, expire_on_commit=False),
         srgb_profile=srgb_profile,
+        native_signer=native_signer,
         control_process=control_process,
         control_log=control_log,
         processes=[control_process],
@@ -656,12 +677,8 @@ if 'yoao_assets_images_runtime.processing' in _sys.orig_argv:
 
 
 def _track_job_prefix(runtime: _ImageLiveRuntime, job: dict) -> None:
-    if job["kind"] == "pyramid":
-        assert job["pyramid_asset_id"] is not None
-        prefix = f"image-pyramids/{job['pyramid_asset_id']}/"
-    else:
-        prefix = f"image-assets/{job['job_id']}/"
-    runtime.cache_prefixes.append(prefix)
+    if job["kind"] != "pyramid":
+        runtime.cache_prefixes.append(f"image-assets/{job['job_id']}/")
 
 
 async def _accept_image_work(
@@ -973,13 +990,15 @@ async def test_independent_image_worker_publishes_thumbnail_after_response_loss_
 
 
 async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fenced(
-    test_engine, tmp_path
+    test_engine, tmp_path, native_signer
 ):
     if not _srgb_profile().is_file():
         pytest.fail(
             "the real pyramid qualification requires an installed sRGB ICC profile"
         )
-    async with _image_live_runtime(test_engine, tmp_path) as runtime:
+    async with _image_live_runtime(
+        test_engine, tmp_path, native_signer=native_signer
+    ) as runtime:
         source_key = f"image-source/{uuid4()}/pyramid.png"
         source_bytes = _quadrant_png((1024, 1024))
         try:
@@ -1011,22 +1030,26 @@ async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fen
             assert claimed["attempt_count"] == 1
             stale_token = claimed["lease_token"]
             async with runtime.test_engine.connect() as owner:
-                stale_prefix = await owner.scalar(
-                    text(
-                        "SELECT output_prefix FROM public.image_pyramid_generations "
-                        "WHERE asset_id=:asset AND generation=:generation"
-                    ),
-                    {
-                        "asset": claimed["pyramid_asset_id"],
-                        "generation": claimed["pyramid_generation"],
-                    },
-                )
-            assert isinstance(stale_prefix, str) and stale_prefix.startswith(
-                f"image-pyramids/{claimed['pyramid_asset_id']}/"
-            )
-            runtime.cache_prefixes.append(
-                f"image-pyramids/{claimed['pyramid_asset_id']}/"
-            )
+                stale_generation = (
+                    await owner.execute(
+                        text(
+                            "SELECT generation.output_prefix, output.storage_ref "
+                            "FROM public.image_pyramid_generations AS generation "
+                            "JOIN public.image_pyramid_outputs AS output "
+                            "ON output.id=generation.output_id "
+                            "WHERE generation.asset_id=:asset "
+                            "AND generation.generation=:generation"
+                        ),
+                        {
+                            "asset": claimed["pyramid_asset_id"],
+                            "generation": claimed["pyramid_generation"],
+                        },
+                    )
+                ).one()
+            stale_prefix = stale_generation.output_prefix
+            assert stale_prefix == stale_generation.storage_ref["prefix"]
+            assert stale_generation.storage_ref["bucket"] == runtime.cache_bucket
+            runtime.cache_prefixes.append(stale_prefix)
 
             active_competitor, active_log = runtime.start_worker(
                 "image-pyramid-active-competitor", job_id=job_id
@@ -1117,6 +1140,7 @@ async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fen
             assert current.active_generation == ready["pyramid_generation"]
             assert current.status == "ready"
             assert current.output_prefix != stale_prefix
+            runtime.cache_prefixes.append(current.output_prefix)
 
             generation_response = await _post(
                 runtime.control_client,

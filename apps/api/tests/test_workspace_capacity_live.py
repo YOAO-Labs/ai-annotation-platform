@@ -9,6 +9,7 @@ import os
 import secrets
 import shutil
 import subprocess
+import sys
 import time
 import uuid
 from collections import Counter
@@ -19,6 +20,7 @@ from sqlalchemy import text
 
 from tests.project_guide_asset_owner_helpers import assert_workspace_identity
 from tests.test_asset_storage_cleanup_runtime import _verify_postgres
+from tests.test_module_data_roles import _engine, _role_url
 from tests.test_workspace_module_assembly_live import (
     _assert_restricted_api_consumer,
     _seed_users,
@@ -37,7 +39,17 @@ pytestmark = [
 ]
 
 _PHASE_SECONDS = 15.0
-_EXPECTED_LIVE_SERVICES = 9
+
+
+@pytest.fixture
+async def unrelated_database_client():
+    engine = _engine(_role_url("AAP_MODULE_DATA_LEGACY_RUNTIME_URL", "legacy_runtime"))
+    _verify_postgres(engine.url)
+    try:
+        async with engine.connect() as connection:
+            yield connection
+    finally:
+        await engine.dispose()
 
 
 async def _node_patch(origin: str, path: str, headers: dict, body: dict) -> dict:
@@ -165,8 +177,9 @@ def _phase_report(metrics: dict, elapsed: float, concurrency: int) -> dict:
     }
 
 
-async def _wait_for_service_connections_to_drain(test_engine) -> None:
-    owner_role = test_engine.url.username
+async def _wait_for_service_connections_to_drain(
+    test_engine, roles: tuple[str, ...]
+) -> None:
     deadline = time.monotonic() + 20
     remaining = []
     while time.monotonic() < deadline:
@@ -179,10 +192,10 @@ async def _wait_for_service_connections_to_drain(test_engine) -> None:
                             "FROM pg_catalog.pg_stat_activity "
                             "WHERE datname = current_database() "
                             "AND backend_type = 'client backend' "
-                            "AND usename IS DISTINCT FROM :owner_role "
+                            "AND usename = ANY(CAST(:roles AS text[])) "
                             "GROUP BY usename ORDER BY usename"
                         ),
-                        {"owner_role": owner_role},
+                        {"roles": roles},
                     )
                 )
                 .mappings()
@@ -325,7 +338,7 @@ async def _verify_final_database(maker, lanes: list[dict], revoked_project_id):
 
 
 async def test_workspace_module_bounded_capacity_and_revocation_under_load(
-    test_engine, tmp_path, record_property
+    test_engine, tmp_path, record_property, unrelated_database_client
 ):
     assert test_engine.url.database and test_engine.url.database.endswith("_test")
     _verify_postgres(test_engine.url)
@@ -349,7 +362,8 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
             inference_token=inference_token,
         )
         await stack.start()
-        record_property("workspace_capacity_services", stack.inspection_evidence)
+        service_inventory = stack.inspection_evidence
+        record_property("workspace_capacity_services", service_inventory)
         tokens = {key: _token(user, api_secret) for key, user in actors.items()}
         headers = {
             key: {"Authorization": f"Bearer {token}"} for key, token in tokens.items()
@@ -506,14 +520,11 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                     else 0
                 )
                 services = snapshot["services"]
-                assert len(services) == _EXPECTED_LIVE_SERVICES
-                if runtime_samples:
-                    previous = runtime_samples[-1]["services"]
-                    for service, current in services.items():
-                        assert (
-                            current["container_id"] == previous[service]["container_id"]
-                        )
-                        assert current["started_at"] == previous[service]["started_at"]
+                assert services.keys() == service_inventory.keys()
+                for service, current in services.items():
+                    expected = service_inventory[service]
+                    assert current["container_id"] == expected["container_id"]
+                    assert current["started_at"] == expected["started_at"]
                 runtime_samples.append(snapshot)
                 record_property(label, snapshot)
 
@@ -823,7 +834,7 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
                 "workspace_capacity_runtime_samples",
                 {
                     "sample_count": len(runtime_samples),
-                    "services": _EXPECTED_LIVE_SERVICES,
+                    "services": len(service_inventory),
                     "stable_container_ids_and_started_at": True,
                     "snapshots": runtime_samples,
                 },
@@ -838,9 +849,22 @@ async def test_workspace_module_bounded_capacity_and_revocation_under_load(
             record_property("workspace_capacity_partial_phases", phases)
         raise
     finally:
-        try:
-            if stack is not None:
+        primary = sys.exception()
+        errors = []
+        if stack is not None:
+            try:
                 await stack.stop()
-        finally:
-            if stack is not None:
-                await _wait_for_service_connections_to_drain(test_engine)
+            except BaseException as exc:
+                errors.append(exc)
+            try:
+                await _wait_for_service_connections_to_drain(
+                    test_engine, stack.database_roles
+                )
+                assert await unrelated_database_client.scalar(text("SELECT 1")) == 1
+            except BaseException as exc:
+                errors.append(exc)
+        if errors:
+            raise BaseExceptionGroup(
+                "Workspace capacity shutdown failed",
+                ([primary] if primary is not None else []) + errors,
+            ) from None

@@ -25,7 +25,9 @@ from tests.test_module_data_roles import _role_url
 ROOT = Path(__file__).resolve().parents[3]
 
 
-def _worker_queue_name(identity: str, queue_name: str | None = None, fixture_run_id=None) -> str:
+def _worker_queue_name(
+    identity: str, queue_name: str | None = None, fixture_run_id=None
+) -> str:
     if queue_name is None:
         if fixture_run_id is not None:
             raise ValueError("A fixture run requires an explicit private queue")
@@ -98,6 +100,7 @@ class WorkspaceCeleryWorker:
         self.container_id: str | None = None
         self.network_id: str | None = None
         self._fixture_reader_environment: dict[str, str] = {}
+        self._worker_environment: dict[str, str] = {}
         self._docker_environment = self._minimal_docker_environment()
         _verify_postgres(test_engine.url)
         self._redis_owner_url = _verify_redis()
@@ -134,9 +137,13 @@ class WorkspaceCeleryWorker:
 
     def configure_fixture_media_control(self, value: URL, *, output_file: Path) -> None:
         if self.container_id is not None or self.network_id is not None:
-            raise RuntimeError("Fixture media control must be configured before worker start")
+            raise RuntimeError(
+                "Fixture media control must be configured before worker start"
+            )
         if self._fixture_media_run_id is None or not self._fixture_reader_environment:
-            raise RuntimeError("Fixture media control requires its private run and reader")
+            raise RuntimeError(
+                "Fixture media control requires its private run and reader"
+            )
         if (
             value.drivername != "postgresql+asyncpg"
             or value.username != f"aap_fixture_media_{self._fixture_media_run_id.hex}"
@@ -150,7 +157,9 @@ class WorkspaceCeleryWorker:
         from yoao_assets_media_runtime.fixture_native_outputs import load_target_file
 
         target = load_target_file(
-            output_file, value.render_as_string(hide_password=False), "aap_fixture_media_"
+            output_file,
+            value.render_as_string(hide_password=False),
+            "aap_fixture_media_",
         )
         if target["run_id"] != str(self._fixture_media_run_id):
             raise RuntimeError("Fixture media output target differs from the owned run")
@@ -237,7 +246,10 @@ class WorkspaceCeleryWorker:
         self._redis_url = self._redis_owner_url.render_as_string(hide_password=False)
 
     def start(self) -> None:
-        if self._fixture_media_run_id is not None and self._fixture_media_control_url is None:
+        if (
+            self._fixture_media_run_id is not None
+            and self._fixture_media_control_url is None
+        ):
             raise RuntimeError("Fixture media worker has no private control identity")
         self._prepare_files()
         _verify_postgres(self.test_engine.url)
@@ -543,15 +555,21 @@ class WorkspaceCeleryWorker:
             raise RuntimeError("Worker fixture reader authority changed")
         expected_media_secret = (
             "/run/secrets/fixture_media_dsn"
-            if self._fixture_media_control_url is not None else None
+            if self._fixture_media_control_url is not None
+            else None
         )
-        if (env.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE") or None) != expected_media_secret:
+        if (
+            env.get("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE") or None
+        ) != expected_media_secret:
             raise RuntimeError("Worker fixture media control selector changed")
         expected_media_target = (
             "/run/secrets/fixture_media_target"
-            if self._fixture_media_control_url is not None else None
+            if self._fixture_media_control_url is not None
+            else None
         )
-        if (env.get("AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE") or None) != expected_media_target:
+        if (
+            env.get("AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE") or None
+        ) != expected_media_target:
             raise RuntimeError("Worker fixture media target selector changed")
         if env.get("WORKSPACE_INFERENCE_PROBE_URL"):
             raise RuntimeError("Worker unexpectedly selects a Workspace HTTP owner")
@@ -572,11 +590,16 @@ class WorkspaceCeleryWorker:
                 self.export_execution_dsn_file.resolve()
             )
         if self._fixture_media_control_url is not None:
-            expected_mounts["/run/secrets/fixture_media_dsn"] = self.fixture_media_dsn_file.resolve()
-            expected_mounts["/run/secrets/fixture_media_target"] = self.fixture_media_target_file.resolve()
+            expected_mounts["/run/secrets/fixture_media_dsn"] = (
+                self.fixture_media_dsn_file.resolve()
+            )
+            expected_mounts["/run/secrets/fixture_media_target"] = (
+                self.fixture_media_target_file.resolve()
+            )
         if len(bind_mounts) != len(expected_mounts) or any(
             mount.get("Destination") not in expected_mounts
-            or Path(mount.get("Source", "")).resolve() != expected_mounts[mount.get("Destination")]
+            or Path(mount.get("Source", "")).resolve()
+            != expected_mounts[mount.get("Destination")]
             or mount.get("RW") is not False
             for mount in bind_mounts
         ):
@@ -671,7 +694,9 @@ class WorkspaceCeleryWorker:
             self.object_store_secret_key,
             self._api_database_url.password or "",
             self._result_database_url.password or "",
-            self._fixture_media_control_url.password if self._fixture_media_control_url else "",
+            self._fixture_media_control_url.password
+            if self._fixture_media_control_url
+            else "",
             (self._fixture_media_target_value or {}).get("access_key", ""),
             (self._fixture_media_target_value or {}).get("secret_key", ""),
             make_url(self._required("REDIS_URL")).password or "",
@@ -687,9 +712,7 @@ class WorkspaceCeleryWorker:
             for name, value in self._fixture_reader_environment.items()
             if re.search(r"(?i)(?:TOKEN|KEY|SECRET|PASSWORD)", name)
         )
-        for name, value_from_environment in getattr(
-            self, "_tracker_environment", {}
-        ).items():
+        for name, value_from_environment in self._worker_environment.items():
             if (
                 not isinstance(value_from_environment, str)
                 or not value_from_environment
@@ -737,22 +760,30 @@ class WorkspaceCeleryWorker:
                 encoding="utf-8",
             )
             self.fixture_media_dsn_file.chmod(0o444)
-            descriptor = os.open(self._fixture_media_target_source, os.O_RDONLY | os.O_NOFOLLOW)
+            descriptor = os.open(
+                self._fixture_media_target_source, os.O_RDONLY | os.O_NOFOLLOW
+            )
             with os.fdopen(descriptor, "rb") as source:
                 info = os.fstat(source.fileno())
                 if (
-                    not stat.S_ISREG(info.st_mode) or info.st_uid != os.geteuid()
+                    not stat.S_ISREG(info.st_mode)
+                    or info.st_uid != os.geteuid()
                     or stat.S_IMODE(info.st_mode) != 0o600
                 ):
                     raise RuntimeError("Worker fixture media target file changed")
                 target_contents = source.read(8193)
             try:
-                if len(target_contents) > 8192 or json.loads(target_contents) != self._fixture_media_target_value:
+                if (
+                    len(target_contents) > 8192
+                    or json.loads(target_contents) != self._fixture_media_target_value
+                ):
                     raise ValueError("target changed")
             except (ValueError, UnicodeError, TypeError):
                 raise RuntimeError("Worker fixture media target file changed") from None
             descriptor = os.open(
-                self.fixture_media_target_file, os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW, 0o444
+                self.fixture_media_target_file,
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | os.O_NOFOLLOW,
+                0o444,
             )
             with os.fdopen(descriptor, "wb") as destination:
                 os.fchmod(destination.fileno(), 0o444)
@@ -812,9 +843,14 @@ class WorkspaceCeleryWorker:
             values[f"{prefix}_DATABASE_URL_FILE"] = ""
         values.update(self.object_store_buckets)
         values.update(self._fixture_reader_environment)
+        values.update(self._worker_environment)
         if self._fixture_media_control_url is not None:
-            values["AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"] = "/run/secrets/fixture_media_dsn"
-            values["AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE"] = "/run/secrets/fixture_media_target"
+            values["AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE"] = (
+                "/run/secrets/fixture_media_dsn"
+            )
+            values["AAP_PRIVATE_FIXTURE_MEDIA_OUTPUT_TARGET_FILE"] = (
+                "/run/secrets/fixture_media_target"
+            )
         self._write_env_file(self.environment_file, values)
 
     def _write_env_file(self, path: Path, values: dict[str, str]) -> None:
@@ -935,7 +971,11 @@ class WorkspaceCeleryWorker:
         except ValueError:
             loopback = parsed.hostname == "localhost"
         if loopback:
-            return f"host.docker.internal:{port}" if port is not None else "host.docker.internal"
+            return (
+                f"host.docker.internal:{port}"
+                if port is not None
+                else "host.docker.internal"
+            )
         return parsed.netloc
 
     def _inspect(self, identity: str, *, required: bool = True) -> dict | None:

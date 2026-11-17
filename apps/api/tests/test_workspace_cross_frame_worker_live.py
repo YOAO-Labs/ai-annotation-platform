@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from urllib.parse import urlsplit
 import uuid
 
@@ -33,7 +34,7 @@ from tests.test_workspace_worker_assembly_live import (
     _wait_broker_ack,
     _wait_worker_ready,
 )
-from tests.workspace_worker_assembly_helpers import WorkspaceCeleryWorker
+from tests.workspace_worker_assembly_helpers import ROOT, WorkspaceCeleryWorker
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -460,9 +461,9 @@ async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_e
             assert context.id == world["actor_id"] and context.role == "employee"
 
             from app.api.v1.tasks.cross_frame_jobs import _create_job
-            from app.db.models.task import Task
             from app.schemas.cross_frame_job import CrossFrameJobCreate
             from app.services.assets_spatial_views import spatial_scene_references
+            from app.services.labeling_core_read_relations import get_core_row, task_row
 
             assert (
                 await db.scalar(
@@ -474,7 +475,12 @@ async def test_cross_frame_prerequisite_spatial_reads_use_closed_api_role(test_e
             )
             from app.services.task_access import resolve_task_access
 
-            source_task = await db.get(Task, world["source_task_id"])
+            assert not await db.scalar(
+                text(
+                    "SELECT has_table_privilege(current_user, 'public.tasks', 'SELECT')"
+                )
+            )
+            source_task = await get_core_row(db, task_row, world["source_task_id"])
             source_access = await resolve_task_access(db, source_task, context.id)
             candidate, created = await _create_job(
                 db,
@@ -575,6 +581,11 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
         await _assert_workspace_consumer_closure(test_engine)
         worker.start()
         await _wait_worker_ready(sender, worker)
+        scripts = str(ROOT / "scripts")
+        if scripts not in sys.path:
+            sys.path.insert(0, scripts)
+        from worktree_runtime import worker_queues_match
+
         worker.assert_private_network()
         signature = worker.task_signature(_TASK_NAME)
         assert signature == {"task": _TASK_NAME, "parameters": ["job_id"]}
@@ -582,9 +593,9 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
         registered = await asyncio.to_thread(inspect.registered)
         active_queues = await asyncio.to_thread(inspect.active_queues)
         assert registered and _TASK_NAME in registered[worker.node_name]
-        assert active_queues and {
-            row["name"] for row in active_queues[worker.node_name]
-        } == {worker.queue}
+        assert active_queues and worker_queues_match(
+            worker.node_name, worker.queue, active_queues[worker.node_name]
+        )
         record_property(
             "cross_frame_worker_runtime",
             {"runtime": worker.assert_runtime(), "task_signature": signature},
@@ -645,9 +656,9 @@ async def test_real_cross_frame_worker_uses_workspace_fence_and_retry(
             restarted_registered
             and _TASK_NAME in restarted_registered[worker.node_name]
         )
-        assert restarted_queues and {
-            row["name"] for row in restarted_queues[worker.node_name]
-        } == {worker.queue}
+        assert restarted_queues and worker_queues_match(
+            worker.node_name, worker.queue, restarted_queues[worker.node_name]
+        )
         duplicate_result, duplicate_ack = await _dispatch_and_ack(
             sender, worker, success_world["job_id"], deliveries, "cross-frame-duplicate"
         )

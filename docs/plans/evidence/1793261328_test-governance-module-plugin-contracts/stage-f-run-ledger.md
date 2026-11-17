@@ -560,3 +560,19 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - `candidate-canonical-pyramid-strict-7a459b704` 定向复验通过：驱动 exit 0、421.070 秒，增强后的 8K 用例 13.344 秒，源码级 Worker 用例 0.610 秒；两个 Chromium 项目各 1 passed，无重试／跳过／flaky。首次打开和重载的当前路由均满足实际瓦片解码与完整覆盖、零瓦片错误／可见重试；原编辑、保存、重载、资源预算、bfcache 与 undo 断言保留，console/page error 为零。trace 中同一已登记瓦片三次 GET 均为 200，WebP 字节、ETag、version ID 与非凭据 CORS 响应头完整。
 - owner `55833c9a95e2432ea048ec2fccf0def5` 正常退役，`cleaned=true`、`worktree_destroyed`、`cleanup_errors=[]`，fixture source retirement/finalization 均 completed。两份 JSON、两份 trace、owner、已复核的 1280×720 真实 8K 截图及严格判定归档于 `candidate-canonical-pyramid-strict-7a459b704-browser-evidence/`。规范 Raster 选集以 `5717af5f9` 的二十项未变成功证据加本次增强 8K 复验闭合；不是在新 HEAD 再跑一次完整二十一项。普通 Native 原整链、当前浏览器结果及其输入复用边界分别保留，不外推默认 T1／T2、严格 `memory.peak`、生产容量或通用存储替换。
 - 用户确认将严格内存峰值单项后置为“延期／未验证”：当前没有其他环境，不要求安装、重启、改动宿主或寻找新环境，不反复执行已知不支持 `memory.peak` 的检查。已获授权且不依赖该指标的独立技术／产品收尾继续推进；正式发布评审再决定补验安排。既有应用侧预算、不变量和真实 8K 结果保留原资格范围，不替代内核峰值证明；完整 T1／T2 状态和后继批准门不因此变更。本次只记录验收安排，不修改验证器、阈值、运行环境或测试结果。
+
+## 2026-11-17 T1／T2 定向收尾
+
+- 当前默认选集实际为 427 个文件、18 个隔离 profile（含 ordinary）；不是 17 个总 profile。严格峰值延期涉及默认选集中的 Spatial 整链用例和 `mask-gc-runtime`，原断言与默认选集保持不变。既定 35 项修正用例不依赖严格峰值，也没有 schema downgrade；其中一项 legacy 图片消费者是原计划中的额外探针，不计作默认覆盖。
+- 核对真实消费者发现 `image-worker`、Notifications publisher 和 Jobs queue 的旧重建回执使用了不符合既有 24 位十六进制合同的身份。三项只生成新身份元数据镜像，逐项证明 RootFS 及其他运行配置完全一致，再通过既有无网络、只读、非 editable 的已安装字节核验；合计 4.93 秒、零应用代码重编译。旧镜像与失败来源不改写，证据为 `t1-gate/artifacts-7a459b704-identity-contract/`，包含原回执、来源 revision 与元数据派生关系。
+- `t1-corrections-functional-7a459b704-2` 在分配资源前因索引缺少 `host_source_manifest` 被拒绝：没有启动测试或创建 bootstrap，不记为一次 live 失败或通过。保留拒绝记录；后续 `-3` 索引补入已有的当前 6100 项宿主输入快照，仍由严格驱动在分配前逐项复核，并保留原 35 项次序、断言及 18 项制品证明。该定向批次结果见下项，不把子集冒充完整 T1／T2。
+- 另发现旧 `t1-gate-1` 的三名已退出 worker 和一个空网络未包含在原退役范围中。用户单独批准准确清单后，已归档日志、复核完整 ID／标签／挂载及空网络并仅移除这四项；回执为 `t1-gate/t1-gate-1-residual-retirement/receipt.json`。没有修改数据库、桶、卷、运行中容器或日常服务；行政退役不提升原失败资格。
+- `t1-corrections-functional-7a459b704-3` 执行结束：35 项中 24 passed、11 failed，无 error／skip，外层 1639.55 秒。六项 owned 夹具／清理回滚、两项角色审计、四项 Registry 外层回滚及 Export worker-loss 等通过；整批未通过，原报告、JUnit、日志和全部失败正文分别保存在同名前缀及 `-failures.json`，不覆盖旧失败。
+- 首因按实际链路分组：LAN 缺少九项已有图片／接受输入原件能力；两项图片消费者缺少 Native signer 装配且一项仍断言旧派生路径；重试 worker 缺少真实 Inference owner，跨帧测试仍读私有 Task 表并拒绝本节点合法 direct inbox，tracker 的进程内 API 漏绑 Jobs publication owner。冷 Workspace API 有 64-PID 下 OpenBLAS 线程创建失败及 exit 139；Notifications API 在同一 512 MiB cgroup 内启动额外完整 worker 解释器时发生已确认 OOM。Labeling API 退出前尚未提供 HTTP，退出状态未被旧测试保留，不能推断为同一 OOM 或线程故障。
+- 用户批准准确清单 `t1-corrections-functional-7a459b704-3-retirement-inventory.json`（SHA256 `1c71faedfe8a3d138dde96eb96492f2fac56b9d7625435c25e27137f8f32c296`）后，已归档数据库 dump／全局角色、两项 Native 输出及成员状态、恢复后的角色权限、对象／Redis 清单、容器日志和私有运行根。仅退役本批三个容器、两个独占卷、一个网络和已归档的 `/tmp` 根，5.42 秒完成；没有存活的自有宿主进程。回执 `t1-corrections-functional-7a459b704-3-retirement/receipt.json` 明确为行政退役，不计产品清理通过；清单中 PostgreSQL 卷的文字归属类别修正记录在回执中，准确 ID 和批准范围未变。
+
+## 2026-11-18 T1 定向修正
+
+- 视频封面故障使用保留的 58,100 字节原视频和原 `media-worker-683620de7` 镜像进行一次有界差分诊断：宿主可见 112 CPU，容器仍为 64 PID／2 CPU／2 GiB；原帧提取失败，仅显式限制解码、滤镜和编码线程后产生 128×96 WebP。完整命令、输入 SHA256、工件回执及结果保存在 `poster-thread-diagnostic-7a459b704/`。这是原因定位，不是模块整链、严格峰值或生产容量资格；没有读取已延期的 `memory.peak`。
+- 正在修正上述调用链及诊断保留，尚无新候选验收通过结论。容量检查改为核对实际装配的十个数据库身份，并在原负载用例期间保留真实无关 LOGIN 连接；服务连续性以装配初始清单／容器 ID／启动时间验证，不再硬编码已过期的九服务数量。首个失败与关闭／排空失败合并保留，不在启动失败时跳过收尾。
+- 录制范围核对：module-data 的 `recording` profile 执行原有展示夹具脚本，不派发真实 retry；其通过不能关闭截图 `jobs-retry-recovery` 的真实重试退役缺口。后者仍按 §16.3(13) 保留锚点和明确拒绝，未新增跨 provider／GPU 控制体系，也未改变 T2 或后继批准门。
