@@ -225,6 +225,24 @@ Raster 产品用例成功且 JSON 报告列出了 trace 路径，但源码级 Wo
 
 源码级 Worker 使用独立的 `test-results/browser-integration`，保留前一阶段产品用例的 trace、截图与视频；CI 继续递归收集 `test-results`。不同项目不要通过共同的 `--output` 参数重新合并目录。验收时分别保存两份报告与附件，不把报告中的附件路径当作附件仍存在的证明。
 
+## 15. 8K 编辑通过，但 Native 高清瓦片被 CORS 阻止
+
+### 症状
+
+工作台的 `data-image-ready=true`、8K Mask 编辑／保存／重载断言通过，预览图也能显示，但浏览器 `fetch` 高清瓦片报告缺少 `Access-Control-Allow-Origin`。不能据此判定 Native 图像读取通过。
+
+### 根因与边界
+
+私有逐 run 的 `fixture_native_output_proxy.py` 原先没有浏览器跨域响应。预览图与瓦片不是同一读取方式；金字塔 API 返回 ready 和完整 manifest，也不等于浏览器已经读取、解码实际瓦片。
+
+该代理使用精确到 run／write ID、带到期时间的签名 capability，不使用浏览器 cookie 作为权限。CORS 仅支持非凭据 GET／HEAD、Range／If-Range，并暴露读取所需的范围与对象版本响应头；允许跨源消费不跳过签名、逐成员身份、读取许可或物理关闭校验。子进程仍保留最小环境，不为 CORS 导入主 API 的环境配置。
+
+### 验收
+
+首次打开与重载后，都必须观察当前路由存在可见瓦片、已解码保留字节为正、目标覆盖率为 1，且瓦片错误和可见瓦片重试均为 0；浏览器 console error／page error 也应使该 8K 用例失败。不能仅等待 `image-ready` 或检查 Mask 自身的内存预算。
+
+CORS 配置位于 `scripts/fixture_native_playwright.py` 的 `_proxy_child`；逐成员读取与物理关闭仍由 `fixture_native_output_proxy.py` 负责。
+
 ## 相关
 
 - 代码：`scripts/linux_pidfd.py`、`scripts/worktree_runtime.py`、`scripts/run_raster_fault_e2e.py`、`scripts/raster_web_process.py`、`apps/web/scripts/raster-vite.mjs`

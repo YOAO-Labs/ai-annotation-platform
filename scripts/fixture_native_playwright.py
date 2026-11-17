@@ -151,9 +151,21 @@ def _control_child(listener_fd, stopped_fd):
 
 
 def _proxy_child(listener_fd, stopped_fd):
+    from fastapi.middleware.cors import CORSMiddleware
+
     from app.services.fixture_native_output_proxy import create_app
 
-    _serve_child(create_app(), listener_fd, stopped_fd)
+    app = create_app()
+    # The exact signed capability authorizes reads, never ambient browser cookies.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET", "HEAD"],
+        allow_headers=["Range", "If-Range"],
+        allow_credentials=False,
+        expose_headers=["Accept-Ranges", "Content-Range", "ETag", "x-amz-version-id"],
+    )
+    _serve_child(app, listener_fd, stopped_fd)
 
 
 def _control_environment(profile, resolver, master, token, port):

@@ -72,6 +72,37 @@ async function rasterResources(page: Page): Promise<RasterResourceSnapshot | nul
   );
 }
 
+async function expectPyramidTileCoverage(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      // The renderer publishes this in-process record outside the DOM's Window type.
+      const diagnosticsWindow = window as unknown as {
+        __imageTileDiagnostics?: {
+          route: string;
+          resources: {
+            visibleTiles: number;
+            retainedBytes: number;
+            targetCoverageRatio: number;
+            retryingVisibleTiles: number;
+            errors: number;
+          };
+        };
+      };
+      const snapshot = diagnosticsWindow.__imageTileDiagnostics;
+      return (
+        snapshot?.route === `${window.location.pathname}${window.location.search}` &&
+        snapshot.resources.visibleTiles > 0 &&
+        snapshot.resources.retainedBytes > 0 &&
+        snapshot.resources.targetCoverageRatio === 1 &&
+        snapshot.resources.retryingVisibleTiles === 0 &&
+        snapshot.resources.errors === 0
+      );
+    },
+    undefined,
+    { timeout: 15_000 },
+  );
+}
+
 function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
@@ -635,6 +666,11 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     request,
     eightKCase: { data, taskId, annotationId, token },
   }) => {
+    const browserErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => browserErrors.push(error.message));
     await page.goto(`/projects/${data.project_id}/annotate?task=${taskId}`);
     await expect(page.getByTestId("workbench-stage")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("workbench-stage")).toHaveAttribute(
@@ -642,6 +678,7 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
       /\/pyramid/,
     );
     await expect(page.getByTestId("workbench-stage")).toHaveAttribute("data-image-ready", "true");
+    await expectPyramidTileCoverage(page);
     const before = await getMaskContent(request, annotationId, token);
     expect(before.size).toEqual([8192, 8192]);
 
@@ -707,9 +744,11 @@ test.describe("raster mask native write matrix", { tag: "@mask-native" }, () => 
     expect(saved.counts).not.toEqual(before.counts);
 
     await page.reload();
+    await expectPyramidTileCoverage(page);
     await beginRasterEdit(page, annotationId);
     await expect(page.getByTestId("mask-toolbar")).toContainText("大画布分块模式");
     expect(await getMaskContent(request, annotationId, token)).toEqual(saved);
+    expect(browserErrors).toEqual([]);
   });
 });
 
