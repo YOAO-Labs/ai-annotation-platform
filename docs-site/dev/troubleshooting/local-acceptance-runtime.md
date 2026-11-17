@@ -211,6 +211,20 @@ Playwright 的 `webServer.gracefulShutdown`（`apps/web/playwright.screenshots.c
 
 自有运行时不经由进程组信号收尾，而是显式关闭：`scripts/raster_web_process.py` 通过 stdin 控制管道发 `close` 命令、等待 pidfd 退出，并核对退出码与后代排空；`apps/web/scripts/raster-vite.mjs` 只在 `await server.close()` 完成后才允许 owner 退出，丢失控制管道即失败。失败时保留准确身份（`_unsettled_web_servers`），不按进程名忽略。
 
+## 14. 后一个浏览器项目清理前一个项目的 trace
+
+### 症状
+
+Raster 产品用例成功且 JSON 报告列出了 trace 路径，但源码级 Worker 项目结束后，该 trace 已不存在。
+
+### 根因
+
+两个 Playwright 配置若共用默认 `test-results`，后启动的项目会清理其输出目录。`preserveOutput: "always"` 不阻止下一次运行清理相同目录。
+
+### 规避
+
+源码级 Worker 使用独立的 `test-results/browser-integration`，保留前一阶段产品用例的 trace、截图与视频；CI 继续递归收集 `test-results`。不同项目不要通过共同的 `--output` 参数重新合并目录。验收时分别保存两份报告与附件，不把报告中的附件路径当作附件仍存在的证明。
+
 ## 相关
 
 - 代码：`scripts/linux_pidfd.py`、`scripts/worktree_runtime.py`、`scripts/run_raster_fault_e2e.py`、`scripts/raster_web_process.py`、`apps/web/scripts/raster-vite.mjs`

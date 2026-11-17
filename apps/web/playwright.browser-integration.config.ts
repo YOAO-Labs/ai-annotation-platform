@@ -8,6 +8,7 @@ const isCI = Boolean(process.env.CI);
 export default defineConfig({
   testDir: "./e2e/browser-integration",
   testMatch: ["**/*.spec.ts"],
+  outputDir: "./test-results/browser-integration",
   fullyParallel: false,
   workers: 1,
   forbidOnly: isCI,
