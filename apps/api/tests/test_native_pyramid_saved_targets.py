@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from yoao_assets_images import contract as c
 
 from app.services import image_pyramid_objects as objects
 from app.services.dataset_assets import ensure_legacy_bindings
@@ -630,8 +631,9 @@ async def test_saved_targets_require_the_registered_connection_bucket(test_engin
                     },
                 )
             )
-            assert refused["ok"] is False
-            assert refused["error"]["code"] == "storage_maintenance"
+            with pytest.raises(c.ImageFailure) as failure:
+                c.decode_reply(refused, c.PyramidOutputAllocation)
+            assert failure.value.code == "storage_unavailable"
 
             # A non-string connection bucket is also refused.
             await session.execute(
@@ -892,8 +894,8 @@ async def test_fixture_resolver_serves_only_verified_pyramid_members(test_engine
             )
 
             members = {
-                "manifest.json": (manifest_sha, 10, "verified", "written"),
-                "overview.webp": (overview_sha, 11, "verified", "written"),
+                "manifest.json": (manifest_sha, 10, "verified", "verified"),
+                "overview.webp": (overview_sha, 11, "verified", "verified"),
                 "tiles/0/0/0.webp": (tile_sha, 12, "written", "written"),
             }
             operations = {}

@@ -37,6 +37,7 @@ from app.core.crypto import encrypt_secret
 from app.db.models.dataset import DatasetItem
 from app.db.models.storage_connection import StorageConnection
 from app.services import media_cache_binding_change
+from app.services.dataset_assets import ensure_legacy_bindings
 from app.services.storage_location import register_connection
 from app.schemas.storage_location import (
     MediaCacheBindingApply,
@@ -456,6 +457,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
     try:
         await _wait_control_ready(control_client, control_process, control_log)
         async with sessions.begin() as db:
+            await ensure_legacy_bindings(db)
             actor_id = await _seed_actor(db, role="super_admin")
             dataset_id = await _seed_dataset(
                 db, actor_id=actor_id, name=f"native-live-{uuid4().hex[:8]}"

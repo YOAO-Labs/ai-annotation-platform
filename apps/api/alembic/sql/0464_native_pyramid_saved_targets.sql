@@ -539,17 +539,17 @@ BEGIN
     ELSE
         SELECT * INTO v_binding FROM public.storage_bindings WHERE purpose='media-cache' FOR SHARE;
         IF NOT FOUND THEN
-            RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+            RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
         END IF;
         SELECT * INTO v_location FROM public.storage_locations WHERE id=v_binding.location_id FOR SHARE;
         IF NOT FOUND OR v_location.kind<>'s3' OR v_location.enabled IS NOT TRUE
            OR v_location.config_revision<1 THEN
-            RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+            RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
         END IF;
         IF v_location.id='4fcc68cb-ce7a-5da2-ab39-143a6de6d0f7' THEN
             IF pg_catalog.jsonb_typeof(v_location.config -> 'use_ssl') IS DISTINCT FROM 'boolean'
                OR COALESCE(v_location.config ->> 'endpoint','') = '' THEN
-                RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+                RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
             END IF;
             v_endpoint := CASE WHEN (v_location.config ->> 'use_ssl')::boolean
                 THEN 'https://' ELSE 'http://' END || (v_location.config ->> 'endpoint');
@@ -569,13 +569,13 @@ BEGIN
                OR v_connection.config ->> 'bucket' IS DISTINCT FROM v_binding.bucket
                OR pg_catalog.jsonb_typeof(v_connection.config -> 'endpoint')
                     IS DISTINCT FROM 'string' THEN
-                RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+                RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
             END IF;
             v_endpoint := v_connection.config ->> 'endpoint';
             v_key_prefix := pg_catalog.rtrim(COALESCE(v_connection.config ->> 'base_prefix',''),'/');
             IF v_key_prefix<>'' THEN
                 IF v_key_prefix ~ '(^|/)[.][.]?(/|$)|//' THEN
-                    RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+                    RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
                 END IF;
                 v_key_prefix := v_key_prefix || '/';
             END IF;
@@ -598,14 +598,14 @@ BEGIN
        OR v_location_id IS NULL OR v_config_revision IS NULL OR v_config_revision<1
        OR v_binding_generation IS NULL OR v_binding_generation<1
        OR v_key_prefix IS NULL OR pg_catalog.octet_length(v_key_prefix)>436 THEN
-        RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+        RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
     END IF;
     INSERT INTO public.storage_maintenance_gates(location_id,state,revision)
     VALUES (v_location_id,'active',1) ON CONFLICT DO NOTHING;
     SELECT gate.state,gate.revision INTO v_gate FROM public.storage_maintenance_gates AS gate
     WHERE gate.location_id=v_location_id FOR SHARE;
     IF NOT FOUND OR v_gate.state<>'active' OR v_gate.revision<1 THEN
-        RETURN aap_assets_v1._image_reply(NULL, 'storage_maintenance');
+        RETURN aap_assets_v1._image_reply(NULL, 'storage_unavailable');
     END IF;
     v_prefix := v_key_prefix || 'image-pyramids/objects/' || v_output_id::text || '/';
     v_ref := pg_catalog.jsonb_build_object(

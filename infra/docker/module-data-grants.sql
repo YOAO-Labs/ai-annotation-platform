@@ -4208,6 +4208,8 @@ GRANT SELECT ON public.image_pyramid_assets, public.image_pyramid_generations,
 GRANT UPDATE (id) ON public.image_pyramid_assets TO :"assets_owner";
 GRANT UPDATE (asset_id) ON public.image_pyramid_generations TO :"assets_owner";
 GRANT UPDATE (id) ON public.image_pyramid_outputs TO :"assets_owner";
+GRANT INSERT (id, asset_id, generation, lease_token, storage_ref, state)
+    ON public.image_pyramid_outputs TO :"assets_owner";
 GRANT SELECT (id,state,storage_ref,sha256,size_bytes,etag,version_id,uncertain_write,error_code)
     ON public.thumbnail_outputs TO :"assets_owner";
 GRANT SELECT (id,state,storage_ref,inventory,lease_token,dataset_item_id)
@@ -4860,7 +4862,8 @@ GRANT SELECT, DELETE, UPDATE (state) ON public.video_derivative_outputs TO :"ass
 GRANT UPDATE (video_output_id,video_building_output_id) ON public.dataset_items TO :"assets_owner";
 GRANT SELECT (retired_at), UPDATE (state,retired_at)
     ON public.thumbnail_outputs TO :"assets_owner";
-GRANT UPDATE (state) ON public.image_pyramid_outputs TO :"assets_owner";
+GRANT UPDATE (state, inventory, updated_at)
+    ON public.image_pyramid_outputs TO :"assets_owner";
 GRANT SELECT (original_id) ON aap_labeling_v1.task_rows TO :"assets_owner";
 DO $fixture_owner$
 BEGIN
