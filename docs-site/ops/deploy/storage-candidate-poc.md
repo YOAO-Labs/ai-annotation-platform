@@ -133,7 +133,7 @@ apps/api/.venv/bin/python scripts/verify_native_storage_contract.py \
 
 该入口只证明报告中列出的 Native 目标合同，不证明通用 S3 兼容、生产容量、完整 Native 生命周期或浏览器 8K。SeaweedFS 启动参数显式开放仅由管理身份使用的 IAM 写入，同时要求普通身份的自助密钥管理也必须另获授权；不会向运行进程发放 root。成功后退休该批自有资源；失败则保留准确 owner 与私有证据，另获该批退休批准后再清理，不复用失败环境。
 
-固定 SeaweedFS 镜像已通过 Native 目标的条件 I/O、有界分页及有限权限合同：内建桶的 122 个上传以 `100 + 22` 分页，重启后完整枚举与保存双游标续页一致；连接桶另有一个独立上传。条件读写删除、准确旧版本删除后保留当前版本、短期签名读取、两种 Native 身份的显式 multipart 拒绝、身份重启保留和准确移除均通过。历史运行仅证明当时登记资源的退休；匿名卷核对与新增绑定探测身份必须以当前入口的新报告为准。该结论要求使用这里核验的有限策略，尤其是显式拒绝 `AbortMultipartUpload` 与 `ListMultipartUploadParts`；缺少拒绝时，该构建会把 `PutObject` 扩展成额外 multipart 权限。普通 Native 整链与浏览器资格仍须另行通过，通用 MinIO 替换和生产容量资格不变。
+固定 SeaweedFS 镜像已通过 Native 目标的条件 I/O、有界分页及有限权限合同：内建桶的 122 个上传以 `100 + 22` 分页，重启后完整枚举与保存双游标续页一致；连接桶另有一个独立上传。条件读写删除、准确旧版本删除后保留当前版本、短期签名读取、Native 身份的显式 multipart 拒绝、身份持久化和准确移除均通过。当前入口还通过实际媒体缓存绑定探针及其越权拒绝、全部实际卷挂载登记和正常退役；历史未登记卷的归属限制仍单列于运行账本。该结论要求使用这里核验的有限策略，尤其是显式拒绝 `AbortMultipartUpload` 与 `ListMultipartUploadParts`；缺少拒绝时，该构建会把 `PutObject` 扩展成额外 multipart 权限。普通 Native 整链已通过下述独立 profile；浏览器、通用 MinIO 替换和生产容量资格不能由此推断。
 
 ### 普通 Native 整链验收
 

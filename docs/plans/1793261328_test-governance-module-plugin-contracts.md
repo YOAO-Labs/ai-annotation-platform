@@ -1,6 +1,6 @@
 # 面向后端模组解耦与能力插件化的测试治理计划草案
 
-> 状态：阶段 E 的本地集成验收已完成。第 16 节的阶段 F 正在实施：N4 四个切片与 N6-K 已完成各自验收；T1 默认完整资格、T2 精确清理仍未通过，N5／N6 后继及 J1／J2 门保持关闭。局部通过不等于 G2／G3／G6 或全计划完成，也不授权公开发布或生产采用。
+> 状态：阶段 E 的本地集成验收已完成。第 16 节的阶段 F 正在实施：N4 四个切片、N6-K 与 N5-S／N5-W 限定切片已完成各自验收；T1 默认完整资格、T2 组合门仍未通过，N6 后继及 J1／J2 四个批准门保持关闭。局部通过不等于 G2／G3／G6 或全计划完成，也不授权公开发布或生产采用。
 >
 > 创建日期：2026-10-29。源码参考 HEAD：`c2bb66ba2`；该标识不是工作区无未提交改动的声明。实施前按目标切片记录实际源码、契约与制品身份。
 >
@@ -1254,8 +1254,8 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 
 ### 16.7 未关闭问题
 
-- **T1 默认完整门。** 完整门正在候选 `bf1a38543` 上运行，尚无通过结论；18 项安装制品、5,864 项唯一 COPY 输入及索引预检通过。第三轮定向 `t1-repairs-3` 为 77 passed、无失败／错误／跳过，全部数据库、存储与 bootstrap 正常退役，范围内修复已验证。第二轮额外暴露的五项旧推理 mock 消费者错误未依赖变更夹具、也不在默认 T1 内，保留证据、不扩修。`t1-gate-1` 不带 test-file 缩选和 retain 标志，定向通过不能替代其完整 profile 结果。当前 Beta 不要求 schema downgrade，但前向升级、事务原子性、当前 head 的恢复隔离和物理结算仍须通过。失败与后续完整证据见账本 2026-11-13 条目。
-- **规范 Raster 二十一项与 Source Worker。** `candidate-canonical-raster-resume-after14` 为二十项通过、8K 一项失败（`not_eligible` 越过后的 `Fixture image publication changed`）、无跳过，Source Worker 未运行。根因是原生金字塔代际 `ready` 却没有保存的输出（`output_id` 为空）。原生金字塔输出归属（`bo0455`：写入前分配保存输出、逐成员回执、只凭已核验成员发布、未记录输出的旧代际不可用并经重试生成新代际）已集成为 `6304b7969`，模块数据子集 83 项与输出子集 39 项通过；8K 编辑／保存／重载、完整二十一项与 Source Worker 尚未在新现场运行。
+- **T1 默认完整门。** 最近完整尝试 `t1-gate-1 @ bf1a38543` 失败，后十四个 profile 未运行，不能继续记为运行中。前置定向修复与 N5 限定资格已有独立证据；当前 `8a8b61477` 的 18 项制品通过完整 COPY 输入比对与安装回执核验，覆盖 5899 个唯一输入，普通 Native 生命周期也已独立通过，但没有当前默认完整选集的通过结论。当前宿主缺少严格内存项所需的 `memory.peak`，不改主机、不降低指标；其余 profile 与 T2 交错通道仍须按真实结果关闭。当前 Beta 不要求 schema downgrade，前向升级、事务原子性、当前 head 的恢复隔离和物理结算仍必须验证。
+- **规范 Raster 二十一项与 Source Worker。** `candidate-canonical-pyramid-targeted-8a8b61477` 的定向两项已通过：构建产品中的 8K 编辑／保存／重载，以及源码级 1080p Mask Worker 完成／取消／失败输入保留；无重试、跳过或 flaky，自有环境正常退役。该运行在完整 Native 整链通过后启动，不用物理端口测试替代浏览器。历史二十项通过仍保留原输入边界，本次未补跑完整二十一项；8K trace 被后一个项目清理，保留 JSON 结果，不声称完成其人工截图复核。详见运行账本。
 - **Playwright owned teardown 与截图失败／取消邻居保护（已通过）。** 2026-11-12 的真实运行修复了推理 owner 关闭、supervisor 导入路径、私有 supervisor 存储凭据、provider 地址、API／Vite webServer 以 SIGTERM 优雅关闭及截图入口的多项首个阻塞，集成为 `d4f231adf`、`2cce80154`。此前每次普通 `exec --mode e2e -- playwright test` 都因 Playwright 以 SIGKILL 结束 Vite 而以 `descendant_boundary_unproved` 退出 1；现在 exec 边界只接受 0，或独立且已退出的 webServer 进程组的 SIGTERM（-15／143），SIGKILL、其他退出码、supervisor 自身进程组和仍存活的组长都保留为失败。`t2-playwright-teardown-10` 失败与取消两例通过，B 的五个原件版本保持、真实重载通过，exec 退出 0；`t2-screenshot-teardown-8` 通过、exec 退出 0（限制：真实截图输出失败而非生产场景失败处理器，消费者为活动浏览器而非在途原件读取）；`test_scale_cleanup_blocks_live_admission_and_preserves_neighbor` 1 项通过。两份环境均经 owning `destroy` 退役。
 - **held-inference 邻居测试与 `batch_predict` 数据集范围（已通过）。** 此前 A 的真实 `batch_predict` 被物理挂起时，清理无关的 run C 得到 409 `fixture_dataset_job_unsettled`：`guard_fixture_dataset_jobs` 遇到任何范围未知、未退役的 Job 都拒绝清理，而 `fixture_job_dataset_scope` 不识别 `batch_predict`。`bo0456`（集成为 `59675c3f6`）在 fixture 预测 Job 出生时，由出生 payload 的准确 `task_ids` 经 Task、DatasetItem 解析出数据集集合，写入只允许出生触发器插入、不可更新或删除的 `aap_jobs_v1.fixture_prediction_job_datasets`；只有出生记录的 project／actor 与 Job 一致时，范围函数才返回这些数据集。缺少绑定、旧行或不一致时仍为 unknown 并继续阻塞。该 `task_ids` 是请求选择器，执行集合只会更小；全项目作业不带 `task_ids`，保持 unknown。两个守卫函数与退役证明均未改动。module-data 验证器单项 1 通过、exit 0，迁移头 `bo0456`，同时首次证明了新授权；测试模式 `test_fixture_run_ownership.py` 19 项通过。
 - **T2 组合门的最低剩余范围。** 单个 family 的通过只关闭自己：四项入口均已单独通过，T2 仍须由默认完整 T1 的 owned、截图、identity 双运行与 scale profile 覆盖交错通道。任何一项使用静态检查、`--help` 烟测或邻居单方面通过都不构成组合门通过。
@@ -1266,6 +1266,9 @@ F0 冻结合同与独立证据后，T1／T2 与 N4 的四路、N6-K 形成七路
 ### 16.8 已关闭切片
 
 每条只登记该切片自己的结论，末尾的“不证明”从句界定不能外推的范围。完整回执名与失败原文见[运行账本](evidence/1793261328_test-governance-module-plugin-contracts/stage-f-run-ledger.md)。
+
+- **普通 Native 保存输出整链**（`native-lifecycle-isolated-8a8b61477-1`）：真实生产端口、登记、独立读取、A→B 新写/旧读、未知 I/O 与读租约屏障、A/B/D 物理回收、恢复 A 绑定和正常退役全部通过；前置使用实际媒体缓存探针与受限身份，完整分页及重启续页不放宽。不证明编码器进程、浏览器 8K、通用 MinIO 替换、生产容量或默认完整 T1／T2。
+- **定向 8K 与源码 Worker 浏览器**（`candidate-canonical-pyramid-targeted-8a8b61477`）：8192×8192 分块工作台实际笔画、bfcache 保留、保存后 RLE 变化与重载一致，及源码级 1080p Worker 完成／取消／失败输入保留均通过；两个 Chromium 项目各 1 项通过，无重试／跳过，正常退役。不证明完整 Raster 二十一项、严格内存峰值或默认 T1；8K trace 留存限制见运行账本。
 
 - **Mask 字节 owner 路由（A′）**（`10a387cae`）：显式选择 owner 时持久 RLE 只经 owner 逻辑键存取、不回退，未选择时保留 API 保存归属；网关 7／7，视频 writer 六个变体经验证器通过（`mask-owner-video-2`）；不证明 T1 默认选集，也不迁移切换前已有的 Mask。
 - **N4-F 格式与一次性切换**（`24a109c3d`）：七项当前导出、图像／视频／LiDAR 实际导入、Mask 部分恢复、仓外 SDK／CLI／TUI 与最终浏览器均有独立证据；不证明 T1 默认选集、T2 物理回收或旧任务续跑。
