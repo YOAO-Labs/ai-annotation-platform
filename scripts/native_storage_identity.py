@@ -40,7 +40,15 @@ def _native_binding_probe_policy(scope: dict) -> dict:
                     "s3:DeleteObject",
                     "s3:DeleteObjectVersion",
                 ],
-                "Resource": [f"arn:aws:s3:::{scope['bucket']}/.probe-*"],
+                "Resource": [f"arn:aws:s3:::{scope['bucket']}/.probe-media-cache/*"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": ["s3:ListBucket"],
+                "Resource": [f"arn:aws:s3:::{scope['bucket']}"],
+                "Condition": {
+                    "StringLike": {"s3:prefix": [".probe-media-cache/*"]},
+                },
             },
         ],
     }

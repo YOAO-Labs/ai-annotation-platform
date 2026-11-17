@@ -10,6 +10,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import sys
 import time
 import urllib.request
 
@@ -444,14 +445,45 @@ def qualify(owner, lock, candidate, budget, report):
             budget,
         )
         clients.append(probe)
-        probe_params, probe_etag = verify_object(
-            probe,
-            buckets[1],
-            ".probe-" + nonce,
-            b"binding-probe",
-            budget,
-            versioned=True,
+        sys.path.insert(0, str(ROOT / "apps/api"))
+        from app.services.dataset_assets import LEGACY_LOCATION_ID
+        from app.services.managed_s3_target import Target
+        from app.services.media_cache_storage_target import probe_target
+
+        capabilities = probe_target(
+            Target(
+                location_id=LEGACY_LOCATION_ID,
+                config_revision=1,
+                connection_revision=None,
+                endpoint_url=endpoint,
+                bucket=buckets[1],
+                key_prefix="",
+                purpose="media-cache",
+                _legacy_client=probe,
+            )
         )
+        require(
+            capabilities
+            == {
+                "conditional_write": True,
+                "full_read": True,
+                "delete": True,
+                "list": True,
+            },
+            "media_cache_binding_probe",
+        )
+        for prefix in (
+            "",
+            "image-pyramids/objects/",
+            NATIVE_CONNECTION_BASE_PREFIX + "/",
+        ):
+            expect_error(
+                lambda prefix=prefix: probe.list_objects_v2(
+                    Bucket=buckets[1], Prefix=prefix, MaxKeys=2
+                ),
+                403,
+                {"AccessDenied", "403"},
+            )
         for (saved_params, _), _body in receipts:
             for operation in (probe.get_object, probe.delete_object):
                 expect_error(
@@ -471,14 +503,11 @@ def qualify(owner, lock, candidate, budget, report):
                 403,
                 {"AccessDenied", "403"},
             )
-        probe.delete_object(**probe_params, IfMatch=probe_etag)
-        expect_error(
-            lambda: probe.get_object(**probe_params),
-            404,
-            {"NoSuchKey", "NoSuchVersion", "404"},
-        )
         retire_identity(iam, probe_identity)
         report["ordinary_binding_probe_passed"] = True
+        report["ordinary_binding_probe_implementation"] = (
+            "app.services.media_cache_storage_target.probe_target"
+        )
         stage("exact_delete_and_identity_retirement")
         for bucket in buckets:
             read_body(

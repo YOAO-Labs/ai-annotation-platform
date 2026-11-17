@@ -699,7 +699,7 @@ node ID。默认选集不能以定向 `--test-file` 的子集结果代替。
 普通 Native 整链 `tests/test_native_pyramid_lifecycle_live.py` 使用独占 `native-lifecycle`
 profile：先核对有界分页、重启完整性和有限权限，再创建本批数据库。API／Source 的内置目标
 只在独立测试进程中切换；Images 使用独立原件只读身份，配置在 A→B 期间不变，
-Cleanup 保留原临时存储配置，API 仅获 `.probe-*` 绑定探测权限，不修改日常 MinIO。
+Cleanup 保留原临时存储配置，API 仅获 `.probe-media-cache/` 下的对象操作和受限前缀 LIST 权限，不修改日常 MinIO。
 该 profile 的失败环境必须另获该批退休批准；独立提供方的 owner 和退休状态会进入
 `cleanup`。配置隔离、前置报告与证明边界见
 [Native 输出目标资格](docs-site/ops/deploy/storage-candidate-poc.md#普通-native-整链验收)。

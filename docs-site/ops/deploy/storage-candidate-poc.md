@@ -129,7 +129,7 @@ apps/api/.venv/bin/python scripts/verify_native_storage_contract.py \
 
 入口只发布到准确自有 Docker bridge 的私有网关地址，不绑定所有网卡；真实有限签名请求也走该地址。策略指纹、固定镜像和发布方式随报告保留。版本探测用 tmpfs 覆盖镜像声明的数据卷，启动后核对所有本批容器的实际卷挂载均属于准确登记的数据卷，拒绝未登记的匿名卷。
 
-隔离 API 的普通绑定探测身份仅允许目标桶的 `.probe-*` 对象，不具有 Native 输出权限。前置入口以真实身份核对其条件写入、读取、准确删除，以及 Native 对象读删和 multipart 操作拒绝，再准确移除该身份；恢复 A 绑定仍走真实 preview/apply 和存储探测，不以直接改库代替。
+隔离 API 的绑定探测身份仅允许目标桶 `.probe-media-cache/` 下的对象读写删除，以及带该前缀条件的 LIST，不具有 Native 输出权限。前置入口直接执行 `media_cache_storage_target.probe_target`，而非模拟其请求：核对真实条件写入、完整读取、前缀 LIST、准确删除，以及桶根/Native 前缀枚举、Native 对象读删和 multipart 操作拒绝，再准确移除该身份。恢复 A 绑定仍走真实 preview/apply 和同一存储探针，不以直接改库代替。
 
 该入口只证明报告中列出的 Native 目标合同，不证明通用 S3 兼容、生产容量、完整 Native 生命周期或浏览器 8K。SeaweedFS 启动参数显式开放仅由管理身份使用的 IAM 写入，同时要求普通身份的自助密钥管理也必须另获授权；不会向运行进程发放 root。成功后退休该批自有资源；失败则保留准确 owner 与私有证据，另获该批退休批准后再清理，不复用失败环境。
 
