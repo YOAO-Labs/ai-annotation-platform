@@ -176,10 +176,12 @@ the separate builtin Native S3 identity; replace `prod-media-cache` in the
 template with the deployment's media-cache bucket. It grants only the
 saved-output scopes `image-pyramids/objects/*` and
 `_aap_managed/media-cache/image-pyramids/objects/*`, bounded object/version
-listing and bucket-scoped multipart listing. It does not grant bucket administration or
-access to unrelated objects, and it must not be attached to the ordinary Source,
-Images, or cleanup identities. Connection-backed targets continue to use their
-own registered credentials and permissions inside this process.
+listing and bucket-scoped multipart listing. It explicitly denies
+`AbortMultipartUpload` and `ListMultipartUploadParts`, including on peers that
+expand `PutObject` into additional multipart actions. It does not grant bucket
+administration or access to unrelated objects, and it must not be attached to
+the ordinary Source, Images, or cleanup identities. Dedicated Native
+connection credentials need the same explicit denials; they remain inside Source.
 
 The finite signer routes are consumed by three independent runtimes with one
 distinct role token each: the image worker and API-local executor use

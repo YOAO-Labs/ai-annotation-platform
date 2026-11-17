@@ -2,6 +2,12 @@
   "Version": "2012-10-17",
   "Statement": [
     {
+      "Sid": "DenyNativeMultipartMutationAndPartInspection",
+      "Effect": "Deny",
+      "Action": ["s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+      "Resource": ["*"]
+    },
+    {
       "Sid": "NativeSavedOutputObjects",
       "Effect": "Allow",
       "Action": [

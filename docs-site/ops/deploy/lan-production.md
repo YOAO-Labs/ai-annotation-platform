@@ -98,6 +98,8 @@ GRANT CONNECT ON DATABASE annotation_production TO anno_prod_app;
 
 若另行部署 Native 金字塔保存输出（Source 有限签名、独立图片 Worker 与 Assets Cleanup），为内建目标再创建一个独立 MinIO 账号并附加 `infra/docker/native-source-minio-policy.json`。它只访问 `prod-media-cache/image-pyramids/objects/*` 的精确保存输出、受限对象/版本列举及桶级 multipart 列举；不要把该策略附加到普通应用或清理账号，也不要把 Native 对象读取/删除授给普通清理身份。调用方只接收按角色限定的 URL 与 token，部署组合见[图片金字塔运行手册](../runbooks/image-pyramid.md#native-签名与保存输出配置)。Cleanup 当前强制要求 Native URL/token，因此运行清理 worker 也要求 Source Native signer 已启用。
 
+上述身份模板不等于后端资格。当前仓库固定的 MinIO 不满足 Native 清理要求的有界 multipart 分页与重启后完整枚举，不能作为 Native 回收合格后端；启用前须完成[Native 目标资格](storage-candidate-poc.md#native-输出目标的单独资格)及完整生命周期验收。Native 专用身份须保留显式 multipart abort/分片读取拒绝，不能仅依赖没有写入 Allow；详见[运行手册](../runbooks/image-pyramid.md#动态保存目标与-native-清理)。
+
 API 启动设置媒体缓存的 `videos/` 前缀 30 天、导入和导出桶 7 天的生命周期，并移除应用拥有的评论附件90天规则及反馈桶旧的整桶过期规则。评论附件90天与软删7天宽限、反馈附件180天期限由独立归属和清理流程执行；独立检查旧规则实际已移除，运维自设规则不得绕过未收尾读取保护。数据集、审计归档、训练、输入与头像桶没有自动过期（头像不可重生，过期会造成破图）；审计归档永久保留，不能用整桶过期绕过应用责任。必须确认这些配置全部指向新桶。
 
 ## 构建、迁移和启动

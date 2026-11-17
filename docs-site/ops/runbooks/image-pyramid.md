@@ -12,12 +12,12 @@ last_reviewed: 2026-11-16
 
 ## 运行边界与授权
 
-| 身份                                        | 数据库能力                                                   | 对象存储范围                                                                                                          |
-| ------------------------------------------- | ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| API/共享控制端 `asset_media_control_client` | 当前共享控制能力集（视频、图片、输入、清单与跟踪），仅函数执行权 | HEAD/GET 注册源图和缓存、签发读取 URL；Native 读取只执行 Source 签发的有限请求；不写源、不清理                        |
-| 图片 Worker `asset_image_worker_client`     | 图片执行 16 项、输入 6 项函数                                | 只读已登记原件（TaskOriginal／DatasetItem 源）；只在派生前缀读写；Native 写入/校验只执行 Source 签发的请求；不写源、不删源 |
-| 清理端 `asset_cleanup_client`               | 11 项清理函数（五条 lane：outbox、图片垃圾、Native 保存输出回收、两类输入墓碑） | 对缓存桶派生前缀列举、删除；Native lane 只执行 Source 签发的保存成员/前缀请求，不持有 Native 对象凭据；不读写源对象     |
-| Source `asset_source_client`（Native 签名子集） | 3 项 Native 捕获能力                                     | 只为精确保存成员/前缀签发有限 S3 请求；内建目标使用独立 Native 身份；不执行 PUT/GET/DELETE/列举 I/O                     |
+| 身份                                            | 数据库能力                                                                      | 对象存储范围                                                                                                               |
+| ----------------------------------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| API/共享控制端 `asset_media_control_client`     | 当前共享控制能力集（视频、图片、输入、清单与跟踪），仅函数执行权                | HEAD/GET 注册源图和缓存、签发读取 URL；Native 读取只执行 Source 签发的有限请求；不写源、不清理                             |
+| 图片 Worker `asset_image_worker_client`         | 图片执行 16 项、输入 6 项函数                                                   | 只读已登记原件（TaskOriginal／DatasetItem 源）；只在派生前缀读写；Native 写入/校验只执行 Source 签发的请求；不写源、不删源 |
+| 清理端 `asset_cleanup_client`                   | 11 项清理函数（五条 lane：outbox、图片垃圾、Native 保存输出回收、两类输入墓碑） | 对缓存桶派生前缀列举、删除；Native lane 只执行 Source 签发的保存成员/前缀请求，不持有 Native 对象凭据；不读写源对象        |
+| Source `asset_source_client`（Native 签名子集） | 3 项 Native 捕获能力                                                            | 只为精确保存成员/前缀签发有限 S3 请求；内建目标使用独立 Native 身份；不执行 PUT/GET/DELETE/列举 I/O                        |
 
 这些 LOGIN 不直接访问应用表或其他 owner schema，也不继承迁移/owner 角色。Task 可见性由控制端与 Labeling owner 能力确认。已受理作业捕获来源身份与策略，发起者后来被禁用不会撤销执行权；来源变化和明确取消仍会阻止迟到发布。
 
@@ -32,7 +32,7 @@ S3 权限应限定为：
 - 控制端对已登记源图和缓存对象 HEAD/GET，并签发短期读取 URL；不写缓存或删除对象。
 - 图片 Worker 对源桶只读；对 `image-assets/*`、`image-pyramids/*` 派生前缀读写和校验，并在 `image-pyramids/*` 受限列举以做协调；不写/删源对象。
 - 清理身份只对缓存桶中由数据库签发的图片派生 prefix 做 List/Delete；不授予 Get/Put、源桶访问或桶管理。Native lane 不获得 Native 对象读取/删除权限，只执行 Source 签发的精确保存成员与空前缀请求。
-- Native 内建身份（在 Source 内）只对缓存桶 `image-pyramids/objects/*` 与 `_aap_managed/media-cache/image-pyramids/objects/*` 保存输出执行精确 GetObject/GetObjectVersion、PutObject、DeleteObject/DeleteObjectVersion、受限 ListBucket/ListBucketVersions 和桶级 ListBucketMultipartUploads；不授予桶管理或其他对象权限。模板见 `infra/docker/native-source-minio-policy.json`，其中的桶名须替换为实际 media-cache 桶。普通清理身份还须明确拒绝这两类 Native 输出的删除，避免既有 `image-pyramids/*` 授权覆盖它们。
+- Native 内建身份（在 Source 内）只对缓存桶 `image-pyramids/objects/*` 与 `_aap_managed/media-cache/image-pyramids/objects/*` 保存输出执行精确 GetObject/GetObjectVersion、PutObject、DeleteObject/DeleteObjectVersion、受限 ListBucket/ListBucketVersions 和桶级 ListBucketMultipartUploads；不授予桶管理或其他对象权限，并显式拒绝 AbortMultipartUpload 与 ListMultipartUploadParts，防止兼容后端把 PutObject 扩展为额外权限。模板见 `infra/docker/native-source-minio-policy.json`，其中的桶名须替换为实际 media-cache 桶；Native 用途的专用连接身份也须保留这两项拒绝。普通清理身份还须明确拒绝这两类 Native 输出的删除，避免既有 `image-pyramids/*` 授权覆盖它们。
 - 已受理输入另用 `ASSETS_MEDIA_INPUTS_BUCKET` 指向独立 versioning 桶（默认 `accepted-inputs`）；控制端与 Worker 仅读 versioning 状态，Worker 只在该桶写入不可变输入版本，输入清理身份只列举输入版本/未完成 multipart 并删除指定版本。清理权限包括 `ListBucketVersions`、`ListBucketMultipartUploads`、`AbortMultipartUpload`、`DeleteObjectVersion`，以及仅在请求包含非空且非 `null` 的 `s3:versionid` 时允许的 `DeleteObject`；清理端逐个删除 `(key, versionId)`，不发无版本 ID 的删除或 S3 批量删除。不得授予任何身份配置 versioning、创建桶或管理整个桶的权限。
 
 输入桶需通过 `MINIO_INPUTS_BUCKET` 与 `ASSETS_MEDIA_INPUTS_BUCKET` 配置，并且必须启用 versioning；不要给它或 `media-cache` 添加桶级生命周期。Compose overlay 默认让独立控制与图片 Worker 继承 API bucket 名称。清理 worker 依照输入保留账本逐版本回收，不能按 age 或生命周期直接删除对象版本。
@@ -45,11 +45,11 @@ Native 金字塔以 Source 为唯一保存目标凭据 owner 和有限签名方�
 
 Source 的五项设置必须同时配置，否则拒绝启动；三项 token 互不相同，并区别于 `ASSETS_SOURCE_TOKEN`、`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`；Native access key 必须区别于普通 Source 身份。全部留空时功能关闭，Native 路由返回 `source_unavailable`，调用方不会回退其他签名方或当前缓存桶。
 
-| 调用方                      | 设置                                                                 | 运行用户       |
-| --------------------------- | -------------------------------------------------------------------- | -------------- |
-| 图片 Worker / API 本地执行器 | `ASSETS_IMAGES_NATIVE_STORAGE_URL`、`ASSETS_IMAGES_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE` | 10005 / API 进程 |
-| 共享控制端 / API 本地控制   | `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL`、`ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` 或 `_TOKEN_FILE` | 10005 / API 进程 |
-| Assets Cleanup              | `ASSET_CLEANUP_NATIVE_STORAGE_URL`、`ASSET_CLEANUP_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`（两项必填） | 10001 |
+| 调用方                       | 设置                                                                                                  | 运行用户         |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------- | ---------------- |
+| 图片 Worker / API 本地执行器 | `ASSETS_IMAGES_NATIVE_STORAGE_URL`、`ASSETS_IMAGES_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`             | 10005 / API 进程 |
+| 共享控制端 / API 本地控制    | `ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_URL`、`ASSETS_MEDIA_NATIVE_IMAGE_STORAGE_TOKEN` 或 `_TOKEN_FILE`   | 10005 / API 进程 |
+| Assets Cleanup               | `ASSET_CLEANUP_NATIVE_STORAGE_URL`、`ASSET_CLEANUP_NATIVE_STORAGE_TOKEN` 或 `_TOKEN_FILE`（两项必填） | 10001            |
 
 各调用方的 token 值与 Source 对应角色 token 相同，但必须放在各自用户可读的独立文件中，不要用放宽权限的方式共用 Source 的 token 文件。`docker-compose.assets-native.yml` 将五类签名 secret 挂入 Source，并把 writer、reader 两项分别挂入图片 Worker/API 本地执行器和共享控制；`docker-compose.assets-cleanup.yml` 自带其必需的 cleanup token secret。必须与 Source、media、cleanup 三个 overlay 一起使用。默认文件名为：
 
@@ -137,7 +137,8 @@ Cleanup 现在有五条独立 lane 和 11 项精确 owner 函数：既有 outbox
 - 只领取已到期的保存输出，按不可变成员页处理；先由 Source 为该页签发精确的 conditional HEAD/GET/DELETE，再执行完整 GET 校验 size、SHA-256、ETag 与记录版本，随后精确删除该对象/版本，并再次条件 HEAD 证明不存在。
 - 只有具备完整保存回执的 `written` 或 `verified` 成员可退休；已写入但未验证的成员必须先完成自身生产 I/O 的关闭并移除操作许可，未知 I/O 保留 durable barrier。`submitted`/`unknown` 成员永不领取，也不能由缺失回执推断成功。
 - 原始版本字面量 `null` 与缺失版本保持不同；不得用猜测版本替代保存版本。任何外来 key、版本、delete marker 或 multipart upload 都不会被删除。
-- 成员页清空后，对保存前缀做有界对象和版本列举；发现条目或截断页便拒绝完成。MinIO 的 multipart 列举存在前缀过滤限制，因此采用桶级分页并同时携带 key/upload 游标，完整核对保存前缀内的上传；发现属于该前缀的上传或无法完整证明分页结束时拒绝完成。外来上传既不删除，也不单独阻止本输出退休，不能把一次前缀过滤请求当作所有 provider 的充分证明。
+- 成员页清空后，对保存前缀做有界对象和版本列举；发现条目或截断页便拒绝完成。Multipart 使用桶级分页并同时携带 key/upload 游标，完整核对保存前缀内的上传；发现属于该前缀的上传或无法完整证明分页结束时拒绝完成。外来上传既不删除，也不单独阻止本输出退休，不能把一次前缀过滤请求当作所有 provider 的充分证明。
+- Native 清理要求存储后端遵守分页上限、完整游标与重启后的完整枚举合同。当前仓库固定的 MinIO 构建不满足此资格：实测 `MaxUploads=100` 返回 121 项且 `IsTruncated=false`，其内存缓存列表在重启后也不能证明磁盘上传不存在。桶级分页不能补足这两项缺陷；该构建不得被声明为 Native 清理合格后端。详见[存储迁移库存的 multipart 限制](../deploy/storage-migration-inventory.md)。候选后端还必须单独通过条件读写删除、版本与受限身份验证，不能仅凭替换验收后端推断生产支持。
 - 页面准备未知、确认丢失、取消排水失败或未知 I/O 都保留责任；租约到期、进程丢失或超时本身不证明物理关闭。
 - 公开 URL 按冻结的保留期等待后再退休；已签发的短期 URL 不会因切换当前绑定而延长或重定向。
 

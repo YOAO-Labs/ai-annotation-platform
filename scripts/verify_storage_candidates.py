@@ -1550,29 +1550,17 @@ def performance_case(recorder, owner, container, client, bucket, media, budget):
         )
 
 
-def candidate_run(owner, lock, candidate):
-    import boto3
-
-    recorder = Recorder()
-    budget = Budget()
-    started = dt.datetime.now(dt.timezone.utc).isoformat()
-    result = {
-        "candidate": candidate,
-        "started_at": started,
-        "cases": recorder.cases,
-        "execution_completed": False,
-        "limits": {
-            "cpus": 4,
-            "memory_bytes": 8 * 1024**3,
-            "seconds": 900,
-            "sdk_attempts": 1,
-            "connect_seconds": 3,
-            "read_seconds": 15,
-        },
-    }
-    server = None
+def start_candidate(
+    owner, lock, candidate, budget, evidence, *, native_identity_management=False
+):
+    """Start only the locked provider in newly owned isolated resources."""
+    result = evidence
     stage = "image_inspection"
     try:
+        require(
+            not native_identity_management or candidate["name"] == "seaweedfs",
+            "native_identity_provider",
+        )
         owner.private.mkdir(mode=0o700, exist_ok=True)
         image = json.loads(command(["docker", "image", "inspect", candidate["image"]]))[
             0
@@ -1680,12 +1668,51 @@ def candidate_run(owner, lock, candidate):
         args, cmd = candidate_args(
             candidate["name"], owner.private, env_file, volume, network
         )
+        if native_identity_management:
+            cmd += [
+                "-s3.iam.readOnly=false",
+                "-s3.iam.selfServiceRequiresGrant=true",
+                "-s3.autoCreateBucket=false",
+            ]
         container = owner.container(candidate["image"], args=args, cmd=cmd)
         owner.start(container)
         endpoint = "http://127.0.0.1:" + str(host_port(owner, container, 9000))
         client = client_for(endpoint, credentials, budget)
         stage = "candidate_readiness"
         ready(client, budget)
+        return container, client, network, volume, env_file, credentials
+    except Exception:
+        result["runner_stage"] = stage
+        raise
+
+
+def candidate_run(owner, lock, candidate):
+    import boto3
+
+    recorder = Recorder()
+    budget = Budget()
+    started = dt.datetime.now(dt.timezone.utc).isoformat()
+    result = {
+        "candidate": candidate,
+        "started_at": started,
+        "cases": recorder.cases,
+        "execution_completed": False,
+        "limits": {
+            "cpus": 4,
+            "memory_bytes": 8 * 1024**3,
+            "seconds": 900,
+            "sdk_attempts": 1,
+            "connect_seconds": 3,
+            "read_seconds": 15,
+        },
+    }
+    server = None
+    stage = "image_inspection"
+    try:
+        container, client, network, volume, env_file, credentials = start_candidate(
+            owner, lock, candidate, budget, result
+        )
+        endpoint = client.meta.endpoint_url
         buckets = ["poc-" + owner.data["nonce"][:12] + "-" + str(i) for i in range(9)]
         stage = "actual_application_storage"
         service, settings = app_storage(endpoint, credentials, buckets, budget)
@@ -1736,7 +1763,7 @@ def candidate_run(owner, lock, candidate):
         result["sdk"] = {"boto3": boto3.__version__}
     except Exception as exc:
         result["setup_or_runner_error"] = safe_error(exc)
-        result["runner_stage"] = stage
+        result.setdefault("runner_stage", stage)
         for case in recorder.cases.values():
             if case["stage"] == "pending":
                 case["stage"] = "dependency_setup_failed"

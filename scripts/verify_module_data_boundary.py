@@ -4440,12 +4440,8 @@ def _destroy_cleanup_storage_scope(scope: dict) -> None:
 # admin credentials provision it; no runtime receives the raw pair except the
 # Source signer process.
 NATIVE_CONNECTION_BASE_PREFIX = "aap-native-b"
-NATIVE_SOURCE_WRITER_TOKEN_SETTING = (
-    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_WRITER_TOKEN"
-)
-NATIVE_SOURCE_READER_TOKEN_SETTING = (
-    "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_READER_TOKEN"
-)
+NATIVE_SOURCE_WRITER_TOKEN_SETTING = "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_WRITER_TOKEN"
+NATIVE_SOURCE_READER_TOKEN_SETTING = "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_READER_TOKEN"
 NATIVE_SOURCE_CLEANUP_TOKEN_SETTING = (
     "AAP_MODULE_DATA_ASSET_SOURCE_NATIVE_CLEANUP_TOKEN"
 )
@@ -4485,6 +4481,14 @@ def _native_source_storage_policy(scope: dict) -> dict:
         "Version": "2012-10-17",
         "Statement": [
             {
+                "Effect": "Deny",
+                "Action": [
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts",
+                ],
+                "Resource": ["*"],
+            },
+            {
                 "Effect": "Allow",
                 "Action": [
                     "s3:PutObject",
@@ -4502,9 +4506,9 @@ def _native_source_storage_policy(scope: dict) -> dict:
                 "Condition": {"StringLike": {"s3:prefix": native_prefixes}},
             },
             {
-                # Cleanup must inspect every bounded metadata page because the
-                # supported peer may ignore Prefix for multipart listings.
-                # No abort capability is issued.
+                # Metadata-only permission requires complete bounded pages.
+                # Explicit denials above prevent a peer from expanding
+                # PutObject into abort or part-inspection authority.
                 "Effect": "Allow",
                 "Action": ["s3:ListBucketMultipartUploads"],
                 "Resource": [bucket_arn],
@@ -4519,6 +4523,14 @@ def _native_connection_storage_policy(scope: dict) -> dict:
     return {
         "Version": "2012-10-17",
         "Statement": [
+            {
+                "Effect": "Deny",
+                "Action": [
+                    "s3:AbortMultipartUpload",
+                    "s3:ListMultipartUploadParts",
+                ],
+                "Resource": ["*"],
+            },
             {
                 "Effect": "Allow",
                 "Action": [
@@ -4581,9 +4593,7 @@ def _native_delete_versions(backend, bucket: str, key: str) -> None:
     for entry in versions.get("Versions", []) + versions.get("DeleteMarkers", []):
         if entry.get("Key") != key:
             continue
-        backend.s3.delete_object(
-            Bucket=bucket, Key=key, VersionId=entry["VersionId"]
-        )
+        backend.s3.delete_object(Bucket=bucket, Key=key, VersionId=entry["VersionId"])
 
 
 def _verify_native_storage_scopes(
@@ -4682,9 +4692,7 @@ def _verify_native_storage_scopes(
         )
         uploads.append((upload["Bucket"], upload["Key"], upload["UploadId"]))
         pages = client.list_multipart_uploads(Bucket=cache_bucket, MaxUploads=100)
-        observed = {
-            item.get("UploadId") for item in pages.get("Uploads", []) or []
-        }
+        observed = {item.get("UploadId") for item in pages.get("Uploads", []) or []}
         if upload["UploadId"] not in observed:
             raise RuntimeError("Native identity cannot prove bounded upload absence")
         _expect_s3_denied(
@@ -4697,9 +4705,7 @@ def _verify_native_storage_scopes(
         )
         # The ordinary four-lane cleanup identity keeps its legitimate rights
         # but never gains either Native root.
-        managed_key = (
-            f"_aap_managed/media-cache/image-pyramids/objects/{uuid4()}/owned"
-        )
+        managed_key = f"_aap_managed/media-cache/image-pyramids/objects/{uuid4()}/owned"
         legacy_native_key = f"image-pyramids/objects/{uuid4()}/owned"
         for key in (managed_key, legacy_native_key):
             managed_receipt = client.put_object(
@@ -4707,10 +4713,9 @@ def _verify_native_storage_scopes(
             )
             created.append((cache_bucket, key))
             managed_head = client.head_object(Bucket=cache_bucket, Key=key)
-            if (
-                managed_head.get("ETag") != managed_receipt.get("ETag")
-                or managed_head.get("VersionId") != managed_receipt.get("VersionId")
-            ):
+            if managed_head.get("ETag") != managed_receipt.get(
+                "ETag"
+            ) or managed_head.get("VersionId") != managed_receipt.get("VersionId"):
                 raise RuntimeError("Native root receipt differs from the saved object")
             _expect_s3_denied(
                 "Ordinary cleanup Native-root delete",
@@ -4721,9 +4726,10 @@ def _verify_native_storage_scopes(
             if managed_receipt.get("VersionId") is not None:
                 _expect_s3_denied(
                     "Ordinary cleanup Native-root version delete",
-                    lambda key=key, version=managed_receipt["VersionId"]:
-                    cleanup_client.delete_object(
-                        Bucket=cache_bucket, Key=key, VersionId=version
+                    lambda key=key, version=managed_receipt["VersionId"]: (
+                        cleanup_client.delete_object(
+                            Bucket=cache_bucket, Key=key, VersionId=version
+                        )
                     ),
                 )
         # A registered connection identity is bounded to its own managed
@@ -4744,7 +4750,9 @@ def _verify_native_storage_scopes(
         )["Body"]
         try:
             if stream.read() != b"connection-probe":
-                raise RuntimeError("Registered connection identity cannot read its scope")
+                raise RuntimeError(
+                    "Registered connection identity cannot read its scope"
+                )
         finally:
             stream.close()
         exclude = {
@@ -4759,9 +4767,7 @@ def _verify_native_storage_scopes(
         connection_client.delete_object(**exclude)
         _expect_s3_denied(
             "Registered connection identity builtin Native read",
-            lambda: connection_client.get_object(
-                Bucket=cache_bucket, Key=native_key
-            ),
+            lambda: connection_client.get_object(Bucket=cache_bucket, Key=native_key),
         )
         _expect_s3_denied(
             "Registered connection identity foreign key write",
@@ -4775,12 +4781,13 @@ def _verify_native_storage_scopes(
         try:
             client.head_object(**params)
         except ClientError as exc:
-            if (
-                exc.response["ResponseMetadata"]["HTTPStatusCode"] != 404
-                or exc.response["Error"]["Code"] not in {
-                    "404", "NoSuchKey", "NoSuchVersion"
-                }
-            ):
+            if exc.response["ResponseMetadata"][
+                "HTTPStatusCode"
+            ] != 404 or exc.response["Error"]["Code"] not in {
+                "404",
+                "NoSuchKey",
+                "NoSuchVersion",
+            }:
                 raise
         else:
             raise RuntimeError("Native identity did not delete its exact saved object")
@@ -12320,8 +12327,7 @@ SELECT pg_catalog.jsonb_build_object(
             native_source_storage["access_key"]
             == native_connection_storage["access_key"]
             or native_source_storage["access_key"] == source_storage["access_key"]
-            or native_connection_storage["access_key"]
-            == source_storage["access_key"]
+            or native_connection_storage["access_key"] == source_storage["access_key"]
         ):
             raise RuntimeError("Native S3 identities are not distinct")
         phase = "verify-native-storage-scopes"

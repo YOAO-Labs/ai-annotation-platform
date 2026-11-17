@@ -114,3 +114,19 @@ PYTHONDONTWRITEBYTECODE=1 apps/api/.venv/bin/python \
 | GET／4     | 8.56／14.931  | 8.389／17.865  |
 
 SeaweedFS 的 31 个主进程样本覆盖 0.183 秒，RSS 采样峰值 294,170,624 字节，CPU 增量 0.16 秒；RustFS 的 127 个样本覆盖 0.694 秒，峰值 232,919,040 字节，CPU 增量 0.24 秒。宿主机同时有冻结 C6 测量及其他工作，文档构建也与部分执行重叠；这些短窗口不支持生产容量、稳定峰值或性能优劣结论。
+
+## Native 输出目标的单独资格
+
+既有候选 PoC 不证明 Native 回收所需的有界 `ListMultipartUploads`、重启后完整枚举、条件删除或受限 IAM。新增的前置入口复用锁定 SeaweedFS 镜像与准确 owner 资源协议，只核对 Native 保存输出目标，不替换日常 MinIO、原始数据或既有清理目标：
+
+```bash
+apps/api/.venv/bin/python scripts/verify_native_storage_contract.py \
+  --manifest /tmp/native-storage-owner.json \
+  --report /tmp/native-storage-contract.json
+```
+
+入口核对真实条件生产、HEAD/GET/DELETE、无请求头短期签名读取、原始 ETag/版本回执、准确版本删除与外来对象保护；用 122 个上传跨越 100 项页边界，其中同 key 的多个上传跨页。重启准确自有容器后，必须完整枚举相同上传、从保存的双游标续页，并保留已上传分片、桶标签、版本状态和受限身份。身份使用实际 Native 策略，核对策略回读、无额外组/策略/密钥、越界访问与 IAM 管理拒绝、禁用生效及准确移除。
+
+该入口只证明报告中列出的 Native 目标合同，不证明通用 S3 兼容、生产容量、完整 Native 生命周期或浏览器 8K。SeaweedFS 启动参数显式开放仅由管理身份使用的 IAM 写入，同时要求普通身份的自助密钥管理也必须另获授权；不会向运行进程发放 root。成功后退休该批自有资源；失败则保留准确 owner 与私有证据，另获该批退休批准后再清理，不复用失败环境。
+
+固定 SeaweedFS 镜像已通过上述 Native 目标合同：内建桶的 122 个上传以 `100 + 22` 分页，重启后完整枚举与保存双游标续页一致；连接桶另有一个独立上传。条件读写删除、准确旧版本删除后保留当前版本、短期签名读取、两种身份的显式 multipart 拒绝、身份重启保留和准确移除均通过，成功批次的自有资源已退休。该结论要求使用这里核验的有限策略，尤其是显式拒绝 `AbortMultipartUpload` 与 `ListMultipartUploadParts`；缺少拒绝时，该构建会把 `PutObject` 扩展成额外 multipart 权限。普通 Native 整链与浏览器资格仍须另行通过，通用 MinIO 替换和生产容量资格不变。
