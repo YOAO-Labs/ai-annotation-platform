@@ -676,7 +676,8 @@ CREATE TABLE aap_assets_v1.native_pyramid_read_permits (
     opened_at timestamptz,
     closed_at timestamptz,
     CHECK ((state = 'open') = (closed_at IS NULL)),
-    CHECK ((state = 'open') = (opened_at IS NOT NULL)),
+    -- Admission history survives closure; a pre-admission tombstone has neither.
+    CHECK ((opened_at IS NOT NULL) = (output_id IS NOT NULL)),
     CHECK (
         state = 'closed'
         OR (

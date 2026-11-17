@@ -626,7 +626,10 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 )
             ).all()
         assert permits and all(row.state == "closed" for row in permits)
-        assert all(row.closed_at is not None for row in permits)
+        assert all(
+            row.opened_at is not None and row.closed_at >= row.opened_at
+            for row in permits
+        )
 
         # A settled read permit never reopens or accepts a different token.
         permit_operation, permit_token = uuid4(), uuid4()

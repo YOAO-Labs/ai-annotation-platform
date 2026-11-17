@@ -23,7 +23,7 @@ last_reviewed: 2026-11-16
 
 ## 部署与权限
 
-先将数据库迁移到包含图片能力的当前 head（迁移 `0220`），按既有 module-data 流程安装 owner 辅助授权，再应用共享媒体授权 `infra/docker/assets-media-grants.sql` 和图片 Worker 授权 `infra/docker/assets-image-grants.sql`。创建独立 NOLOGIN Assets owner、control/worker LOGIN；迁移身份单独使用。cleanup 的 11 项能力（五条 lane）沿用 module-data 授权流程；Native 保存输出 lane 不增加直接对象权限。
+先将数据库迁移到当前 head，按既有 module-data 流程安装 owner 辅助授权，再应用共享媒体授权 `infra/docker/assets-media-grants.sql` 和图片 Worker 授权 `infra/docker/assets-image-grants.sql`。Native 私有表归属及保存输出的必要列权限由 `infra/docker/module-data-grants.sql` 安装给 NOLOGIN Assets owner；control/worker/cleanup LOGIN 仍只有有限函数能力，迁移身份单独使用。cleanup 的 11 项能力（五条 lane）沿用 module-data 授权流程；Native 保存输出 lane 不增加直接对象权限。
 
 `docker-compose.assets-media.yml` 不属于默认 Compose。按部署环境准备独立 DSN、token 与 S3 secret 文件，确认容器 UID 10005 可读；API 通过 `ASSETS_MEDIA_URL` 和对应 token 接入控制端。独立 Worker 使用 `ASSETS_IMAGES_DATABASE_URL_FILE`、`ASSETS_IMAGES_S3_ACCESS_KEY_FILE`、`ASSETS_IMAGES_S3_SECRET_KEY_FILE`。控制、Worker、清理身份不可共用高权限凭据。
 
@@ -41,7 +41,7 @@ S3 权限应限定为：
 
 ### Native 签名与保存输出配置
 
-Native 金字塔以 Source 为唯一存储凭据 owner 和有限签名方。内建目标使用独立 Native S3 身份；已注册连接目标只由 Source 使用其既有加密凭据、连接密钥与主机策略。Images 控制/执行器、API 本地实现和 Cleanup 只配置按角色限定的 URL 与 token，不持有原始存储凭据；实际目标坐标来自 owner 保存合同，不能由调用方任意选择。
+Native 金字塔以 Source 为唯一保存目标凭据 owner 和有限签名方。内建目标使用独立 Native S3 身份；已注册连接目标只由 Source 使用其既有加密凭据、连接密钥与主机策略。Images 控制/执行器、API 本地实现和 Cleanup 的 Native 路径只配置按角色限定的 URL 与 token，不取得保存目标的原始凭据；普通原件读取仍沿用各自受限身份。实际目标坐标来自 owner 保存合同，不能由调用方任意选择。
 
 Source 的五项设置必须同时配置，否则拒绝启动；三项 token 互不相同，并区别于 `ASSETS_SOURCE_TOKEN`、`ASSETS_SOURCE_IMPORT_VERIFY_TOKEN`；Native access key 必须区别于普通 Source 身份。全部留空时功能关闭，Native 路由返回 `source_unavailable`，调用方不会回退其他签名方或当前缓存桶。
 
@@ -137,7 +137,7 @@ Cleanup 现在有五条独立 lane 和 11 项精确 owner 函数：既有 outbox
 - 只领取已到期的保存输出，按不可变成员页处理；先由 Source 为该页签发精确的 conditional HEAD/GET/DELETE，再执行完整 GET 校验 size、SHA-256、ETag 与记录版本，随后精确删除该对象/版本，并再次条件 HEAD 证明不存在。
 - 只有具备完整保存回执的 `written` 或 `verified` 成员可退休；已写入但未验证的成员必须先完成自身生产 I/O 的关闭并移除操作许可，未知 I/O 保留 durable barrier。`submitted`/`unknown` 成员永不领取，也不能由缺失回执推断成功。
 - 原始版本字面量 `null` 与缺失版本保持不同；不得用猜测版本替代保存版本。任何外来 key、版本、delete marker 或 multipart upload 都不会被删除。
-- 成员页清空后再做有界对象、版本与 multipart 列举证明。MinIO 的 multipart 列举存在前缀过滤限制，因此这里是有界的精确归属证明；任何条目或截断页都拒绝完成，不能把一次前缀过滤请求当作所有 provider 的充分证明。
+- 成员页清空后，对保存前缀做有界对象和版本列举；发现条目或截断页便拒绝完成。MinIO 的 multipart 列举存在前缀过滤限制，因此采用桶级分页并同时携带 key/upload 游标，完整核对保存前缀内的上传；发现属于该前缀的上传或无法完整证明分页结束时拒绝完成。外来上传既不删除，也不单独阻止本输出退休，不能把一次前缀过滤请求当作所有 provider 的充分证明。
 - 页面准备未知、确认丢失、取消排水失败或未知 I/O 都保留责任；租约到期、进程丢失或超时本身不证明物理关闭。
 - 公开 URL 按冻结的保留期等待后再退休；已签发的短期 URL 不会因切换当前绑定而延长或重定向。
 
