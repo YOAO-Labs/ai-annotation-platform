@@ -12643,6 +12643,7 @@ SELECT pg_catalog.jsonb_build_object(
                 native_provider_scopes,
                 f"{'https' if settings.minio_use_ssl else 'http'}://"
                 f"{settings.minio_endpoint}",
+                legacy_admin_access_key=settings.minio_access_key,
             )
             native_process_environment_path = (
                 native_provider_owner.private / "native-process-env.json"

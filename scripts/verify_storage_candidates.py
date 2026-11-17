@@ -1615,6 +1615,7 @@ def start_candidate(
     """Start only the locked provider in newly owned isolated resources."""
     result = evidence
     stage = "image_inspection"
+    resource_offset = len(owner.data["resources"])
     try:
         require(
             not native_identity_management or candidate["name"] == "seaweedfs",
@@ -1637,7 +1638,14 @@ def start_candidate(
         binary = "/usr/bin/weed" if candidate["name"] == "seaweedfs" else "rustfs"
         version = owner.helper(
             candidate["image"],
-            args=["--network", "none", "--entrypoint", "/bin/sh"],
+            args=[
+                "--network",
+                "none",
+                "--entrypoint",
+                "/bin/sh",
+                "--tmpfs",
+                "/data:rw,nosuid,nodev",
+            ],
             cmd=[
                 "-c",
                 f"id -u; id -g; {binary} {'version' if candidate['name'] == 'seaweedfs' else '--version'}",
@@ -1763,6 +1771,16 @@ def start_candidate(
             client = client_for(endpoint, credentials, budget)
         stage = "candidate_readiness"
         ready(client, budget)
+        # Image-declared volumes must not escape the explicit retirement manifest.
+        mounted_volumes = {
+            mount["Name"]
+            for item in owner.data["resources"][resource_offset:]
+            if item["kind"] == "container"
+            for mount in owner.verified(item).get("Mounts", [])
+            if mount["Type"] == "volume"
+        }
+        require(mounted_volumes == {volume["id"]}, "unregistered_candidate_volume")
+        result["mounted_volume_ids"] = sorted(mounted_volumes)
         return container, client, network, volume, env_file, credentials
     except Exception:
         result["runner_stage"] = stage

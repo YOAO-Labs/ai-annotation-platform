@@ -16,8 +16,34 @@ def policy_fingerprint():
     policies = [
         _native_source_storage_policy({"bucket": "native-contract-a"}),
         _native_connection_storage_policy({"bucket": "native-contract-b"}),
+        _native_binding_probe_policy({"bucket": "native-contract-a"}),
     ]
     return sha256(json.dumps(policies, sort_keys=True, separators=(",", ":")).encode())
+
+
+def _native_binding_probe_policy(scope: dict) -> dict:
+    """Permit ordinary binding probes without granting Native object authority."""
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Deny",
+                "Action": ["s3:AbortMultipartUpload", "s3:ListMultipartUploadParts"],
+                "Resource": ["*"],
+            },
+            {
+                "Effect": "Allow",
+                "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:GetObjectVersion",
+                    "s3:DeleteObject",
+                    "s3:DeleteObjectVersion",
+                ],
+                "Resource": [f"arn:aws:s3:::{scope['bucket']}/.probe-*"],
+            },
+        ],
+    }
 
 
 def _native_source_storage_policy(scope: dict) -> dict:

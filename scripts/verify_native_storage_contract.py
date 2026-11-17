@@ -26,6 +26,7 @@ from storage_s3_contract import (
 )
 from native_storage_identity import (
     NATIVE_CONNECTION_BASE_PREFIX,
+    _native_binding_probe_policy,
     _native_connection_storage_policy,
     _native_source_storage_policy,
     client_for,
@@ -214,6 +215,20 @@ def verify_object(client, bucket, key, body, budget, *, versioned):
         budget.consume("download", len(data))
         require(response.status == 200 and data == body, "headerless_signed_read")
     return params, etag
+
+
+def retire_identity(iam, identity):
+    user, access, arn, _ = identity
+    iam.delete_access_key(UserName=user, AccessKeyId=access["AccessKeyId"])
+    require(
+        not iam.list_access_keys(UserName=user)["AccessKeyMetadata"],
+        "iam_key_removed",
+    )
+    iam.detach_user_policy(UserName=user, PolicyArn=arn)
+    iam.delete_user(UserName=user)
+    expect_error(lambda: iam.get_user(UserName=user), 404, {"NoSuchEntity"})
+    iam.delete_policy(PolicyArn=arn)
+    expect_error(lambda: iam.get_policy(PolicyArn=arn), 404, {"NoSuchEntity"})
 
 
 def qualify(owner, lock, candidate, budget, report):
@@ -412,6 +427,58 @@ def qualify(owner, lock, candidate, budget, report):
             "durable_versioning",
         )
         report["restart_complete_enumeration_passed"] = True
+        stage("ordinary_binding_probe")
+        probe_identity = provision_identity(
+            iam,
+            "aap-binding-probe-" + nonce,
+            _native_binding_probe_policy({"bucket": buckets[1]}),
+        )
+        private_write(
+            owner.private / "binding-probe-identity.json",
+            json.dumps(probe_identity).encode(),
+        )
+        probe = client_for(
+            "s3",
+            endpoint,
+            (probe_identity[1]["AccessKeyId"], probe_identity[1]["SecretAccessKey"]),
+            budget,
+        )
+        clients.append(probe)
+        probe_params, probe_etag = verify_object(
+            probe,
+            buckets[1],
+            ".probe-" + nonce,
+            b"binding-probe",
+            budget,
+            versioned=True,
+        )
+        for (saved_params, _), _body in receipts:
+            for operation in (probe.get_object, probe.delete_object):
+                expect_error(
+                    lambda operation=operation, params=saved_params: operation(
+                        **params
+                    ),
+                    403,
+                    {"AccessDenied", "403"},
+                )
+        for operation in (probe.list_parts, probe.abort_multipart_upload):
+            expect_error(
+                lambda operation=operation: operation(
+                    Bucket=buckets[1],
+                    Key=connection_upload_key,
+                    UploadId=connection_upload,
+                ),
+                403,
+                {"AccessDenied", "403"},
+            )
+        probe.delete_object(**probe_params, IfMatch=probe_etag)
+        expect_error(
+            lambda: probe.get_object(**probe_params),
+            404,
+            {"NoSuchKey", "NoSuchVersion", "404"},
+        )
+        retire_identity(iam, probe_identity)
+        report["ordinary_binding_probe_passed"] = True
         stage("exact_delete_and_identity_retirement")
         for bucket in buckets:
             read_body(
@@ -490,20 +557,7 @@ def qualify(owner, lock, candidate, budget, report):
                 budget,
                 expected=body,
             )
-            iam.delete_access_key(UserName=user, AccessKeyId=access["AccessKeyId"])
-            require(
-                not iam.list_access_keys(UserName=user)["AccessKeyMetadata"],
-                "iam_key_removed",
-            )
-            iam.detach_user_policy(UserName=user, PolicyArn=arn)
-            iam.delete_user(UserName=user)
-            expect_error(
-                lambda user=user: iam.get_user(UserName=user), 404, {"NoSuchEntity"}
-            )
-            iam.delete_policy(PolicyArn=arn)
-            expect_error(
-                lambda arn=arn: iam.get_policy(PolicyArn=arn), 404, {"NoSuchEntity"}
-            )
+            retire_identity(iam, identities[index])
         report["native_target_contract_passed"] = True
     finally:
         for client in clients:

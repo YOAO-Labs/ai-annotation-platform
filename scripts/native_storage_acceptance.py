@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 from botocore.exceptions import ClientError
 
 from native_storage_identity import (
+    _native_binding_probe_policy,
     _native_connection_storage_policy,
     _native_source_storage_policy,
     client_for,
@@ -86,6 +87,7 @@ def qualify_native_provider(output: Path, evidence: dict) -> None:
         and report.get("schema") == "aap.native-storage-contract/v1"
         and report.get("scope") == "native_saved_output_target_only"
         and report.get("native_target_contract_passed") is True
+        and report.get("ordinary_binding_probe_passed") is True
         and report.get("runtime_retired") is True
         and report.get("general_storage_replacement_qualified") is False
         and report.get("native_lifecycle_qualified") is False
@@ -134,7 +136,7 @@ def start_native_provider(owner: Owner, evidence: dict) -> dict:
 
 
 def provision_native_provider(owner, state, resources, legacy_identities, evidence):
-    """Create only the saved-target identities and a read-only original reader."""
+    """Create finite Native, binding-probe and read-only original identities."""
     s3 = client_for("s3", state["endpoint"], state["credentials"], Budget())
     iam = client_for("iam", state["endpoint"], state["credentials"], Budget())
     buckets = {name: resources["buckets"][name] for name in BUCKET_FIELDS}
@@ -161,6 +163,9 @@ def provision_native_provider(owner, state, resources, legacy_identities, eviden
             "native_connection": _native_connection_storage_policy(
                 {"bucket": buckets["MINIO_BUCKET"]}
             ),
+            "binding_probe": _native_binding_probe_policy(
+                {"bucket": buckets["MINIO_MEDIA_CACHE_BUCKET"]}
+            ),
             "original_reader": {
                 "Version": "2012-10-17",
                 "Statement": [
@@ -174,6 +179,12 @@ def provision_native_provider(owner, state, resources, legacy_identities, eviden
                 ],
             },
         }
+        policies.update(
+            {
+                name: policies["original_reader"]
+                for name in ("image_control_original", "image_worker_original")
+            }
+        )
         identities = {
             name: provision_identity(
                 iam, "acceptance-" + name.replace("_", "-"), policy
@@ -182,17 +193,37 @@ def provision_native_provider(owner, state, resources, legacy_identities, eviden
         }
         keys = [identity[1]["AccessKeyId"] for identity in identities.values()]
         require(
-            len(set(keys)) == 3 and state["credentials"][0] not in keys,
+            len(set(keys)) == 6 and state["credentials"][0] not in keys,
             "native_distinct_identities",
         )
         bucket = buckets["MINIO_MEDIA_CACHE_BUCKET"]
         key = "image-pyramids/objects/authority-proof-" + owner.data["nonce"]
         receipt = s3.put_object(Bucket=bucket, Key=key, Body=b"native-authority-proof")
         version = receipt["VersionId"]
-        for name, scope in legacy_identities.items():
+        ordinary_identities = {
+            **legacy_identities,
+            **{
+                name: {
+                    "access_key": identities[name][1]["AccessKeyId"],
+                    "secret_key": identities[name][1]["SecretAccessKey"],
+                }
+                for name in (
+                    "binding_probe",
+                    "original_reader",
+                    "image_control_original",
+                    "image_worker_original",
+                )
+            },
+        }
+        for name, scope in ordinary_identities.items():
             credentials = (scope["access_key"], scope["secret_key"])
             require(
-                credentials[0] not in {*keys, state["credentials"][0]},
+                credentials[0]
+                not in {
+                    identities["native_source"][1]["AccessKeyId"],
+                    identities["native_connection"][1]["AccessKeyId"],
+                    state["credentials"][0],
+                },
                 "native_executor_key",
             )
             client = client_for("s3", state["endpoint"], credentials, Budget())
@@ -246,7 +277,10 @@ def provision_native_provider(owner, state, resources, legacy_identities, eviden
                     {
                         "native_source": "MINIO_MEDIA_CACHE_BUCKET",
                         "native_connection": "MINIO_BUCKET",
+                        "binding_probe": "MINIO_MEDIA_CACHE_BUCKET",
                         "original_reader": "MINIO_DATASETS_BUCKET",
+                        "image_control_original": "MINIO_DATASETS_BUCKET",
+                        "image_worker_original": "MINIO_DATASETS_BUCKET",
                     }[name]
                 ],
             }
@@ -257,16 +291,21 @@ def provision_native_provider(owner, state, resources, legacy_identities, eviden
         iam.close()
 
 
-def native_profile_environment(owner, state, scopes, legacy_endpoint):
+def native_profile_environment(
+    owner, state, scopes, legacy_endpoint, *, legacy_admin_access_key
+):
     origin = urlsplit(state["endpoint"])
     require(origin.scheme == "http" and origin.netloc, "native_profile_endpoint")
-    return {
+    environment = {
         OWNER_SETTING: str(owner.path),
         OWNER_DIGEST_SETTING: sha256(owner.path.read_bytes()),
         LEGACY_ENDPOINT_SETTING: legacy_endpoint,
+        "AAP_MODULE_DATA_NATIVE_LEGACY_ADMIN_ACCESS_KEY": legacy_admin_access_key,
         "MINIO_ENDPOINT": origin.netloc,
         "MINIO_PUBLIC_ENDPOINT": origin.netloc,
         "MINIO_USE_SSL": "false",
+        "MINIO_ACCESS_KEY": scopes["binding_probe"]["access_key"],
+        "MINIO_SECRET_KEY": scopes["binding_probe"]["secret_key"],
         "AAP_MODULE_DATA_ASSET_SOURCE_S3_ACCESS_KEY": scopes["original_reader"][
             "access_key"
         ],
@@ -274,6 +313,13 @@ def native_profile_environment(owner, state, scopes, legacy_endpoint):
             "secret_key"
         ],
     }
+    for identity, prefix in (
+        ("image_control_original", "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3"),
+        ("image_worker_original", "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_S3"),
+    ):
+        environment[prefix + "_ACCESS_KEY"] = scopes[identity]["access_key"]
+        environment[prefix + "_SECRET_KEY"] = scopes[identity]["secret_key"]
+    return environment
 
 
 def verified_native_provider(owner_path, owner_digest, resources):

@@ -376,9 +376,12 @@ def native_provider(test_engine, native_signer):
         verified_native_provider,
     )
 
-    resources = _verified_resource_manifest(
-        test_engine, _required_env("AAP_MODULE_DATA_ASSET_CLEANUP_URL")
+    cleanup_url = _guard_role_url(
+        "AAP_MODULE_DATA_ASSET_CLEANUP_URL",
+        "asset_cleanup_client",
+        test_engine,
     )
+    resources = _verified_resource_manifest(test_engine, cleanup_url)
     state, client = verified_native_provider(
         _required_env(OWNER_SETTING),
         _required_env(OWNER_DIGEST_SETTING),
@@ -401,7 +404,19 @@ def native_provider(test_engine, native_signer):
             native_signer.connection_secret_key,
         ) != (connection_key["AccessKeyId"], connection_key["SecretAccessKey"]):
             pytest.fail("Native signer identities differ from their owned provision")
-        yield client, resources
+        for name, prefix in (
+            ("binding_probe", "MINIO"),
+            ("original_reader", "AAP_MODULE_DATA_ASSET_SOURCE_S3"),
+            ("image_control_original", "AAP_MODULE_DATA_ASSET_MEDIA_CONTROL_S3"),
+            ("image_worker_original", "AAP_MODULE_DATA_ASSET_IMAGE_WORKER_S3"),
+        ):
+            access = state["identities"][name][1]
+            if (
+                _required_env(prefix + "_ACCESS_KEY"),
+                _required_env(prefix + "_SECRET_KEY"),
+            ) != (access["AccessKeyId"], access["SecretAccessKey"]):
+                pytest.fail(f"{name} differs from its owned provision")
+        yield client, resources, cleanup_url
     finally:
         client.close()
 
@@ -454,31 +469,25 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         "asset_image_worker_client",
         test_engine,
     )
-    cleanup_url = _guard_role_url(
-        "AAP_MODULE_DATA_ASSET_CLEANUP_URL",
-        "asset_cleanup_client",
-        test_engine,
-    )
-    owner_s3, resources = native_provider
+    owner_s3, resources, cleanup_url = native_provider
     endpoint = _required_env("AAP_MODULE_DATA_NATIVE_LEGACY_S3_ENDPOINT")
     assert endpoint != native_signer.endpoint
+    image_endpoint = native_signer.endpoint
     datasets_bucket = resources["buckets"]["MINIO_DATASETS_BUCKET"]
     cache_bucket = resources["buckets"]["MINIO_MEDIA_CACHE_BUCKET"]
     for bucket in (datasets_bucket, cache_bucket, native_signer.connection_bucket):
         _verify_bucket_owner(owner_s3, bucket, resources["owner"])
-    if (
-        native_signer.connection_access_key
-        in {settings.minio_access_key, native_signer.native_access_key}
-        or native_signer.native_access_key == settings.minio_access_key
-    ):
+    legacy_admin = _required_env("AAP_MODULE_DATA_NATIVE_LEGACY_ADMIN_ACCESS_KEY")
+    if native_signer.connection_access_key in {
+        legacy_admin,
+        settings.minio_access_key,
+        native_signer.native_access_key,
+    } or native_signer.native_access_key in {legacy_admin, settings.minio_access_key}:
         pytest.fail("Native proof identities are not independently scoped")
 
     worker_access = _required_env("AAP_MODULE_DATA_ASSET_IMAGE_WORKER_S3_ACCESS_KEY")
     worker_secret = _required_env("AAP_MODULE_DATA_ASSET_IMAGE_WORKER_S3_SECRET_KEY")
-    if (worker_access, worker_secret) == (
-        settings.minio_access_key,
-        settings.minio_secret_key,
-    ):
+    if worker_access in {legacy_admin, settings.minio_access_key}:
         pytest.fail("image worker reuses the MinIO administrator")
 
     sessions = async_sessionmaker(test_engine, expire_on_commit=False)
@@ -489,8 +498,8 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         tmp_path=tmp_path,
         role="control",
         database_url=_runtime_database_url(control_url),
-        endpoint=endpoint,
-        public_endpoint=endpoint,
+        endpoint=image_endpoint,
+        public_endpoint=image_endpoint,
         datasets_bucket=datasets_bucket,
         legacy_bucket=native_signer.connection_bucket,
         cache_bucket=cache_bucket,
@@ -562,8 +571,8 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
             allowed_roles=("control",),
         )
         storage_config = ImageStorageConfig(
-            endpoint=endpoint,
-            public_endpoint=endpoint,
+            endpoint=image_endpoint,
+            public_endpoint=image_endpoint,
             region="us-east-1",
             datasets_bucket=datasets_bucket,
             legacy_bucket=native_signer.connection_bucket,
