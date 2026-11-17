@@ -22,6 +22,7 @@ import subprocess
 import sys
 import time
 from typing import Any
+from urllib.parse import parse_qs, unquote, urlsplit
 from uuid import UUID, uuid4
 
 from botocore.exceptions import ClientError
@@ -69,6 +70,7 @@ from yoao_assets_images.geometry import (
 )
 from yoao_assets_images.native_storage_client import NativePyramidStorageClient
 from yoao_assets_images.policy import ImagePolicy
+from yoao_assets_images.transport import ImageGenerationReference
 from yoao_assets_images_runtime.config import ImageStorageConfig
 from yoao_assets_images_runtime.database import AsyncpgImageDatabase
 from yoao_assets_images_runtime.storage import S3ImageStorage
@@ -346,6 +348,27 @@ async def _post(client, token, path, body):
     )
 
 
+async def _assert_generation_reference(client, response, claim, target):
+    assert response.status_code == 200, response.text[:500]
+    reference = ImageGenerationReference.model_validate(response.json()["data"])
+    assert reference.pyramid.status == "ready"
+    assert reference.pyramid.generation == claim.pyramid_generation
+    assert reference.pyramid_source_generation == claim.source.source_generation
+    assert reference.pyramid_source_snapshot == claim.source.source_snapshot
+    assert reference.expires_in == POLICY.url_expiry_seconds
+    assert reference.overview_url is not None
+    signed = urlsplit(reference.overview_url)
+    saved = urlsplit(target.endpoint_url)
+    assert (signed.scheme, signed.netloc) == (saved.scheme, saved.netloc)
+    assert unquote(signed.path) == f"/{target.bucket}/{target.prefix}overview.webp"
+    assert parse_qs(signed.query)["X-Amz-Expires"] == [str(reference.expires_in)]
+    overview = await client.get(reference.overview_url)
+    assert overview.status_code == 200
+    assert overview.content == _member_layout(
+        target.prefix, claim.pyramid_generation, claim.source.content_hash
+    )[1]["overview.webp"]
+
+
 async def _create_connection(
     sessions, *, actor_id, name: str, bucket: str, prefix: str
 ):
@@ -586,21 +609,22 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 "expected_source_snapshot": accepted["source"]["source_snapshot"],
             },
         )
-        assert read.status_code == 200, read.text[:500]
-        generation = read.json()["data"]
-        assert generation["pyramid"]["native"] is True
-        native_output = generation["pyramid"]["native_output"]
-        assert native_output["storage_ref"]["bucket"] == cache_bucket
-        assert native_output["storage_ref"]["prefix"] == target_a.prefix
-        assert native_output["fixture_owned"] is False
-        assert native_output["url_expiry_seconds"] == POLICY.url_expiry_seconds
-        overview = await control_client.get(generation["overview_url"])
-        assert overview.status_code == 200
-        assert overview.content == (
-            _member_layout(
-                target_a.prefix, claim.pyramid_generation, claim.source.content_hash
-            )[1]["overview.webp"]
+        await _assert_generation_reference(control_client, read, claim, target_a)
+        owner_state = await control_db.call(
+            "read_image_generation",
+            c.ReadImageGenerationRequest(
+                actor_id=actor_id,
+                dataset_item_id=item_id,
+                generation=claim.pyramid_generation,
+                profile_version=claim.spec.policy.profile_version,
+            ),
         )
+        assert owner_state.pyramid.native is True
+        native_output = owner_state.pyramid.native_output
+        assert native_output is not None
+        assert native_output.storage_ref == target_a
+        assert native_output.fixture_owned is False
+        assert native_output.url_expiry_seconds == POLICY.url_expiry_seconds
         too_long = await _post(
             control_client,
             control_token,
@@ -768,14 +792,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 "generation": claim.pyramid_generation,
             },
         )
-        assert stale_read.status_code == 200, stale_read.text[:500]
-        stale_generation = stale_read.json()["data"]["pyramid"]
-        assert stale_generation["native_output"]["storage_ref"]["bucket"] == (
-            target_a.bucket
-        )
-        assert stale_generation["native_output"]["storage_ref"]["prefix"] == (
-            target_a.prefix
-        )
+        await _assert_generation_reference(control_client, stale_read, claim, target_a)
         new_read = await _post(
             control_client,
             control_token,
@@ -787,12 +804,7 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 "expected_source_snapshot": accepted_b["source"]["source_snapshot"],
             },
         )
-        assert new_read.status_code == 200, new_read.text[:500]
-        new_generation = new_read.json()["data"]["pyramid"]
-        assert new_generation["native_output"]["storage_ref"]["bucket"] == (
-            target_b.bucket
-        )
-        assert new_generation["generation"] == claim_b.pyramid_generation
+        await _assert_generation_reference(control_client, new_read, claim_b, target_b)
 
         # Unknown I/O never retires: its own admitted operation stays open, so
         # retirement can never claim these members.  A drained not-written
@@ -920,6 +932,18 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                 )
             ).all()
         assert retirements and retirements[0].closed_at is None
+        # Release C's job lease, not its unknown physical-operation barrier.
+        failed_c = await worker_db.call(
+            "fail_image_media",
+            c.FailImageMediaRequest(
+                job_id=claim_c.job_id,
+                generation=claim_c.generation,
+                lease_token=claim_c.lease_token,
+                error_code="timeout",
+                error_detail="unknown member outcome retained by lifecycle proof",
+            ),
+        )
+        assert failed_c.outcome == "failed"
 
         held_operation, held_token = uuid4(), uuid4()
         held = await control_db.call(
@@ -1091,10 +1115,23 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
                     {"output": allocation_a.output_id},
                 )
 
+        # A refused prefix settles its I/O page, not its claim lease. Keep the
+        # production lease and wait for its recorded expiry before recovery.
+        async with test_engine.connect() as owner:
+            remaining_lease = await owner.scalar(
+                text(
+                    "SELECT GREATEST(0, EXTRACT(EPOCH FROM "
+                    "(lease_expires_at-clock_timestamp()))) "
+                    "FROM aap_assets_v1.native_pyramid_retirements "
+                    "WHERE output_id=CAST(:output AS uuid)"
+                ),
+                {"output": allocation_a.output_id},
+            )
+        assert remaining_lease is not None
         await _wait_until(
             retirement_closed,
-            timeout=120,
-            message="cleanup did not settle the foreign-upload barrier",
+            timeout=float(remaining_lease) + 120,
+            message="cleanup did not settle the owned-upload barrier after lease expiry",
         )
         async with test_engine.connect() as owner:
             page_outcomes = (
@@ -1120,20 +1157,8 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         }
         assert set(foreign_uploads) <= remaining_uploads
 
-        # Release C's job lease, not its unknown physical-operation barrier.
         # Publishing another B output makes the previous B output retireable
         # without changing or restarting either physical executor.
-        failed_c = await worker_db.call(
-            "fail_image_media",
-            c.FailImageMediaRequest(
-                job_id=claim_c.job_id,
-                generation=claim_c.generation,
-                lease_token=claim_c.lease_token,
-                error_code="timeout",
-                error_detail="unknown member outcome retained by lifecycle proof",
-            ),
-        )
-        assert failed_c.outcome == "failed"
         accepted_d = await _prepare(
             control_client, control_token, actor_id, item_id, force=True
         )
@@ -1190,8 +1215,10 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         async with test_engine.connect() as owner:
             assert await owner.scalar(
                 text(
-                    "SELECT count(*) FROM public.storage_operations "
-                    "WHERE id=CAST(:operation AS uuid)"
+                    "SELECT count(*) FROM public.storage_operations AS operation "
+                    "JOIN aap_assets_v1.image_pyramid_native_members AS member "
+                    "ON operation.id=member.operation_permit "
+                    "WHERE member.operation_id=CAST(:operation AS uuid)"
                 ),
                 {"operation": unknown_operation},
             ) == 1

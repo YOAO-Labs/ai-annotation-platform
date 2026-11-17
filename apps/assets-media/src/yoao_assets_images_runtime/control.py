@@ -1327,6 +1327,8 @@ class ImageControl:
         generation: int | None = None,
     ) -> c.ImageGenerationRead:
         selector = self._selector(request)
+        if generation is None and isinstance(request, c.ReadImageGenerationRequest):
+            generation = request.generation
         native_request = c.ReadImageGenerationRequest(
             actor_id=selector.actor_id,
             task_id=selector.task_id,
