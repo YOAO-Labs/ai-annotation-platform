@@ -459,7 +459,7 @@ async def test_project_cleanup_helpers_preserve_retained_history_and_caller_roll
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_insights_v1",
+                    "yoao_insights_v1",
                     "clear_project_task_views",
                     fixture["project_id"],
                 )
@@ -468,7 +468,7 @@ async def test_project_cleanup_helpers_preserve_retained_history_and_caller_roll
             assert (
                 await _cleanup_result(
                     session,
-                    "aap_diagnostics_v1",
+                    "yoao_diagnostics_v1",
                     "detach_project_references",
                     fixture["project_id"],
                 )

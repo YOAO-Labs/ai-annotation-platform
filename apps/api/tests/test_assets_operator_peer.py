@@ -55,7 +55,7 @@ SELECT
     AND NOT pg_catalog.has_database_privilege(session_user, current_database(), 'TEMP')
     AND NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
-        WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND namespace.nspname NOT IN ('aap_assets_v1', 'aap_identity_v1')
           AND pg_catalog.has_schema_privilege(session_user, namespace.oid, 'USAGE')
     )
@@ -105,7 +105,7 @@ SELECT
     AND NOT EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         JOIN pg_catalog.pg_proc AS proc ON proc.pronamespace=namespace.oid
-        WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$'
+        WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$'
           AND proc.prokind IN ('f', 'p')
           AND proc.oid <> 'aap_identity_v1.read_first_seed_account()'::regprocedure
           AND namespace.nspname <> 'aap_assets_v1'

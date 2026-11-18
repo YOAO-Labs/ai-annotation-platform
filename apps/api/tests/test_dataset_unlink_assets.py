@@ -56,7 +56,7 @@ _COMPLETE_DELETION = text(
     bindparam("asset_id", type_=PGUUID(as_uuid=True)),
 )
 _DETACH_REPORTS = text(
-    "SELECT aap_diagnostics_v1.detach_dataset_task_references(:dataset_id, :project_id)"
+    "SELECT yoao_diagnostics_v1.detach_dataset_task_references(:dataset_id, :project_id)"
 ).bindparams(
     bindparam("dataset_id", type_=PGUUID(as_uuid=True)),
     bindparam("project_id", type_=PGUUID(as_uuid=True)),

@@ -1008,7 +1008,7 @@ async def test_catalog_login_is_limited_to_the_seven_catalog_capabilities():
                     "FROM pg_catalog.pg_proc AS proc "
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid = proc.pronamespace "
-                    "WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' "
+                    "WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$' "
                     "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                 )
             )
@@ -1022,8 +1022,8 @@ async def test_catalog_login_is_limited_to_the_seven_catalog_capabilities():
                 "aap_jobs_v1",
                 "aap_learning_v1",
                 "aap_inference_v1",
-                "aap_insights_v1",
-                "aap_diagnostics_v1",
+                "yoao_insights_v1",
+                "yoao_diagnostics_v1",
                 "aap_export_v1",
                 "aap_audit_v1",
             ):

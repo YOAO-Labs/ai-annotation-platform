@@ -835,7 +835,7 @@ async def test_catalog_login_has_exact_spatial_and_catalog_capability_surface():
                     "FROM pg_catalog.pg_proc AS proc "
                     "JOIN pg_catalog.pg_namespace AS namespace "
                     "ON namespace.oid = proc.pronamespace "
-                    "WHERE namespace.nspname ~ '^aap_[a-z0-9_]+_v1$' "
+                    "WHERE namespace.nspname ~ '^(aap|yoao)_[a-z0-9_]+_v1$' "
                     "AND pg_catalog.has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                 )
             )

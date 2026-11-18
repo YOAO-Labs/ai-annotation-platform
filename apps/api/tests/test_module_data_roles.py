@@ -472,8 +472,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
             "aap_jobs_v1",
             "aap_learning_v1",
             "aap_inference_v1",
-            "aap_insights_v1",
-            "aap_diagnostics_v1",
+            "yoao_insights_v1",
+            "yoao_diagnostics_v1",
             "aap_export_v1",
             "aap_audit_v1",
         ):
@@ -542,7 +542,8 @@ async def test_asset_cleanup_client_uses_only_the_storage_outbox_functions(
                     "'aap_assets_v1.prepare_native_pyramid_retirement_page(uuid,uuid,integer)'::regprocedure, "
                     "'aap_assets_v1.complete_native_pyramid_retirement_page(uuid,uuid,uuid,text,jsonb)'::regprocedure)) "
                     "OR (namespace.nspname <> 'aap_assets_v1' "
-                    "AND left(namespace.nspname, 4) = 'aap_' "
+                    "AND (left(namespace.nspname, 4) = 'aap_' "
+                    "OR left(namespace.nspname, 5) = 'yoao_') "
                     "AND right(namespace.nspname, 3) = '_v1')) "
                     "AND has_function_privilege(current_user, proc.oid, 'EXECUTE')"
                 )
@@ -699,8 +700,8 @@ async def test_asset_image_worker_client_executes_only_image_worker_capabilities
             "aap_jobs_v1",
             "aap_learning_v1",
             "aap_inference_v1",
-            "aap_insights_v1",
-            "aap_diagnostics_v1",
+            "yoao_insights_v1",
+            "yoao_diagnostics_v1",
             "aap_export_v1",
             "aap_audit_v1",
             "aap_settings_v1",
