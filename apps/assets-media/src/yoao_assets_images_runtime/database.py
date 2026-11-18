@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from contextlib import nullcontext
 import re
 from typing import Any, Collection, Protocol, runtime_checkable
@@ -97,12 +98,9 @@ def _validate_finish_request(request: FinishImageMediaRequest) -> None:
         is None
     ):
         raise ImageFailure("invalid_request")
-    if (
-        result.overview_artifact.key != prefix + "overview.webp"
-        or any(
-            tile.artifact.key != prefix + f"tiles/{tile.level}/{tile.x}/{tile.y}.webp"
-            for tile in result.tile_artifacts
-        )
+    if result.overview_artifact.key != prefix + "overview.webp" or any(
+        tile.artifact.key != prefix + f"tiles/{tile.level}/{tile.x}/{tile.y}.webp"
+        for tile in result.tile_artifacts
     ):
         raise ImageFailure("invalid_request")
 
@@ -157,6 +155,11 @@ class AsyncpgImageDatabase:
             raise ValueError("invalid image SQL operation roles")
         self._pool = pool
         self._allowed_roles = roles
+        # Source captures lock the same attempt as a worker SQL transition,
+        # but run on a different connection from the worker's single-slot pool.
+        self.native_capture_lane = (
+            asyncio.Lock() if roles == {"worker"} else nullcontext()
+        )
 
     @property
     def pool(self) -> Any:
@@ -195,8 +198,12 @@ class AsyncpgImageDatabase:
         )
         if isinstance(request, FinishImageMediaRequest):
             _validate_finish_request(request)
-        async with self._pool.acquire() as connection:
-            from yoao_assets_media_runtime.fixture_native_outputs import claim_admission, scan_admission, source_admission
+        async with self.native_capture_lane, self._pool.acquire() as connection:
+            from yoao_assets_media_runtime.fixture_native_outputs import (
+                claim_admission,
+                scan_admission,
+                source_admission,
+            )
 
             if name == "begin_image_original_worker":
                 scope = source_admission(connection, "image", request)

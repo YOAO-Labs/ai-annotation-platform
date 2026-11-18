@@ -587,7 +587,11 @@ async def test_native_saved_output_lifecycle_across_binding_switch(
         writer_client = NativePyramidStorageClient(
             native_signer.url, native_signer.writer_token
         )
-        storage = S3ImageStorage(storage_config, native_writer=writer_client)
+        storage = S3ImageStorage(
+            storage_config,
+            native_writer=writer_client,
+            native_capture_lane=worker_db.native_capture_lane,
+        )
         executor = _Executor(worker_db, storage, owner_s3)
         executor.tmp_dir = tmp_path
         accepted = await _prepare(control_client, control_token, actor_id, item_id)

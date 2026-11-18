@@ -62,7 +62,10 @@ def _runtime(monkeypatch, *, input_poll, image_poll, poll_seconds=30):
         worker,
         "load_config",
         lambda: SimpleNamespace(
-            storage=object(), srgb_profile="profile", poll_seconds=poll_seconds
+            native_storage=None,
+            storage=object(),
+            srgb_profile="profile",
+            poll_seconds=poll_seconds,
         ),
     )
     monkeypatch.setattr(worker, "_connect_worker_database", connect)

@@ -6,6 +6,7 @@ import asyncio
 import json
 import os
 import re
+import subprocess
 import time
 from uuid import UUID, uuid4
 
@@ -164,6 +165,18 @@ def _verify_image_worker_container(
         pytest.fail("image-worker container escaped its restricted runtime profile")
 
 
+def _worker_logs(container_id: str) -> str:
+    # docker forwards the worker's Python logs to stderr, not stdout.
+    result = subprocess.run(
+        ["docker", "logs", container_id],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+        timeout=20,
+    )
+    return f"docker logs exit {result.returncode}: {result.stdout[:5000]}"
+
+
 async def _wait_for_image_jobs(
     runtime, container_id: str, job_ids: list[UUID]
 ) -> dict[UUID, dict]:
@@ -185,13 +198,13 @@ async def _wait_for_image_jobs(
         observed = _inspect_docker(container_id)
         state = observed.get("State", {})
         if state.get("Running") is not True:
-            logs = _docker("logs", container_id, timeout=20)
             pytest.fail(
-                f"image-worker container exited during image work: {logs[-5000:]}"
+                f"image-worker container exited during image work: {_worker_logs(container_id)}"
             )
         await asyncio.sleep(0.2)
-    logs = _docker("logs", container_id, timeout=20)
-    pytest.fail(f"container image jobs did not finish: {last}; logs={logs[-5000:]}")
+    pytest.fail(
+        f"container image jobs did not finish: {last}; {_worker_logs(container_id)}"
+    )
 
 
 async def test_restricted_image_worker_container_generates_thumbnail_and_vips_pyramid(

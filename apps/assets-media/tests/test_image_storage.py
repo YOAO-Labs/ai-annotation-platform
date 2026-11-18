@@ -27,7 +27,10 @@ from yoao_assets_media_runtime.additional_original import (
     AdditionalOriginalConfig,
     physical_identity,
 )
-from yoao_assets_media_runtime.fixture_native_outputs import native_execution, output_scope
+from yoao_assets_media_runtime.fixture_native_outputs import (
+    native_execution,
+    output_scope,
+)
 
 
 class S3ImageStorage(NativeImageStorage):
@@ -635,7 +638,10 @@ async def test_fixture_original_uses_only_explicitly_admitted_ordinary_image_out
     artifact.write_bytes(b"ordinary output")
     async with native_execution(reader, "image", claim.job_id):
         async with admitted_original(
-            reader, storage, "begin_image_original_worker", None,
+            reader,
+            storage,
+            "begin_image_original_worker",
+            None,
             "finish_image_original_worker",
         ) as original:
             with pytest.raises(RuntimeError):
@@ -929,6 +935,7 @@ async def test_cache_put_cancellation_closes_local_stream_and_returns_promptly(
     monkeypatch, tmp_path
 ):
     import yoao_assets_images_runtime.storage as storage_module
+
     monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
 
     client = _S3()
@@ -982,7 +989,9 @@ async def test_range_identity_mismatch_closes_body_and_rejects_stale_bytes():
 
 
 @pytest.mark.asyncio
-async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(tmp_path, monkeypatch):
+async def test_upload_and_sign_reject_keys_outside_image_attempt_scope(
+    tmp_path, monkeypatch
+):
     monkeypatch.delenv("AAP_PRIVATE_FIXTURE_MEDIA_CONTROL_DSN_FILE", raising=False)
     client = _S3()
     signer = _Signer()
@@ -1057,6 +1066,10 @@ async def test_orphan_listing_aggregates_last_modified_across_pages_and_checks_o
             "Contents": [
                 {"Key": second_key, "LastModified": later},
                 {"Key": third_key, "LastModified": earlier},
+                {
+                    "Key": f"image-pyramids/objects/{asset_id}/manifest.json",
+                    "LastModified": later,
+                },
             ],
             "IsTruncated": False,
         },
@@ -1070,6 +1083,32 @@ async def test_orphan_listing_aggregates_last_modified_across_pages_and_checks_o
     ]
     assert [call[0] for call in client.calls] == ["list", "list"]
     assert client.calls[1][2] == "page-2"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "not-a-uuid/manifest.json",
+        "aaaaaaaa-0000-0000-0000-000000000001/unrecognized.webp",
+    ],
+)
+async def test_orphan_listing_rejects_unknown_native_layout(suffix):
+    client = _S3()
+    storage, _config = _storage(client, _Signer())
+    client.pages = [
+        {
+            "Contents": [
+                {
+                    "Key": f"image-pyramids/objects/{suffix}",
+                    "LastModified": datetime(2026, 10, 18, tzinfo=timezone.utc),
+                }
+            ],
+            "IsTruncated": False,
+        }
+    ]
+    with pytest.raises(ImageFailure, match="invalid_response"):
+        _ = [row async for row in storage.iter_orphan_generations()]
 
 
 @pytest.mark.asyncio

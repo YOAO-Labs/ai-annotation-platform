@@ -550,7 +550,9 @@ class ImageExecutor:
                 require_result_scope(
                     claim,
                     result,
-                    prefix=None if allocation is None else allocation.storage_ref.prefix,
+                    prefix=None
+                    if allocation is None
+                    else allocation.storage_ref.prefix,
                 )
                 finish = (
                     FinishNativePyramidRequest(
@@ -1994,7 +1996,13 @@ async def _run_worker(
                 native_writer = NativePyramidStorageClient(
                     config.native_storage.url, config.native_storage.token
                 )
-            storage = S3ImageStorage(config.storage, native_writer=native_writer)
+                storage = S3ImageStorage(
+                    config.storage,
+                    native_writer=native_writer,
+                    native_capture_lane=database.native_capture_lane,
+                )
+            else:
+                storage = S3ImageStorage(config.storage)
         except BaseException:
             if native_writer is not None:
                 await native_writer.aclose()

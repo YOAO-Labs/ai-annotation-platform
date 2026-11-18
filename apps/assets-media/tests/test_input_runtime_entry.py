@@ -61,7 +61,9 @@ async def test_once_materializes_inputs_and_preserves_targeted_image_work(
     monkeypatch.setattr(
         worker,
         "load_config",
-        lambda: SimpleNamespace(storage=object(), srgb_profile="profile"),
+        lambda: SimpleNamespace(
+            storage=object(), srgb_profile="profile", native_storage=None
+        ),
     )
     monkeypatch.setattr(worker, "_connect_worker_database", connect)
     monkeypatch.setattr(worker, "check_capabilities", capabilities)

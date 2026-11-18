@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from builtins import BaseExceptionGroup
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
@@ -50,11 +51,13 @@ _IMAGE_GENERATION_KEY = re.compile(
     rf"(?:{_ATTEMPT}/)?(?:manifest\.json|overview\.webp|tiles/"
     r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
 )
-_NATIVE_SAVED_KEY = re.compile(
-    rf"^[^\\]{{0,436}}image-pyramids/objects/{_UUID}/"
+_NATIVE_MEMBER_PATH = (
+    rf"image-pyramids/objects/{_UUID}/"
     r"(?:manifest\.json|overview\.webp|tiles/"
     r"(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)/(?:0|[1-9][0-9]*)\.webp)$"
 )
+_NATIVE_ROOT_MEMBER = re.compile(_NATIVE_MEMBER_PATH)
+_NATIVE_SAVED_KEY = re.compile(rf"^[^\\]{{0,436}}{_NATIVE_MEMBER_PATH}")
 _HASH_CHUNK_BYTES = 1024 * 1024
 _S3_LIST_PAGE_SIZE = 1000
 _HTTPX_REQUEST_LOG_FORMAT = 'HTTP Request: %s %s "%s %d %s"'
@@ -197,10 +200,14 @@ class S3ImageStorage:
         additional_original_client=None,
         fixture_cache_resolver=None,
         native_writer=None,
+        native_capture_lane=None,
     ) -> None:
         self.config = config
         self._fixture_cache_resolver = fixture_cache_resolver
         self._native_writer = native_writer
+        self._native_capture_lane = (
+            native_capture_lane if native_capture_lane is not None else nullcontext()
+        )
         self._http_client = http_client
         self._owns_http_client = http_client is None
         if client is None or signer is None:
@@ -615,7 +622,10 @@ class S3ImageStorage:
 
     async def _native_context(self, call, request):
         try:
-            return await call(request)
+            # Only the fenced capture shares the worker's SQL lane. Physical
+            # PUTs and exact-version readbacks stay outside it and may overlap.
+            async with self._native_capture_lane:
+                return await call(request)
         except asyncio.CancelledError:
             raise
         except ImageFailure:
@@ -860,10 +870,15 @@ class S3ImageStorage:
                 last_key = key
                 if key == "image-pyramids/":
                     continue
-                match = _IMAGE_GENERATION_KEY.fullmatch(key)
-                if match is None or not isinstance(modified, datetime):
+                if not isinstance(modified, datetime):
                     raise ImageFailure("invalid_response")
                 if modified.tzinfo is None or modified.utcoffset() is None:
+                    raise ImageFailure("invalid_response")
+                if _NATIVE_ROOT_MEMBER.fullmatch(key):
+                    # Native retirement owns this member; it is not a legacy generation.
+                    continue
+                match = _IMAGE_GENERATION_KEY.fullmatch(key)
+                if match is None:
                     raise ImageFailure("invalid_response")
                 pair = (match.group("asset"), int(match.group("generation")))
                 if pair != current:
