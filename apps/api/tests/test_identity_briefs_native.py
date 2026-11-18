@@ -50,7 +50,7 @@ def _briefs_dsn(test_engine=None, database: str | None = None) -> str:
         pytest.skip("Identity briefs client DSN is not configured")
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_briefs_client"
+    assert parsed.username == "yoao_identity_briefs_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     if database is not None:
         parsed = parsed.set(database=database)
@@ -223,12 +223,14 @@ def test_frozen_briefs_schema_and_function_only_boundary():
     )
     assert "GRANTSELECT(id,project_id,user_id,role)" in compact_module_grants
     assert 'ONpublic.project_membersTO:"identity_owner"' not in compact_module_grants
-    assert "identity_briefs_client" in role_grants
-    assert "aap_identity_briefs_v1.briefs_policy()" in compact_role_grants
-    assert "aap_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_role_grants
-    assert "aap_identity_briefs_v1" in lan_grants
-    assert "aap_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_lan_grants
-    assert '"BRIEFS": "identity_briefs_client"' in verifier
+    assert "yoao_identity_briefs_client" in role_grants
+    assert "yoao_identity_briefs_v1.briefs_policy()" in compact_role_grants
+    assert (
+        "yoao_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_role_grants
+    )
+    assert "yoao_identity_briefs_v1" in lan_grants
+    assert "yoao_identity_briefs_v1.execute_briefs_command(jsonb)" in compact_lan_grants
+    assert '"BRIEFS": "yoao_identity_briefs_client"' in verifier
     assert '"0249_identity_briefs.sql"' in verifier
     assert '"0249_identity_briefs.schema.json"' in verifier
 

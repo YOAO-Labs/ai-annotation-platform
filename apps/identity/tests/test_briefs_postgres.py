@@ -56,12 +56,12 @@ class Connection:
         self.queries.append(query)
         return [
             {
-                "nspname": "aap_identity_briefs_v1",
+                "nspname": "yoao_identity_briefs_v1",
                 "proname": "briefs_policy",
                 "args": "",
             },
             {
-                "nspname": "aap_identity_briefs_v1",
+                "nspname": "yoao_identity_briefs_v1",
                 "proname": "execute_briefs_command",
                 "args": "jsonb",
             },
@@ -93,7 +93,7 @@ async def test_transaction_calls_only_versioned_function_and_validates_reply():
     assert result == native_briefs_success(command)
     assert len(connection.queries) == 1
     assert (
-        "aap_identity_briefs_v1.execute_briefs_command($1::jsonb)"
+        "yoao_identity_briefs_v1.execute_briefs_command($1::jsonb)"
         in connection.queries[0]
     )
 
@@ -129,8 +129,8 @@ async def test_policy_and_read_transactions_are_readonly_and_close_connections(
 @pytest.mark.asyncio
 async def test_readiness_requires_exact_two_functions_and_no_direct_access():
     expected = {
-        "aap_identity_briefs_v1.briefs_policy()",
-        "aap_identity_briefs_v1.execute_briefs_command(jsonb)",
+        "yoao_identity_briefs_v1.briefs_policy()",
+        "yoao_identity_briefs_v1.execute_briefs_command(jsonb)",
     }
     connection = Connection()
 

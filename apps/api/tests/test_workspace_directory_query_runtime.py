@@ -90,7 +90,7 @@ async def test_directory_owner_isolates_profiles_data_grants_and_process_restart
                             async with maker.begin() as db:
                                 await db.execute(
                                     text(
-                                        "REVOKE EXECUTE ON FUNCTION aap_identity_briefs_v1.briefs_policy() FROM identity_briefs_client"
+                                        "REVOKE EXECUTE ON FUNCTION yoao_identity_briefs_v1.briefs_policy() FROM yoao_identity_briefs_client"
                                     )
                                 )
                             assert (await client.get("/ready")).status_code == 200
@@ -107,7 +107,7 @@ async def test_directory_owner_isolates_profiles_data_grants_and_process_restart
                             async with maker.begin() as db:
                                 await db.execute(
                                     text(
-                                        "GRANT EXECUTE ON FUNCTION aap_identity_briefs_v1.briefs_policy() TO identity_briefs_client"
+                                        "GRANT EXECUTE ON FUNCTION yoao_identity_briefs_v1.briefs_policy() TO yoao_identity_briefs_client"
                                     )
                                 )
                     else:

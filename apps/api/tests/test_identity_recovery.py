@@ -133,7 +133,8 @@ async def _assert_exact_identity_functions(dsn, expected):
             FROM pg_catalog.pg_proc AS function
             JOIN pg_catalog.pg_namespace AS namespace
               ON namespace.oid=function.pronamespace
-            WHERE left(namespace.nspname,4)='aap_'
+            WHERE (left(namespace.nspname,4)='aap_'
+                   OR left(namespace.nspname,5)='yoao_')
               AND pg_catalog.has_function_privilege(current_user,function.oid,'EXECUTE')
             """
         )

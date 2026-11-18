@@ -437,7 +437,7 @@ async def _audit_state(engine, role: str, probe: str):
 async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
     owner_engine, migration_url
 ):
-    role = "identity_briefs_client"
+    role = "yoao_identity_briefs_client"
     probe = f"yoao_n5s_{_suffix()}_v1"
     function = f"{probe}.probe_policy()"
     variables = {
@@ -477,11 +477,11 @@ async def test_identity_briefs_inventory_sees_public_invoker_new_namespace(
             SELECT
                 pg_catalog.has_function_privilege(
                     :role,
-                    'aap_identity_briefs_v1.briefs_policy()',
+                    'yoao_identity_briefs_v1.briefs_policy()',
                     'EXECUTE') AS policy,
                 pg_catalog.has_function_privilege(
                     :role,
-                    'aap_identity_briefs_v1.execute_briefs_command(jsonb)',
+                    'yoao_identity_briefs_v1.execute_briefs_command(jsonb)',
                     'EXECUTE') AS command
             """,
             role=role,

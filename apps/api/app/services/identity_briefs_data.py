@@ -32,7 +32,7 @@ class IdentityBriefsData:
             raw = _json_value(
                 await self.db.scalar(
                     text(
-                        "SELECT aap_identity_briefs_v1.execute_briefs_command("
+                        "SELECT yoao_identity_briefs_v1.execute_briefs_command("
                         "CAST(:command AS jsonb))"
                     ),
                     {

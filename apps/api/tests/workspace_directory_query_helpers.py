@@ -64,7 +64,7 @@ async def directory_query_provider(dsn, token, briefs_dsn=None):
     assert interpreter.is_file()
     if briefs_dsn is not None:
         briefs_url = make_url(briefs_dsn)
-        assert briefs_url.username == "identity_briefs_client"
+        assert briefs_url.username == "yoao_identity_briefs_client"
         assert (briefs_url.host, briefs_url.port, briefs_url.database) == (
             parsed.host,
             parsed.port,

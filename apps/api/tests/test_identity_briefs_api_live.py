@@ -177,7 +177,9 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
             if binding == "dedicated_dsn":
                 async with maker.begin() as db:
                     await db.execute(
-                        text("GRANT SELECT ON public.users TO identity_briefs_client")
+                        text(
+                            "GRANT SELECT ON public.users TO yoao_identity_briefs_client"
+                        )
                     )
                 try:
                     rejected = await client.get(
@@ -190,7 +192,7 @@ async def test_authorized_task_and_batch_routes_use_selected_briefs_owner(
                         await db.execute(
                             text(
                                 "REVOKE SELECT ON public.users "
-                                "FROM identity_briefs_client"
+                                "FROM yoao_identity_briefs_client"
                             )
                         )
 

@@ -524,7 +524,7 @@ async def _committed_api_client(app_module, test_engine, *, dispatcher=None):
             "identity_suspension_client",
             "identity_suspension_database_url",
         ),
-        ("BRIEFS", "identity_briefs_client", "identity_briefs_database_url"),
+        ("BRIEFS", "yoao_identity_briefs_client", "identity_briefs_database_url"),
     ):
         dsn = make_url(_module_role_url(f"AAP_MODULE_DATA_IDENTITY_{group}_URL", role))
         assert (dsn.host, dsn.port, dsn.database) == (

@@ -92,8 +92,8 @@ async def test_installed_owner_isolates_profile_failure_grants_and_restart(
                                 await db.execute(
                                     text(
                                         "REVOKE EXECUTE ON FUNCTION "
-                                        "aap_identity_briefs_v1.briefs_policy() "
-                                        "FROM identity_briefs_client"
+                                        "yoao_identity_briefs_v1.briefs_policy() "
+                                        "FROM yoao_identity_briefs_client"
                                     )
                                 )
                             assert (await client.get("/ready")).status_code == 200
@@ -109,8 +109,8 @@ async def test_installed_owner_isolates_profile_failure_grants_and_restart(
                                 await db.execute(
                                     text(
                                         "GRANT EXECUTE ON FUNCTION "
-                                        "aap_identity_briefs_v1.briefs_policy() "
-                                        "TO identity_briefs_client"
+                                        "yoao_identity_briefs_v1.briefs_policy() "
+                                        "TO yoao_identity_briefs_client"
                                     )
                                 )
                         assert (await read(marker))[0]["owner_name"] == "Query owner"

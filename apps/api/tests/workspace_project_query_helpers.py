@@ -47,7 +47,7 @@ def project_query_briefs_dsn(test_engine, database=None):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_IDENTITY_BRIEFS_URL",
-        "identity_briefs_client",
+        "yoao_identity_briefs_client",
         database,
     )
 
@@ -100,7 +100,7 @@ async def project_query_provider(dsn, token, *, briefs_dsn=None):
         ]
         if briefs_dsn is not None:
             briefs = make_url(briefs_dsn)
-            assert briefs.username == "identity_briefs_client"
+            assert briefs.username == "yoao_identity_briefs_client"
             assert (briefs.host, briefs.port, briefs.database) == (
                 parsed.host,
                 parsed.port,

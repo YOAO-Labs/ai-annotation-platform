@@ -68,7 +68,7 @@ async def test_owner_profiles_match_legacy_with_one_lookup_per_response(
         return await original_execute(commands, request)
 
     def statement(_conn, _cursor, sql, *_args):
-        if "aap_identity_briefs_v1.execute_briefs_command" in sql:
+        if "yoao_identity_briefs_v1.execute_briefs_command" in sql:
             native.append(1)
 
     monkeypatch.setattr(user_brief.IdentityBriefsCommands, "execute", execute)

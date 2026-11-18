@@ -2,7 +2,7 @@
 -- LOGIN client. User and ProjectMember data remain behind their code owners.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v identity_briefs_role=identity_briefs_client
+--   -v identity_briefs_role=yoao_identity_briefs_client
 --   -f infra/docker/identity-briefs-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -25,7 +25,7 @@ BEGIN
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'identity_briefs_client'
+    IF role_name <> 'yoao_identity_briefs_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM unnest(role_names) AS candidate(name)) <> 3 THEN
         RAISE EXCEPTION 'Unexpected Identity briefs role names';
@@ -73,11 +73,11 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_identity_briefs_v1.briefs_policy()'
+            'yoao_identity_briefs_v1.briefs_policy()'
         )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_identity_briefs_v1.execute_briefs_command(jsonb)'
+               'yoao_identity_briefs_v1.execute_briefs_command(jsonb)'
            )::oid) IS DISTINCT FROM identity_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
@@ -129,11 +129,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_identity_briefs_v1
+GRANT USAGE ON SCHEMA yoao_identity_briefs_v1
     TO :"identity_briefs_role";
 GRANT EXECUTE ON FUNCTION
-    aap_identity_briefs_v1.briefs_policy(),
-    aap_identity_briefs_v1.execute_briefs_command(jsonb)
+    yoao_identity_briefs_v1.briefs_policy(),
+    yoao_identity_briefs_v1.execute_briefs_command(jsonb)
     TO :"identity_briefs_role";
 
 DO $$
@@ -144,8 +144,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_identity_briefs_v1.briefs_policy()',
-        'aap_identity_briefs_v1.execute_briefs_command(jsonb)'
+        'yoao_identity_briefs_v1.briefs_policy()',
+        'yoao_identity_briefs_v1.execute_briefs_command(jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -197,7 +197,7 @@ BEGIN
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
-            'pg_catalog', 'information_schema', 'aap_identity_briefs_v1', 'public'
+            'pg_catalog', 'information_schema', 'yoao_identity_briefs_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'

@@ -294,7 +294,7 @@ async def _installed_configuration_provider(
             "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",
             "identity-briefs",
             project_query_briefs_dsn(test_engine),
-            "identity_briefs_client",
+            "yoao_identity_briefs_client",
         ),
     )
     postgres_id = os.environ["AAP_MODULE_DATA_PG_CONTAINER_ID"]

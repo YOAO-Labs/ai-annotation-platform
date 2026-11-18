@@ -34,7 +34,7 @@ def _briefs_dsn(test_engine, database: str | None = None) -> str:
     value = os.environ["AAP_MODULE_DATA_IDENTITY_BRIEFS_URL"]
     parsed = make_url(value)
     assert parsed.database and parsed.database.endswith(("_test", "_e2e"))
-    assert parsed.username == "identity_briefs_client"
+    assert parsed.username == "yoao_identity_briefs_client"
     assert os.environ.get("AAP_MODULE_DATA_PG_CONTAINER_ID")
     if database is not None:
         parsed = parsed.set(database=database)
@@ -128,8 +128,8 @@ async def test_restored_database_retains_briefs_policy_and_reads(test_engine, tm
         await _assert_exact_identity_functions(
             client_dsn,
             {
-                "aap_identity_briefs_v1.briefs_policy()",
-                "aap_identity_briefs_v1.execute_briefs_command(jsonb)",
+                "yoao_identity_briefs_v1.briefs_policy()",
+                "yoao_identity_briefs_v1.execute_briefs_command(jsonb)",
             },
         )
         restored_data = BriefsPostgresData(client_dsn)

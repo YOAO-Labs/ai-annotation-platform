@@ -2032,6 +2032,13 @@ Root 的限定本地 qualification 通过 77 个 distinct selected cases（76 DB
 
 ### Identity batched UserBrief reads owner (locally qualified slice)
 
+Identity briefs 的当前能力位于 `yoao_identity_briefs_v1`，专用 LOGIN 为
+`yoao_identity_briefs_client`。已有数据库升级时，先停止旧 briefs 客户端接入、将旧
+`identity_briefs_client` 设为 `NOLOGIN` 并排空已建立的连接，再执行前向迁移；随后用
+`infra/docker/identity-briefs-grants.sql` 为新 LOGIN 安装仅两函数的授权，更新 API 与
+Workspace 读者进程的专用 DSN 后再启动。历史 0249 安装文件、冻结函数体和
+`aap-identity-briefs/v1` wire 身份保持不变；旧凭据不作为备用入口。
+
 此 slice 把既有 `app.services.user_brief.resolve_briefs` 与
 `resolve_briefs_with_project_role` 的 User/ProjectMember 读取换成内部批量 Identity
 owner，不新增 public profile 路由或 SDK 操作。Caller 仍先授权自己的业务 rows；Identity
@@ -2043,7 +2050,7 @@ Private `POST /v1/identity/briefs/execute` 使用内部 control Bearer；wire �
 分别为 `aap-identity-briefs/v1`、`aap-identity-briefs-native/v1`。API 可选
 `IDENTITY_BRIEFS_DATABASE_URL(_FILE)`，Compose host selector 为
 `IDENTITY_RUNTIME_BRIEFS_DATABASE_URL_FILE`；留空时 API 走 caller Session，独立 runtime
-则禁用该 capability。Migration 0249 的 `identity_briefs_client` 仅有
+则禁用该 capability。当前能力位于 `yoao_identity_briefs_v1`，专用 LOGIN `yoao_identity_briefs_client` 仅有
 `briefs_policy()` 与 `execute_briefs_command(jsonb)` 两项执行权限，Workspace 原表不授权。
 Root 的最新 selected-case union 通过 64 个 distinct cases（59 DB/process、5 pure/static），零跳过。Source/installed suites 各 549 项通过、114 个安装文件 hash 精确匹配；API assembly 625 项通过并显式延期 132 条规则，Node 21、SDK 43 项通过。Migration 0249、冻结 SQL/grants、restore 与资源清理通过，cleanup errors 为空。
 

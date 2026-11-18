@@ -71,7 +71,7 @@ async def test_member_profiles_match_legacy_and_batch_once(
         return await user_brief.resolve_briefs(db, ids)
 
     def statement(_conn, _cursor, sql, *_args):
-        if "aap_identity_briefs_v1.execute_briefs_command" in sql:
+        if "yoao_identity_briefs_v1.execute_briefs_command" in sql:
             native.append(1)
 
     monkeypatch.setattr(workspace_project_query, "resolve_briefs", resolve)

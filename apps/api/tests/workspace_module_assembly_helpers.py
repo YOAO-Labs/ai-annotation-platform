@@ -132,7 +132,7 @@ class WorkspaceModuleStack:
             for key, (variable, role, _) in _WORKSPACE_ROLES.items()
         }
         self._briefs_dsn: URL = self._role_dsn(
-            "AAP_MODULE_DATA_IDENTITY_BRIEFS_URL", "identity_briefs_client"
+            "AAP_MODULE_DATA_IDENTITY_BRIEFS_URL", "yoao_identity_briefs_client"
         )
         self._identity_auth_dsn: URL = self._role_dsn(
             "AAP_MODULE_DATA_IDENTITY_AUTH_URL", "identity_auth_client"
