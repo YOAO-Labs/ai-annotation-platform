@@ -601,3 +601,10 @@ D1 的已审核回执、清理对账、脚本和八张截图保存在同目录 `
 - `t2-catalog-reconcile-diagnosis-2b7d48640-1` 将错误定位到唯一的视频 `tracking_scene.mp4`：Media 的 `ready_source_reference` 返回 `invalid_response`。原测试的外层事务让协调器的 `commit()` 只释放保存点；准备步骤对运行根持有写锁，独立 Media 读者需要在该根上取得共享锁。`t2-catalog-reconcile-a335b9058-1` 改用真实提交，两次协调后均从私有 HTTP 入口读回目录；独立会话核对相邻项目和任务未被修改、自审仍拒绝 403、贡献者未知仍拒绝 409。JUnit 1/1，验证器退出 0，自有环境已删除；未修改生产授权、读锁、超时或校验。
 - 本轮清理另外移除了 9 个被当前制品替代且未被容器使用的镜像，以及历史 runner 遗留的 4 个推理进程、3 个已停止容器、2 个独占卷和 2 个网络。旧命名 `test` 模式的 PostgreSQL／MinIO 端点拒绝连接，未启动共享服务，旧库和桶的删除未核实；工作树及其归属清单保留。见 `retired-superseded-t1-api-artifacts-a335b9058.json`、`runner-retirement-a335b9058.json`。这些是环境清理结果，不是产品回收资格。
 - `t2-default-node-evidence-map-a335b9058.json` 对照默认收集逐项核对 T2 的四个文件：owned 27 项、截图目录 15 项、Identity 双运行和 scale 各 1 项。44 个不同节点均能在六份历史 JUnit 中找到通过记录，没有遗漏的单项；不是同一候选的一次执行。最近一次真实默认运行中 ordinary 失败，identity-e2e 和 scale-seed 未运行。此对照不是新的验证器结果，正式组合验收继续留在 §16.7。
+
+## T1／T2 联合验收：N5 集成候选
+
+- `t1-t2-joint-254fe2a54-1`：以 `254fe2a540` 建立独立验收工作树，启动联合验收流程。宿主输入清单 6,157 项；18 个所需镜像中，17 个的 COPY 输入相对上一批已变，必须重新取得安装字节证明后才能运行默认验证器。T2 在本轮的 `ordinary`、`identity-e2e`、`scale-seed` 中对账，不拿历史 44 个单项代替。
+- 保留默认 collection 和零跳过的通过标准。两个强制依赖内核 `memory.peak` 的节点（Spatial、Mask GC）沿用延期决定，如被调度则记为 skipped，不记为通过。准备回执与阶段状态：`t1-gate/joint-254fe2a54-1/`；验证器输出使用同一 run 标签。启动本身不放行 T1、T2 或 J1。
+- 北京时间 21:50，18 个镜像的安装字节验证和整体验收预检均通过，默认验证器已进入 `default-collection`，登记 18 个 profile。3 个 API 镜像的首次非 root 读取失败保留；按同一提交的标准 Git 文件权限重建后通过。此时没有测试通过数或联合结论。
+- 首轮 21:55 退出 1：默认清单涉及 428 个文件，但在收集用例前，收件箱 ACL 反向检查以 `UndefinedObjectError` 中止。实际受限 LOGIN 已通过检查；验收器给事务写的是 `aap.*`，当前授权 SQL 取的是 `yoao.*`。18 个 profile 全部未运行，没有 pytest／JUnit 结果，不能解释成产品权限放宽。修正只对齐验收器的事务参数，不改生产授权、拒绝断言或回滚。PostgreSQL 已由验证器退役；按 owner 清除残余 MinIO、卷、网络及临时根，保存两份原始夹具回执。见 `joint-254fe2a54-1/environment-retirement.json`。

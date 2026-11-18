@@ -6208,7 +6208,7 @@ async def _verify_inbox_grant_guards(owner_url: str, profile_sql: str) -> dict:
                     "query_client": NOTIFICATION_INBOX_ROLE,
                 }.items():
                     await connection.execute(
-                        "SELECT pg_catalog.set_config($1,$2,true)", f"aap.{key}", value
+                        "SELECT pg_catalog.set_config($1,$2,true)", f"yoao.{key}", value
                     )
                 await connection.execute(mutation)
                 try:
