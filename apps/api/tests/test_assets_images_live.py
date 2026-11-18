@@ -1115,7 +1115,7 @@ async def test_independent_vips_pyramid_is_current_grid_and_expired_lease_is_fen
                 ).one_or_none()
             assert stale_output is not None
             assert stale_output.state == "building"
-            assert str(stale_output.lease_token) == stale_token
+            assert stale_output.lease_token == stale_token
 
             (gate[1] / "release").touch()
             os.killpg(stale_worker.pid, signal.SIGCONT)
