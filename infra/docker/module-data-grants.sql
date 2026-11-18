@@ -109,27 +109,27 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
     yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
     yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
     yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
-    aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
+    yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, yoao_identity_briefs_v1, aap_assets_v1, yoao_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
     aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
@@ -1279,7 +1279,7 @@ GRANT SELECT (project_id), DELETE ON public.export_artifacts TO :"export_owner";
 GRANT USAGE ON SCHEMA aap_identity_v1
     TO :"identity_owner", :"workspace_owner", :"assets_owner", :"audit_owner",
        :"labeling_owner", :"learning_owner", :"inference_owner", :"workflow_role";
-GRANT USAGE ON SCHEMA aap_identity_keys_v1, aap_identity_sessions_v1,
+GRANT USAGE ON SCHEMA yoao_identity_keys_v1, aap_identity_sessions_v1,
     aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1,
     aap_identity_deactivation_v1, aap_identity_invitations_v1,
     aap_identity_mail_v2, aap_identity_directory_v1,
@@ -1777,7 +1777,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.delete_project(uuid, uuid, uuid, json
 
 -- Keep schemas owned by the migrator; NOLOGIN code owners cannot replace code.
 GRANT CREATE ON SCHEMA aap_identity_v1 TO :"identity_owner";
-GRANT CREATE ON SCHEMA aap_identity_keys_v1 TO :"identity_owner";
+GRANT CREATE ON SCHEMA yoao_identity_keys_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_sessions_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_accounts_v1 TO :"identity_owner";
 GRANT CREATE ON SCHEMA aap_identity_recovery_v1 TO :"identity_owner";
@@ -1886,11 +1886,11 @@ ALTER FUNCTION aap_identity_v1.lock_super_admin_invariant()
 ALTER FUNCTION aap_identity_v1.super_admin_status(uuid)
     OWNER TO :"identity_owner";
 REVOKE CREATE ON SCHEMA aap_identity_v1 FROM :"identity_owner";
-ALTER FUNCTION aap_identity_keys_v1.key_policy()
+ALTER FUNCTION yoao_identity_keys_v1.key_policy()
     OWNER TO :"identity_owner";
-ALTER FUNCTION aap_identity_keys_v1.execute_key_command(jsonb)
+ALTER FUNCTION yoao_identity_keys_v1.execute_key_command(jsonb)
     OWNER TO :"identity_owner";
-REVOKE CREATE ON SCHEMA aap_identity_keys_v1 FROM :"identity_owner";
+REVOKE CREATE ON SCHEMA yoao_identity_keys_v1 FROM :"identity_owner";
 ALTER FUNCTION aap_identity_sessions_v1._failure(text, bigint)
     OWNER TO :"identity_owner";
 ALTER FUNCTION aap_identity_sessions_v1.session_policy()
@@ -4133,7 +4133,7 @@ REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 -- Complete Inference ownership: public topology/caller capabilities never return credentials.
 GRANT USAGE, CREATE ON SCHEMA aap_inference_topology_v1,
     aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
-    aap_inference_gpu_caller_v1, aap_inference_gpu_collector_v1 TO :"inference_owner";
+    yoao_inference_gpu_caller_v1, yoao_inference_gpu_collector_v1 TO :"inference_owner";
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.ml_backend_registry,
     public.ml_backend_service_pools, public.ml_backend_pool_members,
     public.project_ml_backend_pool, public.gpu_backend_fences,
@@ -4150,8 +4150,8 @@ BEGIN
         JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname IN (
             'aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
-            'aap_inference_gpu_v1','aap_inference_gpu_caller_v1',
-            'aap_inference_gpu_collector_v1'
+            'aap_inference_gpu_v1','yoao_inference_gpu_caller_v1',
+            'yoao_inference_gpu_collector_v1'
         )
     LOOP
         EXECUTE pg_catalog.format('ALTER FUNCTION %s OWNER TO %I',v_function.signature,v_owner);
@@ -4164,7 +4164,7 @@ ALTER TABLE aap_inference_gpu_v1.installation_control_intents OWNER TO :"inferen
 ALTER TABLE aap_inference_gpu_v1.installation_terminal_intents OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_topology_v1,
     aap_inference_backend_endpoint_v1, aap_inference_gpu_v1,
-    aap_inference_gpu_caller_v1, aap_inference_gpu_collector_v1 FROM :"inference_owner";
+    yoao_inference_gpu_caller_v1, yoao_inference_gpu_collector_v1 FROM :"inference_owner";
 -- Forward main integration: each new capability retains its domain owner.
 GRANT SELECT (avatar_ref), UPDATE (avatar_ref) ON public.users TO :"identity_owner";
 GRANT SELECT, UPDATE ON public.avatar_uploads TO :"identity_owner";

@@ -2691,15 +2691,17 @@ psql -v expected_database=annotation_test -v migration_role=owner \
 
 PUBLIC 的 TEMP 须在数据库初始化时撤销。准入 LOGIN 只有五项函数能力，包括迁移 0250 增加的 `read_actor_context(uuid,text)`；仍不持有业务表、Redis、队列或对象存储权限。主体上下文不是写权限或目标授权票据；密码恢复、登出和账号生命周期仍由调用方事务及各自账户锁维护持久 generation／JTI 与写入围栏。
 
-另为预先创建、无继承／成员关系的 `identity_key_client` 安装两项命令能力：
+另为预先创建、无继承／成员关系的 `yoao_identity_key_client` 安装两项命令能力：
 
 ```bash
 psql -v expected_database=annotation_test -v migration_role=owner \
-  -v identity_owner=identity_code -v identity_key_role=identity_key_client \
+  -v identity_owner=identity_code -v identity_key_role=yoao_identity_key_client \
   -f infra/docker/identity-keys-grants.sql
 ```
 
 此 LOGIN 只有 key 策略和命令执行函数，不含准入函数或直接表权限。运行时分别使用准入与命令两个连接；命令前的哈希工作不持有最终业务锁，原生函数锁当前账号、凭据和目标 key 后共同提交修改与回执。非空 key 操作回执阻止删除该协议的降级，回执随其 Identity 账号的物理删除级联清除。
+
+已有库切换密钥管理和 GPU 调用能力时，先停止旧 Identity key、GPU collector 和共享 API／worker 的准入，结清在途操作与预备事务，记录目标库原连接上限。将 `identity_key_client`、`inference_gpu_collector_client` 置为 `NOLOGIN` 并排空连接；其他仍持有这些能力的普通 LOGIN 须停用，或在迁移维护窗口把**目标库**的连接上限设为 `0` 并由维护连接执行迁移。不要改共享应用账号名或终止未知会话。迁移后用新专用 LOGIN 安装授权、更新 DSN，部署匹配的 Identity／Inference 工件并验证就绪，再恢复原上限和准入。沿用原 Identity 签发密钥，不轮换已发 API key；GPU 回收仍需准确的物理证明和回执。
 
 核心会话使用同一运行时的 `POST /v1/identity/sessions/execute`。会话 LOGIN 安装命令如下，参数与其他函数专用角色采用同一初始化要求：
 

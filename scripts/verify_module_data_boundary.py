@@ -74,7 +74,7 @@ INFERENCE_OWNER_PROFILES = {
         "inference_gpu_control_endpoint_client",
     ),
     "INFERENCE_GPU": ("gpu_authority", "inference_gpu_authority_client"),
-    "INFERENCE_GPU_COLLECTOR": ("gpu_collector", "inference_gpu_collector_client"),
+    "INFERENCE_GPU_COLLECTOR": ("gpu_collector", "yoao_inference_gpu_collector_client"),
 }
 VIDEO_EXECUTION_ROLE = "video_execution_client"
 IDENTITY_API_CONSUMER_ROLE = "identity_api_consumer"
@@ -141,6 +141,9 @@ NOTIFICATION_INBOX_PRIVATE_HELPER = (
 FROZEN_OWNER_NAMESPACES = {
     "yoao_diagnostics_v1": "aap_diagnostics_v1",
     "yoao_identity_briefs_v1": "aap_identity_briefs_v1",
+    "yoao_identity_keys_v1": "aap_identity_keys_v1",
+    "yoao_inference_gpu_caller_v1": "aap_inference_gpu_caller_v1",
+    "yoao_inference_gpu_collector_v1": "aap_inference_gpu_collector_v1",
     "yoao_labeling_class_query_v1": "aap_labeling_class_query_v1",
     "yoao_insights_v1": "aap_insights_v1",
     "yoao_workspace_directory_query_v1": "aap_workspace_directory_query_v1",
@@ -163,6 +166,8 @@ FUNCTION_BODY_ARTIFACTS = {
     "yoao_identity_briefs_v1._has_exact_keys(jsonb,text[])": "0249_identity_briefs.sql",
     "yoao_identity_briefs_v1.briefs_policy()": "0249_identity_briefs.sql",
     "yoao_identity_briefs_v1.execute_briefs_command(jsonb)": "0249_identity_briefs.sql",
+    "yoao_identity_keys_v1.key_policy()": "0236_identity_api_keys.sql",
+    "yoao_identity_keys_v1.execute_key_command(jsonb)": "0236_identity_api_keys.sql",
     "yoao_labeling_class_query_v1.attribute_rows(uuid)": "0266_labeling_class_query.sql",
     "yoao_labeling_class_query_v1.class_counts(uuid)": "0266_labeling_class_query.sql",
     "yoao_labeling_class_query_v1.class_query_policy()": "0266_labeling_class_query.sql",
@@ -311,8 +316,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_inference_gpu_v1.gpu_plugin_retirement_claim_valid(uuid,jsonb)": "0395_plugin_gpu_retirement.sql",
     "aap_inference_gpu_v1.gpu_plugin_retirement_closure(uuid,text,bigint)": "0395_plugin_gpu_retirement.sql",
     "public.sync_gpu_backend_membership()": "0433_gpu_membership_scalar_guard.sql",
-    "aap_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
-    "aap_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0395_plugin_gpu_retirement.sql",
+    "yoao_inference_gpu_caller_v1.gpu_caller_policy()": "0369_inference_gpu.sql",
+    "yoao_inference_gpu_collector_v1.gpu_collector_policy()": "0369_inference_gpu.sql",
+    "yoao_inference_gpu_caller_v1.gpu_caller_step(text,text)": "0369_inference_gpu.sql",
+    "yoao_inference_gpu_collector_v1.gpu_collector_step(text,text)": "0395_plugin_gpu_retirement.sql",
     "aap_labeling_v1.screenshot_operations_command(jsonb)": "0432_labeling_screenshot_operations.sql",
     "aap_labeling_v1.purge_scale_seed_labeling_rows(text,uuid[])": "0364_labeling_scale_seed_operations.sql",
     "aap_labeling_v1.create_scale_seed_batches(text,uuid,uuid,integer,uuid)": "0364_labeling_scale_seed_operations.sql",
@@ -1469,7 +1476,7 @@ IDENTITY_CLIENT_ROLES = {
     "COMMAND": "identity_command_client",
     "FENCE": "identity_fence_client",
     "OPERATOR": "identity_session_operator",
-    "KEYS": "identity_key_client",
+    "KEYS": "yoao_identity_key_client",
     "SESSIONS": "identity_session_client",
     "ACCOUNTS": "identity_account_client",
     "GROUP": "identity_group_client",
@@ -2006,6 +2013,7 @@ SQL_ARTIFACTS = (
     "0470_diagnostics_insights_namespace.sql",
     "0471_workspace_query_namespace.sql",
     "0472_briefs_class_query_namespaces.sql",
+    "0473_keys_gpu_capabilities.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -5718,6 +5726,11 @@ def _installed_function_body_sha256(
     if schema in FROZEN_OWNER_NAMESPACES or current_name in NAMESPACE_BODY_CALLERS:
         for current, frozen in FROZEN_OWNER_NAMESPACES.items():
             expected = expected.replace(f"{frozen}.", f"{current}.")
+    if current_name in {
+        "yoao_inference_gpu_caller_v1.gpu_caller_policy",
+        "yoao_inference_gpu_collector_v1.gpu_collector_policy",
+    }:
+        expected = expected.replace(f"'{frozen_schema}'", f"'{schema}'")
     encoded = _psql(
         container_id,
         container_name,
@@ -10921,7 +10934,7 @@ SELECT id FROM removed;
                 "expected_database": database,
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
-                "identity_key_role": "identity_key_client",
+                "identity_key_role": "yoao_identity_key_client",
             },
         )
         phase = "install-identity-session-grants"

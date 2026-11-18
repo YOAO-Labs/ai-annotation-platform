@@ -241,7 +241,7 @@ GRANT SELECT ON aap_labeling_v1.task_rows,
     aap_labeling_v1.annotation_feedback_facts, aap_labeling_v1.task_event_facts
     TO :"application_role";
 -- Embedded Identity adapters use the same owner capabilities as isolated clients.
-GRANT USAGE ON SCHEMA aap_identity_v1, aap_identity_keys_v1,
+GRANT USAGE ON SCHEMA aap_identity_v1, yoao_identity_keys_v1,
     aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1,
     aap_identity_groups_v1, aap_identity_deactivation_v1,
     aap_identity_invitations_v1, aap_identity_mail_v2,
@@ -672,8 +672,8 @@ GRANT EXECUTE ON FUNCTION
     aap_identity_v1.is_jti_revoked(uuid),
     aap_identity_v1.retire_account_credentials(uuid),
     aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[]),
-    aap_identity_keys_v1.key_policy(),
-    aap_identity_keys_v1.execute_key_command(jsonb),
+    yoao_identity_keys_v1.key_policy(),
+    yoao_identity_keys_v1.execute_key_command(jsonb),
     aap_identity_sessions_v1.session_policy(),
     aap_identity_sessions_v1.read_login_candidate(text),
     aap_identity_sessions_v1.execute_session_command(jsonb),
@@ -1576,8 +1576,8 @@ DECLARE
         'aap_inference_backend_endpoint_v1.catalog_endpoint_rows()',
         'aap_inference_backend_endpoint_v1.stats_endpoint_rows()',
         'aap_inference_backend_endpoint_v1.observation_registration_labels(text[])',
-        'aap_inference_gpu_caller_v1.gpu_caller_policy()',
-        'aap_inference_gpu_caller_v1.gpu_caller_step(text,text)'
+        'yoao_inference_gpu_caller_v1.gpu_caller_policy()',
+        'yoao_inference_gpu_caller_v1.gpu_caller_step(text,text)'
     ];
 BEGIN
     IF current_database()<>current_setting('yoao.expected_database')
@@ -1594,7 +1594,7 @@ BEGIN
             'project_ml_backend_pool','gpu_backend_fences','gpu_backend_memberships',
             'gpu_arbiter_rollouts','gpu_backend_cancel_intents'
         )) OR (n.nspname IN ('aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
-                            'aap_inference_gpu_v1','aap_inference_gpu_collector_v1')
+                            'aap_inference_gpu_v1','yoao_inference_gpu_collector_v1')
                AND c.relkind IN ('r','p','v','m','f'))
     LOOP
         IF pg_catalog.pg_has_role(v_runtime_oid,v_relation.relowner,'MEMBER') THEN
@@ -1620,8 +1620,8 @@ BEGIN
         SELECT p.oid::pg_catalog.regprocedure AS signature
         FROM pg_catalog.pg_proc p JOIN pg_catalog.pg_namespace n ON n.oid=p.pronamespace
         WHERE n.nspname IN ('aap_inference_topology_v1','aap_inference_backend_endpoint_v1',
-                            'aap_inference_gpu_v1','aap_inference_gpu_caller_v1',
-                            'aap_inference_gpu_collector_v1')
+                            'aap_inference_gpu_v1','yoao_inference_gpu_caller_v1',
+                            'yoao_inference_gpu_collector_v1')
            OR (n.nspname='aap_inference_backend_probe_v1' AND p.proname='open_backend_probe_subject')
            OR (n.nspname='aap_inference_health_observation_v1' AND p.proname='open_health_observation_subject')
            OR (n.nspname='aap_inference_health_data_v1' AND p.proname='backend_row')

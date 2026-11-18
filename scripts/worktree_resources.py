@@ -83,8 +83,8 @@ IDENTITY_RUNTIME_CAPABILITIES = (
     "aap_identity_v1.is_jti_revoked(uuid)",
     "aap_identity_v1.retire_account_credentials(uuid)",
     "aap_identity_v1.lock_current_principal(uuid,text,uuid,bigint,timestamptz,text[])",
-    "aap_identity_keys_v1.key_policy()",
-    "aap_identity_keys_v1.execute_key_command(jsonb)",
+    "yoao_identity_keys_v1.key_policy()",
+    "yoao_identity_keys_v1.execute_key_command(jsonb)",
     "aap_identity_sessions_v1.session_policy()",
     "aap_identity_sessions_v1.read_login_candidate(text)",
     "aap_identity_sessions_v1.execute_session_command(jsonb)",
@@ -1663,7 +1663,7 @@ class LocalResources:
                     "last_reason, created_at, delivered_at) "
                     f"ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_inference_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, yoao_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, yoao_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_inference_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, yoao_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, yoao_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, yoao_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     "aap_assets_v1.spatial_scene_references, "
                     f"aap_assets_v1.labeling_dataset_item_facts TO {role}",

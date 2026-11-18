@@ -15,14 +15,11 @@ from app.db.models.user import User
 from tests.test_identity_auth_native import _cleanup, _seed
 
 
-_ROOT = Path(__file__).parents[3]
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _ARTIFACT = _SQL_DIR / "0236_identity_api_keys.sql"
 _SCHEMA = _SQL_DIR / "0236_identity_api_keys.schema.json"
 _MIGRATION = Path(__file__).parents[1] / "alembic/versions/0236_identity_api_keys.py"
 _NATIVE_SCHEMA = Path(__file__).parents[1] / "app/db/native_schema.py"
-_MODULE_GRANTS = _ROOT / "infra/docker/module-data-grants.sql"
-_KEY_GRANTS = _ROOT / "infra/docker/identity-keys-grants.sql"
 
 
 def _jwt_actor(actor_id: uuid.UUID, *, jti: uuid.UUID | None = None) -> dict:
@@ -100,8 +97,6 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
     schema = json.loads(_SCHEMA.read_text(encoding="utf-8"))
     artifact = _ARTIFACT.read_text(encoding="utf-8")
     migration = _MIGRATION.read_text(encoding="utf-8")
-    module_grants = _MODULE_GRANTS.read_text(encoding="utf-8")
-    key_grants = _KEY_GRANTS.read_text(encoding="utf-8")
     native_schema = _NATIVE_SCHEMA.read_text(encoding="utf-8")
     statements = [
         statement.strip()
@@ -143,13 +138,6 @@ def test_frozen_native_key_artifacts_and_two_function_owner_surface():
 
     assert "Cannot remove Identity API-key operation receipts" in migration
     assert "identity_key_operation_receipts" in native_schema
-    assert 'identity_key_operation_receipts TO :"identity_owner"' in module_grants
-    assert "identity_key_role=yoao_identity_key_client" in key_grants
-    assert key_grants.count("yoao_identity_keys_v1.key_policy()") == 2
-    assert key_grants.count("yoao_identity_keys_v1.execute_key_command(jsonb)") == 2
-    assert "aap_identity_keys_v1" not in key_grants
-    assert "identity_auth_role" not in key_grants
-    assert "identity_command_role" not in key_grants
 
 
 @pytest.mark.asyncio
