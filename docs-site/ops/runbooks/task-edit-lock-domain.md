@@ -51,12 +51,12 @@ last_reviewed: 2026-11-18
 
 ```sql
 SELECT p.oid::regprocedure,
-       pg_catalog.length(p.prosrc)
-         - pg_catalog.length(pg_catalog.replace(p.prosrc, '''aap:task-edit-lock:''', ''))
-         AS legacy_occurrences,
-       pg_catalog.length(p.prosrc)
-         - pg_catalog.length(pg_catalog.replace(p.prosrc, '''task-edit-lock:''', ''))
-         AS current_occurrences
+       (pg_catalog.length(p.prosrc)
+         - pg_catalog.length(pg_catalog.replace(p.prosrc, '''aap:task-edit-lock:''', '')))
+         / pg_catalog.length('''aap:task-edit-lock:''') AS legacy_occurrences,
+       (pg_catalog.length(p.prosrc)
+         - pg_catalog.length(pg_catalog.replace(p.prosrc, '''task-edit-lock:''', '')))
+         / pg_catalog.length('''task-edit-lock:''') AS current_occurrences
 FROM pg_catalog.pg_proc AS p
 WHERE p.oid IN (
   'aap_labeling_v1.task_edit_lock_command(jsonb)'::regprocedure,
@@ -67,14 +67,13 @@ WHERE p.oid IN (
 ORDER BY p.oid::regprocedure::text;
 ```
 
-预期 `legacy_occurrences` 分别为 7／1／1／1，`current_occurrences` 全为 0。若不符合，
+预期 `task_edit_lock_command` 有 7 个旧域引用，其余三个函数各 1 个；所有 `current_occurrences` 均为 0。若不符合，
 先停止并核对部署来源，不要手工修补正文。
 
 检查其他连接是否仍可进入锁域：
 
 ```sql
-SELECT a.pid, a.usename, a.datname, a.state, a.backend_type,
-       a.query_start, pg_catalog.left(a.query, 160) AS query
+SELECT a.pid, a.usename, a.datname, a.state, a.backend_type, a.query_start
 FROM pg_catalog.pg_stat_activity AS a
 WHERE a.pid <> pg_catalog.pg_backend_pid()
   AND a.datid = (SELECT oid FROM pg_catalog.pg_database

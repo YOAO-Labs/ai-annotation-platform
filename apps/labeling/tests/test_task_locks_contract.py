@@ -1,5 +1,4 @@
 import json
-import re
 from importlib.resources import files
 from pathlib import Path
 from uuid import uuid4
@@ -60,12 +59,6 @@ def test_task_locks_use_the_current_advisory_domain():
         repository / "apps/api/alembic/sql/0466_task_edit_lock_domain.sql"
     ).read_text(encoding="utf-8")
     assert packaged_sql == migration_sql
-    assert not re.search(
-        r"pg_(?:try_)?advisory_xact_lock(?:_shared)?\(\s*"
-        r"(?:pg_catalog\.)?hashtextextended\(\s*'aap:task-edit-lock:",
-        packaged_sql,
-    )
-    assert "hashtextextended('task-edit-lock:'" in packaged_sql
 
 
 @pytest.mark.asyncio

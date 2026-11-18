@@ -66,7 +66,9 @@ last_reviewed: 2026-10-26
 | DELETE     | `/files/tasks/{task_id}/original-playback/{lease_id}`                 | Bearer、本人账号与准确资源/session，释放租约                                      |
 | DELETE     | `/datasets/{dataset_id}/items/{item_id}/original-playback/{lease_id}` | Bearer、本人账号与准确资源/session，释放租约                                      |
 
-POST提交 `content_id`、小写64位 `sha256` 和客户端登录会话的UUID `session_id`，多余字段拒绝。前两项来自认证身份接口；session只划分客户端资源，不是服务端权限证明。响应仅含 `lease_id / media_path / expires_at`，附 `aap_video_lease` Cookie：host-only、HttpOnly、SameSite=Strict，Path为准确media_path，HTTPS时Secure。自然期限不超过300秒或原凭证期限。非video为415，未知归属或旧内容为409，reference保持其既有读取合同。
+POST 提交 `content_id`、小写 64 位 `sha256` 和客户端登录会话的 UUID `session_id`；拒绝多余字段。前两项来自认证身份接口；会话只划分客户端资源，不是权限证明。响应仅含 `lease_id / media_path / expires_at`，并设置 `yoao_video_lease` Cookie：host-only、HttpOnly、SameSite=Strict，Path 为准确的 `media_path`，HTTPS 时为 Secure。租约自然期限不超过 300 秒或原凭证期限。非视频为 415，未知归属或旧内容为 409，引用样本保持原读取合同。
+
+升级时先停止旧 API 接流，等待已开始的范围响应和暂存文件实际关闭，再启动新 API。客户端须用 Bearer 重新准备租约；旧 Cookie 即使携带正确的 secret 也不能授权新请求。
 
 首次准备按保存位置完整核对条件、SHA、精确大小、EOF及真实关闭，再复核当前授权与Gate。同Authority/session/资源/冻结来源的ready表示可复用，每次准备创建独立租约；正在准备时返回429 `video_playback_preparing`，不会再复制同一远端原件。GET/HEAD从已核验的本地匿名文件读取，不访问当前用途桶或隐式重建暂存。原User/Key、JWT自然期限/blacklist/代次、scope、Task/Item关系及Gate必须仍有效；授权等待后还会重核租约是否过期或退休，HEAD和范围错误也不绕过授权。
 

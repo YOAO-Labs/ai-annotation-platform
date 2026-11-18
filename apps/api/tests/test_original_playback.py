@@ -7,7 +7,7 @@ import uuid
 import pytest
 from sqlalchemy import select, update
 
-from app.api.v1.original_playback import COOKIE_NAME, playback_registry
+from app.api.v1.original_playback import playback_registry
 from app.core.security import hash_password
 from app.db.models.api_key import ApiKey
 from app.db.models.dataset import DatasetItem
@@ -142,12 +142,16 @@ async def test_cookie_does_not_authorize_another_lease_and_missing_cookie_is_den
 ):
     first = await prepare(httpx_client, video_world, project_admin)
     second = await prepare(httpx_client, video_world, project_admin, kind="item")
-    secret = first.cookies.get(COOKIE_NAME)
+    secret = first.cookies["yoao_video_lease"]
     response = await httpx_client.get(
-        second.json()["media_path"], headers={"Cookie": f"{COOKIE_NAME}={secret}"}
+        second.json()["media_path"], headers={"Cookie": f"yoao_video_lease={secret}"}
     )
     assert response.status_code == 403
     httpx_client.cookies.clear()
+    response = await httpx_client.get(
+        first.json()["media_path"], headers={"Cookie": f"aap_video_lease={secret}"}
+    )
+    assert response.status_code == 403
     response = await httpx_client.get(first.json()["media_path"])
     assert response.status_code == 403
     assert registry.diagnostics()["response_pins"] == 0

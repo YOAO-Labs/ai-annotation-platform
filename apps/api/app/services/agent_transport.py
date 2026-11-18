@@ -48,7 +48,7 @@ def redis_client():
 
 
 def relay_key(command_id):
-    return f"aap:site-agent:relay:{command_id}"
+    return f"yoao:site-agent:relay:{command_id}"
 
 
 async def _identity(db, row):

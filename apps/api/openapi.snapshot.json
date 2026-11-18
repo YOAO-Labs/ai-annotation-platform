@@ -69795,7 +69795,7 @@
       "OriginalPlaybackCookie": {
         "description": "Short-lived capability scoped to this exact video lease path; obtain through Bearer preparation.",
         "in": "cookie",
-        "name": "aap_video_lease",
+        "name": "yoao_video_lease",
         "type": "apiKey"
       }
     }
@@ -71054,7 +71054,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           }
         },
         "security": [
@@ -71171,7 +71171,7 @@
                 }
               }
             },
-            "description": "Unprocessable Content"
+            "description": "Unprocessable Entity"
           }
         },
         "security": [

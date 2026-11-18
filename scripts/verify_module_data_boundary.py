@@ -192,7 +192,15 @@ FUNCTION_BODY_ARTIFACTS = {
         )
     },
     "aap_assets_v1.guard_fixture_native_target_output()": "0461_fixture_native_pyramid_target.sql",
-    "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0460_workspace_owner_transfer_namespace.sql",
+    "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)": "0467_workspace_membership_namespace.sql",
+    **{
+        signature: "0467_workspace_membership_namespace.sql"
+        for signature in (
+            "yoao_workspace_membership_v1.membership_policy()",
+            "yoao_workspace_membership_v1.prepare_membership_command(jsonb)",
+            "yoao_workspace_membership_v1.apply_membership_command(jsonb)",
+        )
+    },
     "aap_assets_v1.guard_import_original_verification()": "0453_import_original_verification.sql",
     "aap_assets_v1._import_verification_scope(jsonb,boolean)": "0453_import_original_verification.sql",
     "aap_assets_v1.reserve_import_original_read(jsonb)": "0453_import_original_verification.sql",
@@ -318,7 +326,10 @@ FUNCTION_BODY_ARTIFACTS = {
     "aap_labeling_v1.annotation_write_command(jsonb)": "0338_labeling_annotation_writes.sql",
     "public.capture_mask_annotation_revision()": "0338_labeling_annotation_revision_support.sql",
     "public.record_mask_annotation_revision(uuid,uuid,uuid,integer,jsonb,text)": "0338_labeling_annotation_revision_support.sql",
-    "aap_labeling_v1.task_edit_lock_command(jsonb)": "0334_labeling_task_locks.sql",
+    "aap_labeling_v1.task_edit_lock_command(jsonb)": "0466_task_edit_lock_domain.sql",
+    "aap_labeling_v1.lock_video_input_manifest_member(uuid,uuid,uuid,jsonb,jsonb)": "0466_task_edit_lock_domain.sql",
+    "aap_labeling_v1.lock_identity_offboarding_work(uuid,uuid[])": "0466_task_edit_lock_domain.sql",
+    "aap_labeling_v1.lock_membership_work(uuid,uuid,text,boolean)": "0466_task_edit_lock_domain.sql",
     "aap_labeling_v1.task_workflow_command(jsonb)": "0427_labeling_actor_batch_share.sql",
     "aap_jobs_v1.lock_action_idempotency(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
     "aap_jobs_v1.find_action_idempotent_jobs(text,uuid,uuid,text)": "0332_jobs_action_idempotency.sql",
@@ -1433,7 +1444,7 @@ IDENTITY_CLIENT_ROLES = {
     "DIRECTORY": "identity_directory_client",
     "BRIEFS": "identity_briefs_client",
     "PROVISIONING": "identity_provisioning_client",
-    "WORKSPACE_MEMBERSHIP": "workspace_membership_client",
+    "WORKSPACE_MEMBERSHIP": "yoao_workspace_membership_client",
     "WORKSPACE_OWNER_TRANSFER": "yoao_workspace_owner_transfer_client",
     "WORKSPACE_PROJECT_MAINTENANCE": "workspace_project_maintenance_client",
     "WORKSPACE_PROJECT_DELETION": "workspace_project_deletion_client",
@@ -1943,6 +1954,9 @@ SQL_ARTIFACTS = (
     "0464_native_pyramid_saved_targets.sql",
     "0464_native_storage_capture.sql",
     *WORKER_JOB_SCOPE_SQL,
+    "0466_task_edit_lock_domain.sql",
+    "0467_workspace_membership_namespace.sql",
+    "0469_routing_admission_header.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -2131,6 +2145,7 @@ SCHEMA_ARTIFACTS = (
     "0332_jobs_action_idempotency.schema.json",
     "0333_audit_maintenance.schema.json",
     "0334_labeling_task_locks.schema.json",
+    "0466_task_edit_lock_domain.schema.json",
     "0335_labeling_task_workflow.schema.json",
     "0336_labeling_annotation_statistics.schema.json",
     "0337_labeling_scene_track_domain.schema.json",
@@ -6892,6 +6907,7 @@ def _install_and_rollback_frozen_sql(
             "AND request_id=:'provisioning_request') "
             "AND to_regprocedure('aap_workspace_v1.identity_brief_project_roles(uuid,uuid[])') IS NULL "
             "AND to_regnamespace('aap_workspace_membership_v1') IS NULL "
+            "AND to_regnamespace('yoao_workspace_membership_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('yoao_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
@@ -11191,7 +11207,7 @@ SELECT id FROM removed;
                 "workspace_owner": "workspace_code",
                 "labeling_owner": "labeling_code",
                 "audit_owner": "audit_code",
-                "workspace_membership_role": "workspace_membership_client",
+                "workspace_membership_role": "yoao_workspace_membership_client",
             },
         )
         phase = "install-workspace-owner-transfer-grants"

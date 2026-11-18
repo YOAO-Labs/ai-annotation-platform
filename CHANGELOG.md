@@ -40,6 +40,8 @@
 
 ### Changed
 
+- 视频原件的短期播放 Cookie 改为 `yoao_video_lease`，升级后重新准备租约。站点 Agent 中继改用 YOAO Redis 键；切换前须由旧中心收齐关闭回执并释放原中继，不根据 TTL 猜测已关闭。
+- 项目成员变更改用受限的 `yoao_workspace_membership_client`；任务编辑、视频选集、离职和成员交接共同切换锁域，须停旧写者后升级。推理私有控制头与路由改用 YOAO 名称，平台与插件须部署匹配的制品；既有密钥、已签名身份和历史回执不改写。
 - 超大图 Native 输出改用保存目标生命周期：管理界面把媒体缓存绑定从 A 切换为 B 后，新输出写入 B，A 上的旧输出继续从 A 读取和回收；Images、Cleanup 与 API 不需要改桶、endpoint 或 secret。Source 以独立 Native 存储身份签发有限请求，由 Images/Cleanup 执行对象 I/O，不向它们提供保存目标的原始凭据。修改 A 的注册位置不是重定向；保存坐标不匹配时读取、校验和删除明确拒绝，外来或不确定的对象不会被删除。
 - Assets Cleanup 增加第五条 Native 保存输出回收 lane，共 11 项 owner 函数。该 lane 只处理具备完整保存回执的 `written`/`verified` 成员，执行条件完整读取、精确删除、删除后不存在检查及有界对象/版本/multipart 证明；未知 I/O、确认丢失和单纯租约到期保留责任，公开 URL 按冻结保留期等待。
 - 新增可选 `docker-compose.assets-native.yml` 与 `infra/docker/native-source-minio-policy.json`：Source 的三项 Native token 与独立 Native S3 身份必须同时配置，调用方各自使用对应角色的 URL/token 文件；Cleanup 当前强制要求 Native URL/token，未配置的 Source 保持功能关闭且不回退其他签名方或当前缓存桶。自动金字塔受理仍默认关闭。

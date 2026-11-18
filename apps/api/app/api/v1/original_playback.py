@@ -17,7 +17,7 @@ from app.services import original_playback as playback
 from app.services.dataset_content import content_http_error
 
 router = APIRouter()
-COOKIE_NAME = "aap_video_lease"
+COOKIE_NAME = "yoao_video_lease"
 playback_cookie = APIKeyCookie(
     name=COOKIE_NAME,
     scheme_name="OriginalPlaybackCookie",

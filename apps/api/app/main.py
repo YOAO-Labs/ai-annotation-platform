@@ -109,6 +109,9 @@ async def lifespan(app: FastAPI):
     finally:
         try:
             await playback_registry.shutdown()
+            remaining = playback_registry.diagnostics()
+            if remaining["stages"]:
+                raise RuntimeError(f"Original playback did not drain: {remaining}")
         finally:
             try:
                 await _close_ws_redis_pool()

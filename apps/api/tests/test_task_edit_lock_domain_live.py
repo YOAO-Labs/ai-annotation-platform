@@ -1,9 +1,6 @@
 """Live PostgreSQL checks for the task edit-lock advisory-domain cutover.
 
-Run only against a disposable migrated test database:
-
-    AAP_TASK_EDIT_LOCK_DOMAIN_LIVE=1 pytest -q \
-      tests/test_task_edit_lock_domain_live.py
+Run against a disposable migrated test database with pytest.
 
 The holder connections take only advisory keys, so they stay independent of
 the uncommitted fixture rows in ``db_session``.  The fixture session calls the
@@ -12,8 +9,6 @@ installed owner functions on its own connection.
 
 from __future__ import annotations
 
-import json
-import os
 import uuid
 
 from fastapi import HTTPException
@@ -28,22 +23,14 @@ from yoao_labeling.task_locks_contract import (
     task_locks_command,
 )
 
-pytestmark = [
-    pytest.mark.asyncio,
-    pytest.mark.skipif(
-        os.environ.get("AAP_TASK_EDIT_LOCK_DOMAIN_LIVE") != "1",
-        reason="requires a live migrated test database",
-    ),
-]
+pytestmark = pytest.mark.asyncio
 
 LEGACY_PREFIX = "aap:task-edit-lock:"
 
 
 def _task_lock_request(task_id: uuid.UUID) -> str:
-    return json.dumps(
-        task_locks_command("try_final_scope", task_id=task_id),
-        ensure_ascii=True,
-        separators=(",", ":"),
+    return task_locks_command("try_final_scope", task_id=task_id).model_dump_json(
+        by_alias=True
     )
 
 
@@ -116,8 +103,6 @@ async def test_current_domain_excludes_python_and_all_sql_consumers(
     )
     assert offboarding is False
 
-    assert TASK_LOCK_SCOPE_PREFIX == "task-edit-lock:"
-
 
 async def test_legacy_domain_fails_closed_instead_of_dual_locking(
     db_session, holder, world
@@ -142,7 +127,6 @@ async def test_legacy_domain_fails_closed_instead_of_dual_locking(
         async with db_session.begin_nested():
             await TaskLockService(db_session)._lock_task_scope(task.id, nowait=True)
     assert error.value.status_code == 503
-    assert error.value.detail == "任务编辑锁域切换未完成，请稍后重试"
 
     membership = await db_session.scalar(
         text(

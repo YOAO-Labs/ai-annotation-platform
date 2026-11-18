@@ -175,6 +175,14 @@ async def test_metadata_first_then_exact_chunks_and_business_ack(remote):
     )
     assert (await send_chunk(remote, row)).status_code == 200
     assert (await send_chunk(remote, row)).status_code == 200
+    client = svc.redis_client()
+    try:
+        assert (
+            await client.hget(f"yoao:site-agent:relay:{row.id}", "0") == b"image pixels"
+        )
+        assert not await client.exists(f"aap:site-agent:relay:{row.id}")
+    finally:
+        await client.aclose()
     assert row.received_bytes == len(b"image pixels")
     response = await send_result(remote, row, value)
     assert response.status_code == 200 and response.json()["state"] == "received"
@@ -193,7 +201,7 @@ async def test_metadata_first_then_exact_chunks_and_business_ack(remote):
     await svc.cleanup_terminal(db)
     client = svc.redis_client()
     try:
-        assert not await client.exists(svc.relay_key(row.id))
+        assert not await client.exists(f"yoao:site-agent:relay:{row.id}")
     finally:
         await client.aclose()
 

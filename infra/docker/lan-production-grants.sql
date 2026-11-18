@@ -73,7 +73,7 @@ REVOKE ALL ON FUNCTION public.fixture_export_owner_session(),
     public.retire_fixture_native_export_output(uuid),
     public.confirm_fixture_export_zip_absent(uuid) FROM :"application_role", PUBLIC;
 GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO :"application_role";
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_membership_v1,
+GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_membership_v1,
     yoao_workspace_owner_transfer_v1, aap_inference_pipelines_v1,
     aap_assets_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION aap_inference_pipelines_v1.pipeline_policy(),
@@ -723,9 +723,9 @@ GRANT EXECUTE ON FUNCTION
     aap_settings_v1.mail_delivery_policy(jsonb)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_membership_v1.membership_policy(),
-    aap_workspace_membership_v1.prepare_membership_command(jsonb),
-    aap_workspace_membership_v1.apply_membership_command(jsonb)
+    yoao_workspace_membership_v1.membership_policy(),
+    yoao_workspace_membership_v1.prepare_membership_command(jsonb),
+    yoao_workspace_membership_v1.apply_membership_command(jsonb)
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     yoao_workspace_owner_transfer_v1.owner_transfer_policy(),

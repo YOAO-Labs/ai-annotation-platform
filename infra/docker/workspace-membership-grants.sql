@@ -2,7 +2,7 @@
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
 --   -v labeling_owner=labeling_code -v audit_owner=audit_code
---   -v workspace_membership_role=workspace_membership_client
+--   -v workspace_membership_role=yoao_workspace_membership_client
 --   -f infra/docker/workspace-membership-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -29,7 +29,7 @@ BEGIN
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'workspace_membership_client'
+    IF role_name <> 'yoao_workspace_membership_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 5 THEN
         RAISE EXCEPTION 'Unexpected Workspace membership role names';
@@ -86,15 +86,15 @@ BEGIN
     END IF;
     IF (SELECT function.proowner FROM pg_catalog.pg_proc AS function
         WHERE function.oid = pg_catalog.to_regprocedure(
-            'aap_workspace_membership_v1.membership_policy()'
+            'yoao_workspace_membership_v1.membership_policy()'
         )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_membership_v1.prepare_membership_command(jsonb)'
+               'yoao_workspace_membership_v1.prepare_membership_command(jsonb)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
-               'aap_workspace_membership_v1.apply_membership_command(jsonb)'
+               'yoao_workspace_membership_v1.apply_membership_command(jsonb)'
            )::oid) IS DISTINCT FROM workspace_oid
        OR (SELECT function.proowner FROM pg_catalog.pg_proc AS function
            WHERE function.oid = pg_catalog.to_regprocedure(
@@ -127,7 +127,7 @@ BEGIN
         RAISE EXCEPTION 'A Workspace membership capability has the wrong owner';
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-        workspace_oid, 'aap_workspace_membership_v1', 'USAGE'
+        workspace_oid, 'yoao_workspace_membership_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
         workspace_oid, pg_catalog.to_regprocedure(
             'aap_identity_v1.lock_accounts_update(uuid[],boolean)'
@@ -202,12 +202,12 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_workspace_membership_v1
+GRANT USAGE ON SCHEMA yoao_workspace_membership_v1
     TO :"workspace_membership_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_membership_v1.membership_policy(),
-    aap_workspace_membership_v1.prepare_membership_command(jsonb),
-    aap_workspace_membership_v1.apply_membership_command(jsonb)
+    yoao_workspace_membership_v1.membership_policy(),
+    yoao_workspace_membership_v1.prepare_membership_command(jsonb),
+    yoao_workspace_membership_v1.apply_membership_command(jsonb)
     TO :"workspace_membership_role";
 
 DO $$
@@ -218,9 +218,9 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_workspace_membership_v1.apply_membership_command(jsonb)',
-        'aap_workspace_membership_v1.membership_policy()',
-        'aap_workspace_membership_v1.prepare_membership_command(jsonb)'
+        'yoao_workspace_membership_v1.apply_membership_command(jsonb)',
+        'yoao_workspace_membership_v1.membership_policy()',
+        'yoao_workspace_membership_v1.prepare_membership_command(jsonb)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -273,7 +273,7 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_workspace_membership_v1', 'public'
+            'yoao_workspace_membership_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
