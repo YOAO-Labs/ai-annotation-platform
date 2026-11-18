@@ -13,7 +13,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models.annotation import Annotation
@@ -280,64 +280,82 @@ async def test_catalog_rejects_multicamera_without_calibration(
 
 
 @requires_screenshot_runtime
-async def test_reconcile_is_idempotent_and_preserves_neighbor(
-    screenshot_seed, owner_db
-):
-    body = await _catalog(owner_db, screenshot_seed)
-    actor = uuid.UUID(body["users"]["project_admin"]["id"])
-    neighbor = Project(
-        id=uuid.uuid4(),
-        display_id="P-KEEP-" + uuid.uuid4().hex[:10],
-        name="user-owned project",
-        type_label="image",
-        type_key="image-det",
-        data_type="image",
-        owner_id=actor,
-    )
-    owner_db.add(neighbor)
-    await owner_db.flush()
-    neighbor_task = Task(
-        project_id=neighbor.id,
-        display_id="T-KEEP-" + uuid.uuid4().hex[:10],
-        file_name="neighbor.jpg",
-        file_path="neighbor.jpg",
-        status="review",
-    )
-    owner_db.add(neighbor_task)
-    await owner_db.flush()
-    neighbor_task.annotation_contributor_ids = None
-    await owner_db.flush()
-    preparation = await prepare_screenshot_seed(owner_db, run_id=screenshot_seed.run_id)
-    assert preparation.existing_keys == frozenset(PROJECT_SPECS)
-    ids = {
-        key: value["id"]
-        for key, value in body["projects"].items()
-        if key in PROJECT_SPECS
-    }
-    for _ in range(2):
-        report = await reconcile_screenshot_seed(
-            owner_db, preparation=preparation, asset_sha256=screenshot_seed.digests
+async def test_reconcile_is_idempotent_and_preserves_neighbor(screenshot_seed):
+    async with screenshot_seed.sessions.begin() as db:
+        actor = await _owned_id(db, screenshot_seed, "user", "project_admin")
+        neighbor = Project(
+            id=uuid.uuid4(),
+            display_id="P-KEEP-" + uuid.uuid4().hex[:10],
+            name="user-owned project",
+            type_label="image",
+            type_key="image-det",
+            data_type="image",
+            owner_id=actor,
         )
-        assert report == {"projects": 5, "tasks": 50, "batches": 5}
-        current = await _catalog(owner_db, screenshot_seed)
-        assert {key: current["projects"][key]["id"] for key in ids} == ids
-        await owner_db.refresh(neighbor)
-        assert neighbor.name == "user-owned project"
-        review_id = uuid.UUID(
-            current["projects"]["image_demo"]["tasks"]["review"]["id"]
+        db.add(neighbor)
+        await db.flush()
+        neighbor_task = Task(
+            project_id=neighbor.id,
+            display_id="T-KEEP-" + uuid.uuid4().hex[:10],
+            file_name="neighbor.jpg",
+            file_path="neighbor.jpg",
+            status="review",
         )
-        review_task = await owner_db.get(Task, review_id)
-        with pytest.raises(HTTPException) as self_review:
-            assert_review_evidence_current(
-                review_task, uuid.UUID(current["users"]["annotator"]["id"])
+        db.add(neighbor_task)
+        await db.flush()
+        neighbor_task.annotation_contributor_ids = None
+
+    try:
+        # Media admits the read in another process. Reconcile must commit its
+        # root lock, not release a savepoint inside a test-owned transaction.
+        async with screenshot_seed.sessions() as writer:
+            response = await screenshot_seed.catalog()
+            assert response.status_code == 200, response.text
+            body = response.json()
+            ids = {key: body["projects"][key]["id"] for key in PROJECT_SPECS}
+            preparation = await prepare_screenshot_seed(
+                writer, run_id=screenshot_seed.run_id
             )
-        assert self_review.value.status_code == 403
-        assert self_review.value.detail == {"reason": "self_review_denied"}
-        await owner_db.refresh(neighbor_task)
-        with pytest.raises(HTTPException) as unknown_review:
-            assert_review_evidence_current(neighbor_task, actor)
-        assert unknown_review.value.status_code == 409
-        assert unknown_review.value.detail == {"reason": "review_contributors_unknown"}
+            assert preparation.existing_keys == frozenset(PROJECT_SPECS)
+            for _ in range(2):
+                report = await reconcile_screenshot_seed(
+                    writer,
+                    preparation=preparation,
+                    asset_sha256=screenshot_seed.digests,
+                )
+                assert report == {"projects": 5, "tasks": 50, "batches": 5}
+                response = await screenshot_seed.catalog()
+                assert response.status_code == 200, response.text
+                current = response.json()
+                assert {key: current["projects"][key]["id"] for key in ids} == ids
+                async with screenshot_seed.sessions() as reader:
+                    kept_project = await reader.get(Project, neighbor.id)
+                    kept_task = await reader.get(Task, neighbor_task.id)
+                    assert (
+                        kept_project is not None
+                        and kept_project.name == "user-owned project"
+                    )
+                    assert kept_task is not None and kept_task.project_id == neighbor.id
+                    review_id = uuid.UUID(
+                        current["projects"]["image_demo"]["tasks"]["review"]["id"]
+                    )
+                    review_task = await reader.get(Task, review_id)
+                    with pytest.raises(HTTPException) as self_review:
+                        assert_review_evidence_current(
+                            review_task, uuid.UUID(current["users"]["annotator"]["id"])
+                        )
+                    assert self_review.value.status_code == 403
+                    assert self_review.value.detail == {"reason": "self_review_denied"}
+                    with pytest.raises(HTTPException) as unknown_review:
+                        assert_review_evidence_current(kept_task, actor)
+                    assert unknown_review.value.status_code == 409
+                    assert unknown_review.value.detail == {
+                        "reason": "review_contributors_unknown"
+                    }
+    finally:
+        async with screenshot_seed.sessions.begin() as db:
+            await db.execute(delete(Task).where(Task.id == neighbor_task.id))
+            await db.execute(delete(Project).where(Project.id == neighbor.id))
 
 
 @requires_screenshot_runtime
@@ -520,9 +538,10 @@ async def test_screenshot_retirement_preserves_another_owned_run(screenshot_seed
         assert {row["id"]: dict(row) for row in versions_after} == {
             row["id"]: dict(row) for row in versions_before
         }
-        assert await asyncio.to_thread(
-            read_original_fingerprints, versions_after
-        ) == fingerprints_before
+        assert (
+            await asyncio.to_thread(read_original_fingerprints, versions_after)
+            == fingerprints_before
+        )
         after = await catalog_of(second)
         assert after["run_id"] == str(second)
         assert after["users"] == before["users"]
