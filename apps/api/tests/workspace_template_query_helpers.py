@@ -23,10 +23,10 @@ def template_query_dsn(test_engine, database=None):
     parsed = make_url(
         _role_url(
             "AAP_MODULE_DATA_WORKSPACE_TEMPLATE_QUERY_URL",
-            "workspace_template_query_client",
+            "yoao_workspace_template_query_client",
         )
     )
-    assert parsed.username == "workspace_template_query_client"
+    assert parsed.username == "yoao_workspace_template_query_client"
     assert (parsed.host, parsed.port, parsed.database) == (
         test_engine.url.host,
         test_engine.url.port,
@@ -66,7 +66,7 @@ async def api_template_query_binding(*, url=None, dsn=None, token, timeout=20):
 async def template_query_provider(dsn, token, *, configuration_dsn=None):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     parsed = make_url(dsn)
-    assert parsed.username == "workspace_template_query_client"
+    assert parsed.username == "yoao_workspace_template_query_client"
     assert parsed.database and parsed.database.endswith("_test")
     _verify_postgres(parsed)
     with tempfile.TemporaryDirectory(

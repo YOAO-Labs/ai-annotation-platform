@@ -121,7 +121,7 @@ def actor_project_memberships(actor_id):
 
 def project_search_scope(actor):
     return (
-        func.aap_workspace_project_query_v1.project_search_scope(
+        func.yoao_workspace_project_query_v1.project_search_scope(
             actor.id, getattr(actor.role, "value", actor.role)
         )
         .table_valued(
@@ -137,7 +137,7 @@ def project_search_scope(actor):
 
 def project_search_member_ids(actor):
     return (
-        func.aap_workspace_project_query_v1.project_search_member_ids(
+        func.yoao_workspace_project_query_v1.project_search_member_ids(
             actor.id, getattr(actor.role, "value", actor.role)
         )
         .table_valued(column("user_id", UUID(as_uuid=True)))

@@ -13,7 +13,7 @@ from .directory_query_contract import (
     decode_directory_query_policy,
 )
 
-DIRECTORY_QUERY_SCHEMA = "aap_workspace_directory_query_v1"
+DIRECTORY_QUERY_SCHEMA = "yoao_workspace_directory_query_v1"
 DIRECTORY_QUERY_FUNCTIONS = {
     ("directory_query_policy", ""),
     (

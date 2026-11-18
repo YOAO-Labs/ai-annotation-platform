@@ -51,13 +51,13 @@ def _directory_dsn(test_engine):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_WORKSPACE_DIRECTORY_QUERY_URL",
-        "workspace_directory_query_client",
+        "yoao_workspace_directory_query_client",
     )
 
 
 async def _step(connection, request, action, parameters=None):
     value = await connection.fetchval(
-        "SELECT aap_workspace_directory_query_v1.directory_query_step("
+        "SELECT yoao_workspace_directory_query_v1.directory_query_step("
         "$1::jsonb,$2::text,$3::jsonb)",
         *directory_query_step_arguments(request, action, parameters),
     )
@@ -82,8 +82,8 @@ async def test_directory_login_has_only_two_functions_and_no_data_access(test_en
             "SELECT id FROM public.project_members LIMIT 1",
             "CREATE TEMP TABLE forbidden_directory_temp(id integer)",
             "SELECT * FROM aap_identity_v1.workspace_directory_superadmins()",
-            "SELECT aap_workspace_project_query_v1.project_query_policy()",
-            "SELECT aap_workspace_directory_query_v1._has_exact_keys('{}',ARRAY[]::text[])",
+            "SELECT yoao_workspace_project_query_v1.project_query_policy()",
+            "SELECT yoao_workspace_directory_query_v1._has_exact_keys('{}',ARRAY[]::text[])",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(statement)
@@ -257,7 +257,7 @@ async def test_directory_rpc_rejects_unknown_keys_and_wrong_action_scope(test_en
         for command, action, parameters in cases:
             with pytest.raises(asyncpg.InvalidParameterValueError):
                 await connection.fetchval(
-                    "SELECT aap_workspace_directory_query_v1.directory_query_step("
+                    "SELECT yoao_workspace_directory_query_v1.directory_query_step("
                     "$1::jsonb,$2::text,$3::jsonb)",
                     json.dumps(command),
                     action,
@@ -265,7 +265,7 @@ async def test_directory_rpc_rejects_unknown_keys_and_wrong_action_scope(test_en
                 )
         assert json.loads(
             await connection.fetchval(
-                "SELECT aap_workspace_directory_query_v1.directory_query_policy()"
+                "SELECT yoao_workspace_directory_query_v1.directory_query_policy()"
             )
         ) == {"schema": DIRECTORY_QUERY_PROTOCOL}
     finally:

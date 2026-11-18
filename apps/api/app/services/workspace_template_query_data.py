@@ -11,7 +11,10 @@ from yoao_workspace.template_query_contract import (
     TemplateQueryUnavailable,
     decode_template_query_policy,
 )
-from yoao_workspace.template_query_postgres import template_query_step_arguments
+from yoao_workspace.template_query_postgres import (
+    TEMPLATE_QUERY_SCHEMA,
+    template_query_step_arguments,
+)
 
 
 class WorkspaceTemplateQueryData:
@@ -31,9 +34,7 @@ class WorkspaceTemplateQueryData:
         if not self._policy_checked:
             try:
                 policy = await self.db.scalar(
-                    text(
-                        "SELECT aap_workspace_template_query_v1.template_query_policy()"
-                    )
+                    text(f"SELECT {TEMPLATE_QUERY_SCHEMA}.template_query_policy()")
                 )
             except SQLAlchemyError:
                 raise TemplateQueryUnavailable() from None
@@ -43,7 +44,7 @@ class WorkspaceTemplateQueryData:
         with self.db.no_autoflush:
             return await self.db.scalar(
                 text(
-                    "SELECT aap_workspace_template_query_v1.template_query_step("
+                    f"SELECT {TEMPLATE_QUERY_SCHEMA}.template_query_step("
                     "CAST(:request AS jsonb), CAST(:action AS text), "
                     "CAST(:parameters AS jsonb), CAST(:scope AS text), "
                     "CAST(:type_keys AS text[]), CAST(:search AS text))"

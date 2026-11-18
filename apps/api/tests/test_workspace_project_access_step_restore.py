@@ -245,7 +245,7 @@ async def _assert_clone_owner(engine, clone: str, ownership: str) -> None:
     assert current_user not in {
         "legacy_runtime",
         "inference_code",
-        "workspace_project_query_client",
+        "yoao_workspace_project_query_client",
     }
     assert can_create
     async with engine.connect() as connection:

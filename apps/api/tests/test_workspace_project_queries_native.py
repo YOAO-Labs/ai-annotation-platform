@@ -27,9 +27,9 @@ pytestmark = [
 ]
 
 _PROTOCOL = "aap-workspace-project-query/v1"
-_CLIENT = "workspace_project_query_client"
-_POLICY = "aap_workspace_project_query_v1.project_query_policy()"
-_STEP = "aap_workspace_project_query_v1.project_query_step"
+_CLIENT = "yoao_workspace_project_query_client"
+_POLICY = "yoao_workspace_project_query_v1.project_query_policy()"
+_STEP = "yoao_workspace_project_query_v1.project_query_step"
 _ROW_COLUMNS = {
     "id",
     "organization_id",
@@ -486,15 +486,15 @@ async def test_workspace_project_query_login_exposes_only_fixed_step_rpcs(test_e
         )
         function_ids = await connection.fetchrow(
             "SELECT "
-            "'aap_workspace_project_query_v1.project_query_policy()'::regprocedure::oid AS policy, "
-            "'aap_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)'::regprocedure::oid AS step"
+            "'yoao_workspace_project_query_v1.project_query_policy()'::regprocedure::oid AS policy, "
+            "'yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)'::regprocedure::oid AS step"
         )
         executable = await connection.fetch(
             "SELECT function.oid "
             "FROM pg_catalog.pg_proc AS function "
             "JOIN pg_catalog.pg_namespace AS namespace "
             "ON namespace.oid = function.pronamespace "
-            "WHERE namespace.nspname = 'aap_workspace_project_query_v1' "
+            "WHERE namespace.nspname = 'yoao_workspace_project_query_v1' "
             "AND pg_catalog.has_function_privilege(current_user, function.oid, 'EXECUTE')"
         )
         assert {row["oid"] for row in executable} == {
@@ -510,13 +510,13 @@ async def test_workspace_project_query_login_exposes_only_fixed_step_rpcs(test_e
             "SELECT id FROM public.project_members LIMIT 1",
             "SELECT operation_id FROM public.workspace_configuration_operation_receipts LIMIT 1",
             "SELECT operation_id FROM public.workspace_owner_transfer_operation_receipts LIMIT 1",
-            "SELECT aap_workspace_project_query_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
-            "SELECT aap_workspace_project_query_v1._project_query_step_impl("
+            "SELECT yoao_workspace_project_query_v1._has_exact_keys('{}'::jsonb, ARRAY[]::text[])",
+            "SELECT yoao_workspace_project_query_v1._project_query_step_impl("
             "NULL::jsonb,NULL::text,NULL::jsonb,NULL::text,NULL::text,"
             "NULL::text[],NULL::text[],NULL::uuid,NULL::text,"
             "NULL::timestamptz,NULL::timestamptz,NULL::bigint,NULL::integer)",
-            "SELECT * FROM aap_workspace_project_query_v1.project_search_scope(NULL, 'employee')",
-            "SELECT * FROM aap_workspace_project_query_v1.project_search_member_ids(NULL, 'employee')",
+            "SELECT * FROM yoao_workspace_project_query_v1.project_search_scope(NULL, 'employee')",
+            "SELECT * FROM yoao_workspace_project_query_v1.project_search_member_ids(NULL, 'employee')",
         )
         for statement in forbidden:
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
@@ -838,7 +838,7 @@ async def test_project_search_relations_preserve_raw_scope_and_multiplicity(
                 text(
                     "SELECT project_id, project_name, owner_id, "
                     "video_collaboration, member_role "
-                    "FROM aap_workspace_project_query_v1.project_search_scope("
+                    "FROM yoao_workspace_project_query_v1.project_search_scope("
                     ":actor_id, :role)"
                 ),
                 {"actor_id": world["actor_id"], "role": world["actor_role"]},
@@ -847,7 +847,7 @@ async def test_project_search_relations_preserve_raw_scope_and_multiplicity(
             member_result = await session.execute(
                 text(
                     "SELECT user_id FROM "
-                    "aap_workspace_project_query_v1.project_search_member_ids("
+                    "yoao_workspace_project_query_v1.project_search_member_ids("
                     ":actor_id, :role)"
                 ),
                 {"actor_id": world["actor_id"], "role": world["actor_role"]},

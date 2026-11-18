@@ -105,7 +105,7 @@ async def test_labeling_login_has_only_three_functions_and_no_external_data(
             "SELECT id FROM public.projects LIMIT 1",
             "SELECT id FROM public.users LIMIT 1",
             "CREATE TEMP TABLE forbidden_class_query_temp(id integer)",
-            "SELECT aap_workspace_project_query_v1.project_query_policy()",
+            "SELECT yoao_workspace_project_query_v1.project_query_policy()",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(statement)

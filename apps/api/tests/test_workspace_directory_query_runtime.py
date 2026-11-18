@@ -119,7 +119,7 @@ async def test_directory_owner_isolates_profiles_data_grants_and_process_restart
                         async with maker.begin() as db:
                             await db.execute(
                                 text(
-                                    "REVOKE EXECUTE ON FUNCTION aap_workspace_directory_query_v1.directory_query_policy() FROM workspace_directory_query_client"
+                                    "REVOKE EXECUTE ON FUNCTION yoao_workspace_directory_query_v1.directory_query_policy() FROM yoao_workspace_directory_query_client"
                                 )
                             )
                         assert (await client.get("/ready")).status_code == 503
@@ -131,7 +131,7 @@ async def test_directory_owner_isolates_profiles_data_grants_and_process_restart
                         async with maker.begin() as db:
                             await db.execute(
                                 text(
-                                    "GRANT EXECUTE ON FUNCTION aap_workspace_directory_query_v1.directory_query_policy() TO workspace_directory_query_client"
+                                    "GRANT EXECUTE ON FUNCTION yoao_workspace_directory_query_v1.directory_query_policy() TO yoao_workspace_directory_query_client"
                                 )
                             )
                     assert (await client.get("/ready")).status_code == 200

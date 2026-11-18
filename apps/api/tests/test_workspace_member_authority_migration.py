@@ -1,6 +1,5 @@
 """Exercise the additive member timestamp fix with already-installed role ACLs."""
 
-import importlib.util
 import os
 from pathlib import Path
 
@@ -8,6 +7,8 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 import pytest
 from sqlalchemy import text
+
+from tests.workspace_query_history_helpers import load_query_migration
 
 pytestmark = [
     pytest.mark.asyncio,
@@ -21,20 +22,20 @@ _ARGUMENTS = (
     "jsonb,text,jsonb,text,text,text[],text[],uuid,text,"
     "timestamptz,timestamptz,bigint,integer"
 )
-_STEP = f"aap_workspace_project_query_v1.project_query_step({_ARGUMENTS})"
-_IMPL = f"aap_workspace_project_query_v1._project_query_step_impl({_ARGUMENTS})"
+_CLIENT = "yoao_workspace_project_query_client"
+_TEMPLATE_CLIENT = "yoao_workspace_template_query_client"
+_STEP = f"yoao_workspace_project_query_v1.project_query_step({_ARGUMENTS})"
+_IMPL = f"yoao_workspace_project_query_v1._project_query_step_impl({_ARGUMENTS})"
 
 
 async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
-    test_engine,
+    test_engine, tmp_path
 ):
     path = (
         Path(__file__).resolve().parents[1]
         / "alembic/versions/0262_workspace_member_authority_temporals.py"
     )
-    spec = importlib.util.spec_from_file_location("member_temporal_migration", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
+    migration = load_query_migration(path, tmp_path)
 
     def run(connection, operation):
         with Operations.context(MigrationContext.configure(connection)):
@@ -45,9 +46,9 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
             await connection.execute(
                 text(
                     "SELECT pg_get_userbyid(proowner) AS owner, "
-                    "has_function_privilege('workspace_project_query_client',oid,'EXECUTE') AS client, "
+                    f"has_function_privilege('{_CLIENT}',oid,'EXECUTE') AS client, "
                     "has_function_privilege('legacy_runtime',oid,'EXECUTE') AS runtime, "
-                    "has_function_privilege('workspace_project_query_client',oid,'EXECUTE WITH GRANT OPTION') AS grantable "
+                    f"has_function_privilege('{_CLIENT}',oid,'EXECUTE WITH GRANT OPTION') AS grantable "
                     "FROM pg_proc WHERE oid=to_regprocedure(:signature)"
                 ),
                 {"signature": _STEP},
@@ -61,8 +62,7 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
             # exercising the deployed path that a fresh-schema check cannot cover.
             await connection.execute(
                 text(
-                    f"GRANT EXECUTE ON FUNCTION {_STEP} "
-                    "TO workspace_project_query_client WITH GRANT OPTION"
+                    f"GRANT EXECUTE ON FUNCTION {_STEP} TO {_CLIENT} WITH GRANT OPTION"
                 )
             )
             original = await state(connection)
@@ -74,20 +74,16 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
                     text("SELECT to_regprocedure(:signature) IS NULL"),
                     {"signature": _IMPL},
                 )
+                await connection.execute(text(f"SET LOCAL ROLE {_CLIENT}"))
                 await connection.execute(
-                    text("SET LOCAL ROLE workspace_project_query_client")
-                )
-                await connection.execute(
-                    text(
-                        f"GRANT EXECUTE ON FUNCTION {_STEP} TO workspace_template_query_client"
-                    )
+                    text(f"GRANT EXECUTE ON FUNCTION {_STEP} TO {_TEMPLATE_CLIENT}")
                 )
                 await connection.execute(text("RESET ROLE"))
                 await connection.run_sync(run, "upgrade")
                 assert await state(connection) == original
                 assert await connection.scalar(
                     text(
-                        "SELECT has_function_privilege('workspace_template_query_client', "
+                        f"SELECT has_function_privilege('{_TEMPLATE_CLIENT}', "
                         "to_regprocedure(:signature), 'EXECUTE')"
                     ),
                     {"signature": _STEP},
@@ -95,7 +91,7 @@ async def test_member_temporal_migration_preserves_client_acl_and_hides_impl(
                 assert await connection.scalar(
                     text(
                         "SELECT pg_get_userbyid(proowner)='workspace_code' "
-                        "AND NOT has_function_privilege('workspace_project_query_client',oid,'EXECUTE') "
+                        f"AND NOT has_function_privilege('{_CLIENT}',oid,'EXECUTE') "
                         "AND NOT has_function_privilege('legacy_runtime',oid,'EXECUTE') "
                         "AND NOT EXISTS (SELECT 1 FROM aclexplode(proacl) AS acl "
                         "WHERE acl.grantee<>proowner AND acl.privilege_type='EXECUTE') "

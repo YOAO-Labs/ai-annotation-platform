@@ -139,7 +139,7 @@ async def test_native_access_operation_rejects_other_actions_and_nonempty_binds(
         for command, action, parameters, status in cases:
             with pytest.raises(asyncpg.InvalidParameterValueError):
                 await connection.fetchval(
-                    "SELECT aap_workspace_project_query_v1.project_query_step("
+                    "SELECT yoao_workspace_project_query_v1.project_query_step("
                     "$1::jsonb,$2::text,$3::jsonb,$4::text,NULL::text,"
                     "NULL::text[],NULL::text[],NULL::uuid,NULL::text,"
                     "NULL::timestamptz,NULL::timestamptz,NULL::bigint,NULL::integer)",

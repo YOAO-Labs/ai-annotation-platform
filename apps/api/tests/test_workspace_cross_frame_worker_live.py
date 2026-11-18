@@ -50,8 +50,8 @@ _WORKSPACE_FUNCTIONS = (
     "aap_workspace_v1.project_access_step(uuid,uuid,text)",
     "aap_workspace_v1.lock_project_reference_nowait(uuid)",
     "aap_workspace_v1.lock_project_member_reference(uuid,uuid,boolean)",
-    "aap_workspace_project_query_v1.project_query_policy()",
-    "aap_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
+    "yoao_workspace_project_query_v1.project_query_policy()",
+    "yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
 )
 _LABELING_COUNTER_FUNCTION = (
     "aap_labeling_v1.write_project_counter_projection(uuid,jsonb)"

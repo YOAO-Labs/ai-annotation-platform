@@ -14,7 +14,7 @@ from .template_query_contract import (
     decode_template_query_policy,
 )
 
-TEMPLATE_QUERY_SCHEMA = "aap_workspace_template_query_v1"
+TEMPLATE_QUERY_SCHEMA = "yoao_workspace_template_query_v1"
 TEMPLATE_QUERY_FUNCTIONS = {
     ("template_query_policy", ""),
     ("template_query_step", "jsonb, text, jsonb, text, text[], text"),

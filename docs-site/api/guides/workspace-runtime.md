@@ -171,7 +171,7 @@ API 随后调用独立 Labeling 统计边界，配置见 [Labeling 运行协议]
 私有 `POST /v1/workspace/directory-queries/execute` 复用 Workspace control bearer。
 非空成员列表复用 `WORKSPACE_PROJECT_QUERY_IDENTITY*\*` Briefs 配置；提及候选不依赖 Briefs。
 
-独立进程可只启用目录能力。`workspace_directory_query_client` 只有 policy 与 step
+独立进程可只启用目录能力。`yoao_workspace_directory_query_client` 只有 policy 与 step
 两项函数权限；Identity 通过窄账号函数提供提及资料，不向 Workspace 授予 User 原表。
 可选 Compose 文件为 `docker-compose.workspace-directory-query.yml`，本机端口8177，
 三份只读 secret 的宿主选择器为 `WORKSPACE_RUNTIME_DIRECTORY_QUERY_DATABASE_URL_FILE`、

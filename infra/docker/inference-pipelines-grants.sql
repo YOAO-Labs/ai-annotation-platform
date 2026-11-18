@@ -93,7 +93,7 @@ BEGIN
         SELECT * FROM (VALUES
             ('aap_workspace_v1.project_access_step(uuid,uuid,text)',
              current_setting('aap.workspace_owner')),
-            ('aap_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)',
+            ('yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamptz,timestamptz,bigint,integer)',
              current_setting('aap.workspace_owner')),
             ('aap_identity_v1.workspace_template_query_org_ids(uuid)',
              current_setting('aap.identity_owner'))

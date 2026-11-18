@@ -624,7 +624,9 @@ def _verified_finished_shared_bootstrap_minio(endpoint_url: str):
     return _verified_shared_bootstrap_minio(endpoint_url, state="finished")
 
 
-def _verified_shared_bootstrap_minio(endpoint_url: str, *, state: str, container_id=None):
+def _verified_shared_bootstrap_minio(
+    endpoint_url: str, *, state: str, container_id=None
+):
     """Verify the explicitly selected private bootstrap owner without modifying it."""
     selector = os.environ.get("AAP_MODULE_DATA_SHARED_BOOTSTRAP_OWNER")
     if not selector:
@@ -791,7 +793,12 @@ class _WorktreeDestroyPreparation:
 
 class LocalResources:
     def __init__(
-        self, resources: dict, settings, *, code_root: Path, retire_finished_bootstrap=False
+        self,
+        resources: dict,
+        settings,
+        *,
+        code_root: Path,
+        retire_finished_bootstrap=False,
     ):
         self.root = Path(resources["root"])
         expected = topology(self.root, load_identity(self.root), resources["mode"])
@@ -1325,7 +1332,9 @@ class LocalResources:
     async def verify_database_server(self, owner_connection) -> None:
         """Prove both logins share one server before inspecting or changing resources."""
         selector = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
-        require_private_postgres = os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+        require_private_postgres = (
+            os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_POSTGRES") == "1"
+        )
         if require_private_postgres and not selector:
             raise WorktreeError("Raster PostgreSQL owner 缺失；保留资源")
         if selector:
@@ -1339,9 +1348,7 @@ class LocalResources:
             if "postgres" in raster.data["raster"]:
                 if self.url.host != "127.0.0.1":
                     raise WorktreeError("Raster PostgreSQL 必须使用原始 loopback 端口")
-                verified_postgres(
-                    raster, self.resources, port=self.url.port or 5432
-                )
+                verified_postgres(raster, self.resources, port=self.url.port or 5432)
         runtime = make_url(self.settings.database_url).set(database="postgres")
         engine = create_async_engine(
             runtime,
@@ -1656,7 +1663,7 @@ class LocalResources:
                     "last_reason, created_at, delivered_at) "
                     f"ON TABLE public.notification_delivery_outbox FROM {role}, PUBLIC",
                     f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {role}",
-                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_inference_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
+                    f"GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_membership_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_inference_v1, aap_inference_pipelines_v1, aap_inference_backend_probe_v1, aap_inference_health_observation_v1, aap_inference_health_data_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_assets_v1, aap_labeling_v1, aap_labeling_class_query_v1, aap_jobs_v1, aap_learning_v1, aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_briefs_v1, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_audit_v1, aap_notifications_v1, aap_settings_v1 TO {role}",
                     "GRANT SELECT ON aap_assets_v1.spatial_item_references, "
                     "aap_assets_v1.spatial_scene_references, "
                     f"aap_assets_v1.labeling_dataset_item_facts TO {role}",
@@ -1703,17 +1710,17 @@ class LocalResources:
                     f"GRANT EXECUTE ON FUNCTION yoao_workspace_owner_transfer_v1.owner_transfer_policy(), "
                     "yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb), "
                     "aap_identity_v1.workspace_template_query_org_ids(uuid), "
-                    "aap_workspace_template_query_v1.template_query_policy(), "
-                    "aap_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text), "
+                    "yoao_workspace_template_query_v1.template_query_policy(), "
+                    "yoao_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text), "
                     "aap_labeling_class_query_v1.class_query_policy(), "
                     "aap_labeling_class_query_v1.class_counts(uuid), "
                     "aap_labeling_class_query_v1.attribute_rows(uuid), "
-                    "aap_workspace_directory_query_v1.directory_query_policy(), "
-                    "aap_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb), "
-                    "aap_workspace_project_query_v1.project_query_policy(), "
-                    "aap_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer), "
-                    "aap_workspace_project_query_v1.project_search_scope(uuid, text), "
-                    "aap_workspace_project_query_v1.project_search_member_ids(uuid, text), "
+                    "yoao_workspace_directory_query_v1.directory_query_policy(), "
+                    "yoao_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb), "
+                    "yoao_workspace_project_query_v1.project_query_policy(), "
+                    "yoao_workspace_project_query_v1.project_query_step(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer), "
+                    "yoao_workspace_project_query_v1.project_search_scope(uuid, text), "
+                    "yoao_workspace_project_query_v1.project_search_member_ids(uuid, text), "
                     "aap_workspace_configuration_v1.configuration_policy(), "
                     "aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[]), "
                     "aap_workspace_configuration_v1.guide_assets_step(jsonb, text, jsonb), "
@@ -2540,9 +2547,11 @@ class LocalResources:
             postgres = raster_owner.data["raster"]["postgres"]
             oid = self.manifest["postgres"].get("database_oid")
             if (
-                os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER") != str(raster_owner.path)
+                os.environ.get("AAP_PRIVATE_FIXTURE_RASTER_OWNER")
+                != str(raster_owner.path)
                 or "database_oid" in postgres
-                or type(oid) is not int or oid <= 0
+                or type(oid) is not int
+                or oid <= 0
             ):
                 raise WorktreeError("Raster PostgreSQL 数据库出生身份不明确；保留资源")
             postgres["database_oid"] = oid
@@ -3435,7 +3444,9 @@ class LocalResources:
             prepared.raster_owner.data["raster"]["fixture_source_retirement"] = "intent"
             prepared.raster_owner.save()
             _raster_remove_stopped_for_destroy(prepared.fixture_owner, self.resources)
-            prepared.raster_owner.data["raster"]["fixture_source_retirement"] = "completed"
+            prepared.raster_owner.data["raster"]["fixture_source_retirement"] = (
+                "completed"
+            )
             prepared.raster_owner.save()
         prepared.phase = "database_intent"
         # Recheck each exact owner at the write boundary; never force DROP.

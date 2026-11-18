@@ -1,7 +1,7 @@
 -- Grant the Workspace template query LOGIN only its two closed native functions.
 -- psql -v expected_database=annotation_test -v migration_role=owner
 --   -v identity_owner=identity_code -v workspace_owner=workspace_code
---   -v workspace_template_query_role=workspace_template_query_client
+--   -v workspace_template_query_role=yoao_workspace_template_query_client
 --   -f infra/docker/workspace-template-query-grants.sql
 \set ON_ERROR_STOP on
 BEGIN;
@@ -26,7 +26,7 @@ BEGIN
        OR current_user <> current_setting('aap.migration_role') THEN
         RAISE EXCEPTION 'Unexpected database or migration owner';
     END IF;
-    IF role_name <> 'workspace_template_query_client'
+    IF role_name <> 'yoao_workspace_template_query_client'
        OR (SELECT pg_catalog.count(DISTINCT candidate.name)
            FROM pg_catalog.unnest(role_names) AS candidate(name)) <> 3 THEN
         RAISE EXCEPTION 'Unexpected Workspace template query role names';
@@ -69,10 +69,10 @@ DECLARE
         WHERE role.rolname = current_setting('aap.workspace_template_query_role')
     );
     policy_oid oid := pg_catalog.to_regprocedure(
-        'aap_workspace_template_query_v1.template_query_policy()'
+        'yoao_workspace_template_query_v1.template_query_policy()'
     )::oid;
     step_oid oid := pg_catalog.to_regprocedure(
-        'aap_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)'
+        'yoao_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)'
     )::oid;
 BEGIN
     IF identity_oid IS NULL OR workspace_oid IS NULL OR client_oid IS NULL
@@ -94,7 +94,7 @@ BEGIN
         RAISE EXCEPTION 'A Workspace template query RPC has the wrong owner or return type';
     END IF;
     IF NOT pg_catalog.has_schema_privilege(
-        workspace_oid, 'aap_workspace_template_query_v1', 'USAGE'
+        workspace_oid, 'yoao_workspace_template_query_v1', 'USAGE'
     ) OR NOT pg_catalog.has_schema_privilege(
         workspace_oid, 'aap_identity_v1', 'USAGE'
     ) OR NOT pg_catalog.has_function_privilege(
@@ -163,11 +163,11 @@ BEGIN
     END LOOP;
 END $$;
 
-GRANT USAGE ON SCHEMA aap_workspace_template_query_v1
+GRANT USAGE ON SCHEMA yoao_workspace_template_query_v1
     TO :"workspace_template_query_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_template_query_v1.template_query_policy(),
-    aap_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)
+    yoao_workspace_template_query_v1.template_query_policy(),
+    yoao_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)
     TO :"workspace_template_query_role";
 
 DO $$
@@ -178,8 +178,8 @@ DECLARE
     );
     actual_functions text[];
     expected_functions text[] := ARRAY[
-        'aap_workspace_template_query_v1.template_query_policy()',
-        'aap_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)'
+        'yoao_workspace_template_query_v1.template_query_policy()',
+        'yoao_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)'
     ];
 BEGIN
     SELECT COALESCE(pg_catalog.array_agg(
@@ -231,14 +231,14 @@ BEGIN
         SELECT 1 FROM pg_catalog.pg_namespace AS namespace
         WHERE namespace.nspname NOT IN (
             'pg_catalog', 'information_schema',
-            'aap_workspace_template_query_v1', 'public'
+            'yoao_workspace_template_query_v1', 'public'
         )
           AND namespace.nspname NOT LIKE 'pg_toast%'
           AND namespace.nspname NOT LIKE 'pg_temp_%'
           AND (pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'USAGE')
                OR pg_catalog.has_schema_privilege(role_oid, namespace.oid, 'CREATE'))
     ) OR pg_catalog.has_schema_privilege(
-        role_oid, 'aap_workspace_template_query_v1', 'CREATE'
+        role_oid, 'yoao_workspace_template_query_v1', 'CREATE'
     ) OR pg_catalog.has_schema_privilege(role_oid, 'public', 'CREATE')
       OR EXISTS (
           SELECT 1

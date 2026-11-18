@@ -508,7 +508,7 @@ async def assert_owned_test_database(test_engine) -> dict:
     assert current_user not in {
         "legacy_runtime",
         "labeling_class_query_client",
-        "workspace_project_query_client",
+        "yoao_workspace_project_query_client",
     }
     assert can_create
     return {"database": database, "owner_role": current_user}

@@ -24,7 +24,7 @@ def directory_query_dsn(test_engine, database=None):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_WORKSPACE_DIRECTORY_QUERY_URL",
-        "workspace_directory_query_client",
+        "yoao_workspace_directory_query_client",
         database,
     )
 
@@ -55,7 +55,7 @@ async def api_directory_query_binding(*, url=None, dsn=None, token, timeout=20):
 async def directory_query_provider(dsn, token, briefs_dsn=None):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     parsed = make_url(dsn)
-    assert parsed.username == "workspace_directory_query_client"
+    assert parsed.username == "yoao_workspace_directory_query_client"
     assert parsed.database and parsed.database.endswith("_test")
     from tests.test_asset_storage_cleanup_runtime import _verify_postgres
 

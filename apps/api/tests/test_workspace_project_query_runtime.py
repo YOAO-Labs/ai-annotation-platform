@@ -137,8 +137,8 @@ async def test_installed_owner_isolates_profile_failure_grants_and_restart(
                             await db.execute(
                                 text(
                                     "REVOKE EXECUTE ON FUNCTION "
-                                    "aap_workspace_project_query_v1.project_query_policy() "
-                                    "FROM workspace_project_query_client"
+                                    "yoao_workspace_project_query_v1.project_query_policy() "
+                                    "FROM yoao_workspace_project_query_client"
                                 )
                             )
                         assert (await client.get("/ready")).status_code == 503
@@ -151,8 +151,8 @@ async def test_installed_owner_isolates_profile_failure_grants_and_restart(
                             await db.execute(
                                 text(
                                     "GRANT EXECUTE ON FUNCTION "
-                                    "aap_workspace_project_query_v1.project_query_policy() "
-                                    "TO workspace_project_query_client"
+                                    "yoao_workspace_project_query_v1.project_query_policy() "
+                                    "TO yoao_workspace_project_query_client"
                                 )
                             )
                     assert (await client.get("/ready")).status_code == 200

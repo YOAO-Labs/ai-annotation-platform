@@ -13,7 +13,7 @@ from yoao_workspace_contract.project_query_contract import (
     decode_project_query_policy,
 )
 
-PROJECT_QUERY_SCHEMA = "aap_workspace_project_query_v1"
+PROJECT_QUERY_SCHEMA = "yoao_workspace_project_query_v1"
 PROJECT_QUERY_FUNCTIONS = {
     ("project_query_policy", ""),
     (

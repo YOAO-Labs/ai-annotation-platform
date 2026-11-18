@@ -1138,7 +1138,7 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 
 独立服务可只配置模板读取 DSN，复用 Workspace control bearer。私有端点为
 `POST /v1/workspace/template-queries/execute`，专用账号
-`workspace_template_query_client` 只有 policy 与 step 两项函数权限，并在只读事务中执行。
+`yoao_workspace_template_query_client` 只有 policy 与 step 两项函数权限，并在只读事务中执行。
 `docker-compose.workspace-template-query.yml` 绑定本机8175，使用
 `WORKSPACE_RUNTIME_TEMPLATE_QUERY_DATABASE_URL_FILE` 和
 `WORKSPACE_RUNTIME_CONTROL_TOKEN_FILE` 两份宿主 secret 文件。
@@ -1155,7 +1155,7 @@ Node conformance provider 只用于本地替换实验，Native 持有业务策�
 分别选择专用连接与 HTTP owner，不能同时配置。显式失败不回退，远程截止时间由
 `WORKSPACE_PROJECT_QUERY_TIMEOUT_SECONDS` 控制，默认30秒。
 
-独立运行时使用 `workspace_project_query_client` 的 policy/step 函数权限和只读事务，
+独立运行时使用 `yoao_workspace_project_query_client` 的 policy/step 函数权限和只读事务，
 私有入口为 `POST /v1/workspace/project-queries/execute`。非空项目响应还需要显式的
 Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/file，
 或 `WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL(_FILE)`；HTTP 优先。
@@ -1184,7 +1184,7 @@ Identity Briefs 依赖：`WORKSPACE_PROJECT_QUERY_IDENTITY_URL` 及独立 token/
 只约束显式独立调用；失败不回退。
 
 私有入口是 `POST /v1/workspace/directory-queries/execute`，复用 Workspace control bearer。
-独立进程使用 `workspace_directory_query_client` 的两项函数权限和只读事务。
+独立进程使用 `yoao_workspace_directory_query_client` 的两项函数权限和只读事务。
 非空成员列表需要既有 `WORKSPACE_PROJECT_QUERY_IDENTITY_*` 资料配置；提及候选使用
 Identity 的窄账号事实，不初始化 Briefs。空成员列表同样不访问 Briefs。
 

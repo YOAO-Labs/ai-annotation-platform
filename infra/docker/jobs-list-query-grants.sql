@@ -75,11 +75,11 @@ BEGIN
 END;
 $guard$;
 
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_project_query_v1
+GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_project_query_v1
     TO :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_identity_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
-    aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    yoao_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"jobs_owner";

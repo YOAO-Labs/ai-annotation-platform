@@ -777,13 +777,13 @@ async def test_http_training_authority_without_private_identity_select(
     await db.execute(
         text(
             "GRANT USAGE ON SCHEMA public, aap_identity_v1, "
-            f'aap_workspace_v1, aap_workspace_project_query_v1 TO "{role}"'
+            f'aap_workspace_v1, yoao_workspace_project_query_v1 TO "{role}"'
         )
     )
     await db.execute(
         text(
             "GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, "
-            f'aap_workspace_v1, aap_workspace_project_query_v1 TO "{role}"'
+            f'aap_workspace_v1, yoao_workspace_project_query_v1 TO "{role}"'
         )
     )
     request = Request(

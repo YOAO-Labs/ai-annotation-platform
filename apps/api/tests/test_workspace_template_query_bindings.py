@@ -103,7 +103,9 @@ async def test_function_only_reader_owns_read_transaction_and_preserves_receipt_
             )
 
         dsn = _dsn(
-            test_engine, "WORKSPACE_TEMPLATE_QUERY", "workspace_template_query_client"
+            test_engine,
+            "WORKSPACE_TEMPLATE_QUERY",
+            "yoao_workspace_template_query_client",
         )
         data = TemplateQueryPostgresData(dsn.render_as_string(hide_password=False))
         await data.template_query_policy()

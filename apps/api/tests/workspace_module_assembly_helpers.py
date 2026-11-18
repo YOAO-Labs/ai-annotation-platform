@@ -53,17 +53,17 @@ _WORKSPACE_ROLES = {
     ),
     "template_query": (
         "AAP_MODULE_DATA_WORKSPACE_TEMPLATE_QUERY_URL",
-        "workspace_template_query_client",
+        "yoao_workspace_template_query_client",
         "template_query_database_url",
     ),
     "project_query": (
         "AAP_MODULE_DATA_WORKSPACE_PROJECT_QUERY_URL",
-        "workspace_project_query_client",
+        "yoao_workspace_project_query_client",
         "project_query_database_url",
     ),
     "directory_query": (
         "AAP_MODULE_DATA_WORKSPACE_DIRECTORY_QUERY_URL",
-        "workspace_directory_query_client",
+        "yoao_workspace_directory_query_client",
         "directory_query_database_url",
     ),
 }

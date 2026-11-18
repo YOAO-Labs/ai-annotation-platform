@@ -154,7 +154,7 @@ async def _assert_labeling_client(dsn: str, project_id: uuid.UUID) -> None:
             "SELECT id FROM public.projects LIMIT 1",
             "SELECT id FROM public.users LIMIT 1",
             "CREATE TEMP TABLE forbidden_class_query_restore(id integer)",
-            "SELECT aap_workspace_project_query_v1.project_query_policy()",
+            "SELECT yoao_workspace_project_query_v1.project_query_policy()",
         ):
             with pytest.raises(asyncpg.InsufficientPrivilegeError):
                 await connection.execute(statement)

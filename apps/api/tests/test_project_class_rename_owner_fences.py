@@ -44,7 +44,7 @@ async def _query_function_metadata(connection):
                        FROM pg_catalog.pg_proc AS function
                        JOIN pg_catalog.pg_namespace AS namespace
                          ON namespace.oid=function.pronamespace
-                       WHERE namespace.nspname='aap_workspace_project_query_v1'
+                       WHERE namespace.nspname='yoao_workspace_project_query_v1'
                          AND function.proname='project_query_step'"""
                 )
             )
@@ -102,7 +102,7 @@ async def _wait_for_lock(test_engine, *, application_name=None):
             args = {}
             if application_name is None:
                 statement += (
-                    "AND query ILIKE '%aap_workspace_project_query_v1.project_query_step%' "
+                    "AND query ILIKE '%yoao_workspace_project_query_v1.project_query_step%' "
                     "AND lower(wait_event)='advisory' "
                 )
             else:

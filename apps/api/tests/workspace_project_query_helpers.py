@@ -38,7 +38,7 @@ def project_query_dsn(test_engine, database=None):
     return _dsn(
         test_engine,
         "AAP_MODULE_DATA_WORKSPACE_PROJECT_QUERY_URL",
-        "workspace_project_query_client",
+        "yoao_workspace_project_query_client",
         database,
     )
 
@@ -78,7 +78,7 @@ async def api_project_query_binding(*, url=None, dsn=None, token, timeout=20):
 async def project_query_provider(dsn, token, *, briefs_dsn=None):
     assert os.environ.get("AAP_MODULE_DATA_ROLE_ACCEPTANCE") == "1"
     parsed = make_url(dsn)
-    assert parsed.username == "workspace_project_query_client"
+    assert parsed.username == "yoao_workspace_project_query_client"
     assert parsed.database and parsed.database.endswith("_test")
     _verify_postgres(parsed)
     interpreter = Path(os.environ["AAP_WORKSPACE_RUNTIME_PYTHON"])

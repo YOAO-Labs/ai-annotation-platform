@@ -49,13 +49,13 @@ try {
     projection_evidence: null,
   };
   assert.ok(
-    (await client.query("SELECT aap_workspace_project_query_v1.project_query_policy() AS policy"))
+    (await client.query("SELECT yoao_workspace_project_query_v1.project_query_policy() AS policy"))
       .rows[0].policy,
   );
   for (const action of ["get_row", "access_member_rows"]) {
     const reply = (
       await client.query(
-        "SELECT aap_workspace_project_query_v1.project_query_step($1::jsonb,$2::text,NULL::jsonb,NULL::text,NULL::text,NULL::text[],NULL::text[],NULL::uuid,NULL::text,NULL::timestamptz,NULL::timestamptz,NULL::bigint,NULL::integer) AS reply",
+        "SELECT yoao_workspace_project_query_v1.project_query_step($1::jsonb,$2::text,NULL::jsonb,NULL::text,NULL::text,NULL::text[],NULL::text[],NULL::uuid,NULL::text,NULL::timestamptz,NULL::timestamptz,NULL::bigint,NULL::integer) AS reply",
         [JSON.stringify(request), action],
       )
     ).rows[0].reply;

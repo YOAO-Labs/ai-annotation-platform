@@ -21,8 +21,8 @@ from tests.factory import create_user
 _SQL_DIR = Path(__file__).parents[1] / "alembic/sql"
 _SQL = _SQL_DIR / "0259_workspace_template_queries.sql"
 _PROTOCOL = "aap-workspace-template-query/v1"
-_POLICY = "aap_workspace_template_query_v1.template_query_policy()"
-_STEP = "aap_workspace_template_query_v1.template_query_step"
+_POLICY = "yoao_workspace_template_query_v1.template_query_policy()"
+_STEP = "yoao_workspace_template_query_v1.template_query_step"
 _ROW_COLUMNS = (
     "id",
     "display_id",

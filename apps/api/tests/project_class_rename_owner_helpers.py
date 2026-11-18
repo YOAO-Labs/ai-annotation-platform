@@ -288,7 +288,7 @@ async def _installed_configuration_provider(
             "WORKSPACE_PROJECT_QUERY_DATABASE_URL_FILE",
             "project-query",
             project_query_dsn(test_engine),
-            "workspace_project_query_client",
+            "yoao_workspace_project_query_client",
         ),
         (
             "WORKSPACE_PROJECT_QUERY_IDENTITY_BRIEFS_DATABASE_URL_FILE",

@@ -137,8 +137,8 @@ async def test_independent_query_auth_grant_loss_restart_and_no_fallback(
                         await db.execute(
                             text(
                                 "REVOKE EXECUTE ON FUNCTION "
-                                "aap_workspace_template_query_v1.template_query_policy() "
-                                "FROM workspace_template_query_client"
+                                "yoao_workspace_template_query_v1.template_query_policy() "
+                                "FROM yoao_workspace_template_query_client"
                             )
                         )
                     assert (await client.get("/ready")).status_code == 503
@@ -151,8 +151,8 @@ async def test_independent_query_auth_grant_loss_restart_and_no_fallback(
                         await db.execute(
                             text(
                                 "GRANT EXECUTE ON FUNCTION "
-                                "aap_workspace_template_query_v1.template_query_policy() "
-                                "TO workspace_template_query_client"
+                                "yoao_workspace_template_query_v1.template_query_policy() "
+                                "TO yoao_workspace_template_query_client"
                             )
                         )
                 assert (await client.get("/ready")).status_code == 200

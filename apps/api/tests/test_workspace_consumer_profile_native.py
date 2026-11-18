@@ -713,11 +713,11 @@ async def test_legacy_grants_keep_embedded_workspace_capabilities_available(
             for function in (
                 "aap_workspace_configuration_v1.configuration_policy()",
                 "aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[])",
-                "aap_workspace_template_query_v1.template_query_policy()",
-                "aap_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text)",
-                "aap_workspace_directory_query_v1.directory_query_policy()",
-                "aap_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)",
-                "aap_workspace_project_query_v1.project_search_member_ids(uuid,text)",
+                "yoao_workspace_template_query_v1.template_query_policy()",
+                "yoao_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text)",
+                "yoao_workspace_directory_query_v1.directory_query_policy()",
+                "yoao_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)",
+                "yoao_workspace_project_query_v1.project_search_member_ids(uuid,text)",
             ):
                 assert await db.scalar(
                     text(
@@ -727,8 +727,8 @@ async def test_legacy_grants_keep_embedded_workspace_capabilities_available(
                 ), function
             for schema in (
                 "aap_workspace_configuration_v1",
-                "aap_workspace_template_query_v1",
-                "aap_workspace_directory_query_v1",
+                "yoao_workspace_template_query_v1",
+                "yoao_workspace_directory_query_v1",
             ):
                 assert await db.scalar(
                     text("SELECT has_schema_privilege(current_user,:schema,'USAGE')"),
@@ -738,14 +738,16 @@ async def test_legacy_grants_keep_embedded_workspace_capabilities_available(
                 text("SELECT aap_workspace_configuration_v1.configuration_policy()")
             )
             await db.execute(
-                text("SELECT aap_workspace_template_query_v1.template_query_policy()")
-            )
-            await db.execute(
-                text("SELECT aap_workspace_directory_query_v1.directory_query_policy()")
+                text("SELECT yoao_workspace_template_query_v1.template_query_policy()")
             )
             await db.execute(
                 text(
-                    "SELECT * FROM aap_workspace_project_query_v1.project_search_member_ids(:actor,'employee')"
+                    "SELECT yoao_workspace_directory_query_v1.directory_query_policy()"
+                )
+            )
+            await db.execute(
+                text(
+                    "SELECT * FROM yoao_workspace_project_query_v1.project_search_member_ids(:actor,'employee')"
                 ),
                 {"actor": uuid.uuid4()},
             )

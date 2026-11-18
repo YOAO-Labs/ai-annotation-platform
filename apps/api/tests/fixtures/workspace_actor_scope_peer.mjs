@@ -43,7 +43,7 @@ try {
     input.expected,
   );
   const projects = await client.query(
-    "SELECT project_id::text AS id FROM aap_workspace_project_query_v1.project_search_scope($1::uuid,'employee')",
+    "SELECT project_id::text AS id FROM yoao_workspace_project_query_v1.project_search_scope($1::uuid,'employee')",
     [input.actor_id],
   );
   assert.ok(projects.rows.some((row) => row.id === input.project_id));
