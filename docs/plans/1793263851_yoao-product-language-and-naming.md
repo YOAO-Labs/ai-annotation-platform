@@ -749,6 +749,6 @@ N6-E 只采用可销毁本地模式的新资源命名与 `YOAO_WORKTREE_MODE`。
 
 平台协议源 `c4c3913b3`（集成 `64ff57be0`）、独立 Plugin-SDK `8daeb0cf0`、官方插件 `daf31e0c7` 均有本地 Git 修订。五个协议包和三个 SDK 包已构建 wheel／sdist；两份 manifest 的 SHA-256 分别为 `dd977849e3f34386d91b06937bae23f9d2fc7b183f7dc19dcb5969e80dccbe84` 和 `e704157fc37306cdb851a934f92532f612b16e711c03b642ab789c1170307a19`。共享协议 145 项、SDK／运行时 77 项、五个官方 provider 的 CPU／适配器选集 71 项通过；这些检查不宣称真实模型或生产 GPU 资格。LibreYOLO 独立 CPython 3.11 Linux 候选已按原始第三方哈希锁构建，归档 SHA-256 `b73c58ab7b5cb2e4446449bc8a37765a1973de796d2adda32495b5c5f7e2ec15`；历史缓存中不匹配的 Triton wheel 未使用。
 
-LibreYOLO 候选在仓外按哈希锁安装，CPython 3.11 下原生模型与适配器 59 项通过。用一张空闲的 RTX 3090 对已校验权重和两张图片执行两轮实际加载、FP32 推理与释放：有目标图两次均检出 5 个，空图两次均为 0，释放后 CUDA 分配均回到起点。首轮错误来自宿主机 cuDNN 混入；仅为该进程指定候选 wheel 的库目录后通过，未安装或替换系统库。这是 `local-isolated`，不是平台签发租约、HTTP 取消排空或部署采用资格。原始 JUnit、制品、数据库摘要及首次失败／最终 GPU 回执保存在阶段 F 私有证据目录 `t1-gate/n5/forward-0469/`。
+LibreYOLO 候选在仓外按哈希锁安装，CPython 3.11 下原生模型与适配器 59 项通过。用一张空闲的 RTX 3090 对已校验权重和两张图片执行两轮实际加载、FP32 推理与释放：有目标图两次均检出 5 个，空图两次均为 0，释放后 CUDA 分配均回到起点。首轮错误来自宿主机 cuDNN 混入；仅为该进程指定候选 wheel 的库目录后通过，未安装或替换系统库。随后用同一已安装 SDK 和 provider 做真实回环 HTTP 检查：取消预测时仍有一个活跃请求，签名 drain 拒绝提前卸载；原生工作退出后签名 unload 成功，活跃请求、借用者和 CUDA 分配均归零。该报告仍为 `local-isolated`，不代表平台签发租约、其他 provider 或实际部署已采用。原始 JUnit、制品、数据库摘要及首次失败／最终 GPU 回执保存在阶段 F 私有证据目录 `t1-gate/n5/forward-0469/`。
 
 **剩余范围有实际基线。** `bo0469` 的一次性 PostgreSQL 16 实例仍有 46 个 `aap_*` schema、1,821 个函数，既有对调用方开放的 RPC，也有 owner 私有辅助函数；该计数不是待改字符串数或完成百分比。Identity、Assets、Jobs、Labeling、Inference 和其余 Workspace 等仍需逐 owner 核对。J1 不因本节通过而自动放行。未切换日常／生产实例、Compose 卷、存储位置、旧引用或签名身份，也未公开发布制品。
