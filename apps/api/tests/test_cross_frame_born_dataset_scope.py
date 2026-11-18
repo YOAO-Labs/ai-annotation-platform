@@ -27,11 +27,9 @@ pytestmark = pytest.mark.asyncio
 _FUNCTIONS = (
     "_cross_frame_scope_uuid(jsonb)",
     "_cross_frame_scope_int(jsonb)",
-    "_cross_frame_scope_annotation_ids(jsonb)",
-    "_cross_frame_scope_frames(jsonb)",
-    "_cross_frame_dataset_scope(uuid,uuid,jsonb,boolean)",
+    "_cross_frame_dataset_scope(uuid,uuid,jsonb)",
     "cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
-    "fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb,uuid[])",
+    "fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
 )
 
 
@@ -303,6 +301,14 @@ async def test_real_producer_birth_binds_exact_dataset_scope(
         actor_id=user.id,
         payload=job.payload,
     ) == (world.dataset.id,)
+    assert (
+        await _fence(db_session, job_id, world.project.id, user.id, job.payload) is True
+    )
+    assert await _fence(db_session, job_id, uuid.uuid4(), user.id, job.payload) is False
+    assert (
+        await _fence(db_session, job_id, world.project.id, uuid.uuid4(), job.payload)
+        is False
+    )
     with pytest.raises(HTTPException) as blocked:
         await ownership.guard_dataset_jobs(db_session, [world.dataset.id])
     assert blocked.value.detail["code"] == "fixture_dataset_job_unsettled"
@@ -847,9 +853,9 @@ async def test_family_scope_functions_stay_private(db_session):
         row = found[signature]
         assert row["owner"] == schema_owner, signature
         if signature in {
-            "aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb,boolean)",
+            "aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb)",
             "aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb)",
-            "aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb,uuid[])",
+            "aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb)",
         }:
             assert row["prosecdef"] is True, signature
         assert row["public_execute"] is False, signature

@@ -11,20 +11,16 @@
 -- grants.
 CREATE FUNCTION aap_assets_v1._cross_frame_scope_uuid(p_value jsonb)
 RETURNS uuid
-LANGUAGE plpgsql
+LANGUAGE sql
 IMMUTABLE
 PARALLEL UNSAFE
 SET search_path = pg_catalog, pg_temp
 AS $function$
-BEGIN
-    IF pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'string'
-       OR (p_value #>> '{}') !~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN
-        RETURN NULL;
-    END IF;
-    RETURN (p_value #>> '{}')::uuid;
-EXCEPTION WHEN others THEN
-    RETURN NULL;
-END
+    SELECT CASE
+        WHEN pg_catalog.jsonb_typeof(p_value) IS DISTINCT FROM 'string' THEN NULL
+        WHEN (p_value #>> '{}') !~ '^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$' THEN NULL
+        ELSE (p_value #>> '{}')::uuid
+    END
 $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1._cross_frame_scope_uuid(jsonb) FROM PUBLIC;
@@ -57,79 +53,13 @@ $function$;
 -- aap-statement-break
 REVOKE ALL ON FUNCTION aap_assets_v1._cross_frame_scope_int(jsonb) FROM PUBLIC;
 -- aap-statement-break
-CREATE FUNCTION aap_assets_v1._cross_frame_scope_annotation_ids(p_sources jsonb)
-RETURNS uuid[]
-LANGUAGE plpgsql
-IMMUTABLE
-PARALLEL UNSAFE
-SET search_path = pg_catalog, pg_temp
-AS $function$
-DECLARE
-    v_item jsonb;
-    v_id uuid;
-    v_ids uuid[] := ARRAY[]::uuid[];
-BEGIN
-    IF pg_catalog.jsonb_typeof(p_sources) IS DISTINCT FROM 'array' THEN
-        RETURN NULL;
-    END IF;
-    FOR v_item IN
-        SELECT value FROM pg_catalog.jsonb_array_elements(p_sources) AS rows(value)
-    LOOP
-        IF pg_catalog.jsonb_typeof(v_item) IS DISTINCT FROM 'object' THEN
-            RETURN NULL;
-        END IF;
-        v_id := aap_assets_v1._cross_frame_scope_uuid(v_item -> 'annotation_id');
-        IF v_id IS NULL THEN
-            RETURN NULL;
-        END IF;
-        v_ids := pg_catalog.array_append(v_ids, v_id);
-    END LOOP;
-    RETURN v_ids;
-END
-$function$;
--- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1._cross_frame_scope_annotation_ids(jsonb) FROM PUBLIC;
--- aap-statement-break
-CREATE FUNCTION aap_assets_v1._cross_frame_scope_frames(p_targets jsonb)
-RETURNS integer[]
-LANGUAGE plpgsql
-IMMUTABLE
-PARALLEL UNSAFE
-SET search_path = pg_catalog, pg_temp
-AS $function$
-DECLARE
-    v_item jsonb;
-    v_frame integer;
-    v_frames integer[] := ARRAY[]::integer[];
-BEGIN
-    IF pg_catalog.jsonb_typeof(p_targets) IS DISTINCT FROM 'array' THEN
-        RETURN NULL;
-    END IF;
-    FOR v_item IN
-        SELECT value FROM pg_catalog.jsonb_array_elements(p_targets) AS rows(value)
-    LOOP
-        IF pg_catalog.jsonb_typeof(v_item) IS DISTINCT FROM 'object' THEN
-            RETURN NULL;
-        END IF;
-        v_frame := aap_assets_v1._cross_frame_scope_int(v_item -> 'frame_index');
-        IF v_frame IS NULL THEN
-            RETURN NULL;
-        END IF;
-        v_frames := pg_catalog.array_append(v_frames, v_frame);
-    END LOOP;
-    RETURN v_frames;
-END
-$function$;
--- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1._cross_frame_scope_frames(jsonb) FROM PUBLIC;
--- aap-statement-break
 -- Derives the complete Dataset set a cross-frame execution can still reach
 -- from the current owner facts. It is deliberately independent of Job status,
 -- phase and any payload-declared Dataset. A NULL result means the shape is not
 -- proven; an empty result is never produced because every cross-frame Job has
 -- an authentic source Task in a Scene Dataset.
 CREATE FUNCTION aap_assets_v1._cross_frame_dataset_scope(
-    p_project_id uuid, p_actor_id uuid, p_payload jsonb, p_check_parent boolean
+    p_project_id uuid, p_actor_id uuid, p_payload jsonb
 )
 RETURNS uuid[]
 LANGUAGE plpgsql
@@ -175,14 +105,6 @@ DECLARE
     v_annotation_id uuid;
     v_version integer;
     v_kind text;
-    v_parent_id uuid;
-    v_parent_kind text;
-    v_parent_project uuid;
-    v_parent_actor uuid;
-    v_parent_status text;
-    v_parent_payload jsonb;
-    v_parent_annotations uuid[];
-    v_parent_frames integer[];
 BEGIN
     IF p_project_id IS NULL
        OR p_actor_id IS NULL
@@ -501,83 +423,6 @@ BEGIN
         RETURN NULL;
     END IF;
 
-    -- A retry is a new birth, never an adoption of its parent's scope. The
-    -- parent identity, terminal status and frozen source/Scene frame set must
-    -- all still agree with the producer that built this payload. Later
-    -- executor rechecks only need the still-live Task/Scene facts.
-    IF p_check_parent IS NOT TRUE THEN
-        RETURN ARRAY(
-            SELECT DISTINCT ids.id
-            FROM pg_catalog.unnest(v_datasets) AS ids(id)
-            WHERE ids.id IS NOT NULL
-            ORDER BY ids.id
-        );
-    END IF;
-    IF NOT (p_payload ? 'parent_job_id') THEN
-        RETURN NULL;
-    END IF;
-    v_kind := pg_catalog.jsonb_typeof(p_payload -> 'parent_job_id');
-    IF v_kind IS NULL OR v_kind NOT IN ('string', 'null') THEN
-        RETURN NULL;
-    END IF;
-    IF v_kind = 'string' THEN
-        v_parent_id := aap_assets_v1._cross_frame_scope_uuid(
-            p_payload -> 'parent_job_id'
-        );
-        IF v_parent_id IS NULL THEN
-            RETURN NULL;
-        END IF;
-        SELECT parent.kind, parent.project_id, parent.user_id, parent.status,
-               parent.payload
-        INTO v_parent_kind, v_parent_project, v_parent_actor, v_parent_status,
-             v_parent_payload
-        FROM public.async_jobs AS parent
-        WHERE parent.id = v_parent_id;
-        IF NOT FOUND
-           OR v_parent_kind IS DISTINCT FROM 'point_cloud_cross_frame'
-           OR v_parent_project IS DISTINCT FROM p_project_id
-           OR v_parent_actor IS DISTINCT FROM p_actor_id
-           OR v_parent_status IS NULL
-           OR v_parent_status NOT IN ('completed', 'failed', 'cancelled') THEN
-            RETURN NULL;
-        END IF;
-        IF pg_catalog.jsonb_typeof(v_parent_payload) IS DISTINCT FROM 'object'
-           OR v_parent_payload ->> 'source_task_id'
-              IS DISTINCT FROM p_payload ->> 'source_task_id'
-           OR v_parent_payload ->> 'scene_id'
-              IS DISTINCT FROM p_payload ->> 'scene_id' THEN
-            RETURN NULL;
-        END IF;
-        v_parent_annotations := aap_assets_v1._cross_frame_scope_annotation_ids(
-            v_parent_payload -> 'sources'
-        );
-        IF v_parent_annotations IS NULL THEN
-            RETURN NULL;
-        END IF;
-        v_parent_annotations := ARRAY(
-            SELECT DISTINCT ids.id
-            FROM pg_catalog.unnest(v_parent_annotations) AS ids(id)
-            ORDER BY ids.id
-        );
-        IF v_parent_annotations IS DISTINCT FROM ARRAY(
-            SELECT DISTINCT ids.id
-            FROM pg_catalog.unnest(v_annotation_ids) AS ids(id)
-            ORDER BY ids.id
-        ) THEN
-            RETURN NULL;
-        END IF;
-        v_parent_frames := aap_assets_v1._cross_frame_scope_frames(
-            v_parent_payload -> 'targets'
-        );
-        IF v_parent_frames IS NULL
-           OR EXISTS (
-               SELECT 1
-               FROM pg_catalog.unnest(v_frames) AS retry(frame_index)
-               WHERE retry.frame_index <> ALL(v_parent_frames)
-           ) THEN
-            RETURN NULL;
-        END IF;
-    END IF;
 
     v_datasets := ARRAY(
         SELECT DISTINCT ids.id
@@ -592,12 +437,11 @@ BEGIN
 END
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb,boolean) FROM PUBLIC;
+REVOKE ALL ON FUNCTION aap_assets_v1._cross_frame_dataset_scope(uuid,uuid,jsonb) FROM PUBLIC;
 -- aap-statement-break
 -- Jobs calls this from its AFTER INSERT receipt capture in the new Job's birth
--- transaction. An absent row is also accepted so the same derivation can be
--- qualified directly at its boundary; a present row must agree with the
--- callers' frozen kind/project/actor identity and is never re-adopted later.
+-- transaction. Assets never reads the Jobs table; the caller supplies the
+-- authoritative born project/actor/payload.
 CREATE FUNCTION aap_assets_v1.cross_frame_born_dataset_scope(
     p_job_id uuid, p_project_id uuid, p_actor_id uuid, p_payload jsonb
 )
@@ -608,27 +452,12 @@ PARALLEL UNSAFE
 SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
-DECLARE
-    v_kind text;
-    v_project uuid;
-    v_actor uuid;
 BEGIN
     IF p_job_id IS NULL OR p_project_id IS NULL OR p_actor_id IS NULL THEN
         RETURN NULL;
     END IF;
-    SELECT job.kind, job.project_id, job.user_id
-    INTO v_kind, v_project, v_actor
-    FROM public.async_jobs AS job
-    WHERE job.id = p_job_id;
-    IF FOUND AND (
-        v_kind IS DISTINCT FROM 'point_cloud_cross_frame'
-        OR v_project IS DISTINCT FROM p_project_id
-        OR v_actor IS DISTINCT FROM p_actor_id
-    ) THEN
-        RETURN NULL;
-    END IF;
     RETURN aap_assets_v1._cross_frame_dataset_scope(
-        p_project_id, p_actor_id, p_payload, true
+        p_project_id, p_actor_id, p_payload
     );
 END
 $function$;
@@ -636,13 +465,11 @@ $function$;
 REVOKE ALL ON FUNCTION aap_assets_v1.cross_frame_born_dataset_scope(uuid,uuid,uuid,jsonb) FROM PUBLIC;
 -- aap-statement-break
 -- Bounded executor fence. A born cross-frame Job may execute only while the
--- current owner facts still derive exactly its immutable receipt. Historical
--- or unproven Jobs keep their prior executor behavior; their Dataset cleanup
--- remains blocked by the fixture classifier. Any other classifier outcome is
--- fail-closed.
+-- authoritative current Job and payload still derive exactly its immutable
+-- receipt. No receipt keeps historical/unproven execution unchanged and takes
+-- no caller-supplied locks or task lookups.
 CREATE FUNCTION aap_assets_v1.fence_cross_frame_job_dataset_scope(
-    p_job_id uuid, p_project_id uuid, p_actor_id uuid, p_payload jsonb,
-    p_guard_task_ids uuid[] DEFAULT NULL
+    p_job_id uuid, p_project_id uuid, p_actor_id uuid, p_payload jsonb
 )
 RETURNS boolean
 LANGUAGE plpgsql
@@ -652,116 +479,96 @@ SECURITY DEFINER
 SET search_path = pg_catalog, pg_temp
 AS $function$
 DECLARE
-    v_born jsonb;
-    v_kind text;
-    v_born_ids uuid[];
+    v_birth record;
+    v_born uuid[];
     v_current uuid[];
+    v_task_ids uuid[];
     v_scene uuid;
 BEGIN
     IF p_job_id IS NULL THEN
         RETURN false;
     END IF;
-    v_born := aap_jobs_v1.fixture_job_dataset_scope(
-        p_job_id, 'point_cloud_cross_frame', p_payload, p_project_id, p_actor_id
-    );
-    IF v_born IS NULL THEN
-        RETURN false;
-    END IF;
-    v_kind := v_born ->> 'kind';
-    IF v_kind = 'datasets' THEN
-        IF pg_catalog.jsonb_typeof(v_born -> 'dataset_ids') IS DISTINCT FROM 'array' THEN
-            RETURN false;
-        END IF;
-        BEGIN
-            v_born_ids := ARRAY(
-                SELECT ids.value::uuid
-                FROM pg_catalog.jsonb_array_elements_text(
-                    v_born -> 'dataset_ids'
-                ) AS ids(value)
-                ORDER BY ids.value::uuid
-            );
-        EXCEPTION WHEN others THEN
-            RETURN false;
-        END;
-        v_born_ids := ARRAY(
-            SELECT DISTINCT ids.id
-            FROM pg_catalog.unnest(v_born_ids) AS ids(id)
-            ORDER BY ids.id
-        );
-    ELSIF v_kind = 'dataset' THEN
-        IF aap_assets_v1._cross_frame_scope_uuid(v_born -> 'dataset_id') IS NULL THEN
-            RETURN false;
-        END IF;
-        v_born_ids := ARRAY[
-            aap_assets_v1._cross_frame_scope_uuid(v_born -> 'dataset_id')
-        ];
-    ELSIF v_kind = 'unknown' THEN
-        -- The parent classifier found no immutable receipt (historical or
-        -- otherwise unproven). Dataset cleanup continues to refuse it; the
-        -- executor does not gate on that cleanup proof alone.
+    SELECT birth.project_id, birth.actor_id, birth.dataset_ids
+    INTO v_birth
+    FROM aap_jobs_v1.cross_frame_job_birth(p_job_id) AS birth;
+    IF NOT FOUND THEN
         RETURN true;
-    ELSE
-        -- A cross-frame Job is never proven Dataset-independent or unrelated.
+    END IF;
+    IF v_birth.project_id IS DISTINCT FROM p_project_id
+       OR v_birth.actor_id IS DISTINCT FROM p_actor_id THEN
         RETURN false;
     END IF;
-    IF p_guard_task_ids IS NOT NULL THEN
-        IF pg_catalog.array_position(p_guard_task_ids, NULL::uuid) IS NOT NULL THEN
-            RETURN false;
-        END IF;
-        IF pg_catalog.cardinality(p_guard_task_ids) > 0 THEN
-            -- Stabilize the current frame's source/target relation facts until
-            -- the caller's Annotation write commits. The caller already holds
-            -- the same Task rows; these share locks extend that fence to the
-            -- link, Item and Scene projections read by the derivation.
-            PERFORM task.id
-            FROM public.tasks AS task
-            WHERE task.id = ANY(p_guard_task_ids)
-            ORDER BY task.id
-            FOR SHARE;
-            PERFORM link.id
-            FROM public.task_dataset_item_links AS link
-            WHERE link.task_id = ANY(p_guard_task_ids)
-            ORDER BY link.task_id, link.id
-            FOR SHARE;
-            PERFORM item.id
-            FROM public.dataset_items AS item
-            WHERE item.id IN (
-                SELECT source_task.dataset_item_id
-                FROM aap_labeling_v1.task_rows AS source_task
-                WHERE source_task.id = ANY(p_guard_task_ids)
-                  AND source_task.dataset_item_id IS NOT NULL
-                UNION
-                SELECT linked.dataset_item_id
-                FROM public.task_dataset_item_links AS linked
-                WHERE linked.task_id = ANY(p_guard_task_ids)
-            )
-            ORDER BY item.id
-            FOR SHARE;
-            v_scene := aap_assets_v1._cross_frame_scope_uuid(
-                p_payload -> 'scene_id'
-            );
-            IF v_scene IS NOT NULL THEN
-                PERFORM scene.id
-                FROM public.scenes AS scene
-                WHERE scene.id = v_scene
-                FOR SHARE;
-            END IF;
-        END IF;
-    END IF;
-    v_current := aap_assets_v1._cross_frame_dataset_scope(
-        p_project_id, p_actor_id, p_payload, false
-    );
-    IF v_current IS NULL THEN
-        RETURN false;
-    END IF;
-    RETURN v_born_ids IS NOT DISTINCT FROM ARRAY(
+    v_born := ARRAY(
         SELECT DISTINCT ids.id
-        FROM pg_catalog.unnest(v_current) AS ids(id)
+        FROM pg_catalog.unnest(v_birth.dataset_ids) AS ids(id)
+        WHERE ids.id IS NOT NULL
         ORDER BY ids.id
     );
-EXCEPTION WHEN others THEN
-    RETURN false;
+    v_current := aap_assets_v1._cross_frame_dataset_scope(
+        p_project_id, p_actor_id, p_payload
+    );
+    IF v_current IS NULL OR v_born IS DISTINCT FROM v_current THEN
+        RETURN false;
+    END IF;
+    -- Only after the receipt and current facts agree, derive the bounded Task
+    -- guard set from the validated payload and freeze its relations.
+    v_task_ids := ARRAY(
+        SELECT DISTINCT ids.id
+        FROM (
+            SELECT aap_assets_v1._cross_frame_scope_uuid(
+                p_payload -> 'source_task_id'
+            ) AS id
+            UNION
+            SELECT aap_assets_v1._cross_frame_scope_uuid(
+                target.value -> 'task_id'
+            )
+            FROM pg_catalog.jsonb_array_elements(
+                p_payload -> 'targets'
+            ) AS target(value)
+        ) AS ids(id)
+        WHERE ids.id IS NOT NULL
+        ORDER BY ids.id
+    );
+    IF pg_catalog.cardinality(v_task_ids) > 0 THEN
+        PERFORM task.id
+        FROM public.tasks AS task
+        WHERE task.id = ANY(v_task_ids)
+        ORDER BY task.id
+        FOR SHARE;
+        PERFORM link.id
+        FROM public.task_dataset_item_links AS link
+        WHERE link.task_id = ANY(v_task_ids)
+        ORDER BY link.task_id, link.id
+        FOR SHARE;
+        PERFORM item.id
+        FROM public.dataset_items AS item
+        WHERE item.id IN (
+            SELECT source_task.dataset_item_id
+            FROM aap_labeling_v1.task_rows AS source_task
+            WHERE source_task.id = ANY(v_task_ids)
+              AND source_task.dataset_item_id IS NOT NULL
+            UNION
+            SELECT linked.dataset_item_id
+            FROM public.task_dataset_item_links AS linked
+            WHERE linked.task_id = ANY(v_task_ids)
+        )
+        ORDER BY item.id
+        FOR SHARE;
+        v_scene := aap_assets_v1._cross_frame_scope_uuid(
+            p_payload -> 'scene_id'
+        );
+        IF v_scene IS NOT NULL THEN
+            PERFORM scene.id
+            FROM public.scenes AS scene
+            WHERE scene.id = v_scene
+            FOR SHARE;
+        END IF;
+    END IF;
+    RETURN v_born IS NOT DISTINCT FROM
+        aap_assets_v1._cross_frame_dataset_scope(
+            p_project_id, p_actor_id, p_payload
+        );
 END
 $function$;
 -- aap-statement-break
-REVOKE ALL ON FUNCTION aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb,uuid[]) FROM PUBLIC;
+REVOKE ALL ON FUNCTION aap_assets_v1.fence_cross_frame_job_dataset_scope(uuid,uuid,uuid,jsonb) FROM PUBLIC;

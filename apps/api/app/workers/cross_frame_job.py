@@ -149,7 +149,6 @@ def _scope_changed_items(targets: list[Any]) -> list[dict[str, Any]]:
 async def _born_dataset_scope_matches(
     db: AsyncSession,
     job_id: uuid.UUID,
-    guard_task_ids: list[uuid.UUID] | None = None,
 ) -> bool:
     """Refuse to write once owner facts no longer derive the born Dataset set.
 
@@ -166,8 +165,7 @@ async def _born_dataset_scope_matches(
         await db.scalar(
             text(
                 "SELECT aap_assets_v1.fence_cross_frame_job_dataset_scope("
-                ":job, :project, :actor, CAST(:payload AS jsonb), "
-                "CAST(:guard AS uuid[]))"
+                ":job, :project, :actor, CAST(:payload AS jsonb))"
             ),
             {
                 "job": job.id,
@@ -176,7 +174,6 @@ async def _born_dataset_scope_matches(
                 "payload": json.dumps(
                     payload, ensure_ascii=False, separators=(",", ":")
                 ),
-                "guard": guard_task_ids,
             },
         )
     )
@@ -392,7 +389,7 @@ async def execute_cross_frame_job(
             # Recheck the born Dataset proof inside every frame transaction so
             # a committed Task/item/primary_lidar/Scene remap fails the frame
             # before any Annotation write instead of widening silently.
-            if not await _born_dataset_scope_matches(db, job_id, lock_ids):
+            if not await _born_dataset_scope_matches(db, job_id):
                 raise RuntimeError("dataset_scope_changed")
             try:
                 await task_access.assert_task_visible(db, source_task, actor.id)
