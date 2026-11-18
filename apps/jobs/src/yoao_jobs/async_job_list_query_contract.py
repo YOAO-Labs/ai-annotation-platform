@@ -102,7 +102,7 @@ def async_job_list_query_schema() -> dict[str, Any]:
         {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "$id": ASYNC_JOB_LIST_QUERY_PROTOCOL,
-            "title": "AAP Jobs async-job list query",
+            "title": "YOAO Jobs async-job list query",
             "$comment": (
                 "The API reads Identity actor status once before calling Jobs and "
                 "passes the trusted role snapshot. Each page and total statement "
@@ -157,7 +157,7 @@ def async_job_list_query_schema() -> dict[str, Any]:
                 ),
                 "workspace_facts": [
                     "aap_workspace_v1.actor_project_memberships(uuid)",
-                    "aap_workspace_project_query_v1.project_search_scope(uuid,text)",
+                    "yoao_workspace_project_query_v1.project_search_scope(uuid,text)",
                 ],
                 "unknown_kinds": "preserved as open strings and only visible under normal scope rules",
             },
@@ -220,6 +220,6 @@ def async_job_list_query_sql() -> str:
 
     return (
         files("yoao_jobs")
-        .joinpath("sql/0326_jobs_list_query.sql")
+        .joinpath("sql/async_job_list_query.sql")
         .read_text(encoding="utf-8")
     )

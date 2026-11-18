@@ -12,7 +12,7 @@ DECLARE
     v_digests text[] := ARRAY['5cea043d2fdcc088ee1d1842bb94a21044075271b01249082f9fca8db0068e22', '31aa9c50715a42faed14a878409e2cbed17694177992a8216b5b22985c9d5abf', 'bf382b1f3653dfeffd04f09a8787f3a9861dc116fd63fe23f1a3d92f17eb20f7', '85794d8f70ed17bd40e7520ce1f93af89ed44ea912d9faf3b4cdaa2afdbbd4ad', '9f9a140bf2ec88b784d36273c7ba2f31f8b4b035db5a4ebac3ed21cc544798f2'];
     v_post_digests text[];
     v_oids oid[]; v_fps jsonb[]; v_ns_oids oid[]; v_ns_fps jsonb[];
-    v_sig text; v_new_sig text; v_name text; v_new_name text; v_f oid;
+    v_sig text; v_f oid;
     v_h text; v_def text; v_bad integer; v_changed integer := 0; v_unchanged integer := 0; i integer;
 BEGIN
     v_sigs := v_caps || v_calls; v_post_digests := v_digests;
@@ -48,14 +48,16 @@ BEGIN
     INTO v_oids, v_fps, v_bad
     FROM (
         SELECT s.i, p.oid, p.prokind, p.prosecdef, p.provolatile, p.proparallel, p.proconfig,
-               pg_catalog.to_jsonb(p) - 'prosrc' AS fp,
+               -- pg_node_tree includes parser byte offsets; compare the SQL default itself.
+               (pg_catalog.to_jsonb(p) - 'prosrc' - 'proargdefaults') ||
+                   pg_catalog.jsonb_build_object('defaults', pg_catalog.pg_get_expr(p.proargdefaults, 0)) AS fp,
                pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc, 'UTF8')), 'hex') AS digest
         FROM pg_catalog.unnest(v_sigs) WITH ORDINALITY AS s(sig, i)
         LEFT JOIN pg_catalog.pg_proc AS p ON p.oid = pg_catalog.to_regprocedure(s.sig)
     ) AS q;
     IF v_bad <> 0 THEN RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'Owner capability identity, shape, settings or body drifted'; END IF;
 
-    IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc AS p WHERE p.pronamespace IN (v_diag, v_ins)) <> 5
+    IF (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc AS p WHERE p.pronamespace IN (v_diag, v_ins)) <> pg_catalog.cardinality(v_caps)
        OR (SELECT pg_catalog.array_agg(n.nspname || '.' || p.proname || '(' || pg_catalog.oidvectortypes(p.proargtypes) || ')'
                ORDER BY n.nspname COLLATE "C", p.proname COLLATE "C")
            FROM pg_catalog.pg_proc AS p JOIN pg_catalog.pg_namespace AS n ON n.oid = p.pronamespace
@@ -108,7 +110,7 @@ BEGIN
     END IF;
     IF EXISTS (SELECT FROM pg_catalog.pg_class WHERE relnamespace IN (v_new_diag, v_new_ins))
        OR EXISTS (SELECT FROM pg_catalog.pg_type WHERE typnamespace IN (v_new_diag, v_new_ins))
-       OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc AS p WHERE p.pronamespace IN (v_new_diag, v_new_ins)) <> 5 THEN
+       OR (SELECT pg_catalog.count(*) FROM pg_catalog.pg_proc AS p WHERE p.pronamespace IN (v_new_diag, v_new_ins)) <> pg_catalog.cardinality(v_caps) THEN
         RAISE EXCEPTION USING ERRCODE = '55000', MESSAGE = 'Diagnostics or Insights destination has an unexpected object';
     END IF;
 
@@ -133,7 +135,8 @@ BEGIN
            pg_catalog.count(*) FILTER (WHERE q.digest IS NOT DISTINCT FROM v_digests[q.i::integer])
     INTO v_bad, v_changed, v_unchanged
     FROM (
-        SELECT s.i, p.oid, pg_catalog.to_jsonb(p) - 'prosrc' AS fp,
+        SELECT s.i, p.oid, (pg_catalog.to_jsonb(p) - 'prosrc' - 'proargdefaults') ||
+                   pg_catalog.jsonb_build_object('defaults', pg_catalog.pg_get_expr(p.proargdefaults, 0)) AS fp,
                pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(p.prosrc, 'UTF8')), 'hex') AS digest
         FROM pg_catalog.unnest(v_sigs) WITH ORDINALITY AS s(sig, i)
         LEFT JOIN pg_catalog.pg_proc AS p ON p.oid = CASE WHEN s.i <= 3

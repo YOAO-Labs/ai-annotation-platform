@@ -213,7 +213,7 @@
     }
   },
   "required": ["actor_id", "platform_role", "limit", "offset"],
-  "title": "AAP Jobs async-job list query",
+  "title": "YOAO Jobs async-job list query",
   "type": "object",
   "x-borrowed-transaction": {
     "autoflush": "preserve the caller setting at both ORM query boundaries",
@@ -275,7 +275,7 @@
     "unknown_kinds": "preserved as open strings and only visible under normal scope rules",
     "workspace_facts": [
       "aap_workspace_v1.actor_project_memberships(uuid)",
-      "aap_workspace_project_query_v1.project_search_scope(uuid,text)"
+      "yoao_workspace_project_query_v1.project_search_scope(uuid,text)"
     ]
   },
   "x-postgresql-functions": {

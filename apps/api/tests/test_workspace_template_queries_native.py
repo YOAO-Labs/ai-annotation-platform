@@ -210,6 +210,17 @@ async def test_list_rows_preserve_visibility_and_legacy_filter_phases(test_engin
     template_ids: list[uuid.UUID] = []
     try:
         async with maker.begin() as session:
+            # Existing public templates are visible to this new actor; only a
+            # super-admin may also see the other preexisting private templates.
+            existing = (
+                await session.execute(
+                    text("SELECT id, scope FROM public.project_templates")
+                )
+            ).all()
+            existing_ids = {str(row.id) for row in existing}
+            existing_public_ids = {
+                str(row.id) for row in existing if row.scope == "public"
+            }
             actor = await create_user(
                 session,
                 "employee",
@@ -366,7 +377,9 @@ async def test_list_rows_preserve_visibility_and_legacy_filter_phases(test_engin
                 type_keys=[],
                 search="",
             )
-            assert {row["id"] for row in json.loads(ordinary["rows_json"])} == {
+            assert {
+                row["id"] for row in json.loads(ordinary["rows_json"])
+            } == existing_public_ids | {
                 str(templates[index].id) for index in (0, 1, 2, 4, 6)
             }
 
@@ -382,9 +395,9 @@ async def test_list_rows_preserve_visibility_and_legacy_filter_phases(test_engin
                 "list_rows",
                 parameters={"organization_ids": []},
             )
-            assert {row["id"] for row in json.loads(super_admin_rows["rows_json"])} == {
-                str(template_id) for template_id in template_ids
-            }
+            assert {
+                row["id"] for row in json.loads(super_admin_rows["rows_json"])
+            } == existing_ids | {str(template_id) for template_id in template_ids}
 
         malformed_request = dict(request, unexpected=True)
         async with maker() as session:

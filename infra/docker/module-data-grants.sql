@@ -109,28 +109,28 @@ BEGIN
     END IF;
 END $$;
 
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
+    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
     aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_owner_transfer_v1, aap_workspace_configuration_v1, yoao_workspace_membership_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM PUBLIC;
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
+    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1, aap_settings_v1, aap_notifications_v1
     FROM :"asset_cleanup_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
     aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
     aap_audit_v1 FROM :"asset_cleanup_role";
-REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
+REVOKE ALL ON SCHEMA aap_identity_v1, aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1, aap_assets_v1,
     aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1,
+    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1,
     aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
-REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_workspace_template_query_v1, aap_workspace_project_query_v1, aap_workspace_directory_query_v1, aap_workspace_v1,
+REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, yoao_workspace_template_query_v1, yoao_workspace_project_query_v1, yoao_workspace_directory_query_v1, aap_workspace_v1,
     aap_identity_keys_v1, aap_identity_sessions_v1, aap_identity_accounts_v1, aap_identity_recovery_v1, aap_identity_groups_v1, aap_identity_deactivation_v1, aap_identity_invitations_v1, aap_identity_mail_v2, aap_identity_directory_v1, aap_identity_admin_passwords_v1, aap_identity_platform_roles_v1, aap_identity_suspensions_v1, aap_identity_deletions_v1, aap_identity_offboarding_v1, aap_identity_briefs_v1, aap_assets_v1, aap_labeling_class_query_v1, aap_labeling_v1, aap_jobs_v1, aap_learning_v1,
-    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, aap_insights_v1, aap_diagnostics_v1, aap_export_v1,
+    aap_inference_v1, aap_inference_registry_ingress_v1, aap_inference_routing_v1, yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1,
     aap_audit_v1, aap_settings_v1, aap_notifications_v1 FROM :"mask_gc_role";
 GRANT CONNECT ON DATABASE :"expected_database" TO :"workflow_role";
 REVOKE ALL ON DATABASE :"expected_database" FROM :"asset_cleanup_role";
@@ -1160,10 +1160,10 @@ GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid)
     TO :"notifications_owner";
 GRANT SELECT (id, role, is_active) ON aap_identity_v1.account_profiles
     TO :"notifications_owner";
-GRANT USAGE ON SCHEMA aap_workspace_v1, aap_workspace_project_query_v1, aap_jobs_v1
+GRANT USAGE ON SCHEMA aap_workspace_v1, yoao_workspace_project_query_v1, aap_jobs_v1
     TO :"notifications_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.actor_project_memberships(uuid),
-    aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    yoao_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"notifications_owner";
 GRANT SELECT (id, kind, scope_project_id) ON aap_jobs_v1.notification_scope_facts
     TO :"notifications_owner";
@@ -1317,14 +1317,14 @@ GRANT EXECUTE ON FUNCTION
     TO :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_inference_v1 TO :"inference_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1 TO :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_workspace_directory_query_v1 TO :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_workspace_template_query_v1 TO :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_workspace_directory_query_v1 TO :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_labeling_class_query_v1 TO :"labeling_owner";
-GRANT USAGE ON SCHEMA aap_workspace_project_query_v1
+GRANT USAGE ON SCHEMA yoao_workspace_project_query_v1
     TO :"workspace_owner", :"labeling_owner", :"identity_owner", :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_search_scope(uuid, text)
+GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_search_scope(uuid, text)
     TO :"labeling_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_search_member_ids(uuid, text)
+GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_search_member_ids(uuid, text)
     TO :"identity_owner";
 GRANT EXECUTE ON FUNCTION
     aap_labeling_v1.workspace_project_query_counters(uuid[]),
@@ -1349,8 +1349,8 @@ GRANT EXECUTE ON FUNCTION
     aap_workspace_configuration_v1.configuration_policy(),
     aap_workspace_configuration_v1.configuration_step(jsonb, text, jsonb, text[], text[])
     TO :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_insights_v1 TO :"insights_owner", :"workspace_owner";
-GRANT USAGE ON SCHEMA aap_diagnostics_v1
+GRANT USAGE ON SCHEMA yoao_insights_v1 TO :"insights_owner", :"workspace_owner";
+GRANT USAGE ON SCHEMA yoao_diagnostics_v1
     TO :"diagnostics_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_export_v1 TO :"export_owner", :"workspace_owner";
 GRANT USAGE ON SCHEMA aap_audit_v1
@@ -1536,7 +1536,7 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.project_access_step(uuid, uuid, text)
     TO :"inference_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_v1.clear_primary_backend_bindings(uuid)
     TO :"inference_owner";
-GRANT EXECUTE ON FUNCTION aap_workspace_project_query_v1.project_query_step(
+GRANT EXECUTE ON FUNCTION yoao_workspace_project_query_v1.project_query_step(
     jsonb, text, jsonb, text, text, text[], text[], uuid, text,
     timestamptz, timestamptz, bigint, integer
 ) TO :"inference_owner";
@@ -1691,9 +1691,9 @@ GRANT EXECUTE ON FUNCTION aap_learning_v1.lock_project_deletion(uuid),
 GRANT EXECUTE ON FUNCTION aap_inference_v1.clear_project_ml_backend_pool(uuid),
     aap_inference_v1.clear_project_pipelines(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_insights_v1.clear_project_task_views(uuid)
+GRANT EXECUTE ON FUNCTION yoao_insights_v1.clear_project_task_views(uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_diagnostics_v1.detach_project_references(uuid)
+GRANT EXECUTE ON FUNCTION yoao_diagnostics_v1.detach_project_references(uuid)
     TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_export_v1.clear_project_export_artifacts(uuid)
     TO :"workspace_owner";
@@ -1716,7 +1716,7 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.prepare_dataset_unlink_cleanup(
     uuid, uuid, uuid, text
 ), aap_assets_v1.remove_dataset_association(uuid, uuid, uuid)
     TO :"workspace_owner";
-GRANT EXECUTE ON FUNCTION aap_diagnostics_v1.detach_dataset_task_references(
+GRANT EXECUTE ON FUNCTION yoao_diagnostics_v1.detach_dataset_task_references(
     uuid, uuid
 ) TO :"workspace_owner";
 GRANT EXECUTE ON FUNCTION aap_audit_v1.valid_request_context(jsonb),
@@ -2486,28 +2486,28 @@ ALTER FUNCTION aap_workspace_configuration_v1._cleanup_unwritten_state()
     OWNER TO :"workspace_owner";
 REVOKE CREATE ON SCHEMA aap_workspace_configuration_v1 FROM :"workspace_owner";
 
-GRANT CREATE ON SCHEMA aap_workspace_template_query_v1 TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_template_query_v1.template_query_policy()
+GRANT CREATE ON SCHEMA yoao_workspace_template_query_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_template_query_v1.template_query_policy()
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)
+ALTER FUNCTION yoao_workspace_template_query_v1.template_query_step(jsonb, text, jsonb, text, text[], text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_template_query_v1._template_row_json(public.project_templates)
+ALTER FUNCTION yoao_workspace_template_query_v1._template_row_json(public.project_templates)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_template_query_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_workspace_template_query_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_template_query_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_template_query_v1 FROM :"workspace_owner";
 
-GRANT CREATE ON SCHEMA aap_workspace_project_query_v1 TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_project_query_v1.project_query_policy()
+GRANT CREATE ON SCHEMA yoao_workspace_project_query_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_project_query_v1.project_query_policy()
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_project_query_v1.project_query_step(
+ALTER FUNCTION yoao_workspace_project_query_v1.project_query_step(
     jsonb, text, jsonb, text, text, text[], text[], uuid, text,
     timestamptz, timestamptz, bigint, integer
 ) OWNER TO :"workspace_owner";
 DO $$
 DECLARE
     implementation regprocedure := pg_catalog.to_regprocedure(
-        'aap_workspace_project_query_v1._project_query_step_impl(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer)'
+        'yoao_workspace_project_query_v1._project_query_step_impl(jsonb, text, jsonb, text, text, text[], text[], uuid, text, timestamptz, timestamptz, bigint, integer)'
     );
 BEGIN
     IF implementation IS NOT NULL THEN
@@ -2518,25 +2518,25 @@ BEGIN
         );
     END IF;
 END $$;
-ALTER FUNCTION aap_workspace_project_query_v1.project_search_scope(uuid, text)
+ALTER FUNCTION yoao_workspace_project_query_v1.project_search_scope(uuid, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_project_query_v1.project_search_member_ids(uuid, text)
+ALTER FUNCTION yoao_workspace_project_query_v1.project_search_member_ids(uuid, text)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_project_query_v1._project_row_json(
+ALTER FUNCTION yoao_workspace_project_query_v1._project_row_json(
     jsonb, integer, integer, integer, integer, text
 ) OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_project_query_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_workspace_project_query_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_project_query_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_project_query_v1 FROM :"workspace_owner";
 
-GRANT CREATE ON SCHEMA aap_workspace_directory_query_v1 TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_directory_query_v1.directory_query_policy()
+GRANT CREATE ON SCHEMA yoao_workspace_directory_query_v1 TO :"workspace_owner";
+ALTER FUNCTION yoao_workspace_directory_query_v1.directory_query_policy()
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb)
+ALTER FUNCTION yoao_workspace_directory_query_v1.directory_query_step(jsonb, text, jsonb)
     OWNER TO :"workspace_owner";
-ALTER FUNCTION aap_workspace_directory_query_v1._has_exact_keys(jsonb, text[])
+ALTER FUNCTION yoao_workspace_directory_query_v1._has_exact_keys(jsonb, text[])
     OWNER TO :"workspace_owner";
-REVOKE CREATE ON SCHEMA aap_workspace_directory_query_v1 FROM :"workspace_owner";
+REVOKE CREATE ON SCHEMA yoao_workspace_directory_query_v1 FROM :"workspace_owner";
 ALTER FUNCTION aap_identity_v1.workspace_directory_superadmins()
     OWNER TO :"identity_owner";
 
@@ -3216,17 +3216,17 @@ ALTER FUNCTION aap_inference_pipelines_v1.frozen_snapshot_uses_deployment(uuid,u
     OWNER TO :"inference_owner";
 REVOKE CREATE ON SCHEMA aap_inference_pipelines_v1 FROM :"inference_owner";
 
-GRANT CREATE ON SCHEMA aap_insights_v1 TO :"insights_owner";
-ALTER FUNCTION aap_insights_v1.clear_project_task_views(uuid)
+GRANT CREATE ON SCHEMA yoao_insights_v1 TO :"insights_owner";
+ALTER FUNCTION yoao_insights_v1.clear_project_task_views(uuid)
     OWNER TO :"insights_owner";
-REVOKE CREATE ON SCHEMA aap_insights_v1 FROM :"insights_owner";
+REVOKE CREATE ON SCHEMA yoao_insights_v1 FROM :"insights_owner";
 
-GRANT CREATE ON SCHEMA aap_diagnostics_v1 TO :"diagnostics_owner";
-ALTER FUNCTION aap_diagnostics_v1.detach_project_references(uuid)
+GRANT CREATE ON SCHEMA yoao_diagnostics_v1 TO :"diagnostics_owner";
+ALTER FUNCTION yoao_diagnostics_v1.detach_project_references(uuid)
     OWNER TO :"diagnostics_owner";
-ALTER FUNCTION aap_diagnostics_v1.detach_dataset_task_references(uuid, uuid)
+ALTER FUNCTION yoao_diagnostics_v1.detach_dataset_task_references(uuid, uuid)
     OWNER TO :"diagnostics_owner";
-REVOKE CREATE ON SCHEMA aap_diagnostics_v1 FROM :"diagnostics_owner";
+REVOKE CREATE ON SCHEMA yoao_diagnostics_v1 FROM :"diagnostics_owner";
 
 GRANT CREATE ON SCHEMA aap_export_v1 TO :"export_owner";
 ALTER TABLE aap_export_v1.executions OWNER TO :"export_owner";
@@ -3544,8 +3544,8 @@ BEGIN
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_jobs_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_learning_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_inference_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_insights_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_diagnostics_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'yoao_insights_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.workflow_role'), 'yoao_diagnostics_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_export_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.workflow_role'), 'aap_audit_v1', 'CREATE') THEN
         RAISE EXCEPTION 'Caller must not hold schema or database CREATE privileges';
@@ -3560,8 +3560,8 @@ BEGIN
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_jobs_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_learning_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_inference_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_insights_v1', 'CREATE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_diagnostics_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_insights_v1', 'CREATE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_diagnostics_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_export_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_audit_v1', 'CREATE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_identity_v1', 'USAGE')
@@ -3570,8 +3570,8 @@ BEGIN
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_jobs_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_learning_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_inference_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_insights_v1', 'USAGE')
-       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_diagnostics_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_insights_v1', 'USAGE')
+       OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'yoao_diagnostics_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_export_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'), 'aap_audit_v1', 'USAGE') THEN
         RAISE EXCEPTION 'Asset cleanup role must be confined to the Assets schema';
@@ -3625,9 +3625,9 @@ BEGIN
        OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_inference_v1.clear_project_pipelines(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
-        'aap_insights_v1.clear_project_task_views(uuid)', 'EXECUTE')
+        'yoao_insights_v1.clear_project_task_views(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
-        'aap_diagnostics_v1.detach_project_references(uuid)', 'EXECUTE')
+        'yoao_diagnostics_v1.detach_project_references(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_export_v1.clear_project_export_artifacts(uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
@@ -3658,7 +3658,7 @@ BEGIN
        OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_assets_v1.remove_dataset_association(uuid,uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
-        'aap_diagnostics_v1.detach_dataset_task_references(uuid,uuid)', 'EXECUTE')
+        'yoao_diagnostics_v1.detach_dataset_task_references(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
         'aap_learning_v1.guard_dataset_item_deletion(uuid,uuid)', 'EXECUTE')
        OR has_function_privilege(current_setting('aap.workflow_role'),
@@ -4040,10 +4040,10 @@ ALTER FUNCTION aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,tex
     OWNER TO :"jobs_owner";
 REVOKE CREATE ON SCHEMA aap_jobs_v1 FROM :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_identity_v1, aap_workspace_v1,
-    aap_workspace_project_query_v1 TO :"jobs_owner";
+    yoao_workspace_project_query_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_identity_v1.read_actor_facts(uuid),
     aap_workspace_v1.actor_project_memberships(uuid),
-    aap_workspace_project_query_v1.project_search_scope(uuid,text)
+    yoao_workspace_project_query_v1.project_search_scope(uuid,text)
     TO :"jobs_owner";
 GRANT USAGE ON SCHEMA aap_workspace_fixture_v1 TO :"jobs_owner";
 GRANT EXECUTE ON FUNCTION aap_workspace_fixture_v1.guard_project_cleanup(uuid[])

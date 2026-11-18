@@ -6,12 +6,8 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const jobsRoot = path.resolve(here, "../../src/yoao_jobs");
 const schemaPath = path.join(jobsRoot, "async_job_list_query.schema.json");
-const sqlPath = path.join(jobsRoot, "sql/0326_jobs_list_query.sql");
-const apiSchemaPath = path.resolve(
-  here,
-  "../../../api/alembic/sql/0326_jobs_list_query.schema.json",
-);
-const apiSqlPath = path.resolve(here, "../../../api/alembic/sql/0326_jobs_list_query.sql");
+const sqlPath = path.join(jobsRoot, "sql/async_job_list_query.sql");
+const frozenRoot = path.resolve(here, "../../../api/alembic/sql");
 const pageSignature =
   "aap_jobs_v1.async_job_list_page(uuid,text,text[],text[],uuid,text,integer,integer)";
 const totalSignature = "aap_jobs_v1.async_job_list_total(uuid,text,text[],text[],uuid,text)";
@@ -138,19 +134,31 @@ function assertPageOrder(rows) {
 
 async function selfCheck() {
   phase = "self-check resources";
-  const [schemaText, apiSchemaText, sql, apiSql] = await Promise.all([
+  const [schemaText, sql, frozenSchemaText, frozenSql] = await Promise.all([
     readFile(schemaPath, "utf8"),
-    readFile(apiSchemaPath, "utf8"),
     readFile(sqlPath, "utf8"),
-    readFile(apiSqlPath, "utf8"),
+    readFile(path.join(frozenRoot, "0326_jobs_list_query.schema.json"), "utf8"),
+    readFile(path.join(frozenRoot, "0326_jobs_list_query.sql"), "utf8"),
   ]);
   const schema = JSON.parse(schemaText);
-  const apiSchema = JSON.parse(apiSchemaText);
+  // Preserve the frozen wire contract; only the display title and the owner
+  // of the search capability changed. Historical installation SQL stays intact.
+  const expectedSchema = JSON.parse(frozenSchemaText);
+  expectedSchema.title = "YOAO Jobs async-job list query";
+  const oldScope = "aap_workspace_project_query_v1.project_search_scope";
+  const currentScope = "yoao_workspace_project_query_v1.project_search_scope";
+  expectedSchema["x-policy"].workspace_facts = expectedSchema["x-policy"].workspace_facts.map(
+    (fact) => fact.replace(oldScope, currentScope),
+  );
+  assert.deepEqual(schema, expectedSchema);
+  assert.equal(sql, frozenSql.replace(oldScope, currentScope));
   const columns = schema["x-row-columns"];
   assert.equal(schema.$schema, "https://json-schema.org/draft/2020-12/schema");
   assert.equal(schema.$id, "aap-jobs-async-job-list-query/v1");
-  assert.deepEqual(apiSchema, schema);
-  assert.equal(sql, apiSql);
+  assert.deepEqual(schema["x-policy"].workspace_facts, [
+    "aap_workspace_v1.actor_project_memberships(uuid)",
+    "yoao_workspace_project_query_v1.project_search_scope(uuid,text)",
+  ]);
   assert.deepEqual(Object.keys(nativeColumnOids).sort(), [...schema["x-row-columns"]].sort());
   assert.deepEqual(
     [

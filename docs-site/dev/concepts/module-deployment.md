@@ -1404,6 +1404,10 @@ Node 仅提供本地单命令 transport conformance；Native 继续持有业务�
 
 ## Workspace 模板查询
 
+模板、项目和成员目录读取分别使用 `yoao_workspace_template_query_client`、`yoao_workspace_project_query_client` 和 `yoao_workspace_directory_query_client`。已有数据库升级时，先停止旧服务接入、将三个旧查询角色设为 `NOLOGIN`，再排空已建立的查询连接；仅改密码不会断开已有连接。完成前向迁移后应用当前 owner 与各查询角色的 grants，更新专用 DSN，再启动读者。默认调用方事务不需要专用 DSN。旧凭据不作为备用入口。
+
+项目删除和数据集解绑通过 `yoao_diagnostics_v1` 与 `yoao_insights_v1` 清理关联；权限仍归原 owner，失败随调用方事务回滚。Jobs、Notifications、Inference 和 Workspace 配置调用当前查询函数，不重写已保存的协议、查询结果或回执。编号 SQL 供历史迁移使用，不在现行数据库上重放。
+
 模板列表、详情与配置提交后的响应投影通过独立查询能力接入 Workspace owner。
 默认调用方事务、专用 DSN 和独立 HTTP 三条路径均对照原40项 HTTP 观测；
 默认绑定保留自动刷新，远程显式故障不回退。查询角色只有两项函数权限，

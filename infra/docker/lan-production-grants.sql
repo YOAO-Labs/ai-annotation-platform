@@ -732,21 +732,21 @@ GRANT EXECUTE ON FUNCTION
     yoao_workspace_owner_transfer_v1.transfer_project_owner(jsonb)
     TO :"application_role";
 GRANT USAGE ON SCHEMA aap_workspace_configuration_v1,
-    aap_workspace_template_query_v1, aap_workspace_directory_query_v1
+    yoao_workspace_template_query_v1, yoao_workspace_directory_query_v1
     TO :"application_role";
 GRANT EXECUTE ON FUNCTION
     aap_workspace_configuration_v1.configuration_policy(),
     aap_workspace_configuration_v1.configuration_step(jsonb,text,jsonb,text[],text[]),
     aap_workspace_configuration_v1.guide_assets_step(jsonb,text,jsonb),
-    aap_workspace_template_query_v1.template_query_policy(),
-    aap_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text),
-    aap_workspace_directory_query_v1.directory_query_policy(),
-    aap_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)
+    yoao_workspace_template_query_v1.template_query_policy(),
+    yoao_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text),
+    yoao_workspace_directory_query_v1.directory_query_policy(),
+    yoao_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)
     TO :"application_role";
-GRANT USAGE ON SCHEMA aap_workspace_project_query_v1 TO :"application_role";
+GRANT USAGE ON SCHEMA yoao_workspace_project_query_v1 TO :"application_role";
 GRANT EXECUTE ON FUNCTION
-    aap_workspace_project_query_v1.project_query_policy(),
-    aap_workspace_project_query_v1.project_query_step(
+    yoao_workspace_project_query_v1.project_query_policy(),
+    yoao_workspace_project_query_v1.project_query_step(
         jsonb, text, jsonb, text, text, text[], text[], uuid, text,
         timestamptz, timestamptz, bigint, integer
     )
@@ -762,8 +762,8 @@ GRANT EXECUTE ON FUNCTION aap_workspace_v1.lock_project_reference(uuid),
     aap_workspace_v1.lock_project_reference_nowait(uuid),
     aap_workspace_v1.read_project_row(uuid),
     aap_workspace_v1.actor_project_memberships(uuid),
-    aap_workspace_project_query_v1.project_search_scope(uuid, text),
-    aap_workspace_project_query_v1.project_search_member_ids(uuid, text),
+    yoao_workspace_project_query_v1.project_search_scope(uuid, text),
+    yoao_workspace_project_query_v1.project_search_member_ids(uuid, text),
     aap_workspace_v1.lock_project_references_for_update(uuid[]),
     aap_workspace_v1.lock_project_member_reference(uuid, uuid, boolean),
     aap_workspace_v1.project_member_rows(uuid, uuid[], boolean),
@@ -1015,12 +1015,12 @@ GRANT EXECUTE ON FUNCTION aap_assets_v1.pending_storage_deletions_v2(
 REVOKE ALL ON SCHEMA public, aap_identity_v1, aap_identity_directory_v1,
     aap_workspace_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
+    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA aap_identity_v1, aap_identity_directory_v1,
     aap_workspace_v1,
     aap_labeling_v1, aap_jobs_v1, aap_learning_v1, aap_inference_v1,
-    aap_insights_v1, aap_diagnostics_v1, aap_export_v1, aap_audit_v1
+    yoao_insights_v1, yoao_diagnostics_v1, aap_export_v1, aap_audit_v1
     FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL TABLES IN SCHEMA public FROM :"asset_cleanup_role";
 REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM :"asset_cleanup_role";
@@ -1272,9 +1272,9 @@ BEGIN
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
                                'aap_inference_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
-                               'aap_insights_v1', 'USAGE')
+                               'yoao_insights_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
-                               'aap_diagnostics_v1', 'USAGE')
+                               'yoao_diagnostics_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),
                                'aap_export_v1', 'USAGE')
        OR has_schema_privilege(current_setting('aap.asset_cleanup_role'),

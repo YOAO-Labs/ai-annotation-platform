@@ -14,7 +14,7 @@ SET search_path = pg_catalog, pg_temp
 AS $function$
     WITH workspace_projects AS (
         SELECT project_scope.project_id, project_scope.owner_id
-        FROM aap_workspace_project_query_v1.project_search_scope(
+        FROM yoao_workspace_project_query_v1.project_search_scope(
             p_actor_id,
             p_platform_role
         ) AS project_scope

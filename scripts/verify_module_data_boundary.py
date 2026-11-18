@@ -136,7 +136,44 @@ NOTIFICATION_INBOX_FUNCTIONS = (
 NOTIFICATION_INBOX_PRIVATE_HELPER = (
     "aap_notifications_v1._visible_inbox_rows(uuid,text)"
 )
+# Only these qualified schema identities and their audited callers changed in bo0470/0471.
+# Frozen SQL and signed wire identities remain unchanged.
+FROZEN_OWNER_NAMESPACES = {
+    "yoao_diagnostics_v1": "aap_diagnostics_v1",
+    "yoao_insights_v1": "aap_insights_v1",
+    "yoao_workspace_directory_query_v1": "aap_workspace_directory_query_v1",
+    "yoao_workspace_project_query_v1": "aap_workspace_project_query_v1",
+    "yoao_workspace_template_query_v1": "aap_workspace_template_query_v1",
+}
+NAMESPACE_BODY_CALLERS = {
+    "aap_inference_pipelines_v1.pipeline_step",
+    "aap_jobs_v1._async_job_list_rows",
+    "aap_notifications_v1._visible_inbox_rows",
+    "aap_notifications_v1.delivery_owner_pairs",
+    "aap_notifications_v1.delivery_super_pairs",
+    "aap_workspace_configuration_v1._class_rename_project_row",
+    "aap_workspace_configuration_v1._guide_asset_read_project_row",
+    "aap_workspace_v1.delete_project",
+    "aap_workspace_v1.unlink_dataset",
+}
 FUNCTION_BODY_ARTIFACTS = {
+    "aap_inference_pipelines_v1.pipeline_step(jsonb,text,jsonb,text[],text[])": "0271_inference_pipelines.sql",
+    "yoao_workspace_directory_query_v1._has_exact_keys(jsonb,text[])": "0263_workspace_directory_queries.sql",
+    "yoao_workspace_directory_query_v1.directory_query_policy()": "0263_workspace_directory_queries.sql",
+    "yoao_workspace_directory_query_v1.directory_query_step(jsonb,text,jsonb)": "0263_workspace_directory_queries.sql",
+    "yoao_workspace_project_query_v1._has_exact_keys(jsonb,text[])": "0261_workspace_project_queries.sql",
+    "yoao_workspace_project_query_v1.project_query_policy()": "0261_workspace_project_queries.sql",
+    "yoao_workspace_project_query_v1.project_query_step(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)": "0269_workspace_guide_assets.sql",
+    "yoao_workspace_project_query_v1.project_search_member_ids(uuid,text)": "0261_workspace_project_queries.sql",
+    "yoao_workspace_project_query_v1.project_search_scope(uuid,text)": "0261_workspace_project_queries.sql",
+    "yoao_workspace_template_query_v1._has_exact_keys(jsonb,text[])": "0259_workspace_template_queries.sql",
+    "yoao_workspace_template_query_v1._template_row_json(public.project_templates)": "0259_workspace_template_queries.sql",
+    "yoao_workspace_template_query_v1.template_query_policy()": "0259_workspace_template_queries.sql",
+    "yoao_workspace_template_query_v1.template_query_step(jsonb,text,jsonb,text,text[],text)": "0259_workspace_template_queries.sql",
+    "yoao_diagnostics_v1.detach_dataset_task_references(uuid,uuid)": "0203_dataset_unlink_assets.sql",
+    "yoao_diagnostics_v1.detach_project_references(uuid)": "0198_project_owned_cleanup_contract.sql",
+    "yoao_insights_v1.clear_project_task_views(uuid)": "0198_project_owned_cleanup_contract.sql",
+    "aap_workspace_v1.unlink_dataset(uuid,uuid,uuid,uuid,text,jsonb)": "0300_video_deletion_retirement.sql",
     **{
         signature: "0463_native_pyramid_retirement.sql"
         for signature in (
@@ -499,10 +536,10 @@ FUNCTION_BODY_ARTIFACTS = {
     **{
         signature: "0377_workspace_project_snapshots.sql"
         for signature in (
-            "aap_workspace_project_query_v1._project_row_json(jsonb,integer,integer,integer,integer,text)",
+            "yoao_workspace_project_query_v1._project_row_json(jsonb,integer,integer,integer,integer,text)",
             "aap_workspace_configuration_v1._class_rename_project_row(uuid,text)",
             "aap_workspace_configuration_v1._guide_asset_read_project_row(uuid)",
-            "aap_workspace_project_query_v1._project_query_step_impl(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
+            "yoao_workspace_project_query_v1._project_query_step_impl(jsonb,text,jsonb,text,text,text[],text[],uuid,text,timestamp with time zone,timestamp with time zone,bigint,integer)",
         )
     },
     "aap_labeling_v1.create_uploading_task(uuid,uuid,text,text,text,text,uuid)": "0380_labeling_upload_task_retirement.sql",
@@ -1450,9 +1487,9 @@ IDENTITY_CLIENT_ROLES = {
     "WORKSPACE_PROJECT_DELETION": "workspace_project_deletion_client",
     "WORKSPACE_DATASET_UNLINK": "workspace_dataset_unlink_client",
     "WORKSPACE_CONFIGURATION": "workspace_configuration_client",
-    "WORKSPACE_TEMPLATE_QUERY": "workspace_template_query_client",
-    "WORKSPACE_PROJECT_QUERY": "workspace_project_query_client",
-    "WORKSPACE_DIRECTORY_QUERY": "workspace_directory_query_client",
+    "WORKSPACE_TEMPLATE_QUERY": "yoao_workspace_template_query_client",
+    "WORKSPACE_PROJECT_QUERY": "yoao_workspace_project_query_client",
+    "WORKSPACE_DIRECTORY_QUERY": "yoao_workspace_directory_query_client",
     "LABELING_CLASS_QUERY": "labeling_class_query_client",
     "LABELING_VIDEO_WRITER": "labeling_video_writer_client",
     "LABELING_TASK_CONTROL": "labeling_task_control_client",
@@ -1957,6 +1994,8 @@ SQL_ARTIFACTS = (
     "0466_task_edit_lock_domain.sql",
     "0467_workspace_membership_namespace.sql",
     "0469_routing_admission_header.sql",
+    "0470_diagnostics_insights_namespace.sql",
+    "0471_workspace_query_namespace.sql",
 )
 ASSETS_SOURCE_SCHEMA_ARTIFACTS = (
     "0453_import_original_completion.schema.json",
@@ -5604,7 +5643,10 @@ def _installed_function_body_sha256(
     ):
         base_sql_name = "0214_dataset_import_core.sql"
     source = _sql_artifact_path(base_sql_name).read_text(encoding="utf-8")
-    function_name = re.escape(signature.split("(", 1)[0])
+    current_name = signature.split("(", 1)[0]
+    schema, function = current_name.split(".", 1)
+    frozen_schema = FROZEN_OWNER_NAMESPACES.get(schema, schema)
+    function_name = re.escape(f"{frozen_schema}.{function}")
     match = re.search(
         rf"^\s*CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+{function_name}\s*\("
         r".*?\bAS\s+\$function\$(.*?)\$function\$;",
@@ -5663,6 +5705,9 @@ def _installed_function_body_sha256(
             + "    END IF;\n",
             1,
         )
+    if schema in FROZEN_OWNER_NAMESPACES or current_name in NAMESPACE_BODY_CALLERS:
+        for current, frozen in FROZEN_OWNER_NAMESPACES.items():
+            expected = expected.replace(f"{frozen}.", f"{current}.")
     encoded = _psql(
         container_id,
         container_name,
@@ -6680,8 +6725,8 @@ def _install_and_rollback_frozen_sql(
         "SELECT aap_assets_v1.delete_project_owned_records(:'project_id'::uuid);\n"
         "SELECT aap_inference_v1.clear_project_ml_backend_pool(:'project_id'::uuid);\n"
         "SELECT aap_inference_v1.clear_project_pipelines(:'project_id'::uuid);\n"
-        "SELECT aap_insights_v1.clear_project_task_views(:'project_id'::uuid);\n"
-        "SELECT aap_diagnostics_v1.detach_project_references(:'project_id'::uuid);\n"
+        "SELECT yoao_insights_v1.clear_project_task_views(:'project_id'::uuid);\n"
+        "SELECT yoao_diagnostics_v1.detach_project_references(:'project_id'::uuid);\n"
         "SELECT aap_export_v1.clear_project_export_artifacts(:'project_id'::uuid);\n"
         "SELECT aap_jobs_v1.detach_project_references(:'project_id'::uuid);\n"
         "SELECT aap_learning_v1.delete_project_owned_records(:'project_id'::uuid);\n"
@@ -6911,7 +6956,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('yoao_workspace_owner_transfer_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_template_query_v1') IS NULL "
+            "AND to_regnamespace('yoao_workspace_template_query_v1') IS NULL "
             "AND to_regnamespace('aap_workspace_project_query_v1') IS NULL "
+            "AND to_regnamespace('yoao_workspace_project_query_v1') IS NULL "
             "AND to_regnamespace('aap_inference_pipelines_v1') IS NULL "
             "AND to_regnamespace('aap_inference_health_observation_v1') IS NULL "
             "AND to_regnamespace('aap_inference_health_data_v1') IS NULL "
@@ -6974,6 +7021,7 @@ def _install_and_rollback_frozen_sql(
             "AND to_regprocedure('aap_learning_v1.registry_evaluation_reference_exists(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.count_running_registry_predictions(uuid)') IS NULL "
             "AND to_regnamespace('aap_workspace_directory_query_v1') IS NULL "
+            "AND to_regnamespace('yoao_workspace_directory_query_v1') IS NULL "
             "AND to_regprocedure('aap_labeling_v1.workspace_project_query_counters(uuid[])') IS NULL "
             "AND to_regprocedure('aap_assets_v1.workspace_project_query_dataset_ids(uuid)') IS NULL "
             "AND to_regprocedure('aap_jobs_v1.workspace_project_query_latest_job_status(uuid)') IS NULL "
@@ -7007,7 +7055,9 @@ def _install_and_rollback_frozen_sql(
             "AND to_regnamespace('aap_learning_v1') IS NULL "
             "AND to_regnamespace('aap_inference_v1') IS NULL "
             "AND to_regnamespace('aap_insights_v1') IS NULL "
+            "AND to_regnamespace('yoao_insights_v1') IS NULL "
             "AND to_regnamespace('aap_diagnostics_v1') IS NULL "
+            "AND to_regnamespace('yoao_diagnostics_v1') IS NULL "
             "AND to_regnamespace('aap_export_v1') IS NULL "
             "AND to_regnamespace('aap_audit_v1') IS NULL "
             "AND to_regnamespace('aap_settings_v1') IS NULL "
@@ -11408,7 +11458,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
-                "workspace_template_query_role": "workspace_template_query_client",
+                "workspace_template_query_role": "yoao_workspace_template_query_client",
             },
         )
         phase = "install-workspace-project-query-grants"
@@ -11425,7 +11475,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
-                "workspace_project_query_role": "workspace_project_query_client",
+                "workspace_project_query_role": "yoao_workspace_project_query_client",
             },
         )
         phase = "install-workspace-directory-query-grants"
@@ -11442,7 +11492,7 @@ SELECT id FROM removed;
                 "migration_role": "owner",
                 "identity_owner": "identity_code",
                 "workspace_owner": "workspace_code",
-                "workspace_directory_query_role": "workspace_directory_query_client",
+                "workspace_directory_query_role": "yoao_workspace_directory_query_client",
             },
         )
         phase = "install-labeling-class-query-grants"
